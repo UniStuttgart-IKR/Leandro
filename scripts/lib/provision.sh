@@ -480,6 +480,49 @@ lea_libcuda_check() {
 }
 
 # ---- the dev guest ----------------------------------------------------------
+# lea_guest_shell_env IP -- let an INTERACTIVE shell in the guest run the
+# probes without three exports first.
+#
+# `showcase.sh ssh <guest>` used to drop you in $HOME with nothing set, and
+# every probe then died on a libcuda it could not find or a PTX it was never
+# told about -- while the gates ran the same probes happily, because each of
+# them exports LD_LIBRARY_PATH, NVPROBE_PTX and the venv's python inside its
+# own command string. The environment existed; it just was not reachable by
+# a person.
+#
+# In .bashrc, and that placement is the whole safety argument: bash reads it
+# for interactive shells only. Every gate, bench and script in this tree
+# reaches the guest as `ssh host command`, which reads neither .bashrc nor
+# .profile, so nothing that is measured can be moved by what is convenient
+# here. /etc/profile.d would have been the other candidate and is the wrong
+# one -- a gdm session reads it too, and the desktop guest's NVIDIA loader
+# wiring (ld.so.conf.d, lea_guest_setup above) would then have a second
+# opinion about where libcuda lives.
+#
+# Idempotent: the block is delimited and replaced, never appended twice.
+lea_guest_shell_env() {
+    local ip=$1
+    lea_ssh "$ip" 'set -e
+        f=$HOME/.bashrc
+        touch "$f"
+        sed -i "/^# >>> leandro >>>$/,/^# <<< leandro <<</d" "$f"
+        cat >> "$f" <<'"'"'EOF'"'"'
+# >>> leandro >>>
+# Interactive shells only -- lea_guest_shell_env in scripts/lib/provision.sh
+# says why. `ssh <guest> <command>` does not read this file.
+if [ -d "$HOME/gpu" ]; then
+    export LD_LIBRARY_PATH="$HOME/gpu/nv/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export NVPROBE_PTX="$HOME/gpu/kernels.ptx"
+    # The venv FIRST, so that the probes\047 `#!/usr/bin/env python3` finds the
+    # torch that the gate compares against, not the system one without it.
+    [ -x "$HOME/gpu/venv/bin/python" ] && PATH="$HOME/gpu/venv/bin:$PATH"
+    PATH="$PATH:$HOME/gpu"
+    export PATH
+fi
+# <<< leandro <<<
+EOF'
+}
+
 # lea_guest_setup NAME [--with-torch] -- make a running guest ready for CUDA:
 # userspace, the probes and the helper module (nvrm_nodes.ko). The GPU path
 # itself is brought in by virtio_nvrm (lea_guest_build_nvrm). Idempotent:
@@ -747,10 +790,18 @@ lea_guest_setup() {
         lea_ssh "$ip" 'python3 -m venv ~/gpu/venv &&
                      ~/gpu/venv/bin/pip install --quiet torch numpy' || return 1
     fi
+    lea_guest_shell_env "$ip" || return 1
+
     # The last thing, and a hard one: the guest must load the HOST's libcuda,
     # not merely one with the same version number.
     lea_libcuda_check "$name" || return 1
-    info "$name: provisioned (GPU path: lea_guest_build_nvrm)"
+    # Say whether the torch venv is there, because "run rlprobe.py" is the
+    # first thing anyone tries in a guest and it is the one piece the
+    # payload does not carry.
+    local venv="no torch venv -- add --with-torch (downloads ~2.5 GiB) or overlay a base that has one"
+    lea_ssh "$ip" 'test -x ~/gpu/venv/bin/python' 2>/dev/null \
+        && venv="torch venv ready -- an interactive shell finds its python first"
+    info "$name: provisioned (GPU path: lea_guest_build_nvrm); $venv"
 }
 
 # ---- guest modules ------------------------------------------------------------
