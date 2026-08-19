@@ -1468,7 +1468,7 @@ lea_rig_clean() {
     _banner() {
         [[ $banner -eq 1 ]] && return 0
         banner=1
-        [[ $dry -eq 1 ]] && echo "== dry run -- would do the following ==" || echo "== cleaning =="
+        [[ $dry -eq 1 ]] && lea_head "dry run -- would do the following" || lea_head "cleaning"
     }
     _did()  { _banner; cleaned=$((cleaned + 1)); echo "  $*"; }
     _kept() { _banner; echo "  $*"; }

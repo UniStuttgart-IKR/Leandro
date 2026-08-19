@@ -397,7 +397,7 @@ audit() {
     else
         path="/opt/nvrm-gl/lib32 /usr/lib/i386-linux-gnu /usr/lib32"
     fi
-    echo "== $label =="
+    lea_head "$label"
     local refs=""
     for d in "${dirs[@]}"; do
         [[ -d $d ]] || continue
@@ -880,7 +880,7 @@ lea_guest_build_nvrm() {
         sudo ~/guest-module/nvrm_nodes/nvrm-nodes-tool provision params ~/gpu/params.txt
         sudo insmod ~/guest-module/virtio_nvrm/virtio_nvrm.ko '"${pin:+max_pin_mib=$pin}"'
         echo "loaded:"; lsmod | grep -E "^(nvrm_nodes|virtio_nvrm) "' || return 1
-    echo "== dmesg =="
+    lea_head "dmesg"
     lea_ssh "$ip" 'sudo dmesg | grep -E "virtio_nvrm|nvrm_nodes:" | tail -20'
 }
 
@@ -918,7 +918,7 @@ lea_guest_build_nvkms() {
     lea_ssh "$ip" 'grep -q nvidia_get_rm_ops ~/guest-module/virtio_nvrm/Module.symvers' || {
         error "virtio_nvrm.ko does not export nvidia_get_rm_ops"; return 1; }
     if [[ $ship -eq 1 ]]; then
-        echo "== ship NVIDIA source (build artefacts excluded) =="
+        lea_head "ship NVIDIA source (build artefacts excluded)"
         # The CONTENTS of the resolved directory: vendor/open-gpu-kernel-modules
         # may be a symlink (a shared checkout), and tar would ship the link.
         # PIPESTATUS, because a tar that fails leaves ssh extracting nothing
@@ -931,7 +931,7 @@ lea_guest_build_nvkms() {
           | lea_ssh "$ip" "rm -rf ~/nvkms-src && mkdir -p ~/nvkms-src/open-gpu-kernel-modules && tar -C ~/nvkms-src/open-gpu-kernel-modules -xf -"
         [[ ${PIPESTATUS[0]} -eq 0 && ${PIPESTATUS[1]} -eq 0 ]] || { error "shipping the NVIDIA source to $name failed"; return 1; }
     fi
-    echo "== build nv-modeset-kernel.o (the OS-agnostic half) =="
+    lea_head "build nv-modeset-kernel.o (the OS-agnostic half)"
     lea_ssh "$ip" "cd $src && make -C src/nvidia-modeset -j\$(nproc) 2>&1 | tail -3"
     # kbuild does NOT treat KBUILD_EXTRA_SYMBOLS as a dependency: change
     # virtio_nvrm.ko and rebuild here, and make says "nothing to be done"
@@ -943,7 +943,7 @@ lea_guest_build_nvkms() {
     # reports five API incompatibilities that do not exist. Measured, twice.
     local modlist="nvidia-modeset"
     [[ $drm -eq 1 ]] && modlist="nvidia-modeset nvidia-drm"
-    echo "== build $modlist against virtio_nvrm's symbols =="
+    lea_head "build $modlist against virtio_nvrm's symbols"
     lea_ssh "$ip" "set -e
 cd $src
 rm -rf kernel-open/conftest
@@ -959,10 +959,10 @@ make -C kernel-open modules -j\$(nproc) NV_KERNEL_MODULES='$modlist' \
 test -f kernel-open/nvidia-modeset.ko" || { error "nvidia-modeset.ko was not built"; return 1; }
     [[ $drm -eq 1 ]] && { lea_ssh "$ip" "test -f $src/kernel-open/nvidia-drm.ko" \
         || { error "nvidia-drm.ko was not built"; return 1; }; }
-    echo "== undefined nvidia symbols (the whole dependency, listed) =="
+    lea_head "undefined nvidia symbols (the whole dependency, listed)"
     lea_ssh "$ip" "nm -u $src/kernel-open/nvidia-modeset.ko | grep -iE 'nvidia|nvKms' || echo '  (none besides nvidia_get_rm_ops, already resolved)'"
     [[ $load -eq 1 ]] || { echo "built (not loaded)."; return 0; }
-    echo "== load =="
+    lea_head "load"
     # WARNING: the teardown is THREE deep -- nvidia_drm, then nvidia_modeset,
     # then virtio_nvrm. Skipping a level makes `rmmod virtio_nvrm` fail
     # silently and the next `insmod` say "File exists", which reads like a
@@ -980,7 +980,7 @@ test -f kernel-open/nvidia-modeset.ko" || { error "nvidia-modeset.ko was not bui
         lea_ssh "$ip" "sudo insmod $src/kernel-open/nvidia-drm.ko modeset=$modeset" || return 1
         echo "  nvidia-drm loaded with modeset=$modeset"
     fi
-    echo "== proof =="
+    lea_head "proof"
     lea_ssh "$ip" 'echo "-- lsmod"; lsmod | grep -E "^(nvidia_modeset|virtio_nvrm|video) "
 echo "-- /proc/devices"; grep nvidia /proc/devices
 echo "-- node"; ls -l /dev/nvidia-modeset
@@ -1014,7 +1014,7 @@ lea_display_stage() {
     # drive the display gate, it just cannot serve 32-bit GBM clients.
     gbm32=$(find "$LEA_NVIDIA_LIB32_DIR" -name 'nvidia-drm_gbm.so' 2>/dev/null | head -1)
 
-    echo "== staging the NVIDIA userspace pieces the guest image lacks =="
+    lea_head "staging the NVIDIA userspace pieces the guest image lacks"
     lea_ssh "$ip" 'cat > /tmp/nvidia-drm_gbm.so' < "$gbm"
     lea_ssh "$ip" 'set -e
         sudo install -Dm755 /tmp/nvidia-drm_gbm.so /usr/lib/x86_64-linux-gnu/gbm/nvidia-drm_gbm.so
@@ -1156,7 +1156,7 @@ lea_display_modules() {
     # is THIS function's job, in the order the WARNING above insists on.
     if ! lea_ssh "$ip" 'test -f $HOME/nvkms-src/open-gpu-kernel-modules/kernel-open/nvidia-modeset.ko &&
                         test -f $HOME/nvkms-src/open-gpu-kernel-modules/kernel-open/nvidia-drm.ko'; then
-        echo "== nvidia-modeset.ko/nvidia-drm.ko not in the guest -- building them (takes minutes) =="
+        lea_head "nvidia-modeset.ko/nvidia-drm.ko not in the guest -- building them (takes minutes)"
         lea_guest_build_nvkms "$name" --no-load || { error "no display modules to load"; return 1; }
     fi
     # gdm3 first: its gnome-shell opens /dev/dri/card1 the moment nvidia-drm
@@ -1389,12 +1389,12 @@ lea_desktop_up() {
     case $session in gnome|openbox) ;; *) die "--session wants gnome or openbox" ;; esac
     ip=$(_lea_ip "$name") || return 1
 
-    echo "== $name: display rig: stage, modules, X on $disp =="
+    lea_head "$name: display rig: stage, modules, X on $disp"
     lea_display_up "$name" --display "$disp" --res "$res" --hz "$hz" || return 1
 
     # The guest state the image lacks. Hand-set on 2026-08-15, collected here
     # so a fresh image gets it too. All idempotent.
-    echo "== $name: guest state: xorg.conf, gdm3 autologin, identity drop-in, xdotool =="
+    lea_head "$name: guest state: xorg.conf, gdm3 autologin, identity drop-in, xdotool"
     lea_ssh "$ip" 'set -e
         # A display manager starts X with no way to pass -config: it reads
         # /etc/X11/xorg.conf. Same configuration as the hand-started server.
@@ -1434,7 +1434,7 @@ EOC
         error "no sunshine binary in $name -- this image never streamed (build.sh bake --with-desktop)"; return 1; }
 
     if [[ $session == gnome ]]; then
-        echo "== $name: session: GNOME via gdm3 (the rig X on $disp makes way) =="
+        lea_head "$name: session: GNOME via gdm3 (the rig X on $disp makes way)"
         lea_ssh "$ip" "sudo pkill -x Xorg 2>/dev/null || true; sleep 2
                    pgrep -x Xorg >/dev/null && sudo pkill -9 -x Xorg || true; sleep 1
                    sudo rm -f /tmp/.X${disp#:}-lock /tmp/.X11-unix/X${disp#:}
@@ -1471,7 +1471,7 @@ EOC
         fi
         sleep 5
     else
-        echo "== $name: session (openbox) and Sunshine on $disp =="
+        lea_head "$name: session (openbox) and Sunshine on $disp"
         lea_ssh "$ip" "sh -c 'export DISPLAY=$disp
             setsid nohup dbus-run-session -- sh -c \"openbox & sleep 3; sleep infinity\" \
                 >/tmp/lea-session.log 2>&1 </dev/null &'"
@@ -1488,7 +1488,7 @@ EOC
     fi
 
     # No success claim without a reader (the rule since 2026-08-07).
-    echo "== $name: read back =="
+    lea_head "$name: read back"
     if [[ $session == gnome ]]; then
         lea_ssh "$ip" "pgrep -x gnome-shell >/dev/null" \
             || { error "gnome-shell died after coming up"; return 1; }
@@ -1692,7 +1692,7 @@ lea_desktop_recycle() {
         esac
     done
     ip=$(_lea_ip "$name") || return 1
-    echo "== $name: recycling the running guest -- stopping session, Sunshine, X =="
+    lea_head "$name: recycling the running guest -- stopping session, Sunshine, X"
     # -x, never -f: a -f pattern that appears in this very ssh command line
     # kills the shell carrying it (measured twice). And -x matches the COMM
     # name, which the kernel truncates to 15 characters -- "dbus-run-session"

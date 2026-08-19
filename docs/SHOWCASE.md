@@ -152,7 +152,7 @@ because something is convenient). In that shell:
 
 ```
 ./scripts/showcase.sh pair
-moonlight stream 192.168.100.15 "Steam Big Picture" --resolution 1920x1080 --fps 60 --bitrate 40000
+moonlight stream 192.168.100.15 Desktop --resolution 1920x1080 --fps 60 --bitrate 40000
 ```
 
 `pair` does what the web UI does for a human: `moonlight pair --pin` and a
@@ -207,6 +207,13 @@ non-black pixels on the guest's X root while the stream showed nothing.
 The fix is in the tree (a capture setting is always written now); if you
 meet it on an older guest, `showcase.sh up ... --keep-vm --session gnome`
 rewrites the configuration and restarts Sunshine.
+
+**Moonlight lists "Steam Big Picture" and it starts nothing.** That entry
+is Sunshine's own default application list, not a statement about the
+guest. An image baked without `--with-steam` has no Steam to start, and
+the entry stays anyway. Measured 2026-08-19: `command -v steam` empty in a
+guest whose Moonlight list offered it. Stream `Desktop` instead, or bake
+with `--with-steam`.
 
 **`moonlight pair` times out.** Sunshine has no web login, so its API
 answers `307` to `/welcome` and the PIN can never arrive. `showcase.sh
