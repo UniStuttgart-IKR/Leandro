@@ -1401,10 +1401,10 @@ EOC
         sleep 5
         # Sunshine (and Steam) join the SESSION: display and Xauthority are
         # read from gnome-shell's environment rather than assumed.
-        # The web-manager login, BEFORE the daemon starts: Sunshine reads its
-        # credentials at startup, and `showcase.sh pair` needs them to hand
-        # the PIN over the REST API instead of through a browser.
-        lea_ssh "$ip" "sunshine --creds $LEA_SUN_USER $LEA_SUN_PASS >/dev/null 2>&1 || true"
+        # BEFORE the daemon starts -- it reads all of this once (capture,
+        # encoder, web login), and a Sunshine started without it picks NvFBC
+        # and streams black.
+        lea_sunshine_configure "$ip"
         lea_ssh "$ip" 'GS=$(pgrep -x gnome-shell | head -1)
             D=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^DISPLAY=//p")
             XA=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^XAUTHORITY=//p")
@@ -1430,7 +1430,7 @@ EOC
                 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus steam \
                 >/tmp/lea-steam.log 2>&1 </dev/null &'"
         fi
-        lea_ssh "$ip" "sunshine --creds $LEA_SUN_USER $LEA_SUN_PASS >/dev/null 2>&1 || true"
+        lea_sunshine_configure "$ip"
         lea_ssh "$ip" "sh -c 'setsid nohup env DISPLAY=$disp sunshine \
             >/tmp/lea-sunshine.out 2>&1 </dev/null &'"
         sleep 5
@@ -1462,10 +1462,57 @@ EOC
         || { error "sunshine is not running (log: /tmp/lea-sunshine.out)"; return 1; }
     lea_ssh "$ip" "ss -ltn | grep -qE ':(47984|47989|47990) '" \
         || { error "sunshine is up but not listening"; return 1; }
+    # What it SETTLED on, read out of its own log. A black stream is decided
+    # in these two lines, and a demonstration that does not print them makes
+    # the next person guess.
+    local sun_cap sun_enc
+    sun_cap=$(lea_ssh "$ip" "grep -a 'Screencasting with' /tmp/lea-sunshine.out | tail -1" 2>/dev/null)
+    sun_enc=$(lea_ssh "$ip" "grep -a 'Found H.264 encoder' /tmp/lea-sunshine.out | tail -1" 2>/dev/null)
+    echo "  ${sun_cap:-<no capture line>}"
+    echo "  ${sun_enc:-<no encoder line>}"
+    case $sun_cap in
+        *NvFBC*) warn "Sunshine chose NvFBC -- restricted on GeForce, the stream will be BLACK" ;;
+    esac
+    case $sun_enc in
+        *nvenc*) ;;
+        *libx264*) warn "software encoding: this card offered no NVENC to Sunshine" ;;
+        *) warn "no encoder line yet -- if the stream stays black, read /tmp/lea-sunshine.out in the guest" ;;
+    esac
     echo "  pair this host once:  scripts/showcase.sh pair --name $name"
     echo
     echo "desktop up ($session). Stream it with:"
     echo "  moonlight stream $ip Desktop --resolution $res --fps $hz --bitrate 40000"
+}
+
+# lea_sunshine_configure IP -- the three things Sunshine reads ONCE, at
+# startup, and never again: what to capture, what to encode with, and the
+# web-manager login `showcase.sh pair` hands the PIN to.
+#
+# Writing a capture setting at all is the point. Without one Sunshine picks
+# NvFBC, which is restricted on GeForce and streams black (config.sh has the
+# measurement). `auto` asks the guest which session it is running rather
+# than assuming: a Wayland socket means the portal path, anything else the
+# X root.
+lea_sunshine_configure() {
+    local ip=$1 cap=${LEA_SUN_CAPTURE:-auto}
+    if [[ $cap == auto ]]; then
+        if lea_ssh "$ip" "test -S /run/user/1000/wayland-0" 2>/dev/null; then
+            cap=portal
+            warn "$ip: the guest session is Wayland -- capture=portal."
+            warn "  An unpatched Sunshine stops at the portal's permission dialog (measured);"
+            warn "  bake with --desktop-session xorg for the path the numbers were taken on."
+        else
+            cap=x11
+        fi
+    fi
+    echo "  sunshine: capture=$cap encoder=$LEA_SUN_ENCODER"
+    lea_ssh "$ip" "mkdir -p ~/.config/sunshine
+        cat > ~/.config/sunshine/sunshine.conf <<EOC
+min_log_level = 1
+capture = $cap
+encoder = $LEA_SUN_ENCODER
+EOC
+        sunshine --creds $LEA_SUN_USER $LEA_SUN_PASS >/dev/null 2>&1 || true"
 }
 
 # lea_sunshine_restart IP [DISPLAY] -- stop Sunshine in the guest and start

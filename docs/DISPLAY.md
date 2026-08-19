@@ -44,6 +44,18 @@ module (nvidia-modeset.ko and its DRM front), stages the guest's NVIDIA userspac
 writes the guest's session state, starts GNOME through gdm3 with Sunshine
 beside it, and reads the vblank counter back as its last act.
 
+- Sunshine is told what to capture before it starts, and that is a ban, not
+  a preference: left alone it picks **NvFBC**, NVIDIA's own frame capture,
+  which is restricted on GeForce -- it initialises, logs "Couldn't release
+  NvFBC context", encodes with NVENC and sends **black** frames. Measured
+  2026-08-19: 789373 non-black pixels on the guest's X root while the stream
+  showed nothing. `LEA_SUN_CAPTURE` defaults to `auto`, which asks the guest
+  which session it runs -- a Wayland socket gives `portal`, anything else
+  `x11`, and the desktop this tree brings up is X11 by construction
+  (`WaylandEnable=false`). `LEA_SUN_ENCODER` defaults to `nvenc`; both are
+  read back out of Sunshine's own log after the start, so "capture=x11,
+  h264_nvenc" is printed rather than assumed. A card with no NVENC says so
+  in that line.
 - `showcase.sh pair [--name NAME] [--pin NNNN]` pairs this host's Moonlight
   with the guest's Sunshine and needs no browser: `moonlight pair --pin` and
   a POST to Sunshine's `/api/pin` have to overlap, which is what the web UI

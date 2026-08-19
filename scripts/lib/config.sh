@@ -158,6 +158,30 @@ _lea_abs() {
 # stream` and `showcase.sh pair` -- and a login they disagree about is a
 # 401 nobody can read. Override them if the guest is reachable by anyone
 # but you.
+# Sunshine's capture path. `auto` derives it from the session the guest is
+# actually running: a Wayland socket means `portal`, anything else `x11`.
+#
+# What matters more than the choice is that there IS one. Left to itself
+# Sunshine picks NvFBC, NVIDIA's own frame capture, and NvFBC is RESTRICTED
+# ON GEFORCE: it initialises, logs "Couldn't release NvFBC context", encodes
+# happily and sends BLACK frames. Measured 2026-08-19 on the desktop guest --
+# 789373 non-black pixels on its X root while the stream showed nothing.
+# Writing this setting at all is the ban.
+#
+# The two real paths, and neither is a preference (bench.sh stream documents
+# both): `x11` grabs the X root through system memory -- a SOFTWARE grab,
+# docs/FUTURE.md measures what it costs -- and is what every number in
+# docs/DISPLAY.md was taken with, because `lea_desktop_up` starts the session
+# with WaylandEnable=false. `portal` is xdg-desktop-portal + pipewire, the
+# Wayland path, and it carries real desktop content -- but an unpatched
+# Sunshine stops at a permission dialog nobody can click (measured), so it
+# is the setting for a `bake --desktop-session wayland` guest and someone
+# watching, not for an unattended smoke test.
+: "${LEA_SUN_CAPTURE:=auto}"
+# The encoder is asked for, not hoped for, and read back after the start. A
+# card without NVENC has no h264_nvenc to find; set `software` there rather
+# than letting a demonstration quietly measure libx264.
+: "${LEA_SUN_ENCODER:=nvenc}"
 : "${LEA_SUN_USER:=lea}"
 : "${LEA_SUN_PASS:=leastream}"
 : "${LEA_SUN_PIN:=4321}"
