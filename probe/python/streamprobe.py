@@ -45,4 +45,4 @@ dt = time.monotonic() - t0
 
 ok = bool(torch.isclose(y, ref, rtol=1e-4).item())
 print(f"streamprobe: iters={iters} time={dt:.3f}s {dt / iters * 1e3:.2f}ms/it "
-      f"ergebnis={'korrekt' if ok else 'FALSCH'} y={y.item():.6e} ref={ref.item():.6e}")
+      f"result={'correct' if ok else 'WRONG'} y={y.item():.6e} ref={ref.item():.6e}")

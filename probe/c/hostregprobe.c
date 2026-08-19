@@ -99,7 +99,7 @@ int main(void)
             for (size_t i = 0; i < sz; i++)
                 if (p[i] != (unsigned char)(i * 131 + 7)) bad++;
             printf("D Roundtrip             : %d %s bad=%zu %s\n",
-                   r2, r2 ? es(r2) : "ok", bad, bad ? "FALSCH" : "korrekt");
+                   r2, r2 ? es(r2) : "ok", bad, bad ? "WRONG" : "correct");
             cuMemFree(d);
         }
         cuMemHostUnregister(buf);
@@ -125,7 +125,7 @@ int main(void)
             for (size_t i = 0; i < sz; i++)
                 if (p[i] != (unsigned char)(i * 17 + 3)) bad++;
             printf("E Roundtrip             : %d %s bad=%zu %s\n",
-                   r2, r2 ? es(r2) : "ok", bad, bad ? "FALSCH" : "korrekt");
+                   r2, r2 ? es(r2) : "ok", bad, bad ? "WRONG" : "correct");
             cuMemFree(d);
         }
         cuMemFreeHost(hbuf);

@@ -35,7 +35,7 @@ for mib in sizes:
         torch.cuda.synchronize()
         back = d.cpu()           # blocking D2H copy, compare only after it
         ok = bool(torch.equal(h, back))
-        print(f"pinwin: {mib:5d} MiB pinned ok roundtrip={'korrekt' if ok else 'FALSCH'}"
+        print(f"pinwin: {mib:5d} MiB pinned ok roundtrip={'correct' if ok else 'WRONG'}"
               f"{' (gehalten)' if hold else ''}", flush=True)
         del d, back
         if hold:
