@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+[package]
+name = "nvrm-wire"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Wire protocol between virtio_nvrm.ko and vhost-user-nvrm, plus the descriptor-table format"
+
+[features]
+default = []
+std = ["dep:libc"]
+
+[dependencies]
+libc = { workspace = true, optional = true }

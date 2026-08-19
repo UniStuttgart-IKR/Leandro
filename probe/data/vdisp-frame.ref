@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# Expected frame hashes for probe/c/vdisp-frame.c, one line per resolution:
+#
+#     <width>x<height> <FNV-1a-64 of the pattern, hex>
+#
+# The hash is a pure function of the size -- vdisp-frame's pattern() is
+# f(x, y) and nothing else -- so this file can be regenerated on any machine,
+# with no GPU and no virtual display:
+#
+#     cc -O2 -o vdisp-frame probe/c/vdisp-frame.c
+#     ./vdisp-frame --reference 1600x900
+#
+# WHY IT IS COMMITTED. Inside a run the probe already compares what it wrote
+# against what it read back, and that catches a corrupted round trip. What it
+# cannot catch is the pattern itself changing: edit pattern() and both halves
+# move together, exactly the way the display gate's EDID comparison moves
+# when nvrm_edid.c changes. This file is the third party. A gate run against
+# a stale line here fails and names the command above, which is the intended
+# outcome -- somebody has to look at why the pixels are different.
+#
+# 1600x900 is the vdisplay gate's default (scripts/test.sh vdisplay), chosen because it is NOT
+# the module's own 1920x1080 default: a size that comes out right proves the
+# vdisplay_width/height parameters reached the EDID rather than that a
+# default survived. 1920x1080 is here so the default configuration can be
+# gated too.
+1600x900 0xb6a79817d7f4a5c3
+1920x1080 0x4666b6856937e583

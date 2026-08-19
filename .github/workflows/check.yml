@@ -1,0 +1,148 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+# The GPU-free check band: exactly what `scripts/test.sh check` runs locally,
+# plus the shell-hygiene passes and a Nix evaluation that need tools nobody
+# has installed on a laptop. The GPU gates (`scripts/test.sh gpu|vdisplay|
+# display`) deliberately do NOT run here -- they need /dev/nvidia*
+# exclusively and stay hand work at the measuring rig.
+name: check
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages
+        # libclang is for bindgen; edid-decode is what the `edid` step of
+        # test.sh check pipes the generated EDID through. Without it that
+        # step fails with an install hint rather than a conformance verdict.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang libclang-dev pkg-config git curl edid-decode
+
+      - name: Rust (rustup bootstrap; rust-toolchain.toml pins the toolchain)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable \
+                       --component clippy --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Cache (cargo + vendor headers)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            vendor/open-gpu-kernel-modules
+          key: check-${{ hashFiles('Cargo.lock', 'DRIVER_VERSION') }}
+
+      - name: Fetch NVIDIA headers at DRIVER_VERSION
+        run: ./scripts/build.sh vendor
+
+      - name: test.sh check
+        run: ./scripts/test.sh check
+
+      - name: Probe host tools (no CUDA, no hardware)
+        # probe/c/edid-verify.c and probe/c/vdisp-frame.c are built from
+        # source by the vdisplay gate, on the host and in the guest. A gate
+        # that cannot compile its own instrument is a gate that cannot run,
+        # so the compile belongs in the band that runs on every push -- and
+        # it costs a second, because neither needs CUDA or a GPU.
+        run: make -C probe host-tools
+
+      - name: The committed frame hashes are still the ones the pattern makes
+        # probe/data/vdisp-frame.ref is what stops a change to vdisp-frame's
+        # pattern() from moving the written and the read-back half together
+        # -- the same blind spot the display gate's EDID comparison has. That
+        # only works while the file matches the code, so regenerate it here
+        # and insist on no diff.
+        run: |
+          set -euo pipefail
+          grep -v '^#' probe/data/vdisp-frame.ref | grep . > /tmp/ref-committed.txt
+          while read -r size _; do
+            ./probe/bin/vdisp-frame --reference "$size"
+          done < /tmp/ref-committed.txt > /tmp/ref-actual.txt
+          diff -u /tmp/ref-committed.txt /tmp/ref-actual.txt
+
+  shell:
+    # Its own job: shellcheck needs no Rust, no NVIDIA headers and no cache,
+    # so it answers in seconds and says which of the bands broke without
+    # waiting for the others.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck (pinned)
+        # The distribution package moves between Ubuntu images, and a
+        # shellcheck that gains a check turns this job red on a commit that
+        # touched nothing. Pinned by version AND by hash: a pinned version
+        # whose artifact can be replaced is a version number, not a pin.
+        run: |
+          set -euo pipefail
+          ver=v0.10.0
+          sha=6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87
+          url=https://github.com/koalaman/shellcheck/releases/download/$ver/shellcheck-$ver.linux.x86_64.tar.xz
+          curl -sSLo /tmp/shellcheck.tar.xz "$url"
+          echo "$sha  /tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -C /tmp -xf /tmp/shellcheck.tar.xz
+          sudo install -m755 "/tmp/shellcheck-$ver/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
+
+      - name: Files
+        # The same list test.sh check's `bash -n` walks: every .sh under
+        # scripts/ plus the extensionless shebang scripts there.
+        run: |
+          git ls-files 'scripts/**' 'scripts/*' \
+            | while IFS= read -r p; do
+                case "$p" in *.sh) echo "$p"; continue ;; esac
+                [ -f "$p" ] && head -c 64 "$p" | head -1 \
+                  | grep -qE '^#!.*(bash|sh)$' && echo "$p"
+              done > /tmp/shell-files.txt
+          cat /tmp/shell-files.txt
+
+      - name: Errors, everywhere (blocking)
+        # Severity `error` is shellcheck's "this is a bug or does not parse".
+        # It is clean across the whole tree and must stay that way -- the
+        # last one found here was a `# shellcheck disable=...  -- reason`
+        # directive whose trailing prose made shellcheck give up on the file
+        # and, through it, on every script that sourced it.
+        run: xargs -a /tmp/shell-files.txt shellcheck -x -S error
+
+      - name: Warnings in the library and the test entry point (blocking)
+        # The files every other script builds on are held to `warning`: the
+        # library and test.sh. Clean since the 2026-08-18 consolidation, so
+        # there is no backlog to grandfather in.
+        run: shellcheck -x -S warning scripts/lib/*.sh scripts/test.sh
+
+      - name: Warnings elsewhere (advisory, never blocking)
+        # Printed on every run so a new finding stays visible, blocking on
+        # nothing so it cannot hold up unrelated work. Clean as of
+        # 2026-08-18: the SC2164 backlog closed with the consolidation --
+        # every script resolves LEA_ROOT and works with absolute paths.
+        continue-on-error: true
+        run: |
+          xargs -a /tmp/shell-files.txt shellcheck -x -S warning \
+            || echo "advisory: see the findings above (this step never fails the build)"
+
+  nix:
+    # The flake: does it evaluate, and does the NixOS module still assert
+    # and warn as designed (nix/example-host.nix)? Evaluation plus the one
+    # cheap package (the wrapped scripts). The Rust workspace and the
+    # patched cloud-hypervisor are minutes each and are NOT built here --
+    # the check job already compiles the workspace with cargo.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v16
+      - name: nix flake check
+        run: nix flake check --no-build
+      - name: nix build .#leandro-scripts
+        run: nix build .#leandro-scripts

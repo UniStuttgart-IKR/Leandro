@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+[package]
+name = "vhost-user-input"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "virtio-input as an external vhost-user backend (evdev passthrough or scriptable fifo)"
+
+[[bin]]
+name = "vhost-user-input"
+path = "src/main.rs"
+
+[lib]
+name = "vhost_user_input"
+path = "src/lib.rs"
+
+[dependencies]
+libc.workspace = true
+anyhow.workspace = true
+
+vhost.workspace = true
+vhost-user-backend.workspace = true
+virtio-queue.workspace = true
+vm-memory.workspace = true
+vmm-sys-util.workspace = true

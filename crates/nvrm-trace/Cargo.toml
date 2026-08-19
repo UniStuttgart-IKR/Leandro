@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+[package]
+name = "nvrm-trace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LD_PRELOAD tracer for the NVIDIA ioctl surface; a measuring instrument, not a data path"
+
+[lib]
+name = "nvrm_trace"
+crate-type = ["cdylib"]
+
+[dependencies]
+libc.workspace = true
+nvrm-abi.workspace = true
+nvrm-sys.workspace = true

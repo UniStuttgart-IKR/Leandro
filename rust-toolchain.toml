@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+# Pinned, not `stable`. An unpinned channel means a toolchain update can turn
+# scripts/test.sh check red without a single line of this repo changing -- which is
+# exactly what happened on 2026-08-17 (four new clippy lints: one dead_code,
+# two doc_lazy_continuation, one map_entry). Bumping this is a deliberate act:
+# raise the version, run scripts/test.sh check, fix what the newer clippy found.
+[toolchain]
+channel = "1.89.0"
+components = ["rustfmt", "clippy"]

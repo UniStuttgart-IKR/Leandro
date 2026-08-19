@@ -1,0 +1,12 @@
+# Base of the guest VM: the Ubuntu cloud image, with kernel and initrd
+# unpacked separately for direct boot under cloud-hypervisor. Fetched by
+# scripts/build.sh image. A new SERIAL means all three SHA256 lines change.
+RELEASE=noble
+SERIAL=20260801
+BASE=https://cloud-images.ubuntu.com/releases/noble/release-20260801
+IMG=ubuntu-24.04-server-cloudimg-amd64.img
+IMG_SHA256=0533b0655c32e68b31d792ecd6ccfca95abdbc536c4446874fe0513bd4140ffe
+KERNEL=unpacked/ubuntu-24.04-server-cloudimg-amd64-vmlinuz-generic
+KERNEL_SHA256=09d55bc6cb91a2926e363516a3b249fdf8b3fc3d32c3811b84e6577e63644ef2
+INITRD=unpacked/ubuntu-24.04-server-cloudimg-amd64-initrd-generic
+INITRD_SHA256=eed8cba8ffe0c6c8f4086f01c1a5609547321418a8e2155e9989ce9a14d4a4d4

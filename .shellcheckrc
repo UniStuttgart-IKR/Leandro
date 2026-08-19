@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+# ShellCheck configuration for the host-side scripts.
+#
+# Run it by hand from the repository root:
+#     shellcheck -x scripts/*.sh scripts/lib/*.sh scripts/guest/*.sh
+# CI runs the same list (.github/workflows/check.yml, job `shell`).
+
+# Every script here is bash, and several use bash-only syntax ([[ ]], arrays,
+# ${BASH_SOURCE[0]}). The libraries under scripts/lib/ have no shebang -- they
+# are sourced, not executed -- so they need to be told.
+shell=bash
+
+# Follow `source` into the libraries rather than guessing. Without this every
+# script that sources lib/common.sh reports SC1091 and shellcheck knows
+# nothing about lea_* -- which means it also cannot warn about a real misuse.
+external-sources=true
+source-path=SCRIPTDIR
+source-path=scripts/lib
+source-path=scripts
+
+# Nothing is disabled globally, deliberately: a project-wide `disable=` is
+# invisible at the place it matters and outlives the reason it was added.
+# Per-line `# shellcheck disable=SCxxxx` directives carry their reason on the
+# line above and are reviewed with the code they excuse.
+#
+# Every file is clean at severity `warning` since the 2026-08-18
+# consolidation (four entry points, one library, absolute LEA_ROOT-based
+# paths). CI blocks on `error` everywhere and on `warning` for the library
+# and test.sh; the rest is advisory, printed so a new finding stays visible.

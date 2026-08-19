@@ -1,0 +1,1499 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+# What goes INTO a guest. Not a script -- source it (scripts/lib/rig.sh
+# does):
+#   source "$LEA_ROOT/scripts/lib/provision.sh"
+#
+# ONE implementation of each of these, used by build.sh (the image bake),
+# showcase.sh (a running guest) and the gates:
+#   shipping        lea_guest_tar / lea_guest_cc / lea_soname_link
+#   userspace       lea_payload_stage (compute) / lea_gl_stage (GL, EGL, Vulkan)
+#                   lea_gl_audit
+#   the dev guest   lea_guest_setup (payload, probes, nvrm_nodes.ko)
+#                   lea_libcuda_check (guest libcuda == host libcuda, by hash)
+#   guest modules   lea_guest_build_nvrm / lea_guest_build_nvkms
+#   the display     lea_display_stage / lea_display_modules / lea_display_x
+#                   lea_display_status / lea_display_down / lea_display_up
+#   the desktop     lea_desktop_up / lea_desktop_recycle
+#
+# Every function takes an instance NAME first (see lea_inst in rig.sh) and
+# talks to the guest over lea_ssh. Files shipped into the guest come from
+# scripts/guest/.
+
+[[ -n ${_LEA_PROVISION_LOADED:-} ]] && return 0
+_LEA_PROVISION_LOADED=1
+
+# shellcheck source=scripts/lib/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+
+LEA_GUEST_FILES=$LEA_ROOT/scripts/guest
+
+# _lea_ip NAME -- the instance's IP, checked reachable.
+_lea_ip() {
+    lea_inst "$1" || return 1
+    lea_ssh "$INST_IP" true 2>/dev/null || { error "$1 ($INST_IP) does not answer over SSH"; return 1; }
+    echo "$INST_IP"
+}
+
+# ---- shipping ---------------------------------------------------------------
+# lea_guest_tar NAME SRCDIR DESTDIR [tar options and members...]
+# tar, NOT scp -r: scp DEREFERENCES symlinks, so a library staged with its
+# SONAME and bare-name links would arrive three times as full copies
+# (measured: 197 MiB became 573 MiB), and tar lands IN the target rather
+# than below it. With no members named, the whole SRCDIR goes.
+lea_guest_tar() {
+    local name=$1 src=$2 dest=$3 ip; shift 3
+    ip=$(_lea_ip "$name") || return 1
+    [[ $# -gt 0 ]] || set -- .
+    lea_ssh "$ip" "mkdir -p $dest" || return 1
+    tar -C "$src" -cf - "$@" | lea_ssh "$ip" "tar -C $dest -xf -"
+    # PIPESTATUS: a tar that fails leaves ssh extracting nothing, successfully.
+    [[ ${PIPESTATUS[0]} -eq 0 && ${PIPESTATUS[1]} -eq 0 ]]
+}
+
+# lea_guest_cc NAME FILE.c [gcc args...] -- ship one probe SOURCE from
+# scripts/guest/ and compile it in the guest as ~/<name>. Sources rather
+# than binaries: the guest's glibc is not this host's, and a probe that
+# needs a matching toolchain is a probe that stops running the day the
+# image moves.
+lea_guest_cc() {
+    local name=$1 file=$2 ip base; shift 2
+    base=${file%.c}
+    ip=$(_lea_ip "$name") || return 1
+    lea_ssh "$ip" "cat > ~/$file" < "$LEA_GUEST_FILES/$file" || return 1
+    lea_ssh "$ip" "gcc -O2 -Wall -Wextra -o ~/$base ~/$file $*" \
+        || { error "$name: $file did not compile in the guest"; return 1; }
+}
+
+# lea_soname_link SRC DESTDIR -- copy one library (dereferenced) and add the
+# SONAME symlink and the bare .so name.
+#
+# WARNING: the SONAME link only when it DIFFERS from the file itself.
+# libnvidia-glcore's SONAME *is* libnvidia-glcore.so.<version> -- linking
+# that name onto itself replaces the real file with a self-referential
+# symlink, and the first symptom is scp reporting "Too many levels of
+# symbolic links" after the library is already gone.
+lea_soname_link() {
+    local src=$1 dest=$2 base soname stem
+    base=$(basename "$src")
+    cp -L "$src" "$dest/" || return 1
+    soname=$(objdump -p "$src" 2>/dev/null | awk '/SONAME/{print $2}')
+    [[ -n $soname && $soname != "$base" ]] && ln -sf "$base" "$dest/$soname"
+    stem=${base%%.so*}
+    [[ $stem != "$base" ]] && ln -sf "$base" "$dest/$stem.so"
+    return 0
+}
+
+# ---- the NVIDIA userspace ---------------------------------------------------
+# lea_payload_stage DIR -- stage NVIDIA's COMPUTE userspace from the host
+# into DIR/nv/{lib,bin}. The guest gets no NVIDIA kernel driver -- Leandro
+# replaces it -- but it does get exactly the libcuda that matches the HOST
+# kernel driver. The version is checked hard against DRIVER_VERSION: a
+# mismatched libcuda is not a comfort problem here, it is misread struct
+# offsets. The library directory is DISCOVERED (lea_nvidia_libdir).
+lea_payload_stage() {
+    local dest=$1 want libdir missing=0 l src
+    want=$(lea_want_driver)
+    libdir=$(lea_nvidia_libdir "$want") || {
+        error "no libcuda.so.$want found on this host.
+Looked at: LEA_NVIDIA_LIB_DIR, ldconfig, /usr/lib, /usr/lib64,
+           /usr/lib/x86_64-linux-gnu, /run/opengl-driver/lib.
+The guest is handed the HOST's libcuda -- it cannot be shipped
+(LICENSES.md) and it must match the running kernel driver exactly.
+Fix: install the matching driver userspace, or set LEA_NVIDIA_LIB_DIR=<dir>"
+        return 1
+    }
+    info "nvidia userspace: $libdir"
+
+    # libnvidia-encode and libnvcuvid joined the list on 2026-08-06, once
+    # NVENC and NVDEC actually ran in a guest. They belong here for the same
+    # reason libcuda does: they are the HOST driver's userspace and must
+    # match DRIVER_VERSION exactly. Without them the `encode` gate stage has
+    # nothing to run, and a guest that can compute still cannot encode.
+    local -a libs=(libcuda libnvidia-ml libnvidia-cfg libnvidia-nvvm libnvidia-ptxjitcompiler
+                   libnvidia-encode libnvcuvid)
+    # What libcuda DLOPENS on top of what it links. `objdump -p` on libcuda
+    # names no NVIDIA dependency at all -- every one of these is opened by
+    # name at runtime, so a missing one is a silently absent feature and
+    # never a link error. Read out of the binary itself (2026-08-18):
+    #     strings libcuda.so.$want | grep -oE 'libnvidia-[a-z0-9-]+\.so[.0-9]*'
+    # Optional on purpose: absence is named and staging continues. They are
+    # features (JIT fallback, tiled raster, PKCS#11 crypto), not the CUDA
+    # core, and a host packaging them differently must not fail the payload.
+    # The audit CONVERGES rather than terminating in one pass: each library
+    # staged brings its own dlopen names with it (lea_gl_audit).
+    local -a optional=(libnvidia-tileiras libnvidia-nvvm70 libnvidia-pkcs11
+                       libnvidia-pkcs11-openssl3 libcudadebugger
+                       libnvidia-opencl libnvidia-vksc-core)
+    mkdir -p "$dest/nv/lib" "$dest/nv/bin"
+    for l in "${libs[@]}"; do
+        src="$libdir/$l.so.$want"
+        [[ -f $src ]] || { echo "missing: $src"; missing=1; continue; }
+        lea_soname_link "$src" "$dest/nv/lib"
+    done
+    for l in "${optional[@]}"; do
+        src="$libdir/$l.so.$want"
+        # nvvm70 carries a bare SONAME version, not the driver version.
+        [[ -f $src ]] || src=$(ls "$libdir/$l.so."* 2>/dev/null | head -1)
+        [[ -n $src && -f $src ]] || { echo "optional, absent on this host: $l"; continue; }
+        lea_soname_link "$src" "$dest/nv/lib"
+    done
+    if src=$(lea_nvidia_bin nvidia-smi); then
+        # -L: on NixOS this is a symlink into the store, and the guest has
+        # no store to follow it into.
+        cp -L "$src" "$dest/nv/bin/"
+    else
+        echo "missing: nvidia-smi (not in PATH, /usr/bin or /run/current-system/sw/bin)"
+        missing=1
+    fi
+    if [[ $missing -ne 0 ]]; then
+        error "NVIDIA userspace $want is incomplete in $libdir. Fix: install the matching nvidia-utils (see DRIVER_VERSION)."
+        return 1
+    fi
+    info "OK  $dest/nv ($want, $(du -sh "$dest/nv" | cut -f1))"
+}
+
+# lea_gl_stage NAME [--dest DIR] [--check] [--system] [--with-32bit]
+# Stage NVIDIA's OpenGL/EGL/Vulkan userspace into a RUNNING guest, in a
+# directory of its own (/opt/nvrm-gl, removable with rm -rf). The compute
+# payload stays byte for byte what it was, because that is the path the
+# GPU gate walks.
+#
+# WHAT IT STAGES, and every entry was measured rather than guessed --
+# `strace -f -y -e openat` on `eglinfo` with the NVIDIA vendor forced and
+# /dev/dri replaced by an empty tmpfs (2026-08-06): entry points
+# libEGL_nvidia/libGLX_nvidia, their ldd closure, and what they dlopen.
+# The GLVND JSON files matter as much as the libraries: without
+# 10_nvidia.json, libEGL picks Mesa and every measurement measures Mesa.
+# They are REWRITTEN to point at the staged path, not copied.
+#
+# --system wires it in the way a real driver install does, and no more:
+# ld.so.conf.d, the vendor manifests beside Mesa's, and /usr/local/bin/
+# nvidia-run (PRIME render offload for ONE program -- the two offload
+# variables set globally would put the compositor on NVIDIA too).
+lea_gl_stage() {
+    local name=$1; shift
+    local dest=/opt/nvrm-gl check=0 system=0 bits32=0 ip want libdir
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --dest)   dest=$2; shift 2 ;;
+            --check)  check=1; shift ;;
+            --system) system=1; shift ;;
+            --with-32bit) bits32=1; shift ;;
+            *) die "lea_gl_stage: unknown option $1" ;;
+        esac
+    done
+    ip=$(_lea_ip "$name") || return 1
+    want=$(lea_want_driver)
+    libdir=$(lea_nvidia_libdir "$want") || { error "no libcuda.so.$want on this host"; return 1; }
+
+    if [[ $check -eq 1 ]]; then
+        info "staged in $name:$dest"
+        lea_ssh "$ip" "ls -l $dest/lib 2>/dev/null | tail -n +2 | wc -l; ls $dest 2>/dev/null"
+        return 0
+    fi
+
+    # Driver-versioned: they must match DRIVER_VERSION exactly, for the same
+    # reason libcuda does.
+    local -a versioned=(libEGL_nvidia libGLX_nvidia libnvidia-eglcore libnvidia-glcore
+        libnvidia-glsi libnvidia-gpucomp libnvidia-tls libnvidia-allocator libnvidia-glvkspirv
+        # libnvidia-rtcore is dlopened the moment a client enables
+        # VK_KHR_acceleration_structure -- right after the 4 GiB VA
+        # reservation, and no earlier. No trace before 2026-08-15 ever did
+        # (glxgears, CUDA, vkcube), and CS2 -- which enables the extension
+        # whenever the driver offers it -- said "Failed to initialize Vulkan"
+        # (OPEN-QUESTIONS nr 11). Found with strace in the guest, not with
+        # any RM trace: an ENOENT is not an ioctl.
+        libnvidia-rtcore
+        # NvFBC, NVIDIA's own frame capture. Sunshine looks for it BY NAME and
+        # logs its absence, so it belongs in the set even though NvFBC is
+        # restricted on GeForce -- an absent library and a refused one are
+        # different findings, and only one of them is ours.
+        libnvidia-fbc)
+    # Independently versioned: they come from egl-wayland / egl-gbm, not
+    # from the driver package, and their SONAME is .so.1.
+    local -a loose=(libnvidia-egl-gbm.so.1 libnvidia-egl-wayland.so.1
+        libnvidia-egl-wayland2.so.1 libnvidia-egl-xcb.so.1 libnvidia-egl-xlib.so.1)
+    # The 32-bit half. Most Steam titles are 32-bit or drag 32-bit
+    # dependencies, and without these they land on llvmpipe -- silently,
+    # because a missing 32-bit libGLX_nvidia is not an error, it is a
+    # fallback. Same version rule as the 64-bit set.
+    local -a versioned32=(libGLX_nvidia libEGL_nvidia libnvidia-glcore libnvidia-eglcore
+        libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator libnvidia-glvkspirv libcuda
+        # The JIT chain 32-bit libcuda DLOPENS. Not NEEDED entries -- found by
+        # reading the dlopen names out of the binary (2026-08-18). Shipping
+        # libcuda without them means a 32-bit CUDA client cannot JIT, silently.
+        libnvidia-nvvm libnvidia-ptxjitcompiler libnvidia-tileiras)
+    # Worth having, must not break a host that lacks it. libnvidia-rtcore is
+    # deliberately NOT here: it has no 32-bit build in the driver package.
+    local -a optional32=(libnvidia-fbc libnvidia-encode libnvcuvid libnvidia-ml
+        libnvidia-opticalflow libGLESv2_nvidia libGLESv1_CM_nvidia)
+
+    local stage missing=0 l src p f lib
+    stage=$(mktemp -d)
+    # shellcheck disable=SC2064
+    trap "rm -rf '$stage'" RETURN
+    mkdir -p "$stage/lib" "$stage/egl_vendor.d" "$stage/egl_external_platform.d" "$stage/vulkan_icd.d"
+    for l in "${versioned[@]}"; do
+        src="$libdir/$l.so.$want"
+        [[ -f $src ]] || { echo "missing: $src"; missing=1; continue; }
+        lea_soname_link "$src" "$stage/lib"
+    done
+    for l in "${loose[@]}"; do
+        src=$libdir/$l
+        [[ -e $src ]] || { echo "missing: $src"; missing=1; continue; }
+        cp -L "$src" "$stage/lib/$l"
+    done
+    [[ $missing -eq 0 ]] || { error "NVIDIA GL userspace $want is incomplete in $libdir"; return 1; }
+
+    # The vendor JSON, rewritten rather than copied: the host path is not the
+    # guest path, and a JSON pointing at a library that is not there makes
+    # libEGL fall back to Mesa SILENTLY.
+    #
+    # WARNING: `__EGL_VENDOR_LIBRARY_DIRS` REPLACES the search path, it does
+    # not add to it. So the guest's own manifests are copied in beside
+    # NVIDIA's, and the directory is a SUPERSET rather than a replacement.
+    cat > "$stage/egl_vendor.d/10_nvidia.json" <<JSON
+{
+    "file_format_version" : "1.0.0",
+    "ICD" : {
+        "library_path" : "$dest/lib/libEGL_nvidia.so.0"
+    }
+}
+JSON
+    for p in gbm wayland wayland2 xcb xlib; do
+        case $p in
+            gbm)      f=15_nvidia_gbm.json;      lib=libnvidia-egl-gbm.so.1 ;;
+            wayland)  f=10_nvidia_wayland.json;  lib=libnvidia-egl-wayland.so.1 ;;
+            wayland2) f=09_nvidia_wayland2.json; lib=libnvidia-egl-wayland2.so.1 ;;
+            xcb)      f=20_nvidia_xcb.json;      lib=libnvidia-egl-xcb.so.1 ;;
+            xlib)     f=20_nvidia_xlib.json;     lib=libnvidia-egl-xlib.so.1 ;;
+        esac
+        cat > "$stage/egl_external_platform.d/$f" <<JSON
+{
+    "file_format_version" : "1.0.0",
+    "ICD" : {
+        "library_path" : "$dest/lib/$lib"
+    }
+}
+JSON
+    done
+    # The Vulkan ICD is the SAME library -- nvidia_icd.json points at
+    # libGLX_nvidia.so.0. The library_path is RELATIVE on purpose: an
+    # absolute $dest path works in the plain guest and breaks inside Steam's
+    # pressure-vessel sandbox, where $dest does not exist and the loader
+    # skips the ICD silently -- measured 2026-08-16 as CS2 saying "Failed to
+    # initialize Vulkan" while vulkaninfo in the session lists the RTX 2070.
+    local api
+    api=$(python3 -c "
+import json
+try:
+    print(json.load(open('/usr/share/vulkan/icd.d/nvidia_icd.json'))['ICD']['api_version'])
+except Exception:
+    print('1.3.0')" 2>/dev/null || echo 1.3.0)
+    cat > "$stage/vulkan_icd.d/nvidia_icd.json" <<JSON
+{
+    "file_format_version" : "1.0.1",
+    "ICD": {
+        "library_path": "libGLX_nvidia.so.0",
+        "api_version" : "$api"
+    }
+}
+JSON
+    cat > "$stage/env.sh" <<ENV
+# source this before an NVIDIA GL/EGL run in the guest
+export LD_LIBRARY_PATH=$dest/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
+export __EGL_VENDOR_LIBRARY_DIRS=$dest/egl_vendor.d
+export __EGL_EXTERNAL_PLATFORM_CONFIG_DIRS=$dest/egl_external_platform.d
+# NVIDIA is ADDED to the Vulkan ICD list, never put in place of the guest's
+# own. Use VK_DRIVER_FILES (not the deprecated VK_ICD_FILENAMES) to pin one.
+# WARNING: unset both display variables. NVIDIA's EGL only reaches a GL
+# context without a DRM node on the SURFACELESS platform.
+ENV
+    # Does the guest ALREADY have an NVIDIA Vulkan manifest? Ubuntu's image
+    # ships one naming `libGLX_nvidia.so.0` by bare name, which the staged
+    # LD_LIBRARY_PATH resolves. Adding ours on top makes the loader find the
+    # same ICD twice and vulkaninfo report the card TWICE (measured).
+    if lea_ssh "$ip" "grep -lq libGLX_nvidia /usr/share/vulkan/icd.d/*.json 2>/dev/null"; then
+        rm -f "$stage/vulkan_icd.d/nvidia_icd.json"
+    else
+        echo "export VK_ADD_DRIVER_FILES=$dest/vulkan_icd.d/nvidia_icd.json" >> "$stage/env.sh"
+    fi
+
+    if [[ $bits32 -eq 1 ]]; then
+        mkdir -p "$stage/lib32"
+        local m32=0
+        for l in "${versioned32[@]}"; do
+            src="$LEA_NVIDIA_LIB32_DIR/$l.so.$want"
+            [[ -f $src ]] || { echo "missing (32 bit): $src"; m32=1; continue; }
+            lea_soname_link "$src" "$stage/lib32"
+        done
+        [[ $m32 -eq 0 ]] || { error "32-bit NVIDIA userspace $want is incomplete in $LEA_NVIDIA_LIB32_DIR
+       On Arch that is lib32-nvidia-utils; LEA_NVIDIA_LIB32_DIR overrides."; return 1; }
+        for l in "${optional32[@]}"; do
+            src="$LEA_NVIDIA_LIB32_DIR/$l.so.$want"
+            [[ -f $src ]] || { echo "   (32 bit, optional) absent: $l"; continue; }
+            lea_soname_link "$src" "$stage/lib32"
+        done
+        info "32-bit set staged ($(du -sh "$stage/lib32" | cut -f1))"
+    fi
+
+    # The guest's existing EGL vendors, so the staged directory holds them too.
+    for f in $(lea_ssh "$ip" "ls /usr/share/glvnd/egl_vendor.d/ 2>/dev/null" 2>/dev/null); do
+        [[ $f == *nvidia* ]] && continue      # ours replaces theirs
+        lea_ssh "$ip" "cat /usr/share/glvnd/egl_vendor.d/$f" > "$stage/egl_vendor.d/$f" 2>/dev/null
+    done
+    info "vendor manifests staged: $(ls "$stage/egl_vendor.d" | tr '\n' ' ')"
+    info "staging $(du -sh "$stage" | cut -f1) -> $name:$dest"
+    lea_ssh "$ip" "sudo rm -rf $dest && sudo mkdir -p $dest && sudo chown $LEA_GUEST_USER $dest" \
+        || { error "cannot create $dest in the guest"; return 1; }
+    lea_guest_tar "$name" "$stage" "$dest" || { error "copy failed"; return 1; }
+    info "staged:"
+    lea_ssh "$ip" "ls $dest/lib | wc -l | xargs echo '  libraries:'
+        echo '  vendor json:' \$(ls $dest/egl_vendor.d)
+        echo '  platform json:' \$(ls $dest/egl_external_platform.d | tr '\n' ' ')"
+    info "use: source $dest/env.sh"
+
+    [[ $system -eq 1 ]] || return 0
+    info "wiring into the system (ld.so.conf.d, egl_vendor.d, nvidia-run)"
+    lea_ssh "$ip" "set -e
+        { echo '$dest/lib'; [ -d $dest/lib32 ] && echo '$dest/lib32'; } \
+            | sudo tee /etc/ld.so.conf.d/nvrm-gl.conf >/dev/null
+        sudo ldconfig
+        sudo install -d /usr/share/glvnd/egl_vendor.d /usr/share/egl/egl_external_platform.d
+        sudo cp $dest/egl_vendor.d/10_nvidia.json /usr/share/glvnd/egl_vendor.d/
+        sudo cp $dest/egl_external_platform.d/*.json /usr/share/egl/egl_external_platform.d/
+        if [ -f $dest/vulkan_icd.d/nvidia_icd.json ]; then
+            sudo install -d /usr/share/vulkan/icd.d
+            sudo cp $dest/vulkan_icd.d/nvidia_icd.json /usr/share/vulkan/icd.d/
+        fi
+        sudo tee /usr/local/bin/nvidia-run >/dev/null <<'RUN'
+#!/bin/sh
+# Run ONE program on the NVIDIA card (PRIME render offload).
+#   nvidia-run glxgears
+#   nvidia-run glmark2
+exec env __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
+         __VK_LAYER_NV_optimus=NVIDIA_only \"\$@\"
+RUN
+        sudo chmod +x /usr/local/bin/nvidia-run
+        ldconfig -p | grep -c libEGL_nvidia >/dev/null && echo '  libEGL_nvidia is on the loader path'"
+    info "  nvidia-run <program> runs that program on the card"
+}
+
+# lea_gl_audit NAME -- which NVIDIA userspace names does the guest REFERENCE
+# but not resolve? `ldd` is not enough: NVIDIA's libraries name most of
+# their siblings at RUNTIME, not in DT_NEEDED, so a missing one is never a
+# link error -- it is a feature that silently is not there (OPEN-QUESTIONS
+# 11: libnvidia-rtcore, found with strace and not with any RM trace).
+lea_gl_audit() {
+    local ip; ip=$(_lea_ip "$1") || return 1
+    lea_ssh "$ip" 'bash -s' <<'REMOTE'
+audit() {
+    local label=$1 bits=$2; shift 2
+    local dirs=("$@") path
+    if [[ $bits == 64 ]]; then
+        path="/opt/nvrm/lib /opt/nvrm-gl/lib /usr/lib/x86_64-linux-gnu /usr/lib /lib/x86_64-linux-gnu"
+    else
+        path="/opt/nvrm-gl/lib32 /usr/lib/i386-linux-gnu /usr/lib32"
+    fi
+    echo "== $label =="
+    local refs=""
+    for d in "${dirs[@]}"; do
+        [[ -d $d ]] || continue
+        for f in "$d"/*.so.*; do
+            [[ -f $f ]] || continue
+            refs+=$'\n'$(objdump -p "$f" 2>/dev/null | awk '/NEEDED/{print $2}')
+            refs+=$'\n'$(strings "$f" 2>/dev/null \
+                | grep -oE '^lib(nvidia|cuda|nvcuvid)[a-zA-Z0-9._-]*\.so\.[0-9][0-9.]*$')
+        done
+    done
+    local miss=0
+    for r in $(printf '%s\n' "$refs" | grep -iE 'nvidia|cuda|nvcuvid' | sort -u); do
+        local found=""
+        for d in $path; do [[ -e $d/$r ]] && { found=$d; break; }; done
+        [[ -n $found ]] || { echo "   MISSING: $r"; miss=$((miss+1)); }
+    done
+    [[ $miss -eq 0 ]] && echo "   all referenced NVIDIA names resolve"
+    return 0
+}
+audit "64-bit (compute + GL payload)" 64 /opt/nvrm/lib /opt/nvrm-gl/lib
+audit "32-bit (GL payload)"           32 /opt/nvrm-gl/lib32
+REMOTE
+}
+
+# ---- is the guest's libcuda the host's libcuda? ------------------------------
+# lea_libcuda_check NAME -- hash the libcuda that the GUEST actually loads
+# against the one the HOST actually loads, and print both.
+#
+# WHY A HASH AND NOT A VERSION. "610.43.03 == 610.43.03" is the check this
+# project already fails at: the version string says which ABI was intended,
+# not which bytes are there. A repackaged, patched or half-copied library
+# reports the same version and misreads struct offsets, and misread offsets
+# are silent -- the ioctl succeeds and the numbers are wrong. So the claim
+# being made is the strong one, "the same build", and it is measured.
+#
+# WHAT IS HASHED is not a path somebody picked. dlopen("libcuda.so.1") is
+# performed and the file the LOADER MAPPED is read back out of
+# /proc/self/maps -- on both sides, with the same program text. A search path
+# that resolves to a different file than the one that was staged is exactly
+# the failure this exists to catch, and asking a path would hide it.
+_LEA_LIBCUDA_PY='
+import ctypes, hashlib, sys
+try:
+    ctypes.CDLL("libcuda.so.1")
+except OSError as e:
+    sys.exit("dlopen(libcuda.so.1) failed: %s" % e)
+path = None
+for line in open("/proc/self/maps"):
+    f = line.rstrip("\n").split(" ", 5)[-1].strip()
+    if "/libcuda.so." in f:
+        path = f
+        break
+if path is None:
+    sys.exit("libcuda.so.1 opened but not mapped from a file")
+h = hashlib.sha256(open(path, "rb").read()).hexdigest()
+print("%s %s" % (h, path))
+'
+lea_libcuda_check() {
+    local name=$1 ip host_out guest_out host_sum guest_sum host_path guest_path
+    ip=$(_lea_ip "$name") || return 1
+    host_out=$(python3 -c "$_LEA_LIBCUDA_PY" 2>&1)         || { error "host: $host_out"; return 1; }
+    guest_out=$(lea_ssh "$ip" "python3 -c '$_LEA_LIBCUDA_PY'" 2>&1)         || { error "$name: $guest_out"; return 1; }
+    host_sum=${host_out%% *};  host_path=${host_out#* }
+    guest_sum=${guest_out%% *}; guest_path=${guest_out#* }
+    echo "libcuda host:  $host_sum  $host_path"
+    echo "libcuda guest: $guest_sum  $guest_path"
+    if [[ $host_sum == "$guest_sum" ]]; then
+        info "  libcuda: guest and host load the same build ($host_sum)"
+        return 0
+    fi
+    error "$name: the guest's libcuda is NOT the host's build.
+       host  $host_sum  $host_path
+       guest $guest_sum  $guest_path
+       The guest is handed the HOST's libcuda for a reason: the ioctl structs
+       have no ABI stability guarantee, so two builds of one version number
+       still misread each other's offsets -- silently. Re-stage the payload
+       (showcase.sh up), or fix where the guest's userspace comes from
+       (services.leandro-guest.nvidiaUserspaceDir on a NixOS guest)."
+    return 1
+}
+
+# ---- the dev guest ----------------------------------------------------------
+# lea_guest_setup NAME [--with-torch] -- make a running guest ready for CUDA:
+# userspace, the probes and the helper module (nvrm_nodes.ko). The GPU path
+# itself is brought in by virtio_nvrm (lea_guest_build_nvrm). Idempotent:
+# the payload is synced into ~/gpu when it changed, the torch venv is left
+# alone; --with-torch creates it if missing (downloads ~2.5 GiB).
+#
+# ONE function for BOTH guests, and that is deliberate rather than accidental.
+# What reaches the guest -- the NVIDIA userspace, the probe binaries, the
+# probe sources, params.txt, the manifest that decides whether any of it has
+# to be re-sent -- is identical, because the gate compares a guest run
+# against a NATIVE host run of THE SAME binaries. Three things genuinely
+# differ, and each is a `case $os` below with its reason on the spot:
+#   the loader wiring   Ubuntu has /etc/ld.so.conf.d and NixOS has no FHS
+#                       ld.so.conf at all
+#   nvrm_nodes.ko       built in the Ubuntu guest from shipped sources,
+#                       already in the NixOS image (boot.extraModulePackages)
+#   the missing tools   apt-get on Ubuntu; on NixOS they are in the image or
+#                       they are a bug in nix/guest-image.nix
+# What does NOT differ is the payload path, and that is why the probes are
+# host-built ELF on both and why the image carries nix-ld.
+lea_guest_setup() {
+    local name=$1; shift
+    local torch=0 ip stage
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --with-torch) torch=1; shift ;;
+            *) die "lea_guest_setup: unknown option $1" ;;
+        esac
+    done
+    ip=$(_lea_ip "$name") || return 1
+    # NAME-BASED, not INST_GUEST. _lea_ip calls lea_inst inside a command
+    # substitution, so lea_inst's INST_* assignments land in a subshell and
+    # are gone by the time this line runs -- reading them here would pick up
+    # whatever the CALLER happened to leave in the globals, or abort under
+    # `set -u` when the caller never called lea_inst at all. That is what
+    # lea_guest_os and lea_transport_of exist for.
+    local os; os=$(lea_guest_os "$name")
+    local tr; tr=$(lea_transport_of "$name")
+
+    # Build the probes the gate greps before copying them: a stale prebuilt
+    # binary with outdated output strings makes the gate fail (or pass) on
+    # text that no longer exists in the sources.
+    #
+    # UNLESS THEY WERE BUILT ALREADY, by build.sh package, from the very tree
+    # that is packaged beside them. Then LEA_PROBE_BIN points into the package
+    # and LEA_ROOT is read-only, so `make` could not write probe/bin even if
+    # it had anything to do. The invariant the Makefile's warning protects --
+    # binaries that match the sources next to them -- is kept by the package
+    # being built in one step and recording its commit, not by rebuilding on a
+    # compute node that has no CUDA headers to rebuild with.
+    if [[ $LEA_PROBE_BIN == "$LEA_ROOT/probe/bin" ]]; then
+        make -C "$LEA_ROOT/probe" all-probes >/dev/null || { error "make -C probe failed"; return 1; }
+    fi
+    [[ -x $LEA_PROBE_BIN/nvprobe ]] || {
+        error "$LEA_PROBE_BIN/nvprobe missing.
+       In a checkout that is 'make -C probe all-probes'; from a package it
+       means the package was built without the probes (build.sh package)."
+        return 1; }
+
+    # Assemble the payload: NVIDIA userspace + probes.
+    stage=$(mktemp -d)
+    # shellcheck disable=SC2064
+    trap "rm -rf '$stage'" RETURN
+    lea_payload_stage "$stage" >/dev/null || return 1
+    # The guest keeps a FLAT ~/gpu: the repo side is sorted, the guest side
+    # is not, because the gate and the probes address each other by bare
+    # name there.
+    local p
+    cp "$LEA_PROBE_BIN"/nvprobe "$LEA_ROOT"/probe/kernels/kernels.ptx "$stage"/
+    for p in hostregprobe oomprobe managedprobe ioctlping ctrlping; do
+        [[ -x $LEA_PROBE_BIN/$p ]] && cp "$LEA_PROBE_BIN/$p" "$stage"/
+    done
+    # mmapping is a Rust binary, not in probe/ -- it uses the proven map path
+    # from nvrm-client instead of transcribing the NVOS33 constants a second
+    # time in C. smipids asks the two controls nvidia-smi uses for its
+    # process list; the same binary runs on the host, so the two answers are
+    # comparable without a second implementation.
+    for p in mmapping smipids; do
+        [[ -x $LEA_BIN_DIR/$p ]] && cp "$LEA_BIN_DIR/$p" "$stage"/
+    done
+    cp "$LEA_ROOT"/probe/python/{rlprobe,torchprobe,convburn,convoom,mmsweep,pinwin,streamprobe,vramcap}.py \
+       "$stage"/ 2>/dev/null || true
+    cp "$LEA_ROOT"/probe/suites/test_vram_churn.py "$stage"/ 2>/dev/null || true
+    cp "$LEA_GUEST_FILES/nvrm-setup.sh" "$stage"/
+    cat /proc/driver/nvidia/params > "$stage/params.txt"
+
+    # Sync into the guest -- but only when the payload CHANGED. The payload
+    # is ~220 MB and every earlier caller re-sent it on every run, baked
+    # image or not. A manifest (names, sizes, mtimes of everything staged)
+    # is cheap to compare and honest about what would arrive.
+    local manifest have
+    manifest=$(cd "$stage" && find . -type f -printf '%p %s %T@\n' | sort | sha256sum | cut -d' ' -f1)
+    have=$(lea_ssh "$ip" 'cat ~/gpu/.manifest 2>/dev/null' | tr -d '[:space:]')
+    if [[ $have == "$manifest" ]]; then
+        info "  payload unchanged (manifest $manifest) -- not re-sent"
+    else
+        lea_guest_tar "$name" "$stage" '$HOME/gpu' || return 1
+        lea_ssh "$ip" "chmod +x ~/gpu/nvrm-setup.sh; echo $manifest > ~/gpu/.manifest"
+    fi
+
+    # Put the libraries on the LOADER's search path. Without this the payload
+    # lands in ~/gpu/nv/lib and is found by nothing, so every single command
+    # needs LD_LIBRARY_PATH -- and `./nv/bin/nvidia-smi` fails with "couldn't
+    # find libnvidia-ml.so", which reads like a broken driver rather than an
+    # unset variable. /opt/nvrm/{lib,bin} is the same directory on both
+    # guests; only the way the loader is told about it differs, and each way
+    # is CHECKED BACK rather than assumed.
+    case $os in
+        ubuntu)
+            # Symlinks rather than copies; and ld.so.conf.d, NOT
+            # LD_LIBRARY_PATH, which is lost across sudo, su and systemd
+            # units -- which is exactly where it is missed.
+            lea_ssh "$ip" 'set -e
+                sudo mkdir -p /opt/nvrm/lib /opt/nvrm/bin
+                sudo ln -sfn "$HOME"/gpu/nv/lib/*.so* /opt/nvrm/lib/
+                sudo ln -sfn "$HOME"/gpu/nv/bin/nvidia-smi /opt/nvrm/bin/nvidia-smi
+                sudo ln -sfn /opt/nvrm/bin/nvidia-smi /usr/local/bin/nvidia-smi
+                echo /opt/nvrm/lib | sudo tee /etc/ld.so.conf.d/nvrm.conf >/dev/null
+                sudo ldconfig
+                ldconfig -p | grep -q "libcuda.so.1" \
+                    || { echo "ERROR: libcuda still not on the loader search path"; exit 1; }' || return 1
+            ;;
+        nixos)
+            # THE REAL DIFFERENCE, and it is not a detail. NixOS has no FHS
+            # /etc/ld.so.conf and its ldconfig cache is not what the store's
+            # ld.so consults, so there is nothing to write a .conf into. The
+            # image instead puts /opt/nvrm/lib into LD_LIBRARY_PATH through
+            # environment.sessionVariables (services.leandro-guest.
+            # nvidiaUserspaceDir) -- which reaches a non-interactive
+            # `ssh host cmd` because NixOS applies sessionVariables through
+            # pam_env rather than through /etc/profile. Verified 2026-08-18 on
+            # a booted guest: `ssh nix0 'echo $LD_LIBRARY_PATH'` answers
+            # /opt/nvrm/lib.
+            #
+            # WHAT THE CHECK HAS TO ASK, and the first version of it asked
+            # the wrong thing. `ldd nvidia-smi` was measured on 2026-08-18 and
+            # lists glibc and nothing else: every NVIDIA library in the
+            # payload is DLOPENED BY NAME at runtime, never linked -- which is
+            # the same fact lea_payload_stage's `optional` list is built on.
+            # So a link-time check is green on a guest that cannot open a
+            # single one of them. dlopen of the bare SONAME is the operation
+            # that actually happens, so that is what is asked, of libcuda and
+            # libnvidia-ml both. It needs no GPU and no module: dlopen
+            # resolves and relocates, it does not talk to the device.
+            lea_ssh "$ip" 'set -e
+                # The wheels'"'"' C++/OpenMP runtime goes into the SAME directory as
+                # the NVIDIA payload, and that is not tidiness. The gpu gate runs
+                # every stage with `export LD_LIBRARY_PATH=$PWD/nv/lib` -- it
+                # REPLACES the variable rather than appending to it, so anything
+                # the image puts in LD_LIBRARY_PATH is gone for the duration of a
+                # gate stage. A library the guest needs has to be in the directory
+                # the gate names, or it is not there when it counts.
+                [ -d /opt/nvrm/wheel-runtime ] \
+                    && ln -sfn /opt/nvrm/wheel-runtime/*.so* "$HOME"/gpu/nv/lib/ || true
+                sudo mkdir -p /opt/nvrm/lib /opt/nvrm/bin
+                sudo ln -sfn "$HOME"/gpu/nv/lib/*.so* /opt/nvrm/lib/
+                sudo ln -sfn "$HOME"/gpu/nv/bin/nvidia-smi /opt/nvrm/bin/nvidia-smi
+                [ -e /opt/nvrm/lib/libcuda.so.1 ] \
+                    || { echo "ERROR: /opt/nvrm/lib/libcuda.so.1 missing after staging"; exit 1; }
+                for so in libcuda.so.1 libnvidia-ml.so.1; do
+                    python3 -c "import ctypes,sys; ctypes.CDLL(sys.argv[1])" "$so" || {
+                        echo "ERROR: dlopen($so) failed in the guest."
+                        echo "       LD_LIBRARY_PATH is [$LD_LIBRARY_PATH]; it has to contain /opt/nvrm/lib,"
+                        echo "       which comes from services.leandro-guest.nvidiaUserspaceDir in the image."
+                        exit 1; }
+                done
+                echo "  dlopen: libcuda.so.1 and libnvidia-ml.so.1 resolve by SONAME"' || return 1
+            # The params the boot unit provisions BEFORE the first CUDA start.
+            # The host's own copy, dropped where the module's boot script
+            # looks for it (services.leandro-guest.params.runtimeFile) -- the
+            # built-in copy in the image is only the shape of the file.
+            lea_ssh "$ip" 'sudo install -D -m444 ~/gpu/params.txt /var/lib/leandro/params.txt' || return 1
+            ;;
+    esac
+
+    case $os in
+        ubuntu)
+            # The guest helper module: device nodes, /proc/devices, params --
+            # and the reason CUDA runs in the guest as a normal user.
+            # Mandatory, and BUILT HERE because the cloud image's kernel is
+            # whatever Canonical shipped that month.
+            lea_guest_tar "$name" "$LEA_ROOT/guest-module" '$HOME/guest-module' nvrm_nodes || return 1
+
+            # Build tools and kernel headers, if they are missing. The cloud
+            # image ships NEITHER; the image bake puts both in, which makes
+            # this a fallback rather than the normal path.
+            lea_ssh "$ip" 'command -v make >/dev/null && test -f /lib/modules/$(uname -r)/build/Makefile' || {
+                info "installing build tools and kernel headers in the guest ..."
+                lea_ssh "$ip" 'sudo apt-get update -q >/dev/null 2>&1
+                    sudo apt-get install -y -q build-essential "linux-headers-$(uname -r)" >/dev/null 2>&1' \
+                    || { error "apt-get (build-essential, linux-headers) failed"; return 1; }
+            }
+            lea_ssh "$ip" 'command -v make >/dev/null && test -f /lib/modules/$(uname -r)/build/Makefile' \
+                || { error "no make or no kernel headers in the guest -- without nvrm_nodes.ko there is no GPU path."; return 1; }
+            # ffmpeg is what the `encode` gate stage runs, and the only
+            # consumer of libnvidia-encode/libnvcuvid from the payload.
+            # Installed on demand rather than assumed.
+            lea_ssh "$ip" 'command -v ffmpeg >/dev/null' || {
+                info "installing ffmpeg in the guest (the encode gate stage needs it) ..."
+                lea_ssh "$ip" 'sudo apt-get update -q >/dev/null 2>&1
+                    sudo apt-get install -y -q ffmpeg >/dev/null 2>&1' \
+                    || warn "apt-get ffmpeg failed -- the encode gate stage will fail"
+            }
+            lea_ssh "$ip" 'make -C ~/guest-module/nvrm_nodes >/dev/null 2>&1 && cd ~/gpu && ./nvrm-setup.sh' \
+                || { error "module setup failed"; return 1; }
+            ;;
+        nixos)
+            # NOTHING IS BUILT IN THIS GUEST. Both modules are in the image,
+            # built against its own 6.12 by boot.extraModulePackages, and
+            # loaded in the right order with the right parameters by
+            # leandro-nvrm.service. Shipping the sources and a toolchain here
+            # would be building a SECOND nvrm_nodes.ko against the same
+            # kernel and hoping the two agree.
+            #
+            # The compatibility copy under ~/guest-module is not decoration:
+            # the gpu gate's counter-check stage ends with `sudo insmod
+            # ~/guest-module/virtio_nvrm/virtio_nvrm.ko`, and the gate is not
+            # to be weakened for a second guest. insmod takes a path, so the
+            # store's .ko under that path IS the module the image booted.
+            local kmod_dir
+            kmod_dir=$(lea_ssh "$ip" 'ls -d /run/booted-system/kernel-modules/lib/modules/*/extra 2>/dev/null | head -1' | tr -d "[:space:]")
+            [[ -n $kmod_dir ]] || { error "$name: no /run/booted-system/.../extra in the guest -- the image carries no leandro-guest-modules (boot.extraModulePackages)"; return 1; }
+            lea_ssh "$ip" "set -e
+                mkdir -p ~/guest-module/nvrm_nodes ~/guest-module/virtio_nvrm
+                cp -f $kmod_dir/nvrm_nodes.ko   ~/guest-module/nvrm_nodes/nvrm_nodes.ko
+                cp -f $kmod_dir/virtio_nvrm.ko  ~/guest-module/virtio_nvrm/virtio_nvrm.ko
+                chmod +w ~/guest-module/nvrm_nodes/nvrm_nodes.ko ~/guest-module/virtio_nvrm/virtio_nvrm.ko
+                ln -sf \"\$(command -v nvrm-nodes-tool)\" ~/guest-module/nvrm_nodes/nvrm-nodes-tool" \
+                || { error "$name: could not place the image's modules under ~/guest-module"; return 1; }
+            lea_ssh "$ip" 'cd ~/gpu && ./nvrm-setup.sh' \
+                || { error "module setup failed"; return 1; }
+            ;;
+    esac
+
+    if [[ $torch -eq 1 ]] && ! lea_ssh "$ip" 'test -x ~/gpu/venv/bin/python'; then
+        # A VSOCK GUEST HAS NO NETWORK DEVICE, so it has no route to pypi and
+        # this cannot be done there at all -- it is not slow, it is
+        # impossible. Refused by name rather than left to fail as a pip
+        # timeout ten minutes in. The frozen base already carries the venv,
+        # and that is the same answer a cluster node needs, where there is
+        # usually no outbound route either: everything is in the image or in
+        # the base, and nothing is downloaded where the job runs.
+        if [[ $tr == vsock ]]; then
+            error "$name: --with-torch cannot work over the vsock transport.
+       The guest has no network device at all, so pip has nowhere to fetch
+       from. Overlay a base that already has the venv instead:
+         showcase.sh up --name $name --guest nixos --transport vsock --fresh \\
+             --base $LEA_NIXOS_FLEET_BASE
+       (that is the frozen disk a NixOS fleet member overlays; build.sh bake
+       --nixos plus one --transport ip run with --with-torch makes one.)"
+            return 1
+        fi
+        info "creating the torch venv (downloads ~2.5 GiB) ..."
+        # THE SAME torch, from the same wheels, on both guests -- the gate's
+        # torch stage compares the guest's numbers against a NATIVE host run
+        # from vendor/hostvenv, and a guest running nixpkgs' torch instead of
+        # the wheel would be comparing two libraries rather than two
+        # transport paths. On NixOS the wheels' own .so files find their
+        # libstdc++ and libgomp through nix-ld, which is the same reason the
+        # probe binaries run there at all.
+        case $os in
+            ubuntu) lea_ssh "$ip" 'sudo apt-get install -y -q python3-venv >/dev/null' || return 1 ;;
+            nixos)  ;;   # python3 in the image brings venv with it
+        esac
+        lea_ssh "$ip" 'python3 -m venv ~/gpu/venv &&
+                     ~/gpu/venv/bin/pip install --quiet torch numpy' || return 1
+    fi
+    # The last thing, and a hard one: the guest must load the HOST's libcuda,
+    # not merely one with the same version number.
+    lea_libcuda_check "$name" || return 1
+    info "$name: provisioned (GPU path: lea_guest_build_nvrm)"
+}
+
+# ---- guest modules ------------------------------------------------------------
+# lea_guest_build_nvrm NAME [--no-load] [--max-pin-mib N] -- bring
+# virtio_nvrm.ko into the guest, build it there and load it.
+#
+# --max-pin-mib raises the GUEST MODULE's cap on concurrently pinned memory
+# (module parameter max_pin_mib, default 1024 MiB; LEA_GUEST_MAX_PIN_MIB from
+# the environment). WARNING: not LEA_MAX_PIN_MIB, which is a HOST variable
+# read by vhost-user-nvrm and limits a SINGLE arena to 256 MiB by default.
+# Both report CUDA error 304 when hit; the backend log tells them apart.
+#
+# The coexistence order (OPEN-QUESTIONS no. 2): nvrm_nodes.ko stays loaded
+# and supplies /proc/driver/nvidia/params, but releases the device nodes
+# (create_nodes=0); virtio_nvrm.ko owns the nodes and the forwarding.
+lea_guest_build_nvrm() {
+    local name=$1; shift
+    local load=1 pin=${LEA_GUEST_MAX_PIN_MIB:-} ip
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --no-load)     load=0; shift ;;
+            --max-pin-mib) pin=$2; shift 2 ;;
+            *) die "lea_guest_build_nvrm: unknown option $1" ;;
+        esac
+    done
+    ip=$(_lea_ip "$name") || return 1
+    # Name-based for the same reason as in lea_guest_setup: _lea_ip resolved
+    # the instance in a subshell, so the INST_* globals are not ours to read.
+    local os; os=$(lea_guest_os "$name")
+    # The coexistence needs the helper module and the host's params, both of
+    # which lea_guest_setup puts in place. Say so instead of failing three
+    # steps later on an insmod that reads like a broken build.
+    lea_ssh "$ip" 'test -f ~/guest-module/nvrm_nodes/nvrm_nodes.ko && test -f ~/gpu/params.txt' 2>/dev/null \
+        || { error "$name is not provisioned (no nvrm_nodes.ko / params.txt) -- lea_guest_setup first (showcase.sh up without --no-provision)"; return 1; }
+    case $os in
+        ubuntu)
+            lea_guest_tar "$name" "$LEA_ROOT/guest-module" '$HOME/guest-module' virtio_nvrm || return 1
+            # Drop the old object FIRST. Without that, a build that fails still
+            # leaves the previous .ko lying there, `test -f` is happy, and the run
+            # continues with a module that does not contain the change under test.
+            lea_ssh "$ip" 'rm -f ~/guest-module/virtio_nvrm/virtio_nvrm.ko'
+            lea_ssh "$ip" 'set -o pipefail; make -C ~/guest-module/virtio_nvrm 2>&1 | grep -E "CC |LD |error:" || true'
+            lea_ssh "$ip" 'test -f ~/guest-module/virtio_nvrm/virtio_nvrm.ko' \
+                || { error "$name: virtio_nvrm.ko was not built"; return 1; }
+            ;;
+        nixos)
+            # WHERE THE MODULE COMES FROM, and this is the one place the two
+            # guests are not the same program. On Ubuntu the .ko is compiled
+            # in the guest on every `up`, which is what makes "change the
+            # module, run showcase.sh up" a ten-second loop. On NixOS it was
+            # compiled by the DERIVATION, against the image's own kernel, and
+            # lea_guest_setup has already put it under ~/guest-module. So a
+            # host-side edit to guest-module/ reaches a NixOS guest only
+            # through `build.sh bake --nixos`, and saying so here is cheaper
+            # than finding it out by measuring an old module.
+            local built have
+            built=$(cd "$LEA_ROOT" && cat guest-module/virtio_nvrm/*.c guest-module/virtio_nvrm/*.h 2>/dev/null | sha256sum | cut -c1-12)
+            have=$(lea_ssh "$ip" 'cat /run/booted-system/kernel-modules/lib/modules/*/extra/.leandro-src 2>/dev/null' | tr -d '[:space:]')
+            info "  $name: modules come from the image (nix build), not from a guest build"
+            [[ -n $have && $have != "$built" ]] && \
+                warn "the image's guest modules were built from other sources than this checkout's ($have vs $built) -- scripts/build.sh bake --nixos"
+            ;;
+    esac
+    [[ $load -eq 1 ]] || { info "built (not loaded)."; return 0; }
+    # Switch to the coexistence state. Idempotent.
+    lea_ssh "$ip" 'set -e
+        sudo rmmod virtio_nvrm 2>/dev/null || true
+        if lsmod | grep -q "^nvrm_nodes "; then
+            if [ "$(cat /sys/module/nvrm_nodes/parameters/create_nodes)" != "N" ]; then
+                sudo rmmod nvrm_nodes
+                sudo insmod ~/guest-module/nvrm_nodes/nvrm_nodes.ko create_nodes=0
+            fi
+        else
+            sudo insmod ~/guest-module/nvrm_nodes/nvrm_nodes.ko create_nodes=0
+        fi
+        sudo ~/guest-module/nvrm_nodes/nvrm-nodes-tool provision params ~/gpu/params.txt
+        sudo insmod ~/guest-module/virtio_nvrm/virtio_nvrm.ko '"${pin:+max_pin_mib=$pin}"'
+        echo "loaded:"; lsmod | grep -E "^(nvrm_nodes|virtio_nvrm) "' || return 1
+    echo "== dmesg =="
+    lea_ssh "$ip" 'sudo dmesg | grep -E "virtio_nvrm|nvrm_nodes:" | tail -20'
+}
+
+# lea_guest_build_nvkms NAME [--no-load] [--no-ship] [--no-drm] [--no-modeset]
+# Build NVIDIA's own nvidia-modeset.ko AND nvidia-drm.ko IN THE GUEST, on
+# top of virtio_nvrm.ko. This is the real driver: 50 .c files of NVIDIA
+# source at DRIVER_VERSION, unpatched. It links against exactly ONE symbol
+# of nvidia.ko -- nvidia_get_rm_ops -- and virtio_nvrm.ko exports it.
+#
+# Two things the guest needs that are easy to miss, both measured: the
+# `video` module (backlight symbols; insmod otherwise says "Unknown symbol",
+# which looks like a porting problem), and the device node 195:254 that
+# nvidia-modprobe would create on a normal system.
+lea_guest_build_nvkms() {
+    local name=$1; shift
+    local load=1 ship=1 drm=1 modeset=1 ip
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --no-load)    load=0; shift ;;
+            --no-ship)    ship=0; shift ;;
+            --no-drm)     drm=0; shift ;;
+            --no-modeset) modeset=0; shift ;;
+            *) die "lea_guest_build_nvkms: unknown option $1" ;;
+        esac
+    done
+    ip=$(_lea_ip "$name") || return 1
+    local vendor=$LEA_ROOT/vendor/open-gpu-kernel-modules
+    # Single-quoted on purpose: $HOME must expand in the GUEST shell.
+    local src='$HOME/nvkms-src/open-gpu-kernel-modules'
+    [[ -d $vendor/kernel-open ]] || { error "no $vendor -- run scripts/build.sh vendor"; return 1; }
+    # virtio_nvrm.ko has to exist first -- its Module.symvers is what
+    # resolves nvidia_get_rm_ops.
+    lea_ssh "$ip" 'test -f ~/guest-module/virtio_nvrm/Module.symvers' || {
+        error "no virtio_nvrm Module.symvers in $name -- lea_guest_build_nvrm first"; return 1; }
+    lea_ssh "$ip" 'grep -q nvidia_get_rm_ops ~/guest-module/virtio_nvrm/Module.symvers' || {
+        error "virtio_nvrm.ko does not export nvidia_get_rm_ops"; return 1; }
+    if [[ $ship -eq 1 ]]; then
+        echo "== ship NVIDIA source (build artefacts excluded) =="
+        # The CONTENTS of the resolved directory: vendor/open-gpu-kernel-modules
+        # may be a symlink (a shared checkout), and tar would ship the link.
+        # PIPESTATUS, because a tar that fails leaves ssh extracting nothing
+        # and reporting success.
+        local vend_real; vend_real=$(readlink -f "$vendor")
+        tar -C "$vend_real" -cf - \
+            --exclude=.git --exclude=_out --exclude='*.o' --exclude='*.ko' \
+            --exclude='.*.cmd' --exclude=conftest --exclude=Module.symvers \
+            --exclude='*.o_binary' . \
+          | lea_ssh "$ip" "rm -rf ~/nvkms-src && mkdir -p ~/nvkms-src/open-gpu-kernel-modules && tar -C ~/nvkms-src/open-gpu-kernel-modules -xf -"
+        [[ ${PIPESTATUS[0]} -eq 0 && ${PIPESTATUS[1]} -eq 0 ]] || { error "shipping the NVIDIA source to $name failed"; return 1; }
+    fi
+    echo "== build nv-modeset-kernel.o (the OS-agnostic half) =="
+    lea_ssh "$ip" "cd $src && make -C src/nvidia-modeset -j\$(nproc) 2>&1 | tail -3"
+    # kbuild does NOT treat KBUILD_EXTRA_SYMBOLS as a dependency: change
+    # virtio_nvrm.ko and rebuild here, and make says "nothing to be done"
+    # while the .ko keeps the OLD symbol CRC. The load then fails with
+    # "disagrees about version of symbol nvidia_get_rm_ops", which reads
+    # like an ABI problem and is a stale object file. Drop the outputs so the
+    # link always happens. And conftest/ caches the API probes AND the module
+    # list it was made for -- changing NV_KERNEL_MODULES without dropping it
+    # reports five API incompatibilities that do not exist. Measured, twice.
+    local modlist="nvidia-modeset"
+    [[ $drm -eq 1 ]] && modlist="nvidia-modeset nvidia-drm"
+    echo "== build $modlist against virtio_nvrm's symbols =="
+    lea_ssh "$ip" "set -e
+cd $src
+rm -rf kernel-open/conftest
+rm -f kernel-open/nvidia-modeset.ko kernel-open/nvidia-modeset.o \
+      kernel-open/nvidia-modeset.mod.o kernel-open/Module.symvers \
+      kernel-open/nvidia-modeset/nv-modeset-interface.o \
+      kernel-open/nvidia-drm.ko kernel-open/nvidia-drm.o kernel-open/nvidia-drm.mod.o
+ln -sf ../../src/nvidia-modeset/_out/Linux_x86_64/nv-modeset-kernel.o \
+       kernel-open/nvidia-modeset/nv-modeset-kernel.o_binary
+make -C kernel-open modules -j\$(nproc) NV_KERNEL_MODULES='$modlist' \
+     KBUILD_EXTRA_SYMBOLS=\$HOME/guest-module/virtio_nvrm/Module.symvers 2>&1 \
+  | grep -E 'LD \[M\]|MODPOST|error|Error' || true
+test -f kernel-open/nvidia-modeset.ko" || { error "nvidia-modeset.ko was not built"; return 1; }
+    [[ $drm -eq 1 ]] && { lea_ssh "$ip" "test -f $src/kernel-open/nvidia-drm.ko" \
+        || { error "nvidia-drm.ko was not built"; return 1; }; }
+    echo "== undefined nvidia symbols (the whole dependency, listed) =="
+    lea_ssh "$ip" "nm -u $src/kernel-open/nvidia-modeset.ko | grep -iE 'nvidia|nvKms' || echo '  (none besides nvidia_get_rm_ops, already resolved)'"
+    [[ $load -eq 1 ]] || { echo "built (not loaded)."; return 0; }
+    echo "== load =="
+    # WARNING: the teardown is THREE deep -- nvidia_drm, then nvidia_modeset,
+    # then virtio_nvrm. Skipping a level makes `rmmod virtio_nvrm` fail
+    # silently and the next `insmod` say "File exists", which reads like a
+    # doubly loaded module and is a held reference.
+    lea_ssh "$ip" "set -e
+        sudo rmmod nvidia_drm 2>/dev/null || true
+        sudo rmmod nvidia_modeset 2>/dev/null || true
+        sudo modprobe video
+        sudo insmod $src/kernel-open/nvidia-modeset.ko
+        if [ ! -e /dev/nvidia-modeset ]; then
+            sudo mknod /dev/nvidia-modeset c 195 254
+            sudo chmod 666 /dev/nvidia-modeset
+        fi" || return 1
+    if [[ $drm -eq 1 ]]; then
+        lea_ssh "$ip" "sudo insmod $src/kernel-open/nvidia-drm.ko modeset=$modeset" || return 1
+        echo "  nvidia-drm loaded with modeset=$modeset"
+    fi
+    echo "== proof =="
+    lea_ssh "$ip" 'echo "-- lsmod"; lsmod | grep -E "^(nvidia_modeset|virtio_nvrm|video) "
+echo "-- /proc/devices"; grep nvidia /proc/devices
+echo "-- node"; ls -l /dev/nvidia-modeset
+echo "-- dmesg"; sudo dmesg | grep -E "nvidia-modeset|NVKMS|virtio_nvrm:" | tail -8'
+}
+
+# ---- the display ------------------------------------------------------------
+# lea_display_stage NAME -- ship the five things the guest image does NOT
+# have before an X server will bind NVIDIA, each of which cost a measurement:
+#
+#   1. /usr/share/X11/xorg.conf.d/10-nvidia-drm-outputclass.conf. Matches on
+#      MatchDriver "nvidia-drm" -- the DRM DRIVER NAME, not a PCI id -- so X
+#      selects nvidia_drv for our node with no PCI trick at all.
+#   2. nvidia-drm_gbm.so (libnvidia-gbm1), TWICE: libgbm selects its backend
+#      by DRIVER NAME and dlopens <name>_gbm.so. The 32-bit half was never
+#      installed, and a 32-bit client (Steam) therefore fell into Mesa's
+#      loader, which is the code that asks for the PCI id (2026-08-18).
+#   3. /opt/nvrm-gl/lib on the loader path.
+#   4. The card's PCI config header, for the mediated identity
+#      (scripts/guest/display-identity.sh).
+#   5. NVIDIA's X driver and GLX server module (nvidia_drv.so,
+#      libglxserver_nvidia.so) -- the server side, which the GL payload
+#      does not carry; they used to reach the guest by hand.
+# Plus the identity script, the probe sources, and the dev headers they need.
+lea_display_stage() {
+    local name=$1 ip gbm gbm32 bdf nvcfg
+    ip=$(_lea_ip "$name") || return 1
+    gbm=$(find /usr/lib /usr/lib64 -name 'nvidia-drm_gbm.so' 2>/dev/null | head -1)
+    [[ -n $gbm ]] || { error "no nvidia-drm_gbm.so on this host"; return 1; }
+    # NOT fatal when absent: a host without lib32-nvidia-utils can still
+    # drive the display gate, it just cannot serve 32-bit GBM clients.
+    gbm32=$(find "$LEA_NVIDIA_LIB32_DIR" -name 'nvidia-drm_gbm.so' 2>/dev/null | head -1)
+
+    echo "== staging the NVIDIA userspace pieces the guest image lacks =="
+    lea_ssh "$ip" 'cat > /tmp/nvidia-drm_gbm.so' < "$gbm"
+    lea_ssh "$ip" 'set -e
+        sudo install -Dm755 /tmp/nvidia-drm_gbm.so /usr/lib/x86_64-linux-gnu/gbm/nvidia-drm_gbm.so
+        rm -f /tmp/nvidia-drm_gbm.so' || return 1
+    if [[ -n $gbm32 ]]; then
+        lea_ssh "$ip" 'cat > /tmp/nvidia-drm_gbm32.so' < "$gbm32"
+        lea_ssh "$ip" 'set -e
+            sudo install -Dm755 /tmp/nvidia-drm_gbm32.so /usr/lib/i386-linux-gnu/gbm/nvidia-drm_gbm.so
+            rm -f /tmp/nvidia-drm_gbm32.so'
+        echo "   32-bit GBM backend staged (from $gbm32)"
+    else
+        warn "no 32-bit nvidia-drm_gbm.so on this host. 32-bit GBM clients (Steam) will
+         fall back to Mesa and read the virtio PCI id. Install lib32-nvidia-utils,
+         or set LEA_NVIDIA_LIB32_DIR."
+    fi
+    lea_ssh "$ip" 'set -e
+        { echo /opt/nvrm-gl/lib; echo /opt/nvrm-gl/lib32; } | sudo tee /etc/ld.so.conf.d/nvrm-gl.conf >/dev/null
+        sudo ldconfig
+        sudo mkdir -p /usr/share/X11/xorg.conf.d
+        sudo tee /usr/share/X11/xorg.conf.d/10-nvidia-drm-outputclass.conf >/dev/null <<EOC
+Section "OutputClass"
+    Identifier "nvidia"
+    MatchDriver "nvidia-drm"
+    Driver "nvidia"
+    Option "AllowEmptyInitialConfiguration"
+    ModulePath "/usr/lib/nvidia/xorg"
+    ModulePath "/usr/lib/xorg/modules"
+EndSection
+EOC' || return 1
+
+    # 5: NVIDIA's X DRIVER and its GLX server module. The GL payload
+    # (lea_gl_stage) is the CLIENT side -- libGLX_nvidia and friends -- and
+    # says nothing about what the X server loads: `nvidia_drv.so` and
+    # `libglxserver_nvidia.so`. Until 2026-08-18 they reached the desktop
+    # guest by hand ("host and guest run the same version, so taken from
+    # there"), which is why a freshly baked desktop image failed X with
+    # `Failed to load module "nvidia" (module does not exist)`. Same version
+    # rule as libcuda: this host's copy, into the ModulePath the outputclass
+    # above names.
+    local xdrv glxs want
+    want=$(lea_want_driver)
+    xdrv=$(find /usr/lib/nvidia/xorg /usr/lib/xorg/modules/drivers /usr/lib64/xorg/modules/drivers \
+                /run/opengl-driver/lib -name nvidia_drv.so 2>/dev/null | head -1)
+    glxs=$(find /usr/lib/nvidia/xorg /usr/lib/xorg/modules/extensions /usr/lib64/xorg/modules/extensions \
+                /run/opengl-driver/lib -name "libglxserver_nvidia.so.$want" 2>/dev/null | head -1)
+    [[ -n $xdrv && -n $glxs ]] || { error "no nvidia_drv.so / libglxserver_nvidia.so.$want on this host -- the X server side of the driver (Arch: nvidia-utils, /usr/lib/nvidia/xorg)"; return 1; }
+    lea_ssh "$ip" 'cat > /tmp/nvidia_drv.so' < "$xdrv"
+    lea_ssh "$ip" "cat > /tmp/libglxserver_nvidia.so.$want" < "$glxs"
+    lea_ssh "$ip" "set -e
+        sudo install -Dm755 /tmp/nvidia_drv.so /usr/lib/nvidia/xorg/nvidia_drv.so
+        sudo install -Dm755 /tmp/libglxserver_nvidia.so.$want /usr/lib/nvidia/xorg/libglxserver_nvidia.so.$want
+        sudo ln -sfn libglxserver_nvidia.so.$want /usr/lib/nvidia/xorg/libglxserver_nvidia.so.1
+        sudo ln -sfn libglxserver_nvidia.so.1 /usr/lib/nvidia/xorg/libglxserver_nvidia.so
+        rm -f /tmp/nvidia_drv.so /tmp/libglxserver_nvidia.so.$want" || return 1
+    echo "  nvidia_drv.so and libglxserver_nvidia.so.$want staged (from $(dirname "$xdrv"))"
+
+    # 4: the config header of the card in THIS machine. 64 bytes are readable
+    # without privileges and carry everything the probe reads: vendor,
+    # device, class, revision, subsystem. The rest is padded.
+    bdf=$(nvidia-smi --query-gpu=pci.bus_id --format=csv,noheader 2>/dev/null | head -1 | tr 'A-F' 'a-f')
+    bdf=${bdf#00000000:}; bdf="0000:${bdf}"
+    [[ -r /sys/bus/pci/devices/$bdf/config ]] || { error "no config space at /sys/bus/pci/devices/$bdf"; return 1; }
+    nvcfg=$(mktemp)
+    python3 - "$bdf" <<'PY' > "$nvcfg"
+import sys
+d = open(f"/sys/bus/pci/devices/{sys.argv[1]}/config", "rb").read()
+sys.stdout.buffer.write(d + b"\x00" * (256 - len(d)))
+PY
+    lea_ssh "$ip" 'cat > ~/.lea-nvcfg.bin' < "$nvcfg"
+    rm -f "$nvcfg"
+    echo "  config space of $bdf shipped"
+
+    # The identity script and the probes the display gate builds in the
+    # guest. Every one of them is a READER: vkprobe is the only thing that
+    # reads the swapchain, fencetime the only reader of the EVENT
+    # back-channel, atomicflip the reader for the vblank itself (`--watch`
+    # needs no DRM master), fbprobe the only one that answers "is there a
+    # picture in the buffer" (OPEN-QUESTIONS 17). A reader nobody stages is
+    # a reader nobody runs.
+    lea_guest_tar "$name" "$LEA_GUEST_FILES" '$HOME' display-identity.sh \
+        drm-modeset.c shmprobe.c eglprobe.c vkprobe.c paintprobe.c fencetime.c fbprobe.c atomicflip.c \
+        || return 1
+    lea_ssh "$ip" 'chmod +x ~/display-identity.sh'
+    echo "  display-identity.sh and the probes in place"
+
+    # What the probes need to compile. Missing on the plain cloud image, and
+    # each absence costs a gate run to discover.
+    lea_ssh "$ip" 'set -e
+        need=""
+        [ -e /usr/include/X11/extensions/XShm.h ] || need="$need libx11-dev libxext-dev"
+        [ -e /usr/include/gbm.h ]                 || need="$need libgbm-dev"
+        [ -e /usr/include/EGL/egl.h ]             || need="$need libegl-dev"
+        [ -e /usr/include/drm/drm_mode.h ]        || need="$need libdrm-dev"
+        [ -e /usr/include/vulkan/vulkan.h ]       || need="$need libvulkan-dev"
+        if [ -n "$need" ]; then
+            echo "  installing:$need"
+            sudo apt-get install -y -q $need >/dev/null 2>&1 || {
+                echo "  WARNING: apt-get failed -- the display gate will not build its probes" >&2; }
+        else
+            echo "  probe headers already present"
+        fi'
+    echo "staged."
+}
+
+# lea_display_modules NAME [--no-modeset] [--no-vdisplay]
+#                     [--vdisplay-size WxH] [--vdisplay-hz N]
+# Set the virtio_nvrm display parameters and load nvidia-modeset + nvidia-drm.
+#
+# WARNING: the order is not cosmetic. nvidia-drm asks for the kernel-path RM
+# operations WHILE IT LOADS, so `display` has to be 1 before the insmod --
+# otherwise the log fills with "kernel RM op 0x21 is not implemented" and the
+# screen comes up half-built. And the size/rate have to be in place BEFORE
+# nvidia-modeset loads: NVKMS reads the EDID once, while it comes up.
+lea_display_modules() {
+    local name=$1; shift
+    local modeset=1 vdisplay=1 ip
+    local vd_w=${LEA_VDISPLAY_SIZE%x*} vd_h=${LEA_VDISPLAY_SIZE#*x} vd_hz=$LEA_VDISPLAY_HZ
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --no-modeset)    modeset=0; shift ;;
+            --no-vdisplay)   vdisplay=0; shift ;;
+            --vdisplay-size) vd_w=${2%x*}; vd_h=${2#*x}; shift 2 ;;
+            --vdisplay-hz)   vd_hz=$2; shift 2 ;;
+            *) die "lea_display_modules: unknown option $1" ;;
+        esac
+    done
+    ip=$(_lea_ip "$name") || return 1
+    # nvidia-drm's own `vblank` parameter defaults to OFF. With it off the
+    # flip-completion events carry a frame sequence that never advances
+    # (measured 2026-08-17: stuck at 0 across 60 atomic flips). Every
+    # Wayland compositor paces its repaint loop on exactly those numbers;
+    # weston computed a next repaint 281 seconds into the future and slept,
+    # and Sunshine faithfully encoded one still frame sixty times a second.
+    # That is OPEN-QUESTIONS 17's black stream. X11 never needed it, which
+    # is why it was never set.
+    local drmvblank=${LEA_DRM_VBLANK:-1}
+    # The two .ko files exist only where lea_guest_build_nvkms has run.
+    # Build them here when missing; `--no-load` on purpose, because loading
+    # is THIS function's job, in the order the WARNING above insists on.
+    if ! lea_ssh "$ip" 'test -f $HOME/nvkms-src/open-gpu-kernel-modules/kernel-open/nvidia-modeset.ko &&
+                        test -f $HOME/nvkms-src/open-gpu-kernel-modules/kernel-open/nvidia-drm.ko'; then
+        echo "== nvidia-modeset.ko/nvidia-drm.ko not in the guest -- building them (takes minutes) =="
+        lea_guest_build_nvkms "$name" --no-load || { error "no display modules to load"; return 1; }
+    fi
+    # gdm3 first: its gnome-shell opens /dev/dri/card1 the moment nvidia-drm
+    # creates it, and then rmmod says "Module nvidia_drm is in use".
+    lea_ssh "$ip" "set -e
+        sudo systemctl stop gdm3 2>/dev/null || true
+        sleep 2
+        sudo pkill -9 -x gnome-shell 2>/dev/null || true
+        sleep 1
+        sudo rmmod nvidia_drm 2>/dev/null || true
+        sudo rmmod nvidia_modeset 2>/dev/null || true
+        test -e /sys/module/virtio_nvrm/parameters/display && \
+            echo 1 | sudo tee /sys/module/virtio_nvrm/parameters/display >/dev/null
+        # The virtual display NEEDS \`display\` on as well (set just above):
+        # the kernel-path RM operations a display uses are refused without
+        # it. Without both the rig brings up the old, screenless path.
+        test -e /sys/module/virtio_nvrm/parameters/vdisplay && \
+            echo $vdisplay | sudo tee /sys/module/virtio_nvrm/parameters/vdisplay >/dev/null
+        for pv in vdisplay_width:$vd_w vdisplay_height:$vd_h vdisplay_vblank_hz:$vd_hz; do
+            pn=\${pv%%:*}; pval=\${pv#*:}
+            test -n \"\$pval\" -a -e /sys/module/virtio_nvrm/parameters/\$pn && \
+                echo \$pval | sudo tee /sys/module/virtio_nvrm/parameters/\$pn >/dev/null
+        done
+        # The address mediation belongs with the display path: X and NVML
+        # only agree about WHERE the card is once both read the same answer.
+        test -e /sys/module/virtio_nvrm/parameters/bdf_mediation && \
+            echo 1 | sudo tee /sys/module/virtio_nvrm/parameters/bdf_mediation >/dev/null
+        SRC=\$HOME/nvkms-src/open-gpu-kernel-modules
+        sudo modprobe video
+        sudo insmod \$SRC/kernel-open/nvidia-modeset.ko
+        if [ ! -e /dev/nvidia-modeset ]; then
+            sudo mknod /dev/nvidia-modeset c 195 254
+            sudo chmod 666 /dev/nvidia-modeset
+        fi
+        sudo insmod \$SRC/kernel-open/nvidia-drm.ko modeset=$modeset vblank=$drmvblank" || return 1
+    echo "display path on, nvidia-modeset + nvidia-drm loaded (modeset=$modeset)"
+    # Read the parameters BACK rather than trusting the writes: an old module
+    # silently has no `vdisplay` at all, and the tee above is guarded.
+    echo "  virtio_nvrm parameters as the guest now has them:"
+    lea_ssh "$ip" 'for p in display vdisplay vdisplay_width vdisplay_height bdf_mediation; do
+                       f=/sys/module/virtio_nvrm/parameters/$p
+                       if [ -e "$f" ]; then echo "    $p=$(cat $f)"; else echo "    $p: NOT BUILT"; fi
+                   done'
+    lea_ssh "$ip" "ls /dev/dri"
+}
+
+# lea_display_x NAME [--display :N] [--conf FILE] [--virtual WxH]
+# Start Xorg inside the mediated PCI identity and nothing else -- no
+# session, no compositor. What runs on the screen is the caller's business.
+# WARNING: gdm3 respawns X. This stops it first; lea_display_down does NOT
+# start it again, because a gdm that comes back mid-measurement is worse
+# than no desktop.
+lea_display_x() {
+    local name=$1; shift
+    local disp=:1 conf="" virtual="" ip n
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --display) disp=$2; shift 2 ;;
+            --conf)    conf=$2; shift 2 ;;
+            --virtual) virtual=$2; shift 2 ;;
+            *) die "lea_display_x: unknown option $1" ;;
+        esac
+    done
+    ip=$(_lea_ip "$name") || return 1
+    n=${disp#:}
+    local remote_conf=/etc/X11/lea-display.conf conf_arg=""
+    # The guest module's display path is OFF by default. Turning it on here,
+    # and only here, is what keeps `display=0` a provable baseline.
+    lea_ssh "$ip" "test -e /sys/module/virtio_nvrm/parameters/display && \
+               echo 1 | sudo tee /sys/module/virtio_nvrm/parameters/display >/dev/null \
+               && echo '  virtio_nvrm display path: on' || \
+               echo '  WARNING: virtio_nvrm has no display parameter -- old module?'"
+    # gdm3 first: it owns a display and puts a new X back the moment one dies.
+    # WARNING: an X server that wedged on a half-built GPU screen does not
+    # answer SIGTERM. It then keeps /dev/nvidia* open, `rmmod virtio_nvrm`
+    # fails silently, and the next `insmod` says "File exists".
+    lea_ssh "$ip" "sudo systemctl stop gdm3 2>/dev/null || true; sleep 2
+               sudo pkill -x Xorg 2>/dev/null || true
+               sudo pkill -x Xwayland 2>/dev/null || true
+               sleep 2
+               pgrep -x Xorg >/dev/null && sudo pkill -9 -x Xorg || true
+               sleep 1
+               sudo rm -f /tmp/.X${n}-lock /tmp/.X11-unix/X${n}"
+    if [[ -n $conf ]]; then
+        lea_ssh "$ip" "cat > /tmp/lea-display.conf" < "$conf"
+        lea_ssh "$ip" "sudo install -m644 /tmp/lea-display.conf $remote_conf"
+        conf_arg="-config $remote_conf"
+    elif [[ -n $virtual ]]; then
+        # No CRTC means no mode, and the driver then picks 640x480 with
+        # MetaMode NULL. The size has to be stated. Option UseDisplayDevice
+        # "none" USED to be here, and removing it is what made Sunshine
+        # possible: measured 2026-08-15, same rig, only this option removed:
+        # with it xrandr shows NO output at all, without it DVI-D-0 connected
+        # 1920x1080. Sunshine counts monitors, and a screen with no RandR
+        # output has none ("Unable to initialize capture method").
+        local w=${virtual%x*} h=${virtual#*x}
+        lea_ssh "$ip" "sudo tee $remote_conf >/dev/null <<EOC
+Section \"Files\"
+    ModulePath \"/usr/lib/nvidia/xorg\"
+    ModulePath \"/usr/lib/xorg/modules\"
+EndSection
+Section \"ServerLayout\"
+    Identifier \"layout\"
+    Screen 0 \"nvscr\"
+EndSection
+Section \"Device\"
+    Identifier \"nv\"
+    Driver     \"nvidia\"
+EndSection
+Section \"Screen\"
+    Identifier \"nvscr\"
+    Device     \"nv\"
+    Option     \"AllowEmptyInitialConfiguration\" \"true\"
+    DefaultDepth 24
+    SubSection \"Display\"
+        Depth 24
+        Virtual $w $h
+    EndSubSection
+EndSection
+EOC"
+        conf_arg="-config $remote_conf"
+    fi
+    # WARNING: the parentheses/setsid/nohup shape. Without it ssh keeps the
+    # channel open and this call never returns. LEA_NVCFG spelled out: under
+    # sudo $HOME is /root, and the blob lives in the login user's home.
+    # `sh -c` spelled out, and it is load-bearing: display-identity.sh runs
+    # its argument list with exec "$@", so a string full of shell syntax
+    # has to be handed to a shell explicitly.
+    local home; home=$(lea_ssh "$ip" 'echo $HOME')
+    lea_ssh "$ip" "sudo LEA_NVCFG=$home/.lea-nvcfg.bin sh -c '$home/display-identity.sh \
+        sh -c \"setsid nohup Xorg $disp $conf_arg -logfile /tmp/lea-xorg.log \
+          -novtswitch -sharevts >/tmp/lea-xorg.out 2>&1 </dev/null &\"'" || true
+    sleep 8
+    if lea_ssh "$ip" "pgrep -x Xorg >/dev/null"; then
+        echo "Xorg on $disp is up  (log: /tmp/lea-xorg.log)"
+    else
+        error "Xorg did not come up"
+        lea_ssh "$ip" "sudo grep -E '\(EE\)' /tmp/lea-xorg.log | head -10" >&2 || true
+        return 1
+    fi
+}
+
+lea_display_status() {
+    local name=$1 disp=${2:-:7} ip
+    ip=$(_lea_ip "$name") || return 1
+    lea_ssh "$ip" "echo '-- modules'; lsmod | grep -E '^(nvidia_drm|nvidia_modeset|virtio_nvrm) ' || true
+        echo '-- drm'; ls /dev/dri 2>/dev/null || echo 'none'
+        echo '-- pci address RM reports'
+        nvidia-smi --query-gpu=pci.bus_id --format=csv,noheader 2>/dev/null || true
+        echo '-- Xorg'; pgrep -x Xorg >/dev/null && echo 'running' || echo 'stopped'
+        echo '-- providers'
+        DISPLAY=$disp timeout 15 xrandr --listproviders 2>&1 | head -5"
+}
+
+# lea_display_down NAME [--display :N] -- X off, identity namespace gone,
+# display path off. gdm3 left stopped on purpose.
+lea_display_down() {
+    local name=$1 disp=:7 ip n; shift
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --display) disp=$2; shift 2 ;;
+            *) die "lea_display_down: unknown option $1" ;;
+        esac
+    done
+    ip=$(_lea_ip "$name") || return 1
+    n=${disp#:}
+    lea_ssh "$ip" "sudo pkill -x Xorg 2>/dev/null || true; sleep 2
+               pgrep -x Xorg >/dev/null && sudo pkill -9 -x Xorg || true; sleep 1
+               sudo rm -f /tmp/.X${n}-lock /tmp/.X11-unix/X${n}
+               sudo rm -rf /run/lea-pci-identity
+               test -e /sys/module/virtio_nvrm/parameters/display && \
+                 echo 0 | sudo tee /sys/module/virtio_nvrm/parameters/display >/dev/null || true"
+    echo "display rig down (gdm3 left stopped on purpose -- start it by hand)"
+}
+
+# lea_display_up NAME [--display :N] [--res WxH] [--hz N] -- stage, modules,
+# X on the virtual display: the display gate's rig.
+#
+# X's Virtual must MATCH the module's size -- otherwise the connector offers
+# a mode the screen cannot hold and X falls back to 640x480 with no error
+# anywhere (measured 2026-08-16). So one knob feeds both.
+lea_display_up() {
+    local name=$1; shift
+    local disp=:7 res=$LEA_VDISPLAY_SIZE hz=$LEA_VDISPLAY_HZ
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --display) disp=$2; shift 2 ;;
+            --res)     res=$2; shift 2 ;;
+            --hz)      hz=$2; shift 2 ;;
+            *) die "lea_display_up: unknown option $1" ;;
+        esac
+    done
+    lea_display_stage   "$name" || return 1
+    lea_display_modules "$name" --vdisplay-size "$res" --vdisplay-hz "$hz" || return 1
+    lea_display_x       "$name" --display "$disp" --virtual "$res" || return 1
+}
+
+# ---- the desktop ------------------------------------------------------------
+# lea_desktop_up NAME [--session gnome|openbox] [--display :N] [--res WxH]
+#                [--hz N] [--with-steam]
+# The measured desktop: the display rig, then a session, then Sunshine, then
+# a read-back. This is the arrangement that streamed on 2026-08-15 (60 FPS
+# over Moonlight, input confirmed by hand), written down so that "it works"
+# stops being a statement about one hand-run.
+#
+# GNOME needs the module's vblank service: without it gnome-shell renders
+# one frame and input dies (OPEN-QUESTIONS nr 7; measured fixed 2026-08-16).
+# The rig X on the display is started EITHER WAY: it is the one place that
+# writes lea-display.conf, and proving that server comes up is worth the
+# seconds. With gnome it is then stopped again and gdm3 takes over on :0
+# with the SAME configuration (the xorg.conf copy). --session openbox keeps
+# the hand-run arrangement: the rig X stays, openbox and Sunshine run on it.
+#
+# --with-steam starts Steam LAST. Historical reason: a Steam start used to
+# kill the SHMEM channel (OPEN-QUESTIONS nr 9); the backend probes every
+# mmap itself since 2026-08-16, and the order stays because it costs nothing.
+lea_desktop_up() {
+    local name=$1; shift
+    local session=gnome disp=:7 res=$LEA_VDISPLAY_SIZE hz=$LEA_VDISPLAY_HZ steam=0 ip
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --session)    session=$2; shift 2 ;;
+            --display)    disp=$2; shift 2 ;;
+            --res)        res=$2; shift 2 ;;
+            --hz)         hz=$2; shift 2 ;;
+            --with-steam) steam=1; shift ;;
+            *) die "lea_desktop_up: unknown option $1" ;;
+        esac
+    done
+    case $session in gnome|openbox) ;; *) die "--session wants gnome or openbox" ;; esac
+    ip=$(_lea_ip "$name") || return 1
+
+    echo "== $name: display rig: stage, modules, X on $disp =="
+    lea_display_up "$name" --display "$disp" --res "$res" --hz "$hz" || return 1
+
+    # The guest state the image lacks. Hand-set on 2026-08-15, collected here
+    # so a fresh image gets it too. All idempotent.
+    echo "== $name: guest state: xorg.conf, gdm3 autologin, identity drop-in, xdotool =="
+    lea_ssh "$ip" 'set -e
+        # A display manager starts X with no way to pass -config: it reads
+        # /etc/X11/xorg.conf. Same configuration as the hand-started server.
+        sudo cp /etc/X11/lea-display.conf /etc/X11/xorg.conf
+        sudo mkdir -p /etc/gdm3
+        sudo tee /etc/gdm3/custom.conf >/dev/null <<EOC
+[daemon]
+AutomaticLoginEnable=true
+AutomaticLogin='"$LEA_GUEST_USER"'
+WaylandEnable=false
+EOC
+        # gdm3 inside the mediated PCI identity namespace: nvidia_drv.so
+        # probes libpciaccess for a 10de device; our DRM node hangs off a
+        # virtio device, so without this it reports "No devices detected".
+        sudo mkdir -p /etc/systemd/system/gdm.service.d
+        sudo tee /etc/systemd/system/gdm.service.d/10-lea-identity.conf >/dev/null <<EOC
+[Service]
+Environment=LEA_NVCFG=/home/'"$LEA_GUEST_USER"'/.lea-nvcfg.bin
+ExecStart=
+ExecStart=/home/'"$LEA_GUEST_USER"'/display-identity.sh /usr/sbin/gdm3
+EOC
+        sudo systemctl daemon-reload
+        command -v xdotool >/dev/null || sudo apt-get install -y -q xdotool >/dev/null 2>&1 \
+            || echo "  WARNING: xdotool did not install -- input probes will not run" >&2
+        # Steam runs its games inside pressure-vessel, and bwrap needs an
+        # unprivileged user namespace. Ubuntu 24.04 restricts those to
+        # AppArmor-profiled binaries; a Steam started from SSH is unconfined
+        # and CS2 reports "Failed to initialize Vulkan" (OPEN-QUESTIONS nr 11).
+        # Lifting the restriction is a hardening trade-off, accepted for this
+        # test guest.
+        echo "kernel.apparmor_restrict_unprivileged_userns = 0" | \
+            sudo tee /etc/sysctl.d/99-lea-userns.conf >/dev/null
+        sudo sysctl -q -p /etc/sysctl.d/99-lea-userns.conf' || return 1
+    echo "  guest state written"
+
+    lea_ssh "$ip" "command -v sunshine >/dev/null" || {
+        error "no sunshine binary in $name -- this image never streamed (build.sh bake --with-desktop)"; return 1; }
+
+    if [[ $session == gnome ]]; then
+        echo "== $name: session: GNOME via gdm3 (the rig X on $disp makes way) =="
+        lea_ssh "$ip" "sudo pkill -x Xorg 2>/dev/null || true; sleep 2
+                   pgrep -x Xorg >/dev/null && sudo pkill -9 -x Xorg || true; sleep 1
+                   sudo rm -f /tmp/.X${disp#:}-lock /tmp/.X11-unix/X${disp#:}
+                   sudo systemctl restart gdm3"
+        local gs="" i
+        for i in $(seq 1 30); do
+            gs=$(lea_ssh "$ip" 'pgrep -x gnome-shell | head -1' 2>/dev/null | tr -d '[:space:]\r')
+            [[ -n $gs ]] && break
+            sleep 2
+        done
+        [[ -n $gs ]] || {
+            error "gnome-shell did not come up"
+            lea_ssh "$ip" 'sudo grep -E "\(EE\)" /var/log/Xorg.0.log | head -5' >&2 || true
+            return 1; }
+        sleep 5
+        # Sunshine (and Steam) join the SESSION: display and Xauthority are
+        # read from gnome-shell's environment rather than assumed.
+        lea_ssh "$ip" 'GS=$(pgrep -x gnome-shell | head -1)
+            D=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^DISPLAY=//p")
+            XA=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^XAUTHORITY=//p")
+            sh -c "setsid nohup env DISPLAY=$D XAUTHORITY=$XA sunshine \
+                >/tmp/lea-sunshine.out 2>&1 </dev/null &"'
+        if [[ $steam -eq 1 ]]; then
+            lea_ssh "$ip" 'GS=$(pgrep -x gnome-shell | head -1)
+                D=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^DISPLAY=//p")
+                XA=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^XAUTHORITY=//p")
+                sh -c "setsid nohup env DISPLAY=$D XAUTHORITY=$XA \
+                    DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus steam \
+                    >/tmp/lea-steam.log 2>&1 </dev/null &"'
+        fi
+        sleep 5
+    else
+        echo "== $name: session (openbox) and Sunshine on $disp =="
+        lea_ssh "$ip" "sh -c 'export DISPLAY=$disp
+            setsid nohup dbus-run-session -- sh -c \"openbox & sleep 3; sleep infinity\" \
+                >/tmp/lea-session.log 2>&1 </dev/null &'"
+        sleep 4
+        if [[ $steam -eq 1 ]]; then
+            lea_ssh "$ip" "sh -c 'setsid nohup env DISPLAY=$disp \
+                DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus steam \
+                >/tmp/lea-steam.log 2>&1 </dev/null &'"
+        fi
+        lea_ssh "$ip" "sh -c 'setsid nohup env DISPLAY=$disp sunshine \
+            >/tmp/lea-sunshine.out 2>&1 </dev/null &'"
+        sleep 5
+    fi
+
+    # No success claim without a reader (the rule since 2026-08-07).
+    echo "== $name: read back =="
+    if [[ $session == gnome ]]; then
+        lea_ssh "$ip" "pgrep -x gnome-shell >/dev/null" \
+            || { error "gnome-shell died after coming up"; return 1; }
+        # The vblank engine feeds the session, or GNOME is one frozen frame
+        # with a moving pointer (OPEN-QUESTIONS nr 7). Read the counter twice.
+        local v1 v2
+        v1=$(lea_ssh "$ip" 'cat /sys/module/virtio_nvrm/parameters/stat_vblank_fired' | tr -d '[:space:]\r')
+        sleep 3
+        v2=$(lea_ssh "$ip" 'cat /sys/module/virtio_nvrm/parameters/stat_vblank_fired' | tr -d '[:space:]\r')
+        if [[ -n $v1 && -n $v2 && $v2 -gt $v1 ]]; then
+            echo "  vblank engine ticking: $v1 -> $v2"
+        else
+            error "stat_vblank_fired is not advancing ($v1 -> $v2) -- GNOME will freeze"
+            return 1
+        fi
+    else
+        lea_ssh "$ip" "pgrep -x openbox >/dev/null" || { error "openbox is not running"; return 1; }
+        lea_ssh "$ip" "DISPLAY=$disp timeout 10 xwininfo -root | head -3" \
+            || { error "the X server on $disp does not answer"; return 1; }
+    fi
+    lea_ssh "$ip" "pgrep -x sunshine >/dev/null" \
+        || { error "sunshine is not running (log: /tmp/lea-sunshine.out)"; return 1; }
+    lea_ssh "$ip" "ss -ltn | grep -qE ':(47984|47989|47990) '" \
+        || { error "sunshine is up but not listening"; return 1; }
+    lea_ssh "$ip" "test -s ~/.config/sunshine/creds.json" \
+        || echo "  NOTE: no Sunshine credentials yet -- pair once: moonlight pair $ip"
+    echo
+    echo "desktop up ($session). Stream it with:"
+    echo "  moonlight stream $ip Desktop --resolution $res --fps $hz --bitrate 40000"
+}
+
+# lea_desktop_recycle NAME [--display :N] -- take a running desktop guest
+# back to "modules can be reloaded": session, Sunshine, Steam and X stopped,
+# the NVKMS modules unloaded. Whatever runs in that session dies with it --
+# do not point this at a guest somebody is using.
+#
+# The NVKMS modules hold symbols of virtio_nvrm; a bare `rmmod virtio_nvrm`
+# with nvidia_modeset still loaded fails SILENTLY and the following insmod
+# dies on "File exists" (measured 2026-08-16, first recycle attempt).
+lea_desktop_recycle() {
+    local name=$1 disp=:7 ip; shift
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --display) disp=$2; shift 2 ;;
+            *) die "lea_desktop_recycle: unknown option $1" ;;
+        esac
+    done
+    ip=$(_lea_ip "$name") || return 1
+    echo "== $name: recycling the running guest -- stopping session, Sunshine, X =="
+    # -x, never -f: a -f pattern that appears in this very ssh command line
+    # kills the shell carrying it (measured twice). And -x matches the COMM
+    # name, which the kernel truncates to 15 characters -- "dbus-run-session"
+    # never matches; its comm is "dbus-run-sessio".
+    lea_ssh "$ip" 'pkill -x sunshine 2>/dev/null || true
+               pkill -x steam 2>/dev/null || true
+               pkill -x openbox 2>/dev/null || true
+               pkill -x dbus-run-sessio 2>/dev/null || true
+               sleep 2' || true
+    lea_display_down "$name" --display "$disp"
+    lea_ssh "$ip" 'sudo systemctl stop gdm3 2>/dev/null || true; sleep 2
+               sudo pkill -9 -x gnome-shell 2>/dev/null || true; sleep 1
+               sudo rmmod nvidia_drm 2>/dev/null || true
+               sudo rmmod nvidia_modeset 2>/dev/null || true' || true
+}

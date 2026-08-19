@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+target
+# NOT corpus/. The 126 coverage-minimised representatives under
+# corpus/handle_msg/ are versioned on purpose: the replay test in
+# session.rs runs them in every `cargo test`, without nightly
+# (docs/TESTING.md section 2). While `corpus` stood here they were tracked
+# only because they had been force-added, and anything a later fuzz run
+# added was invisible to `git status`.
+artifacts
+coverage

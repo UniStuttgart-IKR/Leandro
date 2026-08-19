@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: MIT
+/target
+/vendor/open-gpu-kernel-modules
+/vendor/cloud-hypervisor
+/vendor/guest-image   # pre-2026-08-18 location; now $LEA_VM_DIR/guest-image
+/vendor/hostvenv
+/vendor/virtio-spec
+*.log
+/traces/
+tmp.md
+
+/tmp
+/vm
+
+# Compiled probes. The SOURCES are checked in, the binaries are not.
+# Prebuilt binaries used to be versioned here, and a stale one made the gate
+# check output strings that no longer existed in any source -- it passed
+# against text nothing produced any more. Every consumer builds them now.
+/probe/bin/
+# Probe run output (traces, straces, logs).
+/probe/traces/
+/probe/__pycache__/
+/probe/**/__pycache__/
+
+# Agent harness session state, not project material.
+/.claude/
+/.hurc-harness/
+
+# This checkout's artefact locations (see local.env.example).
+/local.env
+/result
+/jobs
+/.repowise
+/.vscode
+/.mcp.json
+/.claude

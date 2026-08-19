@@ -1,0 +1,491 @@
+Subject: generic_vhost_user: negotiate and serve the shared memory window
+
+A vhost-user backend can only expose host memory to the guest through a
+virtio shared memory region: the VMM allocates a host window, exports it
+as a dedicated PCI BAR, and maps backend-provided fds into it on request.
+cloud-hypervisor v53 has the plumbing (the `cache` field, get_shm_regions,
+userspace_mappings) but never negotiates SHMEM, never asks the backend for
+sizes, and device_manager always passes `None` -- so the window never
+exists.
+
+For Leandro this is not optional. The very first mapping CUDA needs is
+TURING_USERMODE_A (the doorbell), 64 KiB of MMIO on the card. It cannot
+come from guest RAM, and routing its writes through the command stream
+would turn a zero-roundtrip submission path into one roundtrip per
+submission.
+
+Changes:
+- Advertise VhostUserProtocolFeatures::SHMEM. When the backend acks it,
+  call GET_SHMEM_CONFIG and remember the requested region sizes; expose
+  them via GenericVhostUser::shmem_sizes().
+- device_manager: allocate one host window covering all regions (rounded
+  up to a power of two, as the BAR requires), back it with an anonymous
+  PROT_NONE mapping, register it as a KVM userspace mapping, and hand it
+  to the device via the new set_cache().
+- Implement shmem_map/shmem_unmap on the backend request handler. Both
+  bounds-check the request against the window before touching anything --
+  a backend is not trusted to stay inside it. Unmap restores an anonymous
+  PROT_NONE region rather than leaving a hole.
+- pci_device: skip zero-length shared memory regions when emitting PCI
+  capabilities. The shmid IS the region index, so a device that needs a
+  specific id (virtio-gpu wants VIRTIO_GPU_SHM_ID_HOST_VISIBLE = 1) must
+  pad the list -- and PCI capability space is tight enough that an unused
+  22-byte entry overflows it ("capability of size 22 doesn't fit").
+- The device's `cache` field drops its second tuple element. It was an
+  MmapRegion nobody ever read, and it cannot be filled at all when the
+  same region is already held through the Arc in VirtioSharedMemoryList.
+
+Measured with this project as the backend: guest reports
+"+host_visible" and "Host memory window: 0x3fffe0000000 +0x10000000",
+creates a HOST3D blob, and reads back the pattern the host wrote into the
+memfd it mapped into the window.
+
+diff --git a/virtio-devices/src/lib.rs b/virtio-devices/src/lib.rs
+index c81f370..ab62bad 100644
+--- a/virtio-devices/src/lib.rs
++++ b/virtio-devices/src/lib.rs
+@@ -46,7 +46,7 @@ pub use self::block::{Block, BlockState};
+ pub use self::console::{Console, ConsoleResizer, Endpoint};
+ pub use self::device::{
+     ActivationContext, DmaRemapping, VirtioCommon, VirtioDevice, VirtioInterrupt,
+-    VirtioInterruptType, VirtioSharedMemoryList,
++    VirtioInterruptType, VirtioSharedMemory, VirtioSharedMemoryList,
+ };
+ pub use self::epoll_helper::{
+     EPOLL_HELPER_EVENT_LAST, EpollHelper, EpollHelperError, EpollHelperHandler,
+diff --git a/virtio-devices/src/transport/pci_device.rs b/virtio-devices/src/transport/pci_device.rs
+index 429a03f..270ffdc 100644
+--- a/virtio-devices/src/transport/pci_device.rs
++++ b/virtio-devices/src/transport/pci_device.rs
+@@ -1123,6 +1123,13 @@ impl PciDevice for VirtioPciDevice {
+                 })?;
+ 
+                 for (idx, shm) in shm_list.region_list.iter().enumerate() {
++                    // Empty regions exist only to give the following ones the
++                    // shmid the guest expects (the id IS the index). They need
++                    // no capability -- and PCI capability space is tight
++                    // enough that an unused 22-byte entry can overflow it.
++                    if shm.len == 0 {
++                        continue;
++                    }
+                     let shm_cap = VirtioPciCap64::new(
+                         PciCapabilityType::SharedMemory,
+                         VIRTIO_SHM_BAR_INDEX as u8,
+diff --git a/virtio-devices/src/vhost_user/generic_vhost_user.rs b/virtio-devices/src/vhost_user/generic_vhost_user.rs
+index ae1b0f2..d3022d7 100644
+--- a/virtio-devices/src/vhost_user/generic_vhost_user.rs
++++ b/virtio-devices/src/vhost_user/generic_vhost_user.rs
+@@ -9,8 +9,11 @@ use std::{io, result};
+ use event_monitor::event;
+ use log::{error, info, warn};
+ use seccompiler::SeccompAction;
++use std::os::fd::AsRawFd;
++
+ use vhost::vhost_user::message::{
+-    VhostUserConfigFlags, VhostUserProtocolFeatures, VhostUserVirtioFeatures,
++    VhostUserConfigFlags, VhostUserMMap, VhostUserMMapFlags, VhostUserProtocolFeatures,
++    VhostUserVirtioFeatures,
+ };
+ use vhost::vhost_user::{FrontendReqHandler, VhostUserFrontend, VhostUserFrontendReqHandler};
+ use vm_device::UserspaceMapping;
+@@ -30,8 +33,38 @@ use crate::{
+ 
+ pub type State = VhostUserState<()>;
+ 
++/// The host-side window a backend may map into, as raw address and length.
++/// Only set when SHARED MEMORY was negotiated and the VMM allocated a window.
++#[derive(Copy, Clone)]
++struct ShmemWindow {
++    addr: u64,
++    len: u64,
++}
++
+ struct BackendReqHandler {
+     interrupt_cb: Arc<dyn VirtioInterrupt>,
++    shmem: Option<ShmemWindow>,
++}
++
++impl BackendReqHandler {
++    /// Bounds-check a backend request against the window. The backend is not
++    /// trusted: it may ask for an offset or length outside the window, which
++    /// would make us mmap over unrelated VMM memory.
++    fn window_target(&self, req: &VhostUserMMap) -> io::Result<u64> {
++        let w = self
++            .shmem
++            .ok_or_else(|| io::Error::from_raw_os_error(libc::EINVAL))?;
++        let (offset, len) = (req.shm_offset, req.len);
++        let end = offset
++            .checked_add(len)
++            .ok_or_else(|| io::Error::from_raw_os_error(libc::EINVAL))?;
++        if len == 0 || end > w.len {
++            let wlen = w.len;
++            error!("shmem request {offset:#x}+{len:#x} outside window of {wlen:#x}");
++            return Err(io::Error::from_raw_os_error(libc::EINVAL));
++        }
++        Ok(w.addr + offset)
++    }
+ }
+ 
+ impl VhostUserFrontendReqHandler for BackendReqHandler {
+@@ -44,6 +77,62 @@ impl VhostUserFrontendReqHandler for BackendReqHandler {
+             })?;
+         Ok(0)
+     }
++
++    /// Map a backend-provided fd into the device's shared memory window, so
++    /// the guest can reach host memory through the device's PCI BAR.
++    fn shmem_map(&self, req: &VhostUserMMap, fd: &dyn AsRawFd) -> io::Result<u64> {
++        let target = self.window_target(req)?;
++        let prot = if req.flags & VhostUserMMapFlags::WRITABLE.bits() != 0 {
++            libc::PROT_READ | libc::PROT_WRITE
++        } else {
++            libc::PROT_READ
++        };
++        // SAFETY: `target`..`target + len` lies inside the window we allocated
++        // and still own (checked above), so MAP_FIXED replaces only our own
++        // PROT_NONE placeholder.
++        let addr = unsafe {
++            libc::mmap(
++                target as *mut libc::c_void,
++                req.len as usize,
++                prot,
++                libc::MAP_SHARED | libc::MAP_FIXED,
++                fd.as_raw_fd(),
++                req.fd_offset as libc::off_t,
++            )
++        };
++        if addr == libc::MAP_FAILED {
++            let e = io::Error::last_os_error();
++            let len = req.len;
++            error!("shmem_map at {target:#x} len {len:#x} failed: {e}");
++            return Err(e);
++        }
++        Ok(0)
++    }
++
++    /// Undo a mapping by laying an anonymous PROT_NONE region back over it.
++    /// Plain munmap would punch a hole in the window that a later map could
++    /// not fill with MAP_FIXED reliably.
++    fn shmem_unmap(&self, req: &VhostUserMMap) -> io::Result<u64> {
++        let target = self.window_target(req)?;
++        // SAFETY: same as above -- the range is inside our own window.
++        let addr = unsafe {
++            libc::mmap(
++                target as *mut libc::c_void,
++                req.len as usize,
++                libc::PROT_NONE,
++                libc::MAP_ANONYMOUS | libc::MAP_PRIVATE | libc::MAP_FIXED,
++                -1,
++                0,
++            )
++        };
++        if addr == libc::MAP_FAILED {
++            let e = io::Error::last_os_error();
++            let len = req.len;
++            error!("shmem_unmap at {target:#x} len {len:#x} failed: {e}");
++            return Err(e);
++        }
++        Ok(0)
++    }
+ }
+ 
+ pub struct GenericVhostUser {
+@@ -51,7 +140,8 @@ pub struct GenericVhostUser {
+     id: String,
+     // Hold ownership of the memory that is allocated for the device
+     // which will be automatically dropped when the device is dropped
+-    cache: Option<(VirtioSharedMemoryList, MmapRegion)>,
++    cache: Option<VirtioSharedMemoryList>,
++    shmem_sizes: Vec<u64>,
+     seccomp_action: SeccompAction,
+     exit_evt: EventFd,
+     access_platform_enabled: bool,
+@@ -66,7 +156,7 @@ impl GenericVhostUser {
+         path: &str,
+         request_queue_sizes: Vec<u16>,
+         device_type: u32,
+-        cache: Option<(VirtioSharedMemoryList, MmapRegion)>,
++        cache: Option<VirtioSharedMemoryList>,
+         seccomp_action: SeccompAction,
+         exit_evt: EventFd,
+         access_platform_enabled: bool,
+@@ -79,6 +169,11 @@ impl GenericVhostUser {
+         let mut vu =
+             VhostUserHandle::connect_vhost_user(false, path, num_queues as u64, false, None)?;
+ 
++        // Filled during negotiation when the backend asks for host-visible
++        // shared memory. Stays empty on the restore path: a restored device
++        // already has its window, re-negotiating it would fight the snapshot.
++        let mut shmem_sizes: Vec<u64> = Vec::new();
++
+         let (
+             avail_features,
+             acked_features,
+@@ -111,6 +206,7 @@ impl GenericVhostUser {
+                 | VhostUserProtocolFeatures::INFLIGHT_SHMFD
+                 | VhostUserProtocolFeatures::LOG_SHMFD
+                 | VhostUserProtocolFeatures::DEVICE_STATE
++                | VhostUserProtocolFeatures::SHMEM
+                 | VhostUserProtocolFeatures::BACKEND_REQ;
+ 
+             let avail_features = super::DEFAULT_VIRTIO_FEATURES;
+@@ -135,6 +231,19 @@ since the backend only supports {backend_num_queues}\n",
+                 return Err(Error::BadQueueNum);
+             }
+ 
++            // Ask the backend how much host-visible window it wants. The VMM
++            // allocates it afterwards and hands it back via set_cache(); the
++            // sizes must be known before the PCI BAR is laid out.
++            if acked_protocol_features & VhostUserProtocolFeatures::SHMEM.bits() != 0 {
++                let cfg = vu
++                    .socket_handle()
++                    .get_shmem_config()
++                    .map_err(Error::VhostUserGetShmemConfig)?;
++                let n = (cfg.nregions as usize).min(cfg.memory_sizes.len());
++                shmem_sizes = cfg.memory_sizes[..n].to_vec();
++                info!("generic vhost-user: backend requests {n} shared memory region(s): {shmem_sizes:?}");
++            }
++
+             (
+                 acked_features,
+                 // If part of the available features that have been acked, the
+@@ -170,6 +279,7 @@ since the backend only supports {backend_num_queues}\n",
+             },
+             id,
+             cache,
++            shmem_sizes,
+             seccomp_action,
+             exit_evt,
+             access_platform_enabled,
+@@ -177,6 +287,18 @@ since the backend only supports {backend_num_queues}\n",
+         })
+     }
+ 
++    /// Window sizes the backend asked for during negotiation, one per region.
++    /// Empty when SHARED MEMORY was not negotiated. The VMM allocates these
++    /// and calls [`Self::set_cache`] before the device is activated.
++    pub fn shmem_sizes(&self) -> &[u64] {
++        &self.shmem_sizes
++    }
++
++    /// Hand the device the window the VMM allocated for it.
++    pub fn set_cache(&mut self, cache: VirtioSharedMemoryList) {
++        self.cache = Some(cache);
++    }
++
+     fn state(&self) -> result::Result<State, MigratableError> {
+         self.vu_common.state(())
+     }
+@@ -295,6 +417,10 @@ impl VirtioDevice for GenericVhostUser {
+             .then(|| {
+                 let mut handler = FrontendReqHandler::new(Arc::new(BackendReqHandler {
+                     interrupt_cb: interrupt_cb.clone(),
++                    shmem: self.cache.as_ref().map(|c| ShmemWindow {
++                        addr: c.mapping.as_ptr() as u64,
++                        len: c.mapping.size() as u64,
++                    }),
+                 }))
+                 .map_err(|e| {
+                     crate::ActivateError::VhostUserSetup(Error::FrontendReqHandlerCreation(e))
+@@ -352,7 +478,7 @@ impl VirtioDevice for GenericVhostUser {
+     }
+ 
+     fn get_shm_regions(&self) -> Option<VirtioSharedMemoryList> {
+-        self.cache.as_ref().map(|cache| cache.0.clone())
++        self.cache.clone()
+     }
+ 
+     fn set_shm_regions(
+@@ -360,7 +486,7 @@ impl VirtioDevice for GenericVhostUser {
+         shm_regions: VirtioSharedMemoryList,
+     ) -> result::Result<(), crate::Error> {
+         if let Some(cache) = self.cache.as_mut() {
+-            cache.0 = shm_regions;
++            *cache = shm_regions;
+             Ok(())
+         } else {
+             Err(crate::Error::SetShmRegionsNotSupported)
+@@ -378,9 +504,9 @@ impl VirtioDevice for GenericVhostUser {
+         let mut mappings = Vec::new();
+         if let Some(cache) = self.cache.as_ref() {
+             mappings.push(UserspaceMapping {
+-                mem_slot: cache.0.mem_slot,
+-                addr: cache.0.addr,
+-                mapping: cache.0.mapping.clone(),
++                mem_slot: cache.mem_slot,
++                addr: cache.addr,
++                mapping: cache.mapping.clone(),
+                 mergeable: false,
+             });
+         }
+diff --git a/virtio-devices/src/vhost_user/mod.rs b/virtio-devices/src/vhost_user/mod.rs
+index 22405dd..798d5e0 100644
+--- a/virtio-devices/src/vhost_user/mod.rs
++++ b/virtio-devices/src/vhost_user/mod.rs
+@@ -83,6 +83,8 @@ pub enum Error {
+     VhostUserGetFeatures(#[source] VhostError),
+     #[error("Get queue max number failed")]
+     VhostUserGetQueueMaxNum(#[source] VhostError),
++    #[error("Get shared memory config failed")]
++    VhostUserGetShmemConfig(#[source] VhostError),
+     #[error("Get protocol features failed")]
+     VhostUserGetProtocolFeatures(#[source] VhostError),
+     #[error("Get vring base failed")]
+@@ -220,6 +222,7 @@ impl Error {
+             | Error::VhostUserOpen(e)
+             | Error::VhostUserGetFeatures(e)
+             | Error::VhostUserGetQueueMaxNum(e)
++            | Error::VhostUserGetShmemConfig(e)
+             | Error::VhostUserGetProtocolFeatures(e)
+             | Error::VhostUserGetVringBase(e)
+             | Error::VhostUserSetOwner(e)
+diff --git a/vmm/src/device_manager.rs b/vmm/src/device_manager.rs
+index 416132e..c04a8c0 100644
+--- a/vmm/src/device_manager.rs
++++ b/vmm/src/device_manager.rs
+@@ -77,8 +77,8 @@ use hypervisor::arch::aarch64::regs::AARCH64_PMU_IRQ;
+ #[cfg(feature = "kvm")]
+ use iommufd_ioctls::IommuFd;
+ use libc::{
+-    MAP_NORESERVE, MAP_PRIVATE, MAP_SHARED, O_TMPFILE, PROT_READ, PROT_WRITE, TCSANOW, tcsetattr,
+-    termios,
++    MAP_ANONYMOUS, MAP_NORESERVE, MAP_PRIVATE, MAP_SHARED, O_TMPFILE, PROT_NONE, PROT_READ,
++    PROT_WRITE, TCSANOW, tcsetattr, termios,
+ };
+ use log::{debug, error, info, warn};
+ use pci::{
+@@ -99,7 +99,8 @@ use virtio_devices::transport::{VirtioPciDevice, VirtioPciDeviceActivator, Virti
+ use virtio_devices::vhost_user::VhostUserConfig;
+ use virtio_devices::{
+     AccessPlatformMapping, Block, Endpoint, IommuMapping, VdpaDmaMapping, VirtioMemMappingSource,
+-    balloon, mem, net, transport, vdpa, vhost_user, vsock,
++    VirtioSharedMemory, VirtioSharedMemoryList, balloon, mem, net, transport, vdpa,
++    vhost_user, vsock,
+ };
+ use vm_allocator::{AddressAllocator, InterruptAllocError, SystemAllocator};
+ use vm_device::dma_mapping::ExternalDmaMapping;
+@@ -454,6 +455,10 @@ pub enum DeviceManagerError {
+     #[error("Failed to create a new MmapRegion instance")]
+     NewMmapRegion(#[source] mmap::MmapRegionError),
+ 
++    /// Failed to allocate the shared memory window of a generic vhost-user device.
++    #[error("Failed to allocate generic vhost-user shared memory window")]
++    GenericVhostUserShmemAllocation,
++
+     /// Failed to clone a File.
+     #[error("Failed to clone a File")]
+     CloneFile(#[source] io::Error),
+@@ -3198,23 +3203,98 @@ impl DeviceManager {
+         let mut node = device_node!(id);
+ 
+         if let Some(generic_vhost_user_socket) = generic_vhost_user_cfg.socket.to_str() {
+-            let generic_vhost_user_device = Arc::new(Mutex::new(
+-                vhost_user::GenericVhostUser::new(
+-                    id.clone(),
+-                    generic_vhost_user_socket,
+-                    generic_vhost_user_cfg.queue_sizes.clone(),
+-                    generic_vhost_user_cfg.device_type,
++            let mut generic_vhost_user_dev = vhost_user::GenericVhostUser::new(
++                id.clone(),
++                generic_vhost_user_socket,
++                generic_vhost_user_cfg.queue_sizes.clone(),
++                generic_vhost_user_cfg.device_type,
++                None,
++                self.seccomp_action.clone(),
++                self.exit_evt
++                    .try_clone()
++                    .map_err(DeviceManagerError::EventFd)?,
++                self.force_access_platform,
++                state_from_id(snapshot, id.as_str())
++                    .map_err(DeviceManagerError::RestoreGetState)?,
++            )
++            .map_err(DeviceManagerError::CreateGenericVhostUser)?;
++
++            // If the backend negotiated SHARED MEMORY and asked for regions,
++            // allocate one host window covering all of them and hand it over.
++            // The guest reaches it through a dedicated PCI BAR; the backend
++            // fills it later with SHMEM_MAP backend requests.
++            let shmem_sizes = generic_vhost_user_dev.shmem_sizes().to_vec();
++            if !shmem_sizes.is_empty() {
++                // Regions sit back to back in one window. The BAR size must be
++                // a power of two (pci/src/configuration.rs), so round up.
++                let total: u64 = shmem_sizes.iter().sum();
++                let window = total.next_power_of_two();
++
++                let base = self.pci_segments[generic_vhost_user_cfg.pci_common.pci_segment as usize]
++                    .mem64_allocator
++                    .lock()
++                    .unwrap()
++                    .allocate(None, window as GuestUsize, Some(window))
++                    .ok_or(DeviceManagerError::GenericVhostUserShmemAllocation)?
++                    .raw_value();
++
++                node.resources.push(Resource::MmioAddressRange {
++                    base,
++                    size: window,
++                });
++
++                // PROT_NONE placeholder: nothing is mapped until the backend
++                // asks for it, and a guest touching unmapped window space
++                // should fault rather than read someone else's memory.
++                let mmap_region = MmapRegion::build(
+                     None,
+-                    self.seccomp_action.clone(),
+-                    self.exit_evt
+-                        .try_clone()
+-                        .map_err(DeviceManagerError::EventFd)?,
+-                    self.force_access_platform,
+-                    state_from_id(snapshot, id.as_str())
+-                        .map_err(DeviceManagerError::RestoreGetState)?,
++                    window as usize,
++                    PROT_NONE,
++                    MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE,
+                 )
+-                .map_err(DeviceManagerError::CreateGenericVhostUser)?,
+-            ));
++                .map_err(DeviceManagerError::NewMmapRegion)?;
++
++                // SAFETY: the region was just allocated with this size, and it
++                // stays alive as long as the device holds the cache.
++                let mem_slot = unsafe {
++                    self.memory_manager
++                        .lock()
++                        .unwrap()
++                        .create_userspace_mapping(
++                            base,
++                            window as usize,
++                            mmap_region.as_ptr(),
++                            false,
++                            false,
++                            false,
++                        )
++                        .map_err(DeviceManagerError::MemoryManager)?
++                };
++
++                let mut offset = 0u64;
++                let region_list = shmem_sizes
++                    .iter()
++                    .map(|len| {
++                        let r = VirtioSharedMemory { offset, len: *len };
++                        offset += len;
++                        r
++                    })
++                    .collect();
++
++                generic_vhost_user_dev.set_cache(VirtioSharedMemoryList {
++                    mem_slot,
++                    addr: GuestAddress(base),
++                    mapping: Arc::new(mmap_region),
++                    region_list,
++                });
++                info!(
++                    "generic vhost-user {id}: shared memory window {window:#x} at {base:#x} \
++                     for {} region(s)",
++                    shmem_sizes.len()
++                );
++            }
++
++            let generic_vhost_user_device = Arc::new(Mutex::new(generic_vhost_user_dev));
+ 
+             // Update the device tree with the migratable device.
+             node.migratable =

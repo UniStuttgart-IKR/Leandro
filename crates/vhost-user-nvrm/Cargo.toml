@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+[package]
+name = "vhost-user-nvrm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The virtio-nvrm host backend: forwards and translates guest RM calls onto the real driver"
+
+[lib]
+name = "vhost_user_nvrm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vhost-user-nvrm"
+path = "src/main.rs"
+
+[dependencies]
+libc.workspace = true
+anyhow.workspace = true
+nvrm-sys.workspace = true
+nvrm-abi.workspace = true
+nvrm-wire = { workspace = true, features = ["std"] }
+
+# The virtio-nvrm device side (src/nvrm.rs).
+vhost.workspace = true
+vhost-user-backend.workspace = true
+virtio-queue.workspace = true
+vm-memory.workspace = true
+vmm-sys-util.workspace = true

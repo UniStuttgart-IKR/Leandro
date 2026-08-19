@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+[package]
+name = "nvrm-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Generated bindgen bindings to the NVIDIA RM/UVM driver ABI, locked to one driver version"
+
+[lib]
+# Nothing to doctest in generated bindings; the header comments that once
+# broke `cargo test --doc` are stripped at the source (build.rs,
+# generate_comments(false)).
+doctest = false
+
+[dependencies]
+
+[build-dependencies]
+bindgen.workspace = true

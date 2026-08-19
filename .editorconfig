@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+# https://editorconfig.org -- picked up by most editors without a plugin.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Four spaces, never tabs. This is what every script in scripts/ already uses.
+[*.sh]
+indent_style = space
+indent_size = 4
+
+# The kernel module and the probes follow kernel style: tabs, width 8.
+[*.{c,h}]
+indent_style = tab
+indent_size = 8
+
+[Makefile]
+indent_style = tab
+
+[*.{md,yml,yaml,toml,json}]
+indent_style = space
+indent_size = 2
+
+# WHY THERE IS NO shfmt HERE, and it is a measured decision rather than an
+# omission. `shfmt -i 4 -ci -bn -d`, measured 2026-08 over the tree before
+# the script consolidation (44 tracked scripts then; 14 today), produced
+# 5904 diff lines; the flag combinations that were tried ranged from 5904
+# to 7281, so there is no setting that fits. The disagreement is not about
+# indentation -- it is that shfmt expands this repo's two most common idioms:
+#
+#     [[ -f $x ]] && { echo "$x"; return 0; }      -> four lines
+#     info()  { echo "$*"; }                       -> loses the alignment
+#     for _ in $(seq 50); do [[ -S $s ]] && break; sleep 0.2; done
+#
+# Adopting it would mean reformatting scripts this session promised not to
+# rewrite, and doing it file by file would leave two styles in one directory.
+# ShellCheck is the tool that finds defects; shfmt would only find opinions.
