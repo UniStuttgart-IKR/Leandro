@@ -35,8 +35,22 @@ PERSIST=0
 # 0) A LOADED virtio_nvrm (from a persistent boot) owns the node majors --
 #    it has to fall first, otherwise the full load below stays busy. The
 #    coexistence is re-established afterwards (lea_guest_build_nvrm).
-if lsmod | grep -q '^virtio_nvrm '; then
-    sudo rmmod virtio_nvrm
+#
+#    ONLY when nvrm_nodes is not up yet. With both modules loaded the
+#    coexistence is already the state this script exists to produce, and
+#    tearing it down to rebuild it fails on a guest that is USING the card:
+#    on a running desktop nvidia_modeset holds virtio_nvrm, `rmmod` answers
+#    "Module virtio_nvrm is in use by: nvidia_modeset", and a provisioning
+#    run that had nothing to do aborts -- which is what `showcase.sh up
+#    --with-torch` against a live desktop guest did (measured 2026-08-19).
+if ! lsmod | grep -q '^nvrm_nodes ' && lsmod | grep -q '^virtio_nvrm '; then
+    sudo rmmod virtio_nvrm || {
+        echo "ERROR: virtio_nvrm is loaded and in use, so nvrm_nodes cannot take"
+        echo "       the node majors. Something in this guest holds the GPU --"
+        echo "       a desktop session, or a process with an open FD. Stop it, or"
+        echo "       recycle the guest: showcase.sh up --name <n> --keep-vm ..."
+        exit 1
+    }
     echo "unloaded leftover virtio_nvrm (from a persistent boot)."
 fi
 
