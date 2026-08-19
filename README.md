@@ -86,6 +86,8 @@ be the **same version**. That is a design assumption here, not an oversight.
 Architecture and what each file does:
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 Measuring and gates: [`docs/TESTING.md`](docs/TESTING.md).
+From a fresh clone to a streaming desktop, with the dependency list and the
+failure modes: [`docs/SHOWCASE.md`](docs/SHOWCASE.md).
 Display and rendering, and why they are a second project:
 [`docs/DISPLAY.md`](docs/DISPLAY.md).
 Every question, settled or not: [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md).
