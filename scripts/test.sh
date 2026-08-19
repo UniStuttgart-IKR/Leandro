@@ -503,9 +503,9 @@ do_check() {
         local name="$1" log t0 t1; shift
         log=$(mktemp); t0=$(date +%s)
         if "$@" >"$log" 2>&1; then
-            t1=$(date +%s); results+=("PASS  $name  ($((t1 - t0))s)")
+            t1=$(date +%s); results+=("${LEA_GRN}PASS${LEA_R}  $name  ($((t1 - t0))s)")
         else
-            t1=$(date +%s); results+=("FAIL  $name  ($((t1 - t0))s)"); fail=1
+            t1=$(date +%s); results+=("${LEA_RED}FAIL${LEA_R}  $name  ($((t1 - t0))s)"); fail=1
             echo "==== FAIL: $name -- last 40 lines ===="; tail -40 "$log"; echo "==== end $name ===="
         fi
         rm -f "$log"
@@ -534,7 +534,7 @@ do_check() {
     step "dangling-refs"        dangling_refs
     step "no-markers"           no_markers
     echo
-    echo "== test.sh check =="
+    lea_head "test.sh check"
     printf '%s\n' "${results[@]}"
     exit "$fail"
 }
@@ -1597,9 +1597,9 @@ do_gates() {
         SUMMARY+=("$(printf '%-10s %-6s %ss' "$g" "$result" "${dur:-?}")")
     done
     { echo; echo "== summary =="; printf '%s\n' "${SUMMARY[@]}"; echo
-      if [[ $failed -gt 0 ]]; then echo "GATES: FAIL -- $failed failed, logs in $OUT/"
+      if [[ $failed -gt 0 ]]; then echo "GATES: ${LEA_RED}FAIL${LEA_R} -- $failed failed, logs in $OUT/"
       elif [[ $skipped -gt 0 ]]; then echo "GATES: INCOMPLETE -- $skipped skipped, none failed, logs in $OUT/"
-      else echo "ALL GATES: PASS (${WANTED[*]})"; fi
+      else echo "ALL GATES: ${LEA_GRN}PASS${LEA_R} (${WANTED[*]})"; fi
     } >&2
     # Written first, printed second, and NOT through `tee`: a caller that
     # pipes this stdout into something which exits early leaves tee with

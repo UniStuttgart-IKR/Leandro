@@ -37,10 +37,54 @@ lea_cd_root() { cd "$LEA_ROOT" || die "cannot cd to $LEA_ROOT"; }
 # ---- output ---------------------------------------------------------------
 # Plain and greppable. Errors go to stderr so a caller can separate them
 # from a command's real output.
+#
+# COLOUR. One palette for every script in this tree, decided once per
+# process, and OFF unless the output is going to a terminal: every gate,
+# bench and provisioning step here is also read out of a log file, and an
+# escape sequence in a log is noise that every later grep has to know about.
+# stdout and stderr are decided separately -- a script whose stdout is
+# redirected into a log still writes its errors to a terminal, and painting
+# those would be the one case where colour helps most.
+#
+# `NO_COLOR` (the convention, no value needed) turns it off; `LEA_COLOR=1`
+# forces it on for a pipe that ends in a pager, `LEA_COLOR=0` off.
+#
+# What is painted is deliberately little: a verdict (PASS/FAIL), a warning,
+# an error, and a section heading. Colouring every line would leave nothing
+# standing out, which is the state this started from.
+if [[ -n ${LEA_COLOR:-} ]]; then
+    _LEA_COLOUR=$LEA_COLOR; _LEA_COLOUR_ERR=$LEA_COLOR
+elif [[ -n ${NO_COLOR:-} ]]; then
+    _LEA_COLOUR=0; _LEA_COLOUR_ERR=0
+else
+    [[ -t 1 ]] && _LEA_COLOUR=1 || _LEA_COLOUR=0
+    [[ -t 2 ]] && _LEA_COLOUR_ERR=1 || _LEA_COLOUR_ERR=0
+fi
+if [[ $_LEA_COLOUR -eq 1 || $_LEA_COLOUR_ERR -eq 1 ]]; then
+    LEA_B=$'\e[1m'; LEA_DIM=$'\e[2m'; LEA_GRN=$'\e[32m'; LEA_RED=$'\e[31m'
+    LEA_YEL=$'\e[33m'; LEA_CYA=$'\e[36m'; LEA_R=$'\e[0m'
+else
+    LEA_B=""; LEA_DIM=""; LEA_GRN=""; LEA_RED=""; LEA_YEL=""; LEA_CYA=""; LEA_R=""
+fi
+# The prefix carries the colour, never the message: a reader greps for
+# "WARNING:" and a terminal shows it in yellow, and both get what they came
+# for.
+_lea_say_err() {   # _lea_say_err COLOUR PREFIX MESSAGE...
+    local c=$1 p=$2; shift 2
+    if [[ $_LEA_COLOUR_ERR -eq 1 ]]; then echo "${c}${p}${LEA_R} $*" >&2
+    else echo "${p} $*" >&2; fi
+}
 info()  { echo "$*"; }
-warn()  { echo "WARNING: $*" >&2; }
-error() { echo "ERROR: $*" >&2; }
+warn()  { _lea_say_err "$LEA_YEL" "WARNING:" "$@"; }
+error() { _lea_say_err "$LEA_RED" "ERROR:" "$@"; }
 die()   { error "$*"; exit 1; }
+
+# lea_head TEXT... -- a section heading in the human transcript. The `== x ==`
+# shape predates the colour and stays, so a log reads the same as a terminal.
+lea_head() {
+    if [[ $_LEA_COLOUR -eq 1 ]]; then echo "${LEA_B}== $* ==${LEA_R}"
+    else echo "== $* =="; fi
+}
 
 # lea_usage_from_header -- print the calling script's header comment as help.
 #
@@ -658,20 +702,20 @@ _lea_gate_atexit() {
 # lea_gate_say HEADING... -- a section separator in the human transcript.
 lea_gate_say() {
     echo
-    echo "== $* =="
+    lea_head "$@"
 }
 
 # lea_gate_pass STAGE REASON -- record a stage that answered correctly.
 lea_gate_pass() {
     _LEA_GATE_STAGES+=("$1")
-    echo "  GATE $1: PASS  ($2)"
+    echo "  GATE $1: ${LEA_GRN}PASS${LEA_R}  ($2)"
 }
 
 # lea_gate_fail STAGE REASON -- record a stage that did not.
 lea_gate_fail() {
     _LEA_GATE_STAGES+=("$1")
     _LEA_GATE_FAILED+=("$1")
-    echo "  GATE $1: FAIL  ($2)"
+    echo "  GATE $1: ${LEA_RED}FAIL${LEA_R}  ($2)"
 }
 
 # lea_gate_fact KEY VALUE -- one measured number or string for the JSON line.

@@ -693,12 +693,10 @@ do_demo() {
     mkdir -p "$OUT"
     IP=$(lea_ip 0)
 
-    # Colour only when stdout is a terminal, so redirected logs stay clean.
-    if [[ -t 1 ]]; then
-        B=$'\e[1m'; DIM=$'\e[2m'; GRN=$'\e[32m'; RED=$'\e[31m'; YEL=$'\e[33m'; R=$'\e[0m'
-    else
-        B=""; DIM=""; GRN=""; RED=""; YEL=""; R=""
-    fi
+    # The palette is common.sh's, decided once per process and already off
+    # when this is redirected into a log (the demo writes one). These are the
+    # demo's short names for it, not a second opinion about when to paint.
+    B=$LEA_B; DIM=$LEA_DIM; GRN=$LEA_GRN; RED=$LEA_RED; YEL=$LEA_YEL; R=$LEA_R
     declare -ga RESULTS=()
     SECTION=""
     headline() {   # headline <title> <what it proves>
