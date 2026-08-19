@@ -16,7 +16,14 @@
 # nothing produced any more. Every consumer builds them now
 # (lea_guest_setup in scripts/lib/provision.sh does so before copying).
 CUDA_HOME ?= /opt/cuda
-SM        ?= 75
+# The architecture the PTX is generated for, asked of the card in THIS
+# machine rather than fixed at the one it was first written on. PTX JITs
+# FORWARD and never backward: a Turing file runs on Ampere and later, and
+# fails on Pascal and older -- which is a checkout that builds cleanly and
+# then cannot run a kernel. nvidia-smi answers "7.5"; the dot goes. The
+# fallback is the card this was written on, for a machine with no driver.
+SM        ?= $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '.')
+SM        := $(if $(SM),$(SM),75)
 
 CFLAGS  := -O1 -g -Wall -Wextra -I$(CUDA_HOME)/include
 LDFLAGS := -L$(CUDA_HOME)/lib64 -lcuda
@@ -117,6 +124,28 @@ probes: $(BIN)/ofdtest $(BIN)/granttest $(BIN)/forkprobe $(BIN)/ioctlping $(BIN)
 host-tools: $(BIN)/edid-verify $(BIN)/vdisp-frame
 
 all-probes: all probes $(BIN)/hostregprobe $(BIN)/oomprobe $(BIN)/managedprobe $(BIN)/glinterop $(BIN)/vkalloc
+
+# The .ptx is versioned so that a checkout needs no nvcc -- but a checkout on
+# a card OLDER than the one it was generated for needs a new one, and nothing
+# used to say so: the JIT fails at run time, inside a probe, with a message
+# about the module rather than about the architecture. This regenerates it
+# ONLY when the file cannot run here; on a newer card it is a no-op, because
+# forward is exactly the direction PTX does travel.
+.PHONY: ptx
+ptx:
+	@have=$$(sed -n 's/^\.target sm_\([0-9]*\).*/\1/p' $(KDIR)/kernels.ptx | head -1); \
+	if [ -z "$$have" ]; then \
+	    echo "$(KDIR)/kernels.ptx has no .target line" >&2; exit 1; \
+	elif [ "$$have" -le "$(SM)" ]; then \
+	    echo "kernels.ptx: sm_$$have, this card is sm_$(SM) -- PTX JITs forward, nothing to do"; \
+	elif [ -x $(NVCC) ]; then \
+	    echo "kernels.ptx: sm_$$have is newer than this sm_$(SM) card -- regenerating"; \
+	    rm -f $(KDIR)/kernels.ptx; $(MAKE) $(KDIR)/kernels.ptx; \
+	else \
+	    echo "kernels.ptx is sm_$$have and this card is sm_$(SM). PTX runs forward only," >&2; \
+	    echo "so it cannot JIT here. Install CUDA and run: make -C probe ptx" >&2; \
+	    exit 1; \
+	fi
 
 clean:
 	rm -rf $(BIN)
