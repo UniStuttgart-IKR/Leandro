@@ -151,6 +151,17 @@ _lea_abs() {
 : "${LEA_VDISPLAY_SIZE:=1920x1080}"
 : "${LEA_VDISPLAY_HZ:=60}"
 
+# Sunshine's web-manager login, and the PIN the pairing uses. Not secrets:
+# they exist so that pairing can happen without a browser, on a guest that
+# lives on a host-local bridge and is thrown away after the demonstration.
+# ONE definition, because two consumers pair the same guest -- `bench.sh
+# stream` and `showcase.sh pair` -- and a login they disagree about is a
+# 401 nobody can read. Override them if the guest is reachable by anyone
+# but you.
+: "${LEA_SUN_USER:=lea}"
+: "${LEA_SUN_PASS:=leastream}"
+: "${LEA_SUN_PIN:=4321}"
+
 # ---- derived --------------------------------------------------------------
 # The bridge address, i.e. the guests' default gateway.
 #

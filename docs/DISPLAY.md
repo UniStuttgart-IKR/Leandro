@@ -44,6 +44,14 @@ module (nvidia-modeset.ko and its DRM front), stages the guest's NVIDIA userspac
 writes the guest's session state, starts GNOME through gdm3 with Sunshine
 beside it, and reads the vblank counter back as its last act.
 
+- `showcase.sh pair [--name NAME] [--pin NNNN]` pairs this host's Moonlight
+  with the guest's Sunshine and needs no browser: `moonlight pair --pin` and
+  a POST to Sunshine's `/api/pin` have to overlap, which is what the web UI
+  does for a human. It is idempotent (`moonlight list` answers only for a
+  paired host) and repairs the one failure it can: a Sunshine with no web
+  login answers every API call with a 307 to its `/welcome` page, so the
+  login is written and Sunshine restarted once. Measured 2026-08-19 on the
+  desktop guest: 307, then paired on the second attempt.
 - `--session openbox` for the bare rig without a desktop environment.
 - `--display` alone for the rig X on `:7` and nothing on it (the gate's shape).
 - `--keep-vm` to recycle the guest when only the module changed.

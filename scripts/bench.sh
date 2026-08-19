@@ -895,7 +895,9 @@ do_stream() {
     : "${out:=$LEA_VM_DIR/bench-stream-$(date +%Y%m%d-%H%M%S)-$session-$capture-$encoder}"
     mkdir -p "$out"
     lea_hold_pidfile "$LEA_VM_DIR/bench-stream.pid"
-    local SUN_USER=lea SUN_PASS=leastream SUN_PIN=4321
+    # config.sh owns these: `showcase.sh pair` pairs the same guest with the
+    # same login, and it has to be the same login.
+    local SUN_USER=$LEA_SUN_USER SUN_PASS=$LEA_SUN_PASS SUN_PIN=$LEA_SUN_PIN
     # The state file is deliberately NOT per-run: pairing survives a
     # Sunshine restart, and re-pairing for every measurement is four more
     # moving parts.

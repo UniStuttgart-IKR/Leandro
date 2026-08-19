@@ -1401,6 +1401,10 @@ EOC
         sleep 5
         # Sunshine (and Steam) join the SESSION: display and Xauthority are
         # read from gnome-shell's environment rather than assumed.
+        # The web-manager login, BEFORE the daemon starts: Sunshine reads its
+        # credentials at startup, and `showcase.sh pair` needs them to hand
+        # the PIN over the REST API instead of through a browser.
+        lea_ssh "$ip" "sunshine --creds $LEA_SUN_USER $LEA_SUN_PASS >/dev/null 2>&1 || true"
         lea_ssh "$ip" 'GS=$(pgrep -x gnome-shell | head -1)
             D=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^DISPLAY=//p")
             XA=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^XAUTHORITY=//p")
@@ -1426,6 +1430,7 @@ EOC
                 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus steam \
                 >/tmp/lea-steam.log 2>&1 </dev/null &'"
         fi
+        lea_ssh "$ip" "sunshine --creds $LEA_SUN_USER $LEA_SUN_PASS >/dev/null 2>&1 || true"
         lea_ssh "$ip" "sh -c 'setsid nohup env DISPLAY=$disp sunshine \
             >/tmp/lea-sunshine.out 2>&1 </dev/null &'"
         sleep 5
@@ -1457,11 +1462,119 @@ EOC
         || { error "sunshine is not running (log: /tmp/lea-sunshine.out)"; return 1; }
     lea_ssh "$ip" "ss -ltn | grep -qE ':(47984|47989|47990) '" \
         || { error "sunshine is up but not listening"; return 1; }
-    lea_ssh "$ip" "test -s ~/.config/sunshine/creds.json" \
-        || echo "  NOTE: no Sunshine credentials yet -- pair once: moonlight pair $ip"
+    echo "  pair this host once:  scripts/showcase.sh pair --name $name"
     echo
     echo "desktop up ($session). Stream it with:"
     echo "  moonlight stream $ip Desktop --resolution $res --fps $hz --bitrate 40000"
+}
+
+# lea_sunshine_restart IP [DISPLAY] -- stop Sunshine in the guest and start
+# it again in the SESSION it has to capture.
+#
+# Only the pairing path needs this: `lea_desktop_up` starts Sunshine itself,
+# with the web login already written, so a guest brought up by this tree
+# never gets here. A guest that was up BEFORE that login existed does --
+# Sunshine reads its credentials once, at startup, and answers every API
+# call with a 307 to /welcome until it has some.
+#
+# DISPLAY and XAUTHORITY are read out of gnome-shell's own environment
+# rather than assumed, exactly as `lea_desktop_up` does; the argument is the
+# fallback for an openbox session, which has no gnome-shell to ask.
+lea_sunshine_restart() {
+    local ip=$1 disp=${2:-}
+    lea_ssh "$ip" 'pkill -x sunshine 2>/dev/null || true
+        sleep 2
+        GS=$(pgrep -x gnome-shell | head -1)
+        D=""; XA=""
+        if [ -n "$GS" ]; then
+            D=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^DISPLAY=//p")
+            XA=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^XAUTHORITY=//p")
+        fi
+        [ -n "$D" ] || D='"'$disp'"'
+        [ -n "$D" ] || { echo "no DISPLAY to start sunshine on"; exit 1; }
+        sh -c "setsid nohup env DISPLAY=$D ${XA:+XAUTHORITY=$XA} sunshine \
+            >/tmp/lea-sunshine.out 2>&1 </dev/null &"
+        for i in $(seq 1 30); do
+            (exec 3<>/dev/tcp/127.0.0.1/47990) 2>/dev/null && break
+            sleep 1
+        done
+        pgrep -x sunshine >/dev/null || { echo "sunshine did not come back"; exit 1; }
+        (exec 3<>/dev/tcp/127.0.0.1/47990) 2>/dev/null || { echo "sunshine is up but 47990 is closed"; exit 1; }'
+}
+
+# lea_sunshine_pair NAME [PIN] -- pair THIS host's Moonlight with the
+# guest's Sunshine, without opening a browser.
+#
+# Pairing is two halves that have to overlap: `moonlight pair --pin` opens
+# the request and waits for the host to accept it, and Sunshine accepts only
+# when the SAME PIN arrives on its REST API -- which is what the web UI does
+# for a human. Four seconds between the two, and one at a time: two pair
+# attempts at once answer "Incorrect PIN" while the API still reports
+# success. That sequence is not invented here, it is the one `bench.sh
+# stream` has paired with since 2026-08-18; this is it, lifted out so the
+# showcase path can use it too.
+#
+# Idempotent: `moonlight list` answers only for a paired host, so a second
+# call costs one round trip and does nothing.
+lea_sunshine_pair() {
+    local name=${1:-desktop} pin=${2:-$LEA_SUN_PIN} ip log body code
+    command -v moonlight >/dev/null || { error "moonlight missing -- pacman -S moonlight-qt"; return 1; }
+    command -v curl >/dev/null || { error "curl missing"; return 1; }
+    [[ $pin =~ ^[0-9]{4}$ ]] || { error "the PIN is four digits, not '$pin'"; return 1; }
+    ip=$(_lea_ip "$name") || return 1
+    lea_vm_running "$name" || { error "$name is not running"; return 1; }
+
+    if timeout 25 moonlight list "$ip" >/dev/null 2>&1; then
+        info "$name ($ip): already paired with this host"
+        return 0
+    fi
+    lea_ssh "$ip" "pgrep -x sunshine >/dev/null" || {
+        error "$name: sunshine is not running -- bring the desktop up first:"
+        error "  scripts/showcase.sh up --name $name --index <N> --session gnome"
+        return 1; }
+
+    log=$(lea_inst_dir "$name")/pair.log
+    : > "$log"
+    local try
+    for try in 1 2; do
+        info "$name ($ip): pairing, PIN $pin"
+        ( timeout 40 moonlight pair "$ip" --pin "$pin" >>"$log" 2>&1 ) &
+        local pairpid=$!
+        sleep 4
+        # The status, not just the body: a Sunshine with no web login answers
+        # 307 (a redirect to its /welcome setup page) and a wrong one answers
+        # 401, and both have an empty body -- indistinguishable from silence
+        # unless the code is read.
+        body=$(curl -sk -u "$LEA_SUN_USER:$LEA_SUN_PASS" -H 'Content-Type: application/json' \
+            -d "{\"pin\":\"$pin\",\"name\":\"$(hostname)\"}" \
+            -w '\n%{http_code}' "https://$ip:47990/api/pin" 2>>"$log")
+        code=${body##*$'\n'}; body=${body%$'\n'*}
+        printf 'api %s: %s\n' "$code" "$body" >>"$log"
+        # Moonlight holds the request open until the PIN arrives or it times
+        # out; either way it is finished with before anything else happens.
+        wait $pairpid
+
+        if timeout 25 moonlight list "$ip" >/dev/null 2>&1; then
+            info "$name: paired. Stream it with:"
+            info "  moonlight stream $ip Desktop --resolution $LEA_VDISPLAY_SIZE --fps $LEA_VDISPLAY_HZ --bitrate 40000"
+            return 0
+        fi
+        # 307/401 is the one failure this can repair by itself, and only
+        # once: Sunshine has no usable web login, which is the state every
+        # Sunshine starts in. Write one and restart it -- it reads them at
+        # startup and nowhere else.
+        if [[ $try -eq 1 && ( $code == 307 || $code == 401 ) ]]; then
+            info "$name: Sunshine has no usable web login (HTTP $code) -- setting it and restarting Sunshine"
+            lea_ssh "$ip" "sunshine --creds $LEA_SUN_USER $LEA_SUN_PASS" >>"$log" 2>&1 \
+                || { error "$name: sunshine --creds failed -- $log"; return 1; }
+            lea_sunshine_restart "$ip" >>"$log" 2>&1 \
+                || { error "$name: Sunshine did not come back -- $log"; return 1; }
+            continue
+        fi
+        break
+    done
+    error "$name: pairing failed (API $code) -- $log"
+    return 1
 }
 
 # lea_desktop_recycle NAME [--display :N] -- take a running desktop guest

@@ -23,6 +23,7 @@
 #   scripts/showcase.sh clean [--dry-run] [--force]  after a crash
 #   scripts/showcase.sh audit [--name NAME]          guest userspace resolution audit
 #   scripts/showcase.sh display [--name NAME] [--display :N]   what the display rig says
+#   scripts/showcase.sh pair [--name NAME] [--pin NNNN]        Moonlight <-> the guest's Sunshine
 #   scripts/showcase.sh demo [--list] [--only a,b] [--skip a,b] [--fast] [--full]
 #                            [--fleet N] [--pause] [--no-setup] [--keep]
 #                            [--no-managed] [--out DIR]
@@ -108,7 +109,7 @@ usage() { lea_usage_from_header; exit "${1:-0}"; }
 
 CMD=${1:-status}
 case $CMD in
-    net|up|down|status|ssh|exec|state|clean|audit|display|demo) shift ;;
+    net|up|down|status|ssh|exec|state|clean|audit|display|pair|demo) shift ;;
     -h|--help) usage 0 ;;
     *) error "unknown subcommand: $CMD"; usage 2 ;;
 esac
@@ -278,6 +279,22 @@ do_display() {
         esac
     done
     lea_display_status "$name" "$disp"
+}
+
+# Pairing without a browser: the PIN goes to Sunshine's REST API instead of
+# through its web UI. Once per host per guest -- the pairing survives a
+# Sunshine restart and lives in the guest's disk image.
+do_pair() {
+    local name=desktop pin=$LEA_SUN_PIN
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --name) name=$2; shift 2 ;;
+            --pin)  pin=$2; shift 2 ;;
+            -h|--help) usage 0 ;;
+            *) error "pair: unknown option $1"; usage 2 ;;
+        esac
+    done
+    lea_sunshine_pair "$name" "$pin"
 }
 
 # ---- demo -----------------------------------------------------------------
@@ -761,5 +778,6 @@ case $CMD in
     clean)   do_clean "$@" ;;
     audit)   do_audit "$@" ;;
     display) do_display "$@" ;;
+    pair)    do_pair "$@" ;;
     demo)    do_demo "$@" ;;
 esac

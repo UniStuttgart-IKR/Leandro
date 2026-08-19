@@ -194,7 +194,8 @@ With the display path on, a guest runs a full desktop on the GPU:
 `scripts/showcase.sh up --name desktop --index 5 --session gnome --with-steam`
 brings up GNOME on the RTX 2070 and Sunshine beside it, and CS2 plays over
 Moonlight at **55-60 FPS**, at the virtual display's 60 Hz cap rather than
-the GPU's. The gate is `scripts/test.sh display` (12 stages, roughly ten
+the GPU's. `scripts/showcase.sh pair` does the Moonlight pairing without a
+browser -- once per host per guest. The gate is `scripts/test.sh display` (12 stages, roughly ten
 minutes, needs X and Sunshine in the guest and Moonlight on the host).
 Beside it sits `scripts/test.sh vdisplay`, the fast one: six stages from
 module load to a frame written and read back, without an X server, Vulkan
