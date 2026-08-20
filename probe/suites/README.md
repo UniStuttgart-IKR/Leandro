@@ -70,13 +70,32 @@ Measured against: torch 2.13.0, cupy-cuda13x 14.1.1, cudf/cuml-cu13 26.6.0.
 
 ## Last measured state
 
-Rig: driver 610.43.03, RTX 2070, persistence on, cloud-hypervisor v53.0,
+Rig: driver 610.57.04, RTX 2070, persistence on, cloud-hypervisor v53.0,
 guest module `virtio_nvrm.ko`, host backend `vhost-user-nvrm` **with
-`LEA_MANAGED_COMPAT=1`**.
+`LEA_MANAGED_COMPAT=1`**. Re-measured 2026-08-20; the same eight passed at
+610.43.03 before it.
 
 With `LEA_MANAGED_COMPAT=1` on the host **and** `max_pin_mib >= 2048` in the
 guest, **all eight pass**. Both of the failures once recorded here turned out
 to be knobs rather than boundaries.
+
+WARNING: "all eight" needs three libraries the guest image does not carry.
+The image has torch and numpy; `cupy`, `cudf` and `cuml` are not in it,
+and without them three suites report SKIP -- which is the runner behaving
+correctly (a missing dependency says nothing about the boundary) and NOT
+the same statement as a pass. Measured 2026-08-20 on a guest built from
+`build.sh bake --with-torch`: 5 PASS / 3 SKIP as delivered, 7/8 after
+`cupy-cuda13x`, 8/8 after RAPIDS. To get there:
+
+```sh
+scripts/showcase.sh ssh -- '~/gpu/venv/bin/pip install cupy-cuda13x'
+scripts/showcase.sh ssh -- '~/gpu/venv/bin/pip install \
+    --extra-index-url=https://pypi.nvidia.com cudf-cu13 cuml-cu13'
+```
+
+Versions the 8/8 run used: torch 2.13.0, numpy 2.5.2, cupy 14.2.0,
+cudf 26.08.00, cuml 26.08.00. RAPIDS is several GB; that is why it is not
+baked in.
 
 | suite | result | note |
 |---|---|---|
