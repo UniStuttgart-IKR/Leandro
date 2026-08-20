@@ -157,6 +157,57 @@ the two arrangements have never been compared against a real libcuda
 trace, which is what would settle it. Until then the code is the
 statement, not the prose.
 
+### 44. A game and the compositor die at the same two addresses in NVIDIA's GL core
+**Open, and this is the first stack the chain in 32/35 has.** Shadow of
+the Tomb Raider (the native Feral port, Vulkan) crashes 15-20 s after
+launch in a GNOME **Wayland** session. Two processes dump core at the SAME
+frame #0 and #1:
+
+    #0  libnvidia-glcore.so.610.57.04 + 0xd0a989
+    #1  libnvidia-glcore.so.610.57.04 + 0xf985b0
+    #2  ShadowOfTheTombRaider + 0x1df9535
+
+-- `WinMain`, the game's own process, and `WebViewRenderer`, the Steam
+overlay's CEF renderer. The game renders with Vulkan; the overlay with
+OpenGL. Both end in `libnvidia-glcore` at one address.
+
+Beside it, the compositor logs **744** EGL failures in the same session,
+with backtraces into `libnvidia-eglcore` -- the library number 35 names as
+the head of the chain -- and the visible symptom is the one number 10 had:
+windows go invisible while gnome-shell keeps running and the scanout
+buffer stops changing (`fbprobe`: STATIC, 0/9 polls, peak 1024/1024, so
+full rather than black).
+
+Measured 2026-08-20 on 610.57.04, guest module loaded, KMS capture. What
+is NEW here and was not available before:
+
+- a reproducer that takes 15-20 seconds rather than hours,
+- six core dumps kept under `vm/out-eglcrash/` (1.7 GB for the main one),
+  with `coredumpctl info` output beside them,
+- both crash sites at once: `glcore` for the clients, `eglcore` for the
+  compositor.
+
+**Hypothesis on the table, from the operator:** a missing or wrongly
+mediated ioctl in the GL/EGL path. What speaks for it: this is exactly
+where a mediated call would surface, in a library that assumes an answer
+it did not get. What speaks against it, so far: the backend's failure log
+for that session contains no unmediated call and no unknown class -- the
+failures it does record are `NV_ERR_NOT_SUPPORTED` on `0x2080012f` /
+`0x20800157` and `NV_ERR_OBJECT_NOT_FOUND` on `0x2080014b`, all three of
+which probe/README.md section 6 lists as occurring in the DIRECT run as
+well. The one group not on that list is the `0x73xxxx` family (NV0073,
+display controls), 30 calls answering `NV_ERR_OBJECT_NOT_FOUND` -- which
+is plausible for a display NVKMS invents and no physical monitor backs,
+and is worth ruling out rather than assuming.
+
+The next measurement is the one number 35 also asks for and nobody has
+taken: resolve the two `glcore` addresses against the driver build, and
+compare the same workload natively on the host. Until then this is a
+reproducer and two stacks, not a diagnosis.
+
+Under X11 the same guest runs the same game; the `display` gate is 12/12
+green on that path (2026-08-20).
+
 ---
 
 ## Resolved and decided
