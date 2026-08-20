@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T15:37:25Z
-commit:  7984ca8 (working tree modified)
+date:    2026-08-20T15:58:54Z
+commit:  9fb7da8 (working tree modified)
 ```
 
 Regenerate with `scripts/ioctl-matrix.sh discover`. Every number below was
@@ -125,7 +125,7 @@ refuses to have. The host payload is read from the driver package manifest.
 
 | inventory | source | count |
 |---|---|---:|
-| guest-staged, 64-bit | `scripts/lib/provision.sh` arrays | 30 |
+| guest-staged, 64-bit | `scripts/lib/provision.sh` arrays | 33 |
 | guest-staged, 32-bit | `scripts/lib/provision.sh` arrays | 20 |
 | host payload, 64-bit | pacman -Ql over every package at 610.57.04: lib32-nvidia-utils nvidia-open nvidia-utils opencl-nvidia | 35 |
 | host payload, 32-bit | pacman -Ql over every package at 610.57.04: lib32-nvidia-utils nvidia-open nvidia-utils opencl-nvidia | 21 |
@@ -140,12 +140,9 @@ it, and it has to be data rather than an omission.
 
 | library | where it is | consequence for a 64-bit guest client |
 |---|---|---|
-| `libGLESv1_CM_nvidia` | staged 32-bit only | the name does not resolve; a dlopen of it is a silently absent capability |
-| `libGLESv2_nvidia` | staged 32-bit only | the name does not resolve; a dlopen of it is a silently absent capability |
 | `libglxserver_nvidia` | not staged at all | absent from the guest entirely |
 | `libnvidia-api` | not staged at all | absent from the guest entirely |
 | `libnvidia-ngx` | not staged at all | absent from the guest entirely |
-| `libnvidia-opticalflow` | staged 32-bit only | the name does not resolve; a dlopen of it is a silently absent capability |
 | `libnvidia-present` | not staged at all | absent from the guest entirely |
 | `libnvidia-sandboxutils` | not staged at all | absent from the guest entirely |
 | `libnvoptix` | not staged at all | absent from the guest entirely |

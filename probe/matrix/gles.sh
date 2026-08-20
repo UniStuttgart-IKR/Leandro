@@ -2,19 +2,27 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 # SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-# GLES through NVIDIA's own libGLESv1_CM_nvidia / libGLESv2_nvidia.
+# GLES: eglBindAPI(EGL_OPENGL_ES_API) and a GLES2 enumeration.
 #
-# These are in the host driver payload and are staged for 32-bit clients
-# ONLY, so a 64-bit guest client that asks for them finds nothing. The row
-# is therefore a not-staged row -- and this probe exists because tracing it
-# natively is what prices the staging: it says what the surface would cost
-# if the libraries were added.
+# The probe was written for libGLESv1_CM_nvidia / libGLESv2_nvidia, which
+# were staged for 32-bit clients only. It does not reach them. Measured
+# 2026-08-20 by reading the openat set out of this probe's own strace:
+# `es2_info` opens libGLESv2.so.2 -- GLVND's dispatch -- and lands on
+# libEGL_nvidia and from there on eglcore/glsi/gpucomp. The vendor
+# libraries are named in no driver library's dlopen strings, so nothing
+# with a GLVND stack under it loads them; they are the pre-GLVND
+# direct-link ABI. They are staged 64-bit now anyway (provision.sh,
+# `versioned`), and the honest catalogue row for them is "no probe":
+# staging them was a fix, and it is not this measurement.
 #
-# It never blocks a run. If es2_info is absent the row stays a plain
-# not-staged row with no measurement attached.
+# What this probe therefore measures is the GLES entry point of the NVIDIA
+# EGL stack, which is a surface of its own and is in no other probe here.
+#
+# It never blocks a run. If es2_info is absent the row carries the reason
+# and no measurement.
 #
 # matrix-group:     gl
-# matrix-libs:      libGLESv2_nvidia libGLESv1_CM_nvidia libEGL_nvidia
+# matrix-libs:      libEGL_nvidia libnvidia-eglcore libnvidia-glsi
 # matrix-entry:     eglBindAPI(EGL_OPENGL_ES_API) + GLES2 enumeration
 # matrix-criterion: the GLES renderer string names NVIDIA
 # matrix-status:    ready

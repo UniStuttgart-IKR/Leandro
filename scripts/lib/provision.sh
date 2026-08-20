@@ -125,7 +125,14 @@ Fix: install the matching driver userspace, or set LEA_NVIDIA_LIB_DIR=<dir>"
     # staged brings its own dlopen names with it (lea_gl_audit).
     local -a optional=(libnvidia-tileiras libnvidia-nvvm70 libnvidia-pkcs11
                        libnvidia-pkcs11-openssl3 libcudadebugger
-                       libnvidia-opencl libnvidia-vksc-core)
+                       libnvidia-opencl libnvidia-vksc-core
+                       # NVOFA's userspace: the 64-bit half of a library the
+                       # 32-bit set already staged, and the same oversight as
+                       # the GLES pair above. No workload for it is
+                       # procurable in this environment (probe nvofa), so it
+                       # is staged without being exercised -- the absence was
+                       # measurable, the presence is not.
+                       libnvidia-opticalflow)
     mkdir -p "$dest/nv/lib" "$dest/nv/bin"
     for l in "${libs[@]}"; do
         src="$libdir/$l.so.$want"
@@ -210,7 +217,17 @@ lea_gl_stage() {
         # logs its absence, so it belongs in the set even though NvFBC is
         # restricted on GeForce -- an absent library and a refused one are
         # different findings, and only one of them is ours.
-        libnvidia-fbc)
+        libnvidia-fbc
+        # The GLES vendor libraries. They were staged for 32-bit clients and
+        # for nobody else, so a 64-bit client that links the vendor SONAME
+        # found nothing (matrix TASKS-610.57.04, task 3) -- an oversight, and
+        # this is the fix. Measured 2026-08-20: no GLVND client reaches them.
+        # `es2_info` opens libGLESv2.so.2, lands on libEGL_nvidia and from
+        # there on eglcore/glsi, and no driver library names libGLESv*_nvidia
+        # in its dlopen strings at all. They are the pre-GLVND direct-link
+        # ABI, which is who they are staged for -- and why no probe covers
+        # them.
+        libGLESv1_CM_nvidia libGLESv2_nvidia)
     # Independently versioned: they come from egl-wayland / egl-gbm, not
     # from the driver package, and their SONAME is .so.1.
     local -a loose=(libnvidia-egl-gbm.so.1 libnvidia-egl-wayland.so.1
