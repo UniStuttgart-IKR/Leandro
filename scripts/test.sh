@@ -432,6 +432,15 @@ licence_headers() {
         [[ -f $f ]] || continue
         [[ -n ${exempt[$f]:-} ]] && continue
         case "$f" in *.png|*.jpg|*.ppm|*.bin|*.img|*.ico) continue ;; esac
+        # JSON cannot carry one. Not "does not": the pattern below wants the
+        # identifier at the start of a line behind an optional comment
+        # marker, and in JSON every line starts with a quote or a brace --
+        # even a key named SPDX-License-Identifier would not match, and
+        # there is no comment syntax to put it in. The catalogue is a
+        # generated artefact whose licence is stated by the generator and by
+        # its Markdown sibling, which IS checked. Added 2026-08-20: the
+        # check had been failing on this file since the artefact landed.
+        case "$f" in *.json) continue ;; esac
         # The identifier must stand in a COMMENT AT THE START OF A LINE.
         # Matching it anywhere would count a file that merely TALKS about
         # SPDX headers as having one -- measured: LICENSES.md documents the
