@@ -872,19 +872,42 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             // `memparams` below stays: it is the same bytes NAMED, which is
             // what a person reads, where this is the same bytes COMPARABLE,
             // which is what `answerdiff` reads.
-            if !pp.is_null() {
-                if let Some(plen) = nvrm_abi::xlate::alloc_param_size_compiled(hclass) {
-                    if plen > 0 {
-                        let n = plen.min(dump_cap());
-                        let bytes = core::slice::from_raw_parts(pp as *const u8, n);
-                        rec("allocout", phase_of(tag), &[
-                            pos("dev", V::S(dev_tag(dev))),
-                            pos("class", V::H32(hclass)),
-                            key("len", V::I(plen as i64)),
-                            pos("dump", V::Dump(bytes)),
-                        ]);
-                    }
-                }
+            // EXACTLY ONE RECORD PER ALLOCATION, whatever the class does.
+            //
+            // Preferably the parameter block: that is where the answer is.
+            // But many classes allocate with a NULL `pAllocParms` -- the
+            // graphics objects do, and so does NV01_ROOT_CLIENT -- and for
+            // those the only answer there is is the escape's OWN struct, the
+            // status and the handle RM assigned. Measured 2026-08-21: four
+            // signatures with 142 allocations between them had no answer
+            // evidence for exactly this reason, because `escout` skips
+            // RM_ALLOC and this arm only fired when there were params.
+            //
+            // One record either way, and `src` says which, so the two sides
+            // produce the same number of records for the same calls and the
+            // comparison pairs them. Where the sides disagree about whether
+            // params were passed at all, the dumps differ in LENGTH, which
+            // is reported as a difference rather than hidden -- and it is
+            // one.
+            let params = if pp.is_null() {
+                None
+            } else {
+                nvrm_abi::xlate::alloc_param_size_compiled(hclass).filter(|n| *n > 0)
+            };
+            let (src, plen, base) = match params {
+                Some(plen) => ("params", plen, pp as *const u8),
+                None => ("escape", size as usize, arg as *const u8),
+            };
+            if plen > 0 {
+                let n = plen.min(dump_cap());
+                let bytes = core::slice::from_raw_parts(base, n);
+                rec("allocout", phase_of(tag), &[
+                    pos("dev", V::S(dev_tag(dev))),
+                    pos("class", V::H32(hclass)),
+                    pos("src", V::S(src)),
+                    key("len", V::I(plen as i64)),
+                    pos("dump", V::Dump(bytes)),
+                ]);
             }
 
             if !pp.is_null() && matches!(hclass, 0x3e | 0x40 | 0x50a0) {

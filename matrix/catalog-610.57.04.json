@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T23:24:23Z",
-    "commit:  8218463 (working tree modified)"
+    "date:    2026-08-20T23:30:07Z",
+    "commit:  1e453ae (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -3282,7 +3282,8 @@
         "none"
       ],
       "notes": [
-        "class allocates with a NULL params pointer -- no size needed"
+        "class allocates with a NULL params pointer -- no size needed",
+        "answer bytes compared against a native run: 9 call(s), 48 of 48 bytes, masked {'not-written': 9}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -3586,7 +3587,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1035}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1038}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5475,7 +5476,8 @@
         "none"
       ],
       "notes": [
-        "class allocates with a NULL params pointer -- no size needed"
+        "class allocates with a NULL params pointer -- no size needed",
+        "answer bytes compared against a native run: 3 call(s), 48 of 48 bytes, masked {'not-written': 3}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5513,7 +5515,8 @@
         "none"
       ],
       "notes": [
-        "class allocates with a NULL params pointer -- no size needed"
+        "class allocates with a NULL params pointer -- no size needed",
+        "answer bytes compared against a native run: 8 call(s), 48 of 48 bytes, masked {'not-written': 8}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5553,7 +5556,8 @@
         "none"
       ],
       "notes": [
-        "class allocates with a NULL params pointer -- no size needed"
+        "class allocates with a NULL params pointer -- no size needed",
+        "answer bytes compared against a native run: 11 call(s), 48 of 48 bytes, masked {'not-written': 11}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7089,9 +7093,7 @@
       "flags": [
         "none"
       ],
-      "notes": [
-        "answer bytes compared against a native run: 4 call(s), 12 of 12 bytes"
-      ],
+      "notes": [],
       "fields": [
         {
           "name": "engineType",
@@ -8642,7 +8644,8 @@
         "none"
       ],
       "notes": [
-        "class allocates with a NULL params pointer -- no size needed"
+        "class allocates with a NULL params pointer -- no size needed",
+        "answer bytes compared against a native run: 1 call(s), 48 of 48 bytes, masked {'not-written': 1}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -8857,52 +8860,6 @@
     {
       "device": "ctl",
       "nr": "0x2b",
-      "sub": "0x41",
-      "kind": "alloc",
-      "name": "NV01_ROOT_CLIENT",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:289",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 74,
-      "rm_status": {
-        "0x0": 74
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": 4
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
       "sub": "0xc46f",
       "kind": "alloc",
       "name": "TURING_CHANNEL_GPFIFO_A",
@@ -9101,120 +9058,6 @@
       "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 80
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
-      "sub": "0x902d",
-      "kind": "alloc",
-      "name": "FERMI_TWOD_A",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:891",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 21,
-      "rm_status": {
-        "0x0": 21
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [
-        "class carries KF_UNVERIFIED: never allocated on real silicon"
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": 16
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
-      "sub": "0xa140",
-      "kind": "alloc",
-      "name": "KEPLER_INLINE_TO_MEMORY_B",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:1039",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 21,
-      "rm_status": {
-        "0x0": 21
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [
-        "class carries KF_UNVERIFIED: never allocated on real silicon"
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": 16
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
-      "sub": "0xc597",
-      "kind": "alloc",
-      "name": "TURING_A",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:1099",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 21,
-      "rm_status": {
-        "0x0": 21
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [
-        "class carries KF_UNVERIFIED: never allocated on real silicon"
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": 16
     },
     {
       "device": "gpu",
@@ -9865,7 +9708,7 @@
         "size-table"
       ],
       "notes": [
-        "answer bytes compared against a native run: 10 call(s), 4 of 4 bytes"
+        "answer bytes compared against a native run: 18 call(s), 4 of 4 bytes, masked {'not-written': 8}"
       ],
       "fields": [
         {
@@ -9914,6 +9757,54 @@
       ],
       "status": "implemented-verified",
       "xlate_size": 128
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0x41",
+      "kind": "alloc",
+      "name": "NV01_ROOT_CLIENT",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:289",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 74,
+      "rm_status": {
+        "0x0": 74
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 25 call(s), 48 of 48 bytes, masked {'handle': 25}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 4
     },
     {
       "device": "ctl",
@@ -10337,7 +10228,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 64 call(s), 16 of 16 bytes, masked {'not-written': 104}"
+        "answer bytes compared against a native run: 70 call(s), 16 of 16 bytes, masked {'not-written': 110}; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": 16
@@ -11509,6 +11400,45 @@
     {
       "device": "ctl",
       "nr": "0x2b",
+      "sub": "0x902d",
+      "kind": "alloc",
+      "name": "FERMI_TWOD_A",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:891",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 21,
+      "rm_status": {
+        "0x0": 21
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "class carries KF_UNVERIFIED: never allocated on real silicon",
+        "answer bytes compared against a native run: 9 call(s), 48 of 48 bytes, masked {'not-written': 9}; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 16
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
       "sub": "0x9072",
       "kind": "alloc",
       "name": "GF100_DISP_SW",
@@ -11561,6 +11491,84 @@
       ],
       "status": "implemented-verified",
       "xlate_size": 12
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0xa140",
+      "kind": "alloc",
+      "name": "KEPLER_INLINE_TO_MEMORY_B",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:1039",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 21,
+      "rm_status": {
+        "0x0": 21
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "class carries KF_UNVERIFIED: never allocated on real silicon",
+        "answer bytes compared against a native run: 9 call(s), 48 of 48 bytes, masked {'not-written': 9}; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 16
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0xc597",
+      "kind": "alloc",
+      "name": "TURING_A",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:1099",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 21,
+      "rm_status": {
+        "0x0": 21
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "class carries KF_UNVERIFIED: never allocated on real silicon",
+        "answer bytes compared against a native run: 9 call(s), 48 of 48 bytes, masked {'not-written': 9}; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 16
     },
     {
       "device": "ctl",
@@ -11919,7 +11927,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 12 of 12 bytes"
+        "answer bytes compared against a native run: 2 call(s), 48 of 48 bytes, masked {'not-written': 1}"
       ],
       "status": "implemented-verified",
       "xlate_size": 12
@@ -12010,7 +12018,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 12 of 12 bytes"
+        "answer bytes compared against a native run: 2 call(s), 48 of 48 bytes, masked {'not-written': 1}"
       ],
       "status": "implemented-verified",
       "xlate_size": 12
@@ -13275,7 +13283,7 @@
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 30257"
+      "criterion": "glmark2 --off-screen rendered the build scene, score 29222"
     },
     {
       "probe": "gles",
@@ -13309,7 +13317,7 @@
     },
     {
       "probe": "nvdec",
-      "result": "PASS (matched on attempt 5)",
+      "result": "PASS",
       "tracer": "996",
       "strace": "996",
       "delta": "0",

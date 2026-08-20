@@ -69,7 +69,7 @@ PHASED = frozenset({"nvos02", "nvos33", "nvos32", "nvos46", "nvos64",
 #   uvmout    0x25    len=32   <dump>             -- `nr` and `dump` are
 MIXED = {"cardinfo": ("i",), "ctrlout": ("cmd", "dump"),
          "uvmout": ("nr", "dump"),
-         "allocout": ("dev", "class", "dump"),
+         "allocout": ("dev", "class", "src", "dump"),
          "escout": ("dev", "nr", "sub", "dump")}
 
 
