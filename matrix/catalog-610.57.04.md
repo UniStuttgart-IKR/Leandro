@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T23:03:28Z
-commit:  c706aea (working tree modified)
+date:    2026-08-20T23:11:24Z
+commit:  bb0dd8e (working tree modified)
 ```
 
 One row per signature `(device, ioctl nr, sub)`. Names, descriptions,
@@ -222,7 +222,7 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2a` | `0xa06c0105` | `NVA06C_CTRL_CMD_PREEMPT` | This command preempts a channel group. | `src/common/sdk/nvidia/inc/ctrl/ctrla06c.h:203` | `NVA06C_CTRL_PREEMPT_PARAMS` | 8 | none | cuda-hostreg, cuda-jit, cuda-launch, nvdec, nvenc, opencl |
 | | | | | *answer bytes compared against a native run: 11 call(s), 8 of 8 bytes* | | | | | |
 | ctl | `0x4f` | `-` | `NV_ESC_RM_UNMAP_MEMORY` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:43` | `&mdash;` | &mdash; | none | cuda-hostreg, cuda-jit, cuda-launch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
-| | | | | *answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1031}; NOT paired in egl-xlib, gl-enum, gles, vk-offscreen, which judged nothing either way* | | | | | |
+| | | | | *answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1028}; NOT paired in egl-xlib, gl-enum, gles, vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20809001` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-torch, nvdec, nvenc |
 | | | | | *answer bytes compared against a native run: 3 call(s), 8 of 8 bytes* | | | | | |
 | ctl | `0x2a` | `0x20809009` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-torch, nvdec, nvenc, nvml |
@@ -486,13 +486,13 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answer bytes compared against a native run: 801 call(s), 16 of 16 bytes, masked {'not-written': 847}; NOT paired in egl-xlib, gl-enum, gles, nvdec, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x101` | `NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION` | This command returns the current driver information. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000system.h:108` | `NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS` | 40 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
 | | | | | *pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24* | | | | | |
-| | | | | *answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 48}* | | | | | |
+| | | | | *answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 54}* | | | | | |
 | ctl | `0x2a` | `0x20801201` | `NV2080_CTRL_CMD_GR_GET_INFO` | This command returns gr engine information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:408` | `NV2080_CTRL_GR_GET_INFO_PARAMS` | 32 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *pointer field(s), offsets compiled: grInfoList @8* | | | | | |
-| | | | | *answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 17}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
+| | | | | *answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 19}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x80170d` | `NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST` | Takes a list of hChannels as input and returns the corresponding Channel IDs that they corresponding to on hw. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:178` | `NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS` | 24 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
 | | | | | *pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16* | | | | | |
-| | | | | *answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 580}* | | | | | |
+| | | | | *answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 620}* | | | | | |
 | ctl | `0x2b` | `0x2080` | `NV20_SUBDEVICE_0` | &mdash; | `src/nvidia/generated/g_allclasses.h:305` | `NV2080_ALLOC_PARAMETERS` | 4 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 15 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2b` | `0x2081` | `NV2081_BINAPI` | &mdash; | `src/nvidia/generated/g_allclasses.h:309` | `NV2081_ALLOC_PARAMETERS` | 4 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
@@ -514,7 +514,7 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2b` | `0xc5b5` | `TURING_DMA_COPY_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:1055` | `&mdash;` | 8 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 185 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x2b` | `0xc5c0` | `TURING_COMPUTE_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:1103` | `&mdash;` | 16 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
-| | | | | *answer bytes compared against a native run: 64 call(s), 16 of 16 bytes, masked {'not-written': 104}* | | | | | |
+| | | | | *answer bytes compared against a native run: 64 call(s), 16 of 16 bytes, masked {'not-written': 120}* | | | | | |
 | ctl | `0x2b` | `0xcb33` | `NV_CONFIDENTIAL_COMPUTE` | &mdash; | `src/nvidia/generated/g_allclasses.h:1231` | `NV_CONFIDENTIAL_COMPUTE_ALLOC_PARAMS` | 4 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 9 call(s), 4 of 4 bytes, masked {'not-written': 9}* | | | | | |
 | ctl | `0x2b` | `0xde` | `RM_USER_SHARED_DATA` | &mdash; | `src/nvidia/generated/g_allclasses.h:1183` | `NV00DE_ALLOC_PARAMETERS` | 8 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |

@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T23:03:28Z",
-    "commit:  c706aea (working tree modified)"
+    "date:    2026-08-20T23:11:24Z",
+    "commit:  bb0dd8e (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -3586,7 +3586,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1031}; NOT paired in egl-xlib, gl-enum, gles, vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1028}; NOT paired in egl-xlib, gl-enum, gles, vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -9595,7 +9595,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24",
-        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 48}"
+        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 54}"
       ],
       "fields": [
         {
@@ -9682,7 +9682,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 17}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 19}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -9741,7 +9741,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16",
-        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 580}"
+        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 620}"
       ],
       "fields": [
         {
@@ -10337,7 +10337,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 64 call(s), 16 of 16 bytes, masked {'not-written': 104}"
+        "answer bytes compared against a native run: 64 call(s), 16 of 16 bytes, masked {'not-written': 120}"
       ],
       "status": "implemented-verified",
       "xlate_size": 16
@@ -13275,7 +13275,7 @@
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 35423"
+      "criterion": "glmark2 --off-screen rendered the build scene, score 39478"
     },
     {
       "probe": "gles",

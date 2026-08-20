@@ -699,6 +699,36 @@ do_trace() {
             result=PASS
             [[ $try -gt 1 ]] && result="PASS (matched on attempt $try)"
         fi
+
+        # THE CONTROL TRACE: the SAME probe, traced natively a second time.
+        #
+        # This is the control test OPEN-QUESTIONS number 55 asks for, in the
+        # variant that does not have the within-trace one's weakness. A word
+        # that differs between two native runs of one binary on one machine
+        # can be evidence for nothing -- it is a timer, a counter, a free-
+        # memory figure or a handle -- and comparing it native against guest
+        # reports volatility as a defect.
+        #
+        # WHY A SECOND RUN AND NOT TWO CALLS OF ONE RUN. The cheap variant
+        # compares the several calls one trace made of the same command, and
+        # it cannot tell "this value moved" from "this was a different
+        # QUESTION": GPU_GET_INFO_V2, GR_GET_INFO and FB_GET_INFO are index
+        # lists whose successive calls ask for different indices. Here call i
+        # of run A is the same question as call i of run B, so a difference
+        # is volatility and nothing else.
+        #
+        # It is NOT gated and NOT counted. It is not a measurement of the
+        # surface -- the trace above is -- so a short or failed control run
+        # costs precision and can never fail a probe or enter the catalogue.
+        # Its whole use is to stop a difference from being called a defect.
+        if [[ $result == PASS* ]]; then
+            mkdir -p "$TDIR/control"
+            raw=$(mktemp) || die "mktemp"
+            LEA_MATRIX_WRAP="env LEA_TRACE_FILE=$raw LD_PRELOAD=$LEA_TRACE_LIB" \
+                timeout 600 "$f" >/dev/null 2>&1
+            lea_trace_place "$raw" "$TDIR/control/$p" probe "$p" side "native control"
+        fi
+
         printf '%-16s %8s %8s %7s %7s %7s %7s  %s\n' "$p" "$a" "${b:--}" \
             "$([[ -n $b ]] && echo $((b - a)) || echo -)" "$nsig" "$am" \
             "$([[ -n $mset ]] && echo $((mset - am)) || echo -)" "${short:-$result}"

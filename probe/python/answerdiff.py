@@ -118,6 +118,71 @@ def read_declared_pointers(tables):
     return out
 
 
+def read_control(ndir, probes):
+    """THE CONTROL TEST, second-native-run variant: which words of which
+    signature are not constant between two native runs of the same probe.
+
+    This is the variant OPEN-QUESTIONS number 55 asked for and the one the
+    within-trace test below could not be. Call i of run A is the SAME
+    QUESTION as call i of run B -- same binary, same machine, same
+    arguments, minutes apart -- so a word that differs is volatile and
+    nothing else. The cheap variant compares the several calls one trace
+    made of one command, and cannot tell "this value moved" from "this was a
+    different question": GPU_GET_INFO_V2, GR_GET_INFO and FB_GET_INFO are
+    index lists whose successive calls ask for different indices, and most
+    of what that variant flagged was of that shape.
+
+    The control trace is written by `scripts/ioctl-matrix.sh trace` into
+    `<traces>/control/`. It is not gated and not counted -- it measures
+    nothing about the surface, so a short one costs precision and can never
+    fail a probe.
+
+    Returns the same shape as the within-trace test, so the caller cannot
+    tell which produced it: signature -> {"repeats", "unstable"}.
+    """
+    cdir = pathlib.Path(ndir) / "control"
+    rep = collections.defaultdict(int)
+    unstable = collections.defaultdict(set)
+    for p in probes:
+        a, b = traceread.trace_file(ndir, p), traceread.trace_file(cdir, p)
+        if not pathlib.Path(b).is_file():
+            continue
+        ra, rb = read_side(a), read_side(b)
+        if not ra or not rb:
+            continue
+        for sig in set(ra["calls"]) & set(rb["calls"]):
+            ca, cb = ra["calls"][sig], rb["calls"][sig]
+            # Pair by index, over as many calls as BOTH runs made. Unequal
+            # counts are not a finding here -- this is a control, and a
+            # workload that allocated one surface more in one run says
+            # nothing about whether a word is volatile.
+            n = min(len(ca), len(cb))
+            rep[sig] = max(rep[sig], n)
+            # ONLY WORDS BOTH RUNS ACTUALLY WROTE. A word neither run wrote
+            # holds the caller's leftovers, and two runs of one program have
+            # different leftovers -- so comparing them reports the stack as
+            # volatile. That is not a harmless over-report here: `unstable`
+            # is pooled per SIGNATURE across probes, so one probe's garbage
+            # would mark the word volatile for every probe and suppress a
+            # real finding elsewhere. Measured 2026-08-21: it did exactly
+            # that to GR_GET_CAPS_V2, which nvdec answers and nvenc leaves
+            # untouched.
+            wra = written_words(ra["asked"].get(sig, []), ca)
+            wrb = written_words(rb["asked"].get(sig, []), cb)
+            for i in range(n):
+                wa, wb = words_of(ca[i]["bytes"]), words_of(cb[i]["bytes"])
+                for j, (x, y) in enumerate(zip(wa, wb)):
+                    off = j * 4
+                    if wra is not None and off not in wra[i]:
+                        continue
+                    if wrb is not None and off not in wrb[i]:
+                        continue
+                    if x != y:
+                        unstable[sig].add(off)
+    return {c: {"repeats": rep[c], "unstable": sorted(unstable.get(c, ()))}
+            for c in rep}
+
+
 def read_stability(paths):
     """THE CONTROL TEST, within-trace variant: which words of which command
     are not constant across the calls ONE NATIVE RUN made.
@@ -142,8 +207,11 @@ def read_stability(paths):
     difference from being called a defect; it can never turn one into a
     pass, and it never promotes anything. The variant that does not have
     this weakness is the second native trace of the same probe, where call i
-    of one run is the same question as call i of the other -- and it costs a
-    run, which is why it is not this.
+    of one run is the same question as call i of the other. That one exists
+    now -- `read_control` above -- and the two are UNIONED rather than one
+    replacing the other, because neither proves stability: each sees
+    volatility the other cannot, and "this word moved" is a positive
+    observation where "this word did not move" is the absence of one.
     """
     rep = collections.defaultdict(int)
     unstable = collections.defaultdict(set)
@@ -487,7 +555,8 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
                 return "unstable", (
                     f"call {i}, {name_at(fm, off)}: {nw:#010x} natively, "
                     f"{gw:#010x} in the guest -- and this word is NOT STABLE "
-                    f"between two calls of the native run itself, so it is "
+                    f"between two native runs, or between two calls of one "
+                    f"native run, so it is "
                     f"evidence for nothing"), {}
             if why is None and med:
                 # The inverted test. Inside a manifest field this word is
@@ -557,7 +626,34 @@ def main():
     # Every native trace, not just the probes named on the command line: a
     # command's stability is a property of the command, and the more calls
     # the evidence rests on the fewer values are wrongly called stable.
+    # TWO CONTROL TESTS, UNIONED -- never one replacing the other.
+    #
+    # Each finds volatility the other cannot. The second-native-run variant
+    # sees a command that a single trace calls only ONCE, which the
+    # within-trace variant has nothing to say about at all (that is the whole
+    # `stability_unknown` class). The within-trace variant sees a value that
+    # moves between two calls minutes apart inside one run, which two runs
+    # taken a minute apart can easily agree about by luck -- a GPU
+    # temperature reads the same in both and differs in the guest.
+    #
+    # Neither PROVES stability, and that asymmetry is the reason for the
+    # union rather than a preference. "This word moved" is a positive
+    # observation; "this word did not move" is the absence of one. Replacing
+    # the cheap test with the strict one was tried first and moved five
+    # signatures into MISMATCH -- a thermal reading, a work-submit token, two
+    # addresses and a PCI bus number -- none of them defects, all of them
+    # words the cheap test had correctly refused to treat as evidence.
+    #
+    # Used in one direction only, like each of them alone: it can stop a
+    # difference from being called a defect and it never promotes anything.
     stability = read_stability(traceread.all_traces(ndir))
+    control_seen = read_control(ndir, a.probes)
+    for sig, st in control_seen.items():
+        cur = stability.get(sig, {"repeats": 0, "unstable": []})
+        stability[sig] = {
+            "repeats": max(cur["repeats"], st["repeats"]),
+            "unstable": sorted(set(cur["unstable"]) | set(st["unstable"])),
+        }
     cat = {}
     catf = outdir / f"catalog-{a.driver}.json"
     if catf.is_file():
@@ -881,8 +977,9 @@ def main():
                                   "status fingerprint can see it, because "
                                   "nothing failed",
             "unstable": "the bytes differ, at a word that moves between two "
-                        "calls of the native run itself -- evidence for "
-                        "nothing, in either direction",
+                        "calls of one native run, or between two native "
+                        "runs of the same probe -- evidence for nothing, in "
+                        "either direction",
             "stability-unknown": "the bytes differ, and no native trace called "
                                  "the command twice, so the control test has "
                                  "nothing to say. Never to be read as stable",
@@ -926,7 +1023,7 @@ def main():
         print(f"  ... and {len(stability_unknown) - 8} more of unknown stability")
     for x in unstable[:8]:
         print(f"  UNSTABLE {x['signature']:<22} {x['name'][:44]:<44} "
-              f"word(s) {x['unstable_words']} move within one native run")
+              f"word(s) {x['unstable_words']} move between two native runs")
     if len(unstable) > 8:
         print(f"  ... and {len(unstable) - 8} more unstable")
     for x in skipped:
@@ -941,6 +1038,8 @@ def main():
     for x in unwritten:
         print(f"  NOTANSWERED {x['signature']:<18} {x['name'][:44]:<44} "
               f"{x['reason'][:90]}")
+    print(f"control: {len(control_seen)} signature(s) had a second native run "
+          f"to compare against; the rest rest on the within-trace variant only")
     print(f"not verified splits four ways: {len(mismatch)} MISMATCH and "
           f"{len(unwritten)} ANSWER-NOT-WRITTEN (the potential defects), "
           f"{len(unstable)} unstable (differ at a word that moves within one "
