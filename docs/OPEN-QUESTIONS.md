@@ -96,7 +96,10 @@ failure itself, which is now understood as the head of the chain in 35.
 exactly NULL rather than a wrongly mapped address, and that the crash
 depends on process state rather than on which client runs. Number 29
 narrowed it further: the same binary in a self-started Xwayland instance
-does not crash.
+does not crash. Number 44 names the object (2026-08-20): the NULL is the
+`+8` field of a config object that libGLX_nvidia's list walk and glcore's
+array search both dereference, both dying at address 8, and the game's
+crash is the same defect rather than a neighbouring one.
 
 ### 25. The displayless HAL is forced, and the EVO path is a privilege question
 **Open; cause measured, the choice between three routes is not made.** With
@@ -323,6 +326,52 @@ of 1021 process fds on `nvidiactl` with `unaccounted -201`, a negative
 number that should not be possible; and `Failed to acquire the EGL Image`
 stands at 744 occurrences after number 40 measured it down to zero, on a
 different session type (GNOME Wayland rather than the CS2/X11 run).
+
+**The game is not needed: `glxgears` is the same crash, in two seconds.**
+Measured 2026-08-20 in the guest that was still up from the crash session,
+against the compositor's own Xwayland (pid 7453, never restarted):
+
+- `glxgears` on `DISPLAY=:0` dumps core. `glxinfo -B` on the same display
+  succeeds and reports NVIDIA `4.6.0`, renderer `Leandro RTX 2070/PCIe/SSE2`,
+  8192 MB. The GL stack is up; only the second client dies.
+- `dmesg`: `glxgears[11477]: segfault at 8 ... in
+  libGLX_nvidia.so.610.57.04`, and beside it **four**
+  `FeralLinuxMessa[...]: segfault at 8` in the same library from the game
+  session. Number 23's signature, and the game's own launcher shares it.
+- The faulting instruction is `cmp %rcx,0x8(%rdx)` at
+  `libGLX_nvidia+0x83715`, inside `[0x836e0..0x8376f)`: a linked-list walk
+  (head at `container+0x10b0`, next at `+0x50`, hit cached at `+0x10b8`)
+  that dereferences `node->+8` for the comparison key. The core gives
+  `rdx == 0`, and **both** nodes in that list carry `+8 == NULL`.
+- The other branch of that same function calls **`0x83240`** -- the
+  function that produced the hollow object in the game's core. The two
+  crash sites are the fast and the slow path of one lookup over one
+  object type.
+- The faulting node reads `+0x28 = 9`, `+0x30 = 0xffffffff`, head zeroed:
+  **the same layout and the same values as the game's hollow object**. The
+  search keys match as well, `{1, self-pointer, 0x103, 0}` in both cores.
+
+So numbers 23, 33 and 44 are one defect: objects of this type are created
+with a NULL pointer at `+8`, and every consumer that walks them dies at
+address 8 -- glcore's array search for the game, libGLX_nvidia's list walk
+for `glxgears`.
+
+**And a sequence diff would not have found it.** The backend recorded
+exactly the same two failures for the client that WORKS and the client that
+CRASHES -- `0x2080012f` answering `NV_ERR_NOT_SUPPORTED`, twice each, which
+probe/README.md section 6 lists as benign. `NV_ESC_ATTACH_GPUS_TO_FD` did
+not fire during the `glxgears` crash at all, which retires the *Unverified*
+guess above instead of confirming it. The crash is invisible to a status
+comparison, exactly as number 32's failure class predicts; the core dump
+found it, the log could not.
+
+What the next measurement gets from this: a reproducer that takes two
+seconds, needs no Steam, no game and no Moonlight, runs over
+`showcase.sh ssh`, and comes with a WORKING control (`glxinfo`) in the same
+session on the same display. `LEA_DEBUG=2` across that pair is a diff of
+two clients that differ only in the outcome -- tighter than the native host
+run, which differs in compositor, resolution and kernel. Evidence under
+`vm/out-glxgears/`: the core (33 MB), the dmesg lines, the backend delta.
 
 ---
 
