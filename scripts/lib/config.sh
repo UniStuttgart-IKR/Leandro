@@ -82,6 +82,23 @@ _lea_abs() {
 : "${LEA_FLEET_BASE:=$LEA_VM_DIR/base-torch.qcow2}"; _lea_abs LEA_FLEET_BASE
 : "${LEA_DISK_SIZE:=40G}"
 
+# A Steam library, deliberately NOT part of the guest image. A game is tens
+# of gigabytes, it is not system state, and re-downloading it per instance
+# is the thing this exists to prevent -- `showcase.sh up --fresh` throws the
+# root disk away and must not throw a 35 GB download away with it.
+#
+# One base, thin overlays per instance: the arrangement LEA_FLEET_BASE
+# already uses for root disks, and the reason is the same. Nothing writes to
+# the base, so several guests can run from it AT ONCE -- which is what two
+# CS2 instances on one card need. The base is filled once, through
+# `showcase.sh games init` plus one guest started with --games-init.
+: "${LEA_GAMES_BASE:=$LEA_VM_DIR/games.qcow2}"; _lea_abs LEA_GAMES_BASE
+: "${LEA_GAMES_SIZE:=200G}"
+# The filesystem label the guest mounts it by. By label, not by device: the
+# games disk is vdc on Ubuntu (root, seed, games) and vdb on NixOS, and a
+# mount that depends on that ordering breaks the day a disk is added.
+: "${LEA_GAMES_LABEL:=LEAGAMES}"
+
 # The host-side binaries. LEA_BIN_DIR holds what `cargo build --release`
 # produces (vhost-user-nvrm, vhost-user-input, nvrm-genhdr, mmapping,
 # smipids, vsockconnect); the tracer library sits beside them in a checkout and under

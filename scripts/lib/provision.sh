@@ -480,6 +480,53 @@ lea_libcuda_check() {
 }
 
 # ---- the dev guest ----------------------------------------------------------
+# lea_games_mount NAME IP -- mount the Steam library disk, if this instance
+# was given one.
+#
+# Only when `vm/<name>/games` says so. A guest that was started without
+# --games is not touched at all, and that guard is the important one: this
+# function FORMATS a disk, and "find the empty one" is a rule that a root
+# disk with a partition table also satisfies (`lsblk` reports no FSTYPE for
+# it, because the filesystems are on its partitions).
+#
+# So the candidate must have no partitions, no filesystem and no mountpoint,
+# all three. BY LABEL afterwards, never by device: the games disk is vdc on
+# Ubuntu (root, seed, games) and vdb on NixOS, and a mount that depends on
+# that ordering breaks the day a disk is added.
+#
+# Mounted AT the Steam library path rather than beside it, so Steam finds one
+# library where it already looks. `nofail`, so a guest that boots without the
+# disk still boots.
+lea_games_mount() {
+    local name=$1 ip=$2
+    [[ -f $(lea_inst_dir "$name")/games ]] || return 0
+    lea_ssh "$ip" "LABEL='$LEA_GAMES_LABEL' bash -s" <<'REMOTE'
+set -u
+target=$HOME/.local/share/Steam/steamapps
+
+dev=$(lsblk -ndo NAME,LABEL,TYPE | awk -v l="$LABEL" '$3=="disk" && $2==l {print $1; exit}')
+if [ -z "$dev" ]; then
+    for d in $(lsblk -ndo NAME,TYPE | awk '$2=="disk" {print $1}'); do
+        [ -z "$(lsblk -no NAME "/dev/$d" | tail -n +2)" ] || continue   # has partitions
+        [ -z "$(lsblk -no FSTYPE "/dev/$d" | tr -d ' \n')" ] || continue
+        [ -z "$(lsblk -no MOUNTPOINT "/dev/$d" | tr -d ' \n')" ] || continue
+        dev=$d; break
+    done
+    [ -n "$dev" ] || { echo "no unformatted disk to use as the games library"; exit 1; }
+    echo "formatting /dev/$dev as the games library (label $LABEL)"
+    sudo mkfs.ext4 -q -L "$LABEL" "/dev/$dev" || exit 1
+fi
+
+mkdir -p "$target"
+grep -q "LABEL=$LABEL " /etc/fstab 2>/dev/null || \
+    echo "LABEL=$LABEL $target ext4 defaults,nofail,x-systemd.device-timeout=10 0 2" \
+    | sudo tee -a /etc/fstab >/dev/null
+mountpoint -q "$target" || sudo mount "$target" || exit 1
+sudo chown "$(id -u):$(id -g)" "$target"
+echo "games library: $(df -h "$target" | awk 'NR==2 {print $2" total, "$4" free"}') on /dev/$dev"
+REMOTE
+}
+
 # lea_guest_shell_env IP -- let an INTERACTIVE shell in the guest run the
 # probes without three exports first.
 #
@@ -791,6 +838,9 @@ lea_guest_setup() {
                      ~/gpu/venv/bin/pip install --quiet torch numpy' || return 1
     fi
     lea_guest_shell_env "$ip" || return 1
+    # The library disk, when the instance was given one. Silent when it has
+    # none: --games is a request, not a promise.
+    lea_games_mount "$name" "$ip" || warn "$name: the games disk did not mount"
 
     # The last thing, and a hard one: the guest must load the HOST's libcuda,
     # not merely one with the same version number.

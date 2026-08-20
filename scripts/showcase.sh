@@ -24,6 +24,7 @@
 #   scripts/showcase.sh audit [--name NAME]          guest userspace resolution audit
 #   scripts/showcase.sh display [--name NAME] [--display :N]   what the display rig says
 #   scripts/showcase.sh pair [--name NAME] [--pin NNNN]        Moonlight <-> the guest's Sunshine
+#   scripts/showcase.sh games init [--size N] | games status   the shared Steam library
 #   scripts/showcase.sh demo [--list] [--only a,b] [--skip a,b] [--fast] [--full]
 #                            [--fleet N] [--pause] [--no-setup] [--keep]
 #                            [--no-managed] [--out DIR]
@@ -109,7 +110,7 @@ usage() { lea_usage_from_header; exit "${1:-0}"; }
 
 CMD=${1:-status}
 case $CMD in
-    net|up|down|status|ssh|exec|state|clean|audit|display|pair|demo) shift ;;
+    net|up|down|status|ssh|exec|state|clean|audit|display|pair|games|demo) shift ;;
     -h|--help) usage 0 ;;
     *) error "unknown subcommand: $CMD"; usage 2 ;;
 esac
@@ -159,6 +160,7 @@ do_up() {
             --console) console=1; rig+=(--console); shift ;;
             --fresh|--no-load) rig+=("$1"); fleet+=("$1"); shift ;;
             --mem) rig+=(--mem "$2"); fleet+=(--mem "$2"); shift 2 ;;
+            --games|--games-init) rig+=("$1"); shift ;;
             --display|--input|--with-steam|--with-torch|--no-provision|--no-compute)
                 rig+=("$1"); shift ;;
             --session|--cpus|--vram-limit|--max-pin-mib|--base) rig+=("$1" "$2"); shift 2 ;;
@@ -279,6 +281,60 @@ do_display() {
         esac
     done
     lea_display_status "$name" "$disp"
+}
+
+# The shared Steam library: one qcow2, filled once, overlaid per instance.
+# A game is tens of gigabytes and is not system state, so it does not belong
+# in the guest image -- and `up --fresh` must not throw a download away.
+do_games() {
+    local sub=${1:-status}; shift || true
+    case $sub in
+        init)
+            local size=$LEA_GAMES_SIZE
+            while [[ $# -gt 0 ]]; do
+                case $1 in
+                    --size) size=$2; shift 2 ;;
+                    -h|--help) usage 0 ;;
+                    *) error "games init: unknown option $1"; usage 2 ;;
+                esac
+            done
+            if [[ -f $LEA_GAMES_BASE ]]; then
+                error "$LEA_GAMES_BASE exists already -- refusing to replace a library."
+                error "  Delete it by hand if that is really what you want."
+                return 1
+            fi
+            mkdir -p "$(dirname "$LEA_GAMES_BASE")"
+            # Empty and unformatted on purpose: the guest makes the
+            # filesystem on first use (lea_games_mount), which needs no root
+            # and no loop device on the host.
+            qemu-img create -q -f qcow2 "$LEA_GAMES_BASE" "$size" || return 1
+            info "created $LEA_GAMES_BASE ($size, empty -- the guest formats it)"
+            echo
+            echo "Fill it once:"
+            echo "  scripts/showcase.sh up --name desktop --index 5 --session gnome --games-init"
+            echo "  ... start Steam in the guest, log in, install the game, shut the guest down"
+            echo
+            echo "Then every guest gets its own overlay on it:"
+            echo "  scripts/showcase.sh up --name desktop --index 5 --session gnome --games"
+            ;;
+        status)
+            if [[ ! -f $LEA_GAMES_BASE ]]; then
+                info "no library: $LEA_GAMES_BASE does not exist (games init makes one)"
+                return 0
+            fi
+            info "base:     $LEA_GAMES_BASE ($(du -h "$LEA_GAMES_BASE" | cut -f1) on disk)"
+            local n d
+            for n in $(lea_inst_list); do
+                d=$(lea_inst_dir "$n")/games.qcow2
+                [[ -f $d ]] && info "overlay:  $n ($(du -h "$d" | cut -f1))"
+            done
+            local w
+            if w=$(lea_games_writer_other_than ""); then
+                warn "instance $w currently holds the BASE for writing (--games-init)"
+            fi
+            ;;
+        *) die "games: init or status" ;;
+    esac
 }
 
 # Pairing without a browser: the PIN goes to Sunshine's REST API instead of
@@ -777,5 +833,6 @@ case $CMD in
     audit)   do_audit "$@" ;;
     display) do_display "$@" ;;
     pair)    do_pair "$@" ;;
+    games)   do_games "$@" ;;
     demo)    do_demo "$@" ;;
 esac

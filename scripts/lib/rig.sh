@@ -616,6 +616,28 @@ EOS
     info "  $INST_NAME: seed built (IP $INST_IP, key installed, user $LEA_GUEST_USER)"
 }
 
+# lea_games_writer_other_than NAME -- is another RUNNING instance holding the
+# games base for writing? Prints its name if so.
+#
+# Two qcow2 writers on one file corrupt it, and the corruption is silent
+# until something reads the part that was overwritten. The overlay path
+# cannot hit this (nothing writes to the base there); --games-init can, and
+# it is the one path a person reaches for twice by accident.
+lea_games_writer_other_than() {
+    local me=$1 n d
+    for n in $(lea_inst_list); do
+        [[ $n == "$me" ]] && continue
+        lea_vm_running "$n" || continue
+        d=$(lea_inst_dir "$n")
+        # A running instance whose argv names the base itself, not an overlay.
+        if [[ -r $d/ch.pid ]] && pgrep -a -F "$d/ch.pid" 2>/dev/null \
+                | grep -qF "path=$LEA_GAMES_BASE,"; then
+            echo "$n"; return 0
+        fi
+    done
+    return 1
+}
+
 # lea_vm_start NAME [--index N] [--fresh] [--cpus N] [--mem MiB] [--console]
 #              [--base IMAGE] [--guest ubuntu|nixos] [--transport ip|vsock]
 #              [--vhu WORD]...
@@ -638,6 +660,7 @@ EOS
 lea_vm_start() {
     local name=$1; shift
     local idx="" fresh=0 cpus=$LEA_CPUS mem=$LEA_MEM console=0 base="" guest="" transport=""
+    local games=0 games_init=0
     local -a extra=()
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -649,6 +672,8 @@ lea_vm_start() {
             --base)      base=$2; shift 2 ;;
             --guest)     guest=$2; shift 2 ;;
             --transport) transport=$2; shift 2 ;;
+            --games)      games=1; shift ;;
+            --games-init) games=1; games_init=1; shift ;;
             --vhu)       extra+=("$2"); shift 2 ;;
             *) die "lea_vm_start: unknown option $1" ;;
         esac
@@ -795,6 +820,55 @@ lea_vm_start() {
             ;;
     esac
 
+    # The Steam library, when asked for. --games-init hands the guest the
+    # BASE itself, to fill it once; --games gives it a thin overlay, which
+    # is what lets two guests run from the same library at the same time.
+    # A base that is not there is not an error: the flag is a request, and
+    # the guest simply has no library disk (the mount is `nofail`).
+    local games_disk=""
+    if [[ $games -eq 1 ]]; then
+        if [[ $games_init -eq 1 ]]; then
+            [[ -f $LEA_GAMES_BASE ]] \
+                || die "--games-init: no $LEA_GAMES_BASE -- run: showcase.sh games init"
+            local other
+            if other=$(lea_games_writer_other_than "$name"); then
+                die "--games-init: $other already holds the games BASE for writing.
+       Only one guest may fill it at a time, or the image is corrupted.
+       Stop it first, or start this one with --games (a read-only overlay)."
+            fi
+            games_disk=$LEA_GAMES_BASE
+            warn "$name: writing DIRECTLY to $LEA_GAMES_BASE (--games-init)"
+        elif [[ -f $LEA_GAMES_BASE ]]; then
+            # The other direction of the same rule: an overlay on a base that
+            # someone is WRITING is an overlay onto a moving target, and what
+            # it reads afterwards is undefined. The writer is the one that
+            # has to finish first.
+            local busy
+            if busy=$(lea_games_writer_other_than "$name"); then
+                die "$busy is filling the games base right now (--games-init).
+       An overlay taken while the base changes underneath it reads garbage.
+       Let it finish and shut it down first."
+            fi
+            games_disk=$(lea_inst_dir "$name")/games.qcow2
+            if [[ ! -f $games_disk ]]; then
+                qemu-img create -q -f qcow2 -F qcow2 -b "$LEA_GAMES_BASE" "$games_disk" \
+                    || die "$name: could not create the games overlay"
+                info "  $name: games overlay on $(basename "$LEA_GAMES_BASE")"
+            fi
+        else
+            warn "$name: --games, but $LEA_GAMES_BASE does not exist -- no library disk"
+        fi
+        if [[ -n $games_disk ]]; then
+            disks+=("path=$games_disk,image_type=qcow2,backing_files=on")
+            # Part of the instance's state, like `guest` and `transport`:
+            # the provisioning step must not go looking for an unformatted
+            # disk on a guest that was never given one.
+            echo "$games_disk" > "$(lea_inst_dir "$name")/games"
+        fi
+    else
+        rm -f "$(lea_inst_dir "$name")/games"
+    fi
+
     # HOW THE HOST REACHES IT, and it is exactly one argv word either way.
     # ip:    a virtio-net device on this slot's tap, and the guest gets the
     #        address the identity carries.
@@ -934,6 +1008,7 @@ lea_rig_up() {
     local name=$1; shift
     local idx="" fresh=0 mem="" cpus="" compute=1 input=0 display=0 session=""
     local steam=0 torch=0 provision=1 load=1 cap="" pin="" console=0 base="" guest="" transport=""
+    local -a gameopt=()
     while [[ $# -gt 0 ]]; do
         case $1 in
             --index)        idx=$2; shift 2 ;;
@@ -953,6 +1028,8 @@ lea_rig_up() {
             --no-load)      load=0; shift ;;
             --vram-limit)   cap=$2; shift 2 ;;
             --max-pin-mib)  pin=$2; shift 2 ;;
+            --games)        gameopt=(--games); shift ;;
+            --games-init)   gameopt=(--games-init); shift ;;
             --console)      console=1; shift ;;
             *) die "lea_rig_up: unknown option $1" ;;
         esac
@@ -1021,6 +1098,7 @@ lea_rig_up() {
 
     info "== $name: VM ($os, $tr) =="
     local -a vmopts=(--index "$index" --mem "$mem" --cpus "$cpus" --guest "$os" --transport "$tr")
+    [[ ${#gameopt[@]} -gt 0 ]] && vmopts+=("${gameopt[@]}")
     [[ $fresh -eq 1 ]] && vmopts+=(--fresh)
     # A per-instance base image: the desktop rig overlays the desktop-baked
     # image while vm0 keeps the compute one. Only consulted when the disk is
