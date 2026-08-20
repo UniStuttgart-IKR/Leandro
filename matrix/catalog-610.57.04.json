@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T16:58:43Z",
-    "commit:  49a3913 (working tree modified)"
+    "date:    2026-08-20T17:25:44Z",
+    "commit:  d6144d1 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -4702,33 +4702,6 @@
     {
       "device": "ctl",
       "nr": "0x2a",
-      "sub": "0x20800802",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
-      "description": "This command returns bios information for the associated GPU.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bios.h:71",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "nvml"
-      ],
-      "calls": 1,
-      "rm_status": {
-        "0x0": 1
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "status": "passthrough",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
       "sub": "0x20801322",
       "kind": "ctrl",
       "name": "NV2080_CTRL_CMD_FB_GET_OFFLINED_PAGES",
@@ -4977,7 +4950,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 4 call(s), 12 of 12 bytes"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -5436,7 +5411,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 32 of 83972 bytes"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -8562,36 +8539,6 @@
     {
       "device": "ctl",
       "nr": "0x2a",
-      "sub": "0x20801802",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
-      "description": "This command returns bus engine information for the associated GPU.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:579",
-      "params_struct": "NV2080_CTRL_BUS_GET_INFO_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "nvdec",
-        "nvenc",
-        "nvml"
-      ],
-      "calls": 10,
-      "rm_status": {
-        "0x0": 10
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
       "sub": "0x800201",
       "kind": "ctrl",
       "name": "NV0080_CTRL_CMD_GPU_GET_CLASSLIST",
@@ -8871,36 +8818,6 @@
     },
     {
       "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x20800123",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES",
-      "description": "Returns a list of supported engine types along with the number of instances of each type.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:769",
-      "params_struct": "NV2080_CTRL_GPU_GET_ENGINES_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 3,
-      "rm_status": {
-        "0x0": 3
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
       "nr": "0x2b",
       "sub": "0x5",
       "kind": "alloc",
@@ -8931,6 +8848,99 @@
       ],
       "status": "implemented-unverified",
       "xlate_size": 24
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x20801802",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
+      "description": "This command returns bus engine information for the associated GPU.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:579",
+      "params_struct": "NV2080_CTRL_BUS_GET_INFO_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "nvdec",
+        "nvenc",
+        "nvml"
+      ],
+      "calls": 10,
+      "rm_status": {
+        "0x0": 10
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 10 call(s), 16 of 16 bytes, masked {'nested-ptr': 20}"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x20800802",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
+      "description": "This command returns bios information for the associated GPU.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bios.h:71",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "nvml"
+      ],
+      "calls": 1,
+      "rm_status": {
+        "0x0": 1
+      },
+      "flags": [
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes, masked {'nested-ptr': 2}"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x20800123",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES",
+      "description": "Returns a list of supported engine types along with the number of instances of each type.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:769",
+      "params_struct": "NV2080_CTRL_GPU_GET_ENGINES_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 3,
+      "rm_status": {
+        "0x0": 3
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'nested-ptr': 6}"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
     },
     {
       "device": "modeset",

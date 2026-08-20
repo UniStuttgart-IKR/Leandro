@@ -794,7 +794,7 @@ pub fn nested_cmds() -> &'static [u32] {
     &[
         0x101, 0x20801802, 0x20801201, 0x80170d, 0x800201, 0x801b01,
         0x801301, 0x801102, 0x801701, 0x801104, 0x20801301, 0x20800123,
-        0x410110,
+        0x410110, 0x20800802,
     ]
 }
 
@@ -914,6 +914,28 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // busInfoList an NV_DECLARE_ALIGNED NvP64, NV2080_CTRL_BUS_INFO is
         // the 8-byte pair).
         0x20801802 => &[
+            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 8 } },
+        ],
+
+        // NV2080_CTRL_CMD_BIOS_GET_INFO (ctrl2080bios.h:71, params :73-76).
+        // { biosInfoListSize u32 @0; pad 4; NV_DECLARE_ALIGNED(biosInfoList
+        // NvP64, 8) @8 } = 16, and the guest trace agrees (psize 0x10).
+        // Elements are NV2080_CTRL_BIOS_INFO, which is the
+        // NVXXXX_CTRL_XXX_INFO { index u32; data u32 } pair again
+        // (ctrl2080bios.h:39) -- 8 bytes, the same shape as BUS_GET_INFO
+        // above and read out of its own header rather than inherited from
+        // it.
+        //
+        // Found by the guest sweep on 2026-08-20, and by nothing before it.
+        // `nvidia-smi -q` PASSES in a guest without this entry and prints a
+        // plausible report; this one control inside it answers 0x1e
+        // NV_ERR_INVALID_ADDRESS, because RM was handed a guest VA. The
+        // recorded answers say it outright -- biosInfoListSize 2 on both
+        // sides, and a pointer that is 0x7ffe0a3f95c0 natively and
+        // 0x7fff4db34730 in the guest. A workload that succeeds while one of
+        // its calls is refused is exactly the case a status-code gate
+        // cannot see (OPEN-QUESTIONS number 51).
+        0x20800802 => &[
             NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 8 } },
         ],
 
@@ -1107,6 +1129,29 @@ mod nested_tests {
                 "{cmd:#x} is in nested_cmds() but nested_ptrs() has nothing for it"
             );
         }
+    }
+
+    /// NV2080_CTRL_BIOS_GET_INFO_PARAMS (ctrl2080bios.h:73): biosInfoListSize
+    /// u32 @0, biosInfoList NvP64 @8, elements NV2080_CTRL_BIOS_INFO =
+    /// NVXXXX_CTRL_XXX_INFO { index u32; data u32 } = 8 bytes.
+    ///
+    /// The `elem` is the half worth a test of its own: 4 would truncate the
+    /// list and hand RM half a buffer, 16 would read past the guest's. The
+    /// value comes from the typedef in the header, and this is where that
+    /// reading is written down.
+    #[test]
+    fn bios_get_info_points_at_offset_8_with_eight_bytes_per_entry() {
+        let specs = nested_ptrs(0x20800802);
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].ptr_off, 8);
+        assert!(matches!(specs[0].len, LenSource::Field { off: 0, elem: 8 }));
+        assert!(nested_cmds().contains(&0x20800802));
+
+        // What nvidia-smi asked for in the run that found this: two entries,
+        // i.e. 16 bytes behind the pointer.
+        let mut params = [0u8; 16];
+        params[0..4].copy_from_slice(&2u32.to_le_bytes());
+        assert_eq!(unsafe { specs[0].len.resolve(params.as_ptr(), 16) }, Some(16));
     }
 
     /// NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS (ctrl0080gpu.h:74):

@@ -759,6 +759,22 @@ do_guest() {
     #   until ! lea_running vm/ioctl-matrix-guest.pid; do sleep 15; done
     lea_hold_pidfile "$LEA_VM_DIR/ioctl-matrix-guest.pid"
 
+    # BUILD FIRST, and this is not a convenience. The guest gets its answer
+    # from two places that are updated by two different mechanisms: the
+    # MODULE is rebuilt inside the guest from sources this run ships, and the
+    # DESCRIPTOR TABLE is serialised at startup by the backend binary in
+    # LEA_BIN_DIR. Nothing tied the second one to the tree.
+    #
+    # Measured 2026-08-20, and it cost a validation run: a change that added
+    # a gpuId row (module side) and a nested-pointer row (table side) came
+    # back half applied -- the gpuId was translated, the pointer was not, and
+    # the artefact reported the second half as "still broken" when it was
+    # "never shipped". A half-new rig is worse than an old one, because its
+    # output looks like a measurement.
+    info "== building, so the backend serialises THIS tree's tables =="
+    (cd "$LEA_ROOT" && cargo build --release) >/dev/null 2>&1 \
+        || { error "cargo build --release failed -- the rig would run a stale backend"; return 1; }
+
     # ---- the rig ---------------------------------------------------------
     # REUSED if it is already up. A guest that is running is a guest whose
     # modules are loaded and whose display is already built, and rebuilding
@@ -766,8 +782,10 @@ do_guest() {
     local ip
     if lea_vm_running "$vm"; then
         info "== reusing the running rig $vm =="
-        warn "a reused guest keeps the kernel command line it booted with --
-      the allocator debugging below applies to guests this run starts"
+        warn "a reused rig keeps what it was STARTED with: the backend process
+      that serialised its descriptor table, and the kernel command line the
+      guest booted with. A change to xlate.rs or to the module reaches it
+      only after a restart -- take the rig down first when validating one."
     else
         info "== bringing up $vm ${display:+(with display)} =="
         # ALLOCATOR DEBUGGING ON, for a sweep and not for a measurement. The

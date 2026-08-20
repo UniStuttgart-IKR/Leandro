@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T16:58:43Z
-commit:  49a3913 (working tree modified)
+date:    2026-08-20T17:25:44Z
+commit:  d6144d1 (working tree modified)
 ```
 
 One row per signature `(device, ioctl nr, sub)`. Names, descriptions,
@@ -28,32 +28,15 @@ sizes are compiled, not parsed. Where a header says nothing the row says
 | `implemented-verified` | as above AND present in the answer-verification evidence file |
 | `not-governed` | a different namespace (DRM, NVKMS), carried here for completeness |
 
-**Answer evidence exists** (`matrix/verified-610.57.04.json`): 67 signature(s) had the
+**Answer evidence exists** (`matrix/verified-610.57.04.json`): 72 signature(s) had the
 first bytes of their answer compared, call by call, against the same
 call in a native run, and matched. Rows that carry it say so in a
 note, with how many bytes of how large an answer -- 32 bytes of a
 384-byte answer is 32 bytes, and the note is there so that
 `verified` cannot be read as more than what was compared.
 
-Of those, **0 are `implemented-verified`**, i.e. governed by the
-descriptor tables AND matched. That the count is zero is a finding rather than an omission, and
-it has two halves.
-
-**Reach.** The evidence comes from the tracer's `ctrlout` line,
-which dumps root-client (0x2xx) and subdevice (0x2080xxxx)
-controls and nothing else. Allocations and UVM commands -- where
-most of the governed class lives, because those are the two places
-a size is not self-describing -- have no answer dump at all and are
-out of reach of this slice entirely.
-
-**Criterion.** The governed CONTROLS it does reach are the ones the
-backend answers itself, and their answers differ from the native
-ones deliberately: that is what mediation IS. Byte equality is the
-wrong test for them. The right one -- differs in exactly the fields
-the mediation rewrites, and nowhere else -- needs the mediation to
-name its own fields, and it does not yet. `not_verified` carries
-each of them with the catalogue's own words about why it is
-mediated, so the list is a work list rather than a complaint.
+Of those, **3 are `implemented-verified`**, i.e. governed by the
+descriptor tables AND matched. 
 
 ## The diff against xlate.rs
 
@@ -69,8 +52,9 @@ the two places a size is not self-describing -- they agree.
 
 | status | signatures |
 |---|---:|
-| `passthrough` | 183 |
-| `implemented-unverified` | 75 |
+| `passthrough` | 182 |
+| `implemented-unverified` | 73 |
+| `implemented-verified` | 3 |
 | `not-governed` | 32 |
 | **total** | **290** |
 
@@ -256,7 +240,6 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answer bytes compared against a native run: 1 call(s), 4 of 4 bytes* | | | | | |
 | ctl | `0x2a` | `0x20800513` | `NV2080_CTRL_CMD_THERMAL_SYSTEM_EXECUTE_V2` | This command will execute a list of thermal system instructions: clientAPIVersion This field must be set by the client to THERMAL_SYSTEM_API_VER, which allows t | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080thermal.h:135` | `NV2080_CTRL_THERMAL_SYSTEM_EXECUTE_V2_PARAMS` | 1432 | none | nvml |
 | | | | | *answer bytes compared against a native run: 3 call(s), 32 of 1432 bytes* | | | | | |
-| ctl | `0x2a` | `0x20800802` | `NV2080_CTRL_CMD_BIOS_GET_INFO` | This command returns bios information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bios.h:71` | `&mdash;` | &mdash; | none | nvml |
 | ctl | `0x2a` | `0x20801322` | `NV2080_CTRL_CMD_FB_GET_OFFLINED_PAGES` | This command returns the list of video memory page addresses in the Inforom's blacklist. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:1067` | `NV2080_CTRL_FB_GET_OFFLINED_PAGES_PARAMS` | 2056 | none | nvml |
 | | | | | *answer bytes compared against a native run: 1 call(s), 32 of 2056 bytes* | | | | | |
 | ctl | `0x2a` | `0x20801344` | `NV2080_CTRL_CMD_FB_GET_REMAPPED_ROWS` | This command returns the list of remapped rows stored in the Inforom. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:1958` | `NV2080_CTRL_FB_GET_REMAPPED_ROWS_PARAMS` | 6152 | none | nvml |
@@ -272,6 +255,7 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answer bytes compared against a native run: 1 call(s), 4 of 4 bytes* | | | | | |
 | ctl | `0x2a` | `0x20802068` | `NV2080_CTRL_CMD_PERF_GET_CURRENT_PSTATE` | This command returns the current performance state of the GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080perf.h:889` | `NV2080_CTRL_PERF_GET_CURRENT_PSTATE_PARAMS` | 4 | none | nvml |
 | ctl | `0x2a` | `0x20802087` | `NV2080_CTRL_CMD_PERF_GET_VID_ENG_PERFMON_SAMPLE` | This command can be used to obtain video decoder utilization of the associated subdevice. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080perf.h:720` | `NV2080_CTRL_PERF_GET_VID_ENG_PERFMON_SAMPLE_PARAMS` | 12 | none | nvml |
+| | | | | *answer bytes compared against a native run: 4 call(s), 12 of 12 bytes* | | | | | |
 | ctl | `0x2a` | `0x20803083` | `NV2080_CTRL_CMD_NVLINK_GET_PLATFORM_INFO` | This command returns platform-specific information related to the GPU's NVLink setup. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080nvlink.h:2672` | `NV2080_CTRL_NVLINK_GET_PLATFORM_INFO_PARAMS` | 39 | none | nvml |
 | | | | | *answer bytes compared against a native run: 1 call(s), 32 of 39 bytes* | | | | | |
 | ctl | `0x2a` | `0x2080852a` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | nvml |
@@ -301,6 +285,7 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2a` | `0x2080a06e` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | nvml |
 | | | | | *answer bytes compared against a native run: 1 call(s), 12 of 12 bytes* | | | | | |
 | ctl | `0x2a` | `0x2080a079` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | nvml |
+| | | | | *answer bytes compared against a native run: 1 call(s), 32 of 83972 bytes* | | | | | |
 | ctl | `0x2a` | `0x2080a080` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | nvml |
 | | | | | *answer bytes compared against a native run: 2 call(s), 32 of 52 bytes* | | | | | |
 | ctl | `0x2a` | `0x2080a081` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | nvml |
@@ -422,7 +407,6 @@ the two places a size is not self-describing -- they agree.
 | gpu | `0x27` | `0x3e` | `NV01_MEMORY_SYSTEM` | &mdash; | `src/nvidia/generated/g_allclasses.h:325` | `&mdash;` | 128 (table) | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
 | gpu | `0x27` | `0x40` | `NV01_MEMORY_LOCAL_USER` | &mdash; | `src/nvidia/generated/g_allclasses.h:345` | `&mdash;` | 128 (table) | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x3d06` | `NV0000_CTRL_CMD_OS_UNIX_IMPORT_OBJECT_FROM_FD` | This command may be used to import back NV0000_CTRL_OS_UNIX_EXPORT_OBJECT_TYPE object from file descriptor. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000unix.h:181` | `NV0000_CTRL_OS_UNIX_IMPORT_OBJECT_FROM_FD_PARAMS` | 20 | fd-field | gles |
-| ctl | `0x2a` | `0x20801802` | `NV2080_CTRL_CMD_BUS_GET_INFO` | This command returns bus engine information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:579` | `NV2080_CTRL_BUS_GET_INFO_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | nvdec, nvenc, nvml |
 | ctl | `0x2a` | `0x800201` | `NV0080_CTRL_CMD_GPU_GET_CLASSLIST` | This command returns supported class information for the specified device. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gpu.h:70` | `NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | nvdec, nvenc |
 | ctl | `0x2a` | `0x801b01` | `NV0080_CTRL_CMD_NVENC_GET_CAPS` | This command returns the set of NVENC capabilities for the device in the form of an array of unsigned bytes. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080nvenc.h:59` | `NV0080_CTRL_NVENC_GET_CAPS_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2b` | `0x2` | `NV01_CONTEXT_DMA` | &mdash; | `src/nvidia/generated/g_allclasses.h:321` | `&mdash;` | 32 (table) | none | nvdec, nvenc |
@@ -435,9 +419,19 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answered by the backend itself: CMD_GPU_GET_PID_INFO (vram.rs:630)* | | | | | |
 | ctl | `0x2b` | `0xc640` | `AMPERE_SMC_MONITOR_SESSION` | &mdash; | `src/nvidia/generated/g_allclasses.h:1147` | `NVC640_ALLOCATION_PARAMETERS` | 8 | size-table | nvml |
 | uvm | `0x30000002` | `-` | `UVM_DEINITIALIZE` | &mdash; | `kernel-open/nvidia-uvm/uvm_linux_ioctl.h:40` | `&mdash;` | 0 (table) | none | nvml |
-| ctl | `0x2a` | `0x20800123` | `NV2080_CTRL_CMD_GPU_GET_ENGINES` | Returns a list of supported engine types along with the number of instances of each type. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:769` | `NV2080_CTRL_GPU_GET_ENGINES_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2b` | `0x5` | `NV01_EVENT` | &mdash; | `src/nvidia/generated/g_allclasses.h:463` | `NV0005_ALLOC_PARAMETERS` | 24 | embedded-ptr, fd-field, size-table | vk-enum, vk-offscreen, vk-rt |
 | | | | | *class carries KF_UNVERIFIED: never allocated on real silicon* | | | | | |
+
+## implemented-verified
+
+| device | nr | sub | name | description | header | params | size | flags | seen in |
+|---|---|---|---|---|---|---|---:|---|---|
+| ctl | `0x2a` | `0x20801802` | `NV2080_CTRL_CMD_BUS_GET_INFO` | This command returns bus engine information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:579` | `NV2080_CTRL_BUS_GET_INFO_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | nvdec, nvenc, nvml |
+| | | | | *answer bytes compared against a native run: 10 call(s), 16 of 16 bytes, masked {'nested-ptr': 20}* | | | | | |
+| ctl | `0x2a` | `0x20800802` | `NV2080_CTRL_CMD_BIOS_GET_INFO` | This command returns bios information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bios.h:71` | `&mdash;` | &mdash; | embedded-ptr(second-level) | nvml |
+| | | | | *answer bytes compared against a native run: 1 call(s), 16 of 16 bytes, masked {'nested-ptr': 2}* | | | | | |
+| ctl | `0x2a` | `0x20800123` | `NV2080_CTRL_CMD_GPU_GET_ENGINES` | Returns a list of supported engine types along with the number of instances of each type. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:769` | `NV2080_CTRL_GPU_GET_ENGINES_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'nested-ptr': 6}* | | | | | |
 
 ## not-governed
 

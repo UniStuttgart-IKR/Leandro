@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T16:48:51Z",
-    "commit:  4b0e898 (working tree modified)"
+    "date:    2026-08-20T17:25:22Z",
+    "commit:  d6144d1 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh guest",
   "compared": "the signature set and the rm_status fingerprint per signature, native against guest, both traced by the same interposer",
@@ -568,34 +568,6 @@
           "sub": "0xc640",
           "name": "AMPERE_SMC_MONITOR_SESSION",
           "detail": "AMPERE_SMC_MONITOR_SESSION (ctl nr=0x2b sub=0xc640): 1 call(s) natively, none in the guest"
-        },
-        {
-          "kind": "rm-status-fingerprint",
-          "device": "ctl",
-          "nr": "0x2a",
-          "sub": "0x20800802",
-          "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
-          "native_status": [
-            "0x0"
-          ],
-          "guest_status": [
-            "0x1e"
-          ],
-          "detail": "NV2080_CTRL_CMD_BIOS_GET_INFO (ctl nr=0x2a sub=0x20800802): native answers [0x0 NV_OK], guest answers [0x1e NV_ERR_INVALID_ADDRESS]"
-        },
-        {
-          "kind": "rm-status-fingerprint",
-          "device": "ctl",
-          "nr": "0x2a",
-          "sub": "0xb02",
-          "name": "NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE",
-          "native_status": [
-            "0x0"
-          ],
-          "guest_status": [
-            "0x1f"
-          ],
-          "detail": "NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE (ctl nr=0x2a sub=0xb02): native answers [0x0 NV_OK], guest answers [0x1f NV_ERR_INVALID_ARGUMENT]"
         }
       ]
     },

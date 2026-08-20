@@ -78,6 +78,9 @@
                                            enumerate_gpus asks RM, so that the
                                            GPU list nvidia-drm sees is RM's and
                                            not this module's invention        */
+#include <ctrl/ctrl0000/ctrl0000gpuacct.h> /* GET_ACCOUNTING_STATE -- another
+                                           params block with a gpuId in it,
+                                           and NVML asks it per GPU          */
 
 /* NVKMS. /dev/nvidia-modeset is a userspace boundary of its own -- the GL
  * and Vulkan libraries call it directly -- and every one of its ioctls

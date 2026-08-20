@@ -564,6 +564,17 @@ fn generate() -> String {
          off!(sys::NV0000_CTRL_GPU_ASYNC_ATTACH_ID_PARAMS, gpuId)),
         ("WAIT_ATTACH_ID", sys::NV0000_CTRL_CMD_GPU_WAIT_ATTACH_ID,
          off!(sys::NV0000_CTRL_GPU_WAIT_ATTACH_ID_PARAMS, gpuId)),
+        // Found by the guest sweep on 2026-08-20 (OPEN-QUESTIONS number 51),
+        // and the only control in nvidia-smi's whole run that answered
+        // NV_ERR_INVALID_ARGUMENT (0x1f) in a guest -- which is what RM says
+        // about a gpuId it does not know, and the same failure as
+        // P2P_CAPS_MATRIX in the raytracing work. Params are
+        // { gpuId, pid, state } = 12 bytes, and the guest trace agrees
+        // (psize 0xc). NVML asks it per GPU while building the accounting
+        // section of `-q`; the report prints without the answer, which is
+        // why no gate has ever seen this and only a trace diff could.
+        ("GPUACCT_GET_ACCOUNTING_STATE", sys::NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE,
+         off!(sys::NV0000_CTRL_GPUACCT_GET_ACCOUNTING_STATE_PARAMS, gpuId)),
     ];
     for (i, (n, cmd, off)) in scalars.iter().enumerate() {
         let last = i + 1 == scalars.len();

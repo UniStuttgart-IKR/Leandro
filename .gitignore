@@ -35,9 +35,33 @@ tmp.md
 /.mcp.json
 /.claude
 
-# The coverage matrix: the REPORTS are versioned, the raw measurement is not.
-# matrix/traces/<driver>/ is tens of megabytes of tsv and strace output that
-# `scripts/ioctl-matrix.sh trace` regenerates in minutes, and every artefact
-# built from it carries the provenance of the run that produced it.
+# The coverage matrix. Everything under matrix/ is GENERATED, and the line
+# between what is versioned and what is not is NOT "generated or written by
+# hand" -- it is "can this be reproduced from what the repository contains".
+#
+# It cannot. The inputs are an RTX 2070, a pinned driver, a guest and a night
+# of runs; `catalog` needs traces, and traces need the card. So the reports
+# and the evidence files are the RECORD OF A MEASUREMENT, closer to a lab
+# notebook than to a build artefact, and a clone without the hardware would
+# otherwise carry a matrix/ that can never be filled. They are also the half
+# a reader wants: small, plain text, and each one carries the driver, the
+# card, the kernel and the commit it was measured on.
+#
+# Versioned (nothing to do -- no rule below matches them):
+#   DISCOVERY.md PROBES.md MATRIX-<drv>.md TASKS-<drv>.md
+#   catalog-<drv>.md   the report a person reads
+#   catalog-<drv>.json the same rows plus what only a machine wants -- the
+#                      rm_status histograms above all, which are the
+#                      fingerprint a guest run is compared against
+#   guest-<drv>.json    what a run inside a VM found, per probe
+#   verified-<drv>.json which answers matched a native run, and over how
+#                       many bytes
+#
+# Not versioned: the raw measurement they are derived from. Tens of megabytes
+# of tsv and strace output that `trace` and `guest` regenerate in minutes ON
+# A RIG, and that no diff is ever read.
+#
+# A new artefact goes in if it is a claim somebody could act on, and stays
+# out if it is the raw material of one.
 /matrix/traces/
 /matrix/.tables.txt

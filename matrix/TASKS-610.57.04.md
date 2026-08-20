@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T16:58:43Z
-commit:  49a3913 (working tree modified)
+date:    2026-08-20T17:25:44Z
+commit:  d6144d1 (working tree modified)
 ```
 
 Generated from the catalogue. One task per missing-command GROUP,
@@ -122,10 +122,10 @@ turned out to be: a returned object that a NULL check waved through and
 whose leading fields were never filled. **A status comparison cannot see
 that. Only the bytes can.** That is OPEN-QUESTIONS number 50.
 
-**A first slice exists** (`scripts/ioctl-matrix.sh verify`, `matrix/verified-610.57.04.json`): 67 signature(s) had the first
+**A first slice exists** (`scripts/ioctl-matrix.sh verify`, `matrix/verified-610.57.04.json`): 72 signature(s) had the first
 bytes of their answer compared against a native run, call by call and
 word by word, with a mask derived from the two traces rather than
-declared. 0 of them are `implemented-verified`.
+declared. 3 of them are `implemented-verified`.
 
 What is left is the reason that number is what it is, and it is two
 specific pieces of work rather than a standing wish:

@@ -4,13 +4,14 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T16:57:03Z",
-    "commit:  49a3913 (working tree modified)"
+    "date:    2026-08-20T17:25:44Z",
+    "commit:  d6144d1 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh verify",
   "method": "the tracer's ctrlout line (first 32 bytes of the params buffer after the call) from the native trace against the guest trace, call by call, word by word",
   "extent": "the FIRST BYTES of the answer, not the whole answer -- bytes_compared against answer_size per signature says how much",
-  "mask": "derived from the two traces, never declared: a differing word is allowed only if it is this side's own gpu_id (cardinfo line) or a handle this side allocated. Anything else is a mismatch",
+  "mask": "derived, never hand-written: a differing word is allowed only if it is this side's own gpu_id (cardinfo line), a handle this side allocated, or part of a pointer field the descriptor table declares for that command (tables.txt, the stream the guest module was handed). Anything else is a mismatch",
+  "declared_pointer_commands": 14,
   "probes": {
     "cuda-core": {
       "native_gpuid": [
@@ -181,6 +182,7 @@
   "verified": [
     "ctl 0x2a 0x204",
     "ctl 0x2a 0x20800111",
+    "ctl 0x2a 0x20800123",
     "ctl 0x2a 0x20800131",
     "ctl 0x2a 0x2080013f",
     "ctl 0x2a 0x2080014a",
@@ -194,6 +196,7 @@
     "ctl 0x2a 0x208001b2",
     "ctl 0x2a 0x20800301",
     "ctl 0x2a 0x20800513",
+    "ctl 0x2a 0x20800802",
     "ctl 0x2a 0x20801218",
     "ctl 0x2a 0x20801227",
     "ctl 0x2a 0x2080122a",
@@ -201,12 +204,14 @@
     "ctl 0x2a 0x20801322",
     "ctl 0x2a 0x20801344",
     "ctl 0x2a 0x20801357",
+    "ctl 0x2a 0x20801802",
     "ctl 0x2a 0x20801803",
     "ctl 0x2a 0x20801813",
     "ctl 0x2a 0x20801829",
     "ctl 0x2a 0x2080182a",
     "ctl 0x2a 0x2080182b",
     "ctl 0x2a 0x20801830",
+    "ctl 0x2a 0x20802087",
     "ctl 0x2a 0x20802a0a",
     "ctl 0x2a 0x20803002",
     "ctl 0x2a 0x20803083",
@@ -232,6 +237,7 @@
     "ctl 0x2a 0x2080a014",
     "ctl 0x2a 0x2080a060",
     "ctl 0x2a 0x2080a06e",
+    "ctl 0x2a 0x2080a079",
     "ctl 0x2a 0x2080a080",
     "ctl 0x2a 0x2080a0a4",
     "ctl 0x2a 0x2080a0a7",
@@ -282,6 +288,21 @@
       "bytes_compared": 32,
       "answer_size": 64,
       "words_masked": {}
+    },
+    "ctl 0x2a 0x20800123": {
+      "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES",
+      "status_before": "implemented-unverified",
+      "probes": [
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls_compared": 3,
+      "bytes_compared": 16,
+      "answer_size": 16,
+      "words_masked": {
+        "nested-ptr": 6
+      }
     },
     "ctl 0x2a 0x20800131": {
       "name": "NV2080_CTRL_CMD_GPU_QUERY_COMPUTE_MODE_RULES",
@@ -451,6 +472,19 @@
       "answer_size": 1432,
       "words_masked": {}
     },
+    "ctl 0x2a 0x20800802": {
+      "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
+      "status_before": "implemented-verified",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 16,
+      "answer_size": 16,
+      "words_masked": {
+        "nested-ptr": 2
+      }
+    },
     "ctl 0x2a 0x20801218": {
       "name": "NV2080_CTRL_CMD_GR_GET_CTX_BUFFER_SIZE",
       "status_before": "passthrough",
@@ -555,6 +589,21 @@
       "answer_size": 4,
       "words_masked": {}
     },
+    "ctl 0x2a 0x20801802": {
+      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
+      "status_before": "implemented-verified",
+      "probes": [
+        "nvdec",
+        "nvenc",
+        "nvml"
+      ],
+      "calls_compared": 10,
+      "bytes_compared": 16,
+      "answer_size": 16,
+      "words_masked": {
+        "nested-ptr": 20
+      }
+    },
     "ctl 0x2a 0x20801803": {
       "name": "NV2080_CTRL_CMD_BUS_GET_PCI_BAR_INFO",
       "status_before": "passthrough",
@@ -640,6 +689,17 @@
       "calls_compared": 1,
       "bytes_compared": 4,
       "answer_size": 4,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20802087": {
+      "name": "NV2080_CTRL_CMD_PERF_GET_VID_ENG_PERFMON_SAMPLE",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 4,
+      "bytes_compared": 12,
+      "answer_size": 12,
       "words_masked": {}
     },
     "ctl 0x2a 0x20802a0a": {
@@ -976,6 +1036,17 @@
       "answer_size": 12,
       "words_masked": {}
     },
+    "ctl 0x2a 0x2080a079": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 83972,
+      "words_masked": {}
+    },
     "ctl 0x2a 0x2080a080": {
       "name": "unknown -- not in public headers",
       "status_before": "passthrough",
@@ -1156,7 +1227,9 @@
       ],
       "reason": "11 call(s) natively and 10 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 2 call(s), 32 of 128 bytes, masked {'gpuId': 2}"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x202",
@@ -1171,7 +1244,9 @@
       ],
       "reason": "15 call(s) natively and 14 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 5 call(s), 32 of 40 bytes, masked {'gpuId': 10}"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x205",
@@ -1184,7 +1259,9 @@
       ],
       "reason": "6 call(s) natively and 3 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 2 call(s), 32 of 32 bytes, masked {'gpuId': 4}"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x20800102",
@@ -1199,7 +1276,9 @@
       ],
       "reason": "5 call(s) natively and 3 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 8 call(s), 32 of 580 bytes"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x20800110",
@@ -1243,18 +1322,6 @@
       "catalogue_notes": []
     },
     {
-      "signature": "ctl 0x2a 0x20800123",
-      "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES",
-      "probes": [
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "reason": "call 0, word 2 (offset 8): 0x2975daf0 natively, 0x46b6c380 in the guest",
-      "catalogue_status": "implemented-unverified",
-      "catalogue_notes": []
-    },
-    {
       "signature": "ctl 0x2a 0x2080012f",
       "name": "NV2080_CTRL_CMD_GPU_QUERY_ECC_STATUS",
       "probes": [
@@ -1267,7 +1334,9 @@
       ],
       "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 1 call(s), 32 of 1664 bytes"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x20800142",
@@ -1320,7 +1389,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 3 (offset 12): 0x00000536 natively, 0x0000155b in the guest",
+      "reason": "call 0, word 3 (offset 12): 0x00000536 natively, 0x000011c9 in the guest",
       "catalogue_status": "implemented-unverified",
       "catalogue_notes": [
         "answered by the backend itself: CMD_GPU_GET_PIDS (vram.rs:628)"
@@ -1350,7 +1419,7 @@
         "vk-offscreen",
         "vk-rt"
       ],
-      "reason": "call 0, word 0 (offset 0): 0x6d2c0ac0 natively, 0x6cc5b2a0 in the guest",
+      "reason": "call 0, word 0 (offset 0): 0x6d2c0ac0 natively, 0x88ccdf60 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1362,17 +1431,7 @@
         "nvenc",
         "nvml"
       ],
-      "reason": "call 0, word 2 (offset 8): 0xb868dbe3 natively, 0x4a9cdc02 in the guest",
-      "catalogue_status": "passthrough",
-      "catalogue_notes": []
-    },
-    {
-      "signature": "ctl 0x2a 0x20800802",
-      "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
-      "probes": [
-        "nvml"
-      ],
-      "reason": "call 0: status 0x0 natively, 0x1e in the guest",
+      "reason": "call 0, word 2 (offset 8): 0xb868dbe3 natively, 0xcd393ef7 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1380,22 +1439,14 @@
       "signature": "ctl 0x2a 0x20801201",
       "name": "NV2080_CTRL_CMD_GR_GET_INFO",
       "probes": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "egl-gbm",
         "egl-xlib",
         "gl-enum",
         "gles",
-        "nvdec",
-        "nvenc",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "reason": "call 0, word 2 (offset 8): 0x0bf24380 natively, 0x10a581b0 in the guest",
+      "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
       "catalogue_status": "implemented-unverified",
       "catalogue_notes": []
     },
@@ -1454,7 +1505,6 @@
       "signature": "ctl 0x2a 0x20801301",
       "name": "NV2080_CTRL_CMD_FB_GET_INFO",
       "probes": [
-        "egl-gbm",
         "egl-xlib",
         "gl-enum",
         "gles",
@@ -1462,7 +1512,7 @@
         "vk-offscreen",
         "vk-rt"
       ],
-      "reason": "call 0, word 2 (offset 8): 0x3f5bda70 natively, 0x359b3c00 in the guest",
+      "reason": "5 call(s) natively and 3 in the guest -- the answers cannot be paired",
       "catalogue_status": "implemented-unverified",
       "catalogue_notes": [
         "answered by the backend itself: CMD_FB_GET_INFO (vram.rs:795)"
@@ -1482,7 +1532,7 @@
         "nvml",
         "vk-rt"
       ],
-      "reason": "call 2, word 2 (offset 8): 0x00630ec0 natively, 0x0063f3c0 in the guest",
+      "reason": "call 2, word 2 (offset 8): 0x00630ec0 natively, 0x00623140 in the guest",
       "catalogue_status": "implemented-unverified",
       "catalogue_notes": [
         "answered by the backend itself: CMD_FB_GET_INFO_V2 (vram.rs:782)"
@@ -1546,7 +1596,9 @@
       ],
       "reason": "3 call(s) natively and 2 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x20801801",
@@ -1561,19 +1613,9 @@
       ],
       "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
-    },
-    {
-      "signature": "ctl 0x2a 0x20801802",
-      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
-      "probes": [
-        "nvdec",
-        "nvenc",
-        "nvml"
-      ],
-      "reason": "call 0, word 2 (offset 8): 0xdf7eb908 natively, 0x1a5d2c98 in the guest",
-      "catalogue_status": "implemented-unverified",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x20801819",
@@ -1581,7 +1623,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 1 (offset 4): 0x380e2690 natively, 0xeae5f740 in the guest",
+      "reason": "call 0, word 1 (offset 4): 0xedea76d0 natively, 0x2e559560 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1623,19 +1665,11 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 0 (offset 0): 0x00000001 natively, 0x00000100 in the guest",
+      "reason": "call 0, word 0 (offset 0): 0x00000020 natively, 0x00000100 in the guest",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
-    },
-    {
-      "signature": "ctl 0x2a 0x20802087",
-      "name": "NV2080_CTRL_CMD_PERF_GET_VID_ENG_PERFMON_SAMPLE",
-      "probes": [
-        "nvml"
-      ],
-      "reason": "call 0, word 1 (offset 4): 0x00000004 natively, 0x00000000 in the guest",
-      "catalogue_status": "passthrough",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x20802a02",
@@ -1663,7 +1697,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 0 (offset 0): 0x35403501 natively, 0x00000001 in the guest",
+      "reason": "call 0, word 0 (offset 0): 0xf7403501 natively, 0x00000001 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1673,7 +1707,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 4 (offset 16): 0x001c61a0 natively, 0x0004ce78 in the guest",
+      "reason": "call 0, word 4 (offset 16): 0x000c5c10 natively, 0x000668a0 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1685,7 +1719,9 @@
       ],
       "reason": "call 0, word 6 (offset 24): 0x80031430 natively, 0x30302030 in the guest",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 4 call(s), 32 of 520 bytes"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x2080a028",
@@ -1694,17 +1730,7 @@
         "nvdec",
         "nvenc"
       ],
-      "reason": "call 1, word 7 (offset 28): 0x00007fda natively, 0x0000770d in the guest",
-      "catalogue_status": "passthrough",
-      "catalogue_notes": []
-    },
-    {
-      "signature": "ctl 0x2a 0x2080a079",
-      "name": "unknown -- not in public headers",
-      "probes": [
-        "nvml"
-      ],
-      "reason": "call 0, word 2 (offset 8): 0x00000003 natively, 0x00000000 in the guest",
+      "reason": "call 1, word 7 (offset 28): 0x00007fda natively, 0x00007954 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1714,7 +1740,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 4 (offset 16): 0x1ea20500 natively, 0x0e3ce3a0 in the guest",
+      "reason": "call 0, word 4 (offset 16): 0x1770e660 natively, 0x0ece1620 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1724,7 +1750,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 2 (offset 8): 0x00000003 natively, 0x00000005 in the guest",
+      "reason": "call 0, word 2 (offset 8): 0x00000014 natively, 0x00000015 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1739,7 +1765,9 @@
       ],
       "reason": "1 call(s) natively and 0 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 2 call(s), 32 of 384 bytes, masked {'gpuId': 2}"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x215",
@@ -1752,7 +1780,9 @@
       ],
       "reason": "1 call(s) natively and 0 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 1 call(s), 32 of 132 bytes, masked {'gpuId': 1}"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x216",
@@ -1765,7 +1795,9 @@
       ],
       "reason": "1 call(s) natively and 0 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "answer bytes compared against a native run: 1 call(s), 32 of 128 bytes"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x21b",
@@ -1815,10 +1847,12 @@
     "ctl 0x2a 0x20800142",
     "ctl 0x2a 0x20800147",
     "ctl 0x2a 0x20800170",
+    "ctl 0x2a 0x20801201",
     "ctl 0x2a 0x20801206",
     "ctl 0x2a 0x20801208",
     "ctl 0x2a 0x20801210",
     "ctl 0x2a 0x2080121b",
+    "ctl 0x2a 0x20801301",
     "ctl 0x2a 0x20801315",
     "ctl 0x2a 0x20801320",
     "ctl 0x2a 0x20801352",

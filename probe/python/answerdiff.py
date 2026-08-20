@@ -41,9 +41,27 @@ of the two traces:
     "difference" that is positive evidence.
   * handle -- the word is an RM handle that THIS side allocated, i.e. it
     appears as one in this trace's own allocation lines.
+  * nested pointer -- the word is part of a pointer field that the
+    DESCRIPTOR TABLE itself declares for this command. The table is dumped
+    beside the traces (``tables.txt``), so the mask comes from the same
+    stream the guest module was handed and covers exactly the offsets the
+    mediation walks. A pointer into the caller's address space is a
+    different number on the two sides by construction.
 
 Anything else that differs is a MISMATCH and is reported. A signature with
 one unexplained differing word is not verified, however small the word.
+
+WHAT IS STILL REPORTED THAT PROBABLY SHOULD NOT BE. Some answers are not
+stable between two runs of the same binary on the same machine -- a
+timestamp (TIMER_GET_GPU_CPU_TIME_CORRELATION_INFO), a counter
+(BUS_GET_PEX_UTIL_COUNTERS), the current P-state, a PID. Byte equality is
+the wrong test for those, and nothing here can tell them from a real
+difference, because the trace of ONE run cannot say which of its words
+would have moved in a second one. The honest fix is a control test: the
+same probe traced twice NATIVELY, where every word that differs native
+against native is unstable and can be evidence for nothing. Until that
+exists they stay in `not_verified`, which is the safe direction to be
+wrong in.
 """
 
 import argparse
@@ -58,6 +76,32 @@ CARDINFO = re.compile(r"\bgpu_id=(0x[0-9a-f]+)")
 # Every handle field the detail lines carry, whatever the escape: hRoot,
 # hParent, hNew, hClient, hDevice, hMemory, hObjectParent, hDma, hVASpace.
 HANDLE = re.compile(r"\bh[A-Z][A-Za-z]*=(0x[0-9a-f]+)")
+
+
+def read_declared_pointers(tables):
+    """cmd -> the byte offsets of every pointer the descriptor table declares
+    inside that command's params, read out of the stream the guest module was
+    handed rather than out of a second list here.
+
+    Row shapes are `table::expect_dump()`'s own:
+        ctrl   <cmd> <first> <count> <flags> <fd_off>
+        nested <ptr_off> <len_kind> <len_off> <elem>
+    where a control's `first`/`count` index into the nested list.
+    """
+    ctrls, nested = [], []
+    if not tables.is_file():
+        return {}
+    for ln in tables.read_text(errors="replace").splitlines():
+        f = ln.split()
+        if f[:1] == ["ctrl"] and len(f) >= 4:
+            ctrls.append((int(f[1]), int(f[2]), int(f[3])))
+        elif f[:1] == ["nested"] and len(f) >= 2:
+            nested.append(int(f[1]))
+    out = {}
+    for cmd, first, count in ctrls:
+        if count and first + count <= len(nested):
+            out[f"{cmd:#x}"] = [nested[i] for i in range(first, first + count)]
+    return out
 
 
 def read_side(path):
@@ -94,16 +138,19 @@ def words_of(byts):
             for i in range(0, len(byts) - len(byts) % 4, 4)]
 
 
-def explain(nw, gw, native, guest):
+def explain(nw, gw, off, ptrs, native, guest):
     """Why these two words may differ, or None if they may not."""
     if nw in native["gpuids"] and gw in guest["gpuids"]:
         return "gpuId"
     if nw in native["handles"] and gw in guest["handles"]:
         return "handle"
+    # An NvP64 is eight bytes, so both of its words are covered by one offset.
+    if any(p <= off < p + 8 for p in ptrs):
+        return "nested-ptr"
     return None
 
 
-def compare_cmd(cmd, ncalls, gcalls, native, guest):
+def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=()):
     """One signature's verdict: verified, or the reason it is not."""
     if len(ncalls) != len(gcalls):
         return None, (f"{len(ncalls)} call(s) natively and {len(gcalls)} in the "
@@ -122,7 +169,7 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest):
         for j, (nw, gw) in enumerate(zip(nws, gws)):
             if nw == gw:
                 continue
-            why = explain(nw, gw, native, guest)
+            why = explain(nw, gw, j * 4, ptrs, native, guest)
             if why is None:
                 return None, (f"call {i}, word {j} (offset {j * 4}): "
                               f"{nw:#010x} natively, {gw:#010x} in the guest"), {}
@@ -146,6 +193,7 @@ def main():
 
     ndir, gdir, outdir = (pathlib.Path(a.native), pathlib.Path(a.guest),
                           pathlib.Path(a.out))
+    declared = read_declared_pointers(ndir / "tables.txt")
     cat = {}
     catf = outdir / f"catalog-{a.driver}.json"
     if catf.is_file():
@@ -183,7 +231,8 @@ def main():
         for cmd in sorted(set(n["calls"]) | set(g["calls"])):
             key = f"ctl 0x2a {cmd}"
             ok, why, masked = compare_cmd(cmd, n["calls"].get(cmd, []),
-                                          g["calls"].get(cmd, []), n, g)
+                                          g["calls"].get(cmd, []), n, g,
+                                          declared.get(cmd, ()))
             row = cat.get(("ctl", "0x2a", cmd), {})
             if ok:
                 e = ok_by_sig.setdefault(key, {
@@ -228,9 +277,12 @@ def main():
             "the FIRST BYTES of the answer, not the whole answer -- "
             "bytes_compared against answer_size per signature says how much"),
         "mask": (
-            "derived from the two traces, never declared: a differing word is "
-            "allowed only if it is this side's own gpu_id (cardinfo line) or a "
-            "handle this side allocated. Anything else is a mismatch"),
+            "derived, never hand-written: a differing word is allowed only if "
+            "it is this side's own gpu_id (cardinfo line), a handle this side "
+            "allocated, or part of a pointer field the descriptor table "
+            "declares for that command (tables.txt, the stream the guest "
+            "module was handed). Anything else is a mismatch"),
+        "declared_pointer_commands": len(declared),
         "probes": sides,
         "verified": verified,
         "evidence": evidence,

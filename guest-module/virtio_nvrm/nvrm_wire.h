@@ -195,7 +195,8 @@
 	{ 0x278u, 0u }, /* MODIFY_DRAIN_STATE */ \
 	{ 0x279u, 0u }, /* QUERY_DRAIN_STATE */ \
 	{ 0x289u, 0u }, /* ASYNC_ATTACH_ID */ \
-	{ 0x290u, 0u }  /* WAIT_ATTACH_ID */
+	{ 0x290u, 0u }, /* WAIT_ATTACH_ID */ \
+	{ 0xb02u, 0u }  /* GPUACCT_GET_ACCOUNTING_STATE */
 #define NVRM_CTRL_BUS_GET_INFO	0x20801802u
 #define NVRM_CTRL_BUS_GET_INFO_V2	0x20801823u
 #define NVRM_BUS_INFO_LIST_OFF	4u

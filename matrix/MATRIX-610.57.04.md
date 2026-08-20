@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T16:58:43Z
-commit:  49a3913 (working tree modified)
+date:    2026-08-20T17:25:44Z
+commit:  d6144d1 (working tree modified)
 ```
 
 Probes against status. This is the compatibility statement: a probe
@@ -42,7 +42,7 @@ Guest evidence: `matrix/guest-610.57.04.json`, 11 FAIL, 2 blocked, 7 guest-valid
 | `nvdec` | video | predicted-green * | **guest-validated** | 996 | 131 | 0 | 81 | 50 | 0 | libcuda<br>libnvcuvid |
 | `nvenc` | video | predicted-green | **guest-validated** | 1600 | 135 | 0 | 84 | 51 | 0 | libcuda<br>libnvcuvid<br>libnvidia-encode |
 | `nvfbc` | video | declared-unsupported: workload not procurable in this environment | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `nvml` | nvml | predicted-green | FAIL * | 179 | 105 | 0 | 88 | 17 | 0 | libcuda<br>libnvidia-ml |
+| `nvml` | nvml | predicted-green | FAIL * | 179 | 105 | 0 | 87 | 18 | 0 | libcuda<br>libnvidia-ml |
 | `nvofa` | video | declared-unsupported: workload not procurable in this environment | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
 | `opencl` | compute | predicted-green | FAIL * | 620 | 107 | 0 | 64 | 43 | 0 | libcuda<br>libnvidia-nvvm<br>libnvidia-opencl |
 | `pkcs11` | compat | declared-unsupported: no workload exists | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
@@ -61,7 +61,7 @@ Guest evidence: `matrix/guest-610.57.04.json`, 11 FAIL, 2 blocked, 7 guest-valid
 - \* `gl-render` in the guest: declared-unsupported: workload not procurable in this environment -- no glmark2
 - \* `gles` in the guest: FAIL: probe exited 1 -- GLES renderer is 'Leandro RTX 2070/PCIe/SSE2', not NVIDIA; NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_OS_UNIX_IMPORT_OBJECT_FROM_FD (ctl nr=0x2a sub=0x3d06): 2 call(s) natively, none in the guest; NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2 (ctl nr=0x2a sub=0x730101): 2 call(s) natively, none in the guest ...
 - \* `nvdec`: PASS (matched on attempt 2)
-- \* `nvml` in the guest: AMPERE_SMC_MONITOR_SESSION (ctl nr=0x2b sub=0xc640): 1 call(s) natively, none in the guest; NV2080_CTRL_CMD_BIOS_GET_INFO (ctl nr=0x2a sub=0x20800802): native answers [0x0 NV_OK], guest answers [0x1e NV_ERR_INVALID_ADDRESS]; NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE (ctl nr=0x2a sub=0xb02): native answers [0x0 NV_OK], guest answers [0x1f NV_ERR_INVALID_ARGUMENT]
+- \* `nvml` in the guest: AMPERE_SMC_MONITOR_SESSION (ctl nr=0x2b sub=0xc640): 1 call(s) natively, none in the guest
 - \* `opencl` in the guest: FAIL: probe exited 1 -- oclprobe exited 1
 - \* `vk-enum` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_DETACH_IDS (ctl nr=0x2a sub=0x216): 1 call(s) natively, none in the guest ...
 - \* `vk-offscreen` in the guest: FAIL: probe exited 1 -- ffmpeg vulkan filter exited 244; NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest ...

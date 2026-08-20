@@ -648,20 +648,47 @@ has names for. The gpuId one is the same failure as
 INVALID_ARGUMENT for the guest's id — and the pointer one is task 1 of
 `matrix/TASKS-<driver>.md` caught in the act rather than reasoned about.
 
-Two things follow from it beyond the two rows.
-
-**The mediation-flag scan undercounts.** `BIOS_GET_INFO` carries flags
-`none` in the catalogue and an empty `params_struct`: the resolver never
-found its struct, so it never scanned it for an `NvP64`, so the row that
-should have carried `embedded-ptr` carried nothing. Task 1's list is a
-lower bound, and this is the first proof of that.
-
-**`AMPERE_SMC_MONITOR_SESSION` (class 0xc640) is allocated natively and
-never in the guest.** Unverified: most likely `nvidia-smi` branching away
-after one of the two answers above, rather than a third defect.
-
 `nvidia-smi -q` itself succeeded in the guest and printed a plausible
 report. That is the point of comparing fingerprints rather than exit codes.
+
+**Both are fixed and the fix is measured (2026-08-20).** Each was one table
+row, because the mechanism for each already existed and only this command
+was missing from it:
+
+  - the gpuId joins `NVRM_BDF_SCALARS` (nvrm-genhdr), the same list
+    `GET_ID_INFO` and `ASYNC_ATTACH_ID` are in;
+  - the pointer joins `nested_ptrs` (xlate.rs) as
+    `{ ptr_off: 8, elem: 8 }`, the same shape as `BUS_GET_INFO` and read
+    out of its own header — `NV2080_CTRL_BIOS_INFO` is the
+    `NVXXXX_CTRL_XXX_INFO { index; data }` pair again.
+
+Re-run in a guest afterwards: both answer `NV_OK`, the status fingerprint
+of the whole probe matches the native one, and `verify` puts
+`BIOS_GET_INFO`'s answer bytes in the verified class with its pointer field
+masked as a declared pointer. 61 of nvml's 72 answers now match; the 11
+that do not are the mediated identity (name, PIDs, PCI info) and values
+that are not stable between two runs of the same binary — a timer, PEX
+counters, the current P-state.
+
+Two things are left over.
+
+**The mediation-flag scan undercounts.** `BIOS_GET_INFO` carried flags
+`none` and an empty `params_struct`: the params name is only readable from
+the `finn:` comment on the define line, and older commands do not carry it
+there. Six of the 135 named control rows are in that state, so the
+undercount is small and bounded — but it is real, and the fix is the
+naming convention with an existence check in the same header.
+
+**`AMPERE_SMC_MONITOR_SESSION` (class 0xc640) is allocated natively and
+never in the guest, and the first hypothesis is now falsified.** It is not
+downstream of the two controls above: both answer identically since the
+fix, and the allocation is still absent. It happens early — right after the
+GPU node is opened and `GET_PROBED_IDS` answers, before UVM — so it is part
+of `nvidia-smi`'s init and not of its process accounting. Nothing in the
+answer comparison explains it, which leaves the mediated identity itself as
+the candidate: the guest is told it is a "Leandro RTX 2070", and whether
+NVML opens an SMC monitor session is a decision it makes from what the card
+says it is.
 
 ### 52. The guest's graphics stack asks a different set of questions
 **Open, measured 2026-08-20.** Every graphics probe in the guest sweep skips
@@ -765,6 +792,43 @@ One thing the slice settled in passing: `NV0000_CTRL_CMD_GPU_GET_ID_INFO`
 byte-identically in a guest over the first 32 bytes of its 128, with the
 gpuId translated and nothing else moved. That is evidence that its pointer
 field is not read into, and not yet proof — 32 of 128 bytes is 32 bytes.
+
+### 56. The surface is tracked per run, and the question is per ioctl
+**Open, raised 2026-08-20.** Everything the matrix writes is keyed by the
+run that produced it: `catalog-<driver>.json` is one file per driver
+version, and the architecture appears once, in the provenance header, as
+prose (`arch: Turing (compute 7.5)`). That is right for a record of a
+measurement and wrong for the question people actually ask, which is about
+one ioctl across the versions and cards it was measured on: *did this
+command change shape between drivers? does this class exist on Ampere? was
+this control ever carried on anything but Turing?*
+
+The key is already right — `(device, nr, sub)` is stable across drivers by
+construction. What is missing is the other axis.
+
+The shape that would fit this tree, sketched rather than built:
+
+  * **Keep the per-driver catalogues as the source of truth.** They are the
+    record of one run, with its provenance intact, and nothing should
+    rewrite them later.
+  * **Generate an index that merges them**, one row per signature with an
+    observation per `(driver, architecture)`: status, call count, the
+    `rm_status` fingerprint, whether a guest run validated it, and when it
+    was measured. Regenerated from whatever `catalog-*.json` files are in
+    the directory, so it is never a table anybody maintains — the rule this
+    whole pipeline follows.
+  * **Two forms of the same content**: JSON for a machine, and one
+    Markdown table with a column per driver for a person. Both from one
+    generator, so they cannot disagree.
+  * One enabling change it needs: the provenance in the JSON is currently
+    an array of strings. Architecture and compute capability should be
+    FIELDS, so the merge does not parse prose.
+
+Worth building at the second data point and not before -- with one driver
+and one card the index has one column, and its value is entirely in what it
+does when the second arrives. The cost of waiting is that an old catalogue
+may lack a field the merge wants, which argues for making the provenance
+structured now and merging later.
 
 ---
 
