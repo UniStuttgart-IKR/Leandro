@@ -711,7 +711,50 @@ NVML opens an SMC monitor session is a decision it makes from what the card
 says it is.
 
 ### 52. The guest's graphics stack asks a different set of questions
-**Open, measured 2026-08-20.** Every graphics probe in the guest sweep skips
+**Half answered 2026-08-21: the boundary carries them; the userspace stopped
+asking.** The direct probe this entry called for exists --
+`probe/matrix/rm-direct.sh` over `probe/c/rmdirect.c`, raw RM ioctls with no
+driver userspace at all: it opens the control node, builds the object
+hierarchy by hand and issues each command once. In a guest it is
+**guest-validated, 10 signatures against 10**, and every command answers
+`NV_OK`:
+
+| command | in the guest |
+|---|---|
+| `NV0000_CTRL_CMD_GPU_GET_PROBED_IDS` | `NV_OK`, one probed GPU |
+| `NV0000_CTRL_CMD_GPU_ATTACH_IDS` | `NV_OK` |
+| `NV0000_CTRL_CMD_GPU_DETACH_IDS` | `NV_OK` |
+| `NV2080_CTRL_CMD_TIMER_GET_TIME` | `NV_OK` |
+| `NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2` | `NV_OK`, caps `81 2f` |
+
+So the first candidate explanation is the one that survives: **the guest's
+userspace takes a different discovery branch**, not "the mediated identity
+ends the enumeration early" and not "the boundary cannot carry these". The
+carrying is now measured rather than predicted -- four of the five are in
+`verified` or `verified-mediated` in the evidence file, and `TIMER_GET_TIME`
+is `unstable`, which is what a timer should be.
+
+`NV_ESC_RM_IDLE_CHANNELS`, the sixth command, is NOT in the direct probe: it
+needs a channel, which needs a GPFIFO allocation, a pushbuffer and a VA
+space, and building those by hand is a different program. It is verified
+anyway, through `egl-gbm`, which does issue it in a guest.
+
+WHICH PROBES STILL SKIP WHAT, re-measured on 2026-08-21 and narrower than
+this entry first stated. It is not "every graphics probe":
+
+  * `gl-enum`, `gl-render`, `vk-enum`, `vk-offscreen` skip the three GPU id
+    controls; `vk-rt` skips `DETACH_IDS` only;
+  * `TIMER_GET_TIME` and `SYSTEM_GET_CAPS_V2` are skipped more widely, by
+    those and by `egl-xlib` and `gles`;
+  * `egl-gbm`, and the whole CUDA and NVML set, ask them in a guest exactly
+    as they do natively.
+
+What is still open is WHY the branch differs, and that is now a question
+about NVIDIA's userspace rather than about this boundary. The probe that
+would narrow it further compares the guest's and the host's `openat`/`stat`
+sets around the discovery path, not their ioctls.
+
+**Original entry, measured 2026-08-20.** Every graphics probe in the guest sweep skips
 the SAME six commands, natively issued by all of them and by none of them
 in a guest:
 

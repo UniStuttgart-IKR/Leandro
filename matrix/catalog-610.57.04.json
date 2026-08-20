@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T23:36:29Z",
-    "commit:  07a5950 (working tree modified)"
+    "date:    2026-08-20T23:47:36Z",
+    "commit:  f5a92e6 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -2262,19 +2262,21 @@
         "nvenc",
         "nvml",
         "opencl",
+        "rm-direct",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 22,
+      "calls": 23,
       "rm_status": {
-        "0x0": 22
+        "0x0": 23
       },
       "flags": [
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 13 call(s), 384 of 384 bytes, masked {'gpuId': 13}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 14 call(s), 384 of 384 bytes, masked {'gpuId': 13, 'mediated:bdf-array': 1}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way",
+        "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (GET_PROBED_IDS (bdf-array) @0 x32 stride 4) and in no other byte. That is a different claim from byte equality"
       ],
       "fields": [
         {
@@ -2331,20 +2333,21 @@
         "nvenc",
         "nvml",
         "opencl",
+        "rm-direct",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 27,
+      "calls": 28,
       "rm_status": {
-        "0x0": 24,
+        "0x0": 25,
         "0x1f": 3
       },
       "flags": [
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 18 call(s), 132 of 132 bytes, masked {'not-written': 12}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 19 call(s), 132 of 132 bytes, masked {'not-written': 13}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -3587,7 +3590,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1033}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1042}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -4054,13 +4057,14 @@
         "gl-enum",
         "gl-render",
         "gles",
+        "rm-direct",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 20,
+      "calls": 21,
       "rm_status": {
-        "0x0": 20
+        "0x0": 21
       },
       "flags": [
         "none"
@@ -4631,19 +4635,20 @@
         "gl-render",
         "gles",
         "nvml",
+        "rm-direct",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 11,
+      "calls": 12,
       "rm_status": {
-        "0x0": 11
+        "0x0": 12
       },
       "flags": [
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 4 call(s), 128 of 128 bytes, masked {'not-written': 3}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 5 call(s), 128 of 128 bytes, masked {'not-written': 4}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4789,19 +4794,20 @@
         "gl-enum",
         "gl-render",
         "gles",
+        "rm-direct",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 20,
+      "calls": 21,
       "rm_status": {
-        "0x0": 20
+        "0x0": 21
       },
       "flags": [
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 2 of 2 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 3 call(s), 2 of 2 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -5464,20 +5470,21 @@
         "gl-render",
         "gles",
         "nvml",
+        "rm-direct",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 21,
+      "calls": 22,
       "rm_status": {
-        "0x0": 21
+        "0x0": 22
       },
       "flags": [
         "none"
       ],
       "notes": [
         "class allocates with a NULL params pointer -- no size needed",
-        "answer bytes compared against a native run: 3 call(s), 48 of 48 bytes, masked {'not-written': 3}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 4 call(s), 48 of 48 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5792,17 +5799,18 @@
         "nvdec",
         "nvenc",
         "nvml",
+        "rm-direct",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 24,
+      "calls": 25,
       "rm_status": {},
       "flags": [
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 10 call(s), 72 of 72 bytes; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 11 call(s), 72 of 72 bytes; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5982,7 +5990,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 3 call(s), 2192 of 2192 bytes, masked {'not-written': 538}"
+        "answer bytes compared against a native run: 3 call(s), 2192 of 2192 bytes, masked {'not-written': 521}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -8846,9 +8854,9 @@
         "nvenc",
         "opencl"
       ],
-      "calls": 174,
+      "calls": 173,
       "rm_status": {
-        "0x0": 174
+        "0x0": 173
       },
       "flags": [
         "none"
@@ -9391,7 +9399,7 @@
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 2750,
+      "calls": 2749,
       "rm_status": {},
       "flags": [
         "none"
@@ -9438,7 +9446,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24",
-        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 54}"
+        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 48}"
       ],
       "fields": [
         {
@@ -9525,7 +9533,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 18}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 17}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -9584,7 +9592,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16",
-        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 600}"
+        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 580}"
       ],
       "fields": [
         {
@@ -9640,19 +9648,20 @@
         "nvenc",
         "nvml",
         "opencl",
+        "rm-direct",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 44,
+      "calls": 45,
       "rm_status": {
-        "0x0": 44
+        "0x0": 45
       },
       "flags": [
         "size-table"
       ],
       "notes": [
-        "answer bytes compared against a native run: 15 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 16 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -9789,19 +9798,20 @@
         "nvenc",
         "nvml",
         "opencl",
+        "rm-direct",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 74,
+      "calls": 75,
       "rm_status": {
-        "0x0": 74
+        "0x0": 75
       },
       "flags": [
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 25 call(s), 48 of 48 bytes, masked {'handle': 25}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 26 call(s), 48 of 48 bytes, masked {'handle': 26}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": 4
@@ -9875,19 +9885,20 @@
         "nvenc",
         "nvml",
         "opencl",
+        "rm-direct",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 44,
+      "calls": 45,
       "rm_status": {
-        "0x0": 44
+        "0x0": 45
       },
       "flags": [
         "size-table"
       ],
       "notes": [
-        "answer bytes compared against a native run: 15 call(s), 56 of 56 bytes, masked {'not-written': 14}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 16 call(s), 56 of 56 bytes, masked {'not-written': 14}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -10228,7 +10239,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 70 call(s), 16 of 16 bytes, masked {'not-written': 118}; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 70 call(s), 16 of 16 bytes, masked {'not-written': 110}; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": 16
@@ -10547,7 +10558,7 @@
         "nvenc",
         "opencl"
       ],
-      "calls": 276,
+      "calls": 275,
       "rm_status": {},
       "flags": [
         "fd-field"
@@ -10825,7 +10836,7 @@
         "nvenc",
         "opencl"
       ],
-      "calls": 276,
+      "calls": 275,
       "rm_status": {},
       "flags": [
         "none"
@@ -10996,7 +11007,7 @@
         "nvenc",
         "opencl"
       ],
-      "calls": 200,
+      "calls": 199,
       "rm_status": {},
       "flags": [
         "none"
@@ -11758,7 +11769,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: busInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 16 of 16 bytes, masked {'not-written': 20}"
+        "answer bytes compared against a native run: 10 call(s), 16 of 16 bytes, masked {'not-written': 13}"
       ],
       "fields": [
         {
@@ -12050,7 +12061,7 @@
       "notes": [
         "params struct name not in the finn: comment; convention (_CMD_ dropped, _PARAMS appended), typedef present and sizeof compiled",
         "pointer field(s), offsets compiled: biosInfoList @8",
-        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes, masked {'not-written': 2}"
+        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes, masked {'not-written': 1}"
       ],
       "fields": [
         {
@@ -13283,7 +13294,7 @@
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 27270"
+      "criterion": "glmark2 --off-screen rendered the build scene, score 35523"
     },
     {
       "probe": "gles",
@@ -13317,11 +13328,11 @@
     },
     {
       "probe": "nvdec",
-      "result": "PASS (matched on attempt 3)",
-      "tracer": "1001",
-      "strace": "1001",
+      "result": "PASS",
+      "tracer": "996",
+      "strace": "996",
       "delta": "0",
-      "ioctls": "1001",
+      "ioctls": "996",
       "sigs": "170",
       "modeset": "0",
       "drm": "0",
@@ -13419,6 +13430,21 @@
       "libs": "libnvidia-pkcs11 libnvidia-pkcs11-openssl3",
       "libs_seen": "",
       "criterion": "none -- no workload"
+    },
+    {
+      "probe": "rm-direct",
+      "result": "PASS",
+      "tracer": "10",
+      "strace": "10",
+      "delta": "0",
+      "ioctls": "10",
+      "sigs": "10",
+      "modeset": "0",
+      "drm": "0",
+      "group": "direct",
+      "libs": "",
+      "libs_seen": "",
+      "criterion": "five of number 52's six commands answered NV_OK on 1 probed GPU: GET_PROBED_IDS, ATTACH_IDS, DETACH_IDS, TIMER_GET_TIME and SYSTEM_GET_CAPS_V2 (IDLE_CHANNELS needs a channel and is not covered)"
     },
     {
       "probe": "vk-enum",

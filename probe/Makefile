@@ -46,7 +46,7 @@ $(BIN)/nvprobe $(BIN)/hostregprobe $(BIN)/oomprobe $(BIN)/managedprobe: $(BIN)/%
 # ioctlping: round-trip latency per ioctl.
 # ctrlping:  the same with a GROWING payload -- the follow-up question to
 #            ioctlping (does the module's setup surcharge depend on size?).
-$(BIN)/ioctlping $(BIN)/ctrlping $(BIN)/ofdtest $(BIN)/granttest: $(BIN)/%: $(SRC)/%.c | $(BIN)
+$(BIN)/ioctlping $(BIN)/ctrlping $(BIN)/ofdtest $(BIN)/granttest $(BIN)/rmdirect: $(BIN)/%: $(SRC)/%.c | $(BIN)
 	$(CC) -O1 -g -Wall -Wextra -o $@ $<
 
 # primeimport: the display device allocates, the render device imports -- the
@@ -146,7 +146,7 @@ $(BIN)/vkrt: $(SRC)/vkrt.c | $(BIN)
 # One target for everything scripts/ioctl-matrix.sh needs to build itself.
 matrix-probes: $(BIN)/oclprobe $(BIN)/eglplat $(BIN)/vkrt
 
-probes: $(BIN)/ofdtest $(BIN)/granttest $(BIN)/forkprobe $(BIN)/ioctlping $(BIN)/ctrlping $(BIN)/primeimport $(BIN)/uvminit_shim.so host-tools
+probes: $(BIN)/ofdtest $(BIN)/granttest $(BIN)/forkprobe $(BIN)/ioctlping $(BIN)/ctrlping $(BIN)/rmdirect $(BIN)/primeimport $(BIN)/uvminit_shim.so host-tools
 
 # What CI can build: no CUDA, no NVIDIA headers, no hardware. Kept separate
 # from `probes` so the GPU-free workflow has exactly one target to name.

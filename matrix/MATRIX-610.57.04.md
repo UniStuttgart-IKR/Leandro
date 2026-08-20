@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T23:36:29Z
-commit:  07a5950 (working tree modified)
+date:    2026-08-20T23:47:36Z
+commit:  f5a92e6 (working tree modified)
 ```
 
 Probes against status. This is the compatibility statement: a probe
@@ -19,7 +19,7 @@ the same claim -- `predicted-green` is read off the descriptor table,
 fingerprint matched the native trace. A probe with `missing` commands
 names the work.
 
-Guest evidence: `matrix/guest-610.57.04.json`, 10 FAIL, 2 blocked, 8 guest-validated.
+Guest evidence: `matrix/guest-610.57.04.json`, 10 FAIL, 2 blocked, 9 guest-validated.
 
 | probe | group | result | guest | ioctls | catalogued | missing | passthrough | governed | NVKMS | libraries seen |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|---|
@@ -39,13 +39,14 @@ Guest evidence: `matrix/guest-610.57.04.json`, 10 FAIL, 2 blocked, 8 guest-valid
 | `gl-render` | gl | predicted-green | FAIL * | 522 | 119 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
 | `gles` | gl | predicted-green | FAIL * | 568 | 117 | 0 | 68 | 34 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
 | `kms-nvkms` | kms | blocked: needs kernel-side trace point | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `nvdec` | video | predicted-green * | **guest-validated** | 1001 | 131 | 0 | 81 | 50 | 0 | libcuda<br>libnvcuvid |
+| `nvdec` | video | predicted-green | **guest-validated** | 996 | 131 | 0 | 81 | 50 | 0 | libcuda<br>libnvcuvid |
 | `nvenc` | video | predicted-green | **guest-validated** | 1600 | 135 | 0 | 84 | 51 | 0 | libcuda<br>libnvcuvid<br>libnvidia-encode |
 | `nvfbc` | video | declared-unsupported: workload not procurable in this environment | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
 | `nvml` | nvml | predicted-green | FAIL * | 179 | 105 | 0 | 87 | 18 | 0 | libcuda<br>libnvidia-ml |
 | `nvofa` | video | declared-unsupported: workload not procurable in this environment | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
 | `opencl` | compute | predicted-green | **guest-validated** | 620 | 107 | 0 | 64 | 43 | 0 | libcuda<br>libnvidia-nvvm<br>libnvidia-opencl |
 | `pkcs11` | compat | declared-unsupported: no workload exists | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
+| `rm-direct` | direct | predicted-green | **guest-validated** | 10 | 10 | 0 | 7 | 3 | 0 | &mdash; |
 | `vk-enum` | vulkan | predicted-green | FAIL * | 961 | 123 | 0 | 73 | 35 | 405 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
 | `vk-offscreen` | vulkan | predicted-green | FAIL * | 5568 | 117 | 0 | 73 | 37 | 2 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-tls |
 | `vk-rt` | vulkan | predicted-green | FAIL * | 1289 | 155 | 0 | 102 | 46 | 2 | libGLX_nvidia<br>libcuda<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
@@ -60,7 +61,6 @@ Guest evidence: `matrix/guest-610.57.04.json`, 10 FAIL, 2 blocked, 8 guest-valid
 - \* `gl-enum` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_DETACH_IDS (ctl nr=0x2a sub=0x216): 1 call(s) natively, none in the guest ...
 - \* `gl-render` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_DETACH_IDS (ctl nr=0x2a sub=0x216): 1 call(s) natively, none in the guest ...
 - \* `gles` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_OS_UNIX_IMPORT_OBJECT_FROM_FD (ctl nr=0x2a sub=0x3d06): 2 call(s) natively, none in the guest; NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2 (ctl nr=0x2a sub=0x730101): 2 call(s) natively, none in the guest; NV_ESC_RM_IDLE_CHANNELS (ctl nr=0x41 sub=-): 1 call(s) natively, none in the guest ...
-- \* `nvdec`: PASS (matched on attempt 3)
 - \* `nvml` in the guest: AMPERE_SMC_MONITOR_SESSION (ctl nr=0x2b sub=0xc640): 1 call(s) natively, none in the guest
 - \* `vk-enum` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_DETACH_IDS (ctl nr=0x2a sub=0x216): 1 call(s) natively, none in the guest ...
 - \* `vk-offscreen` in the guest: FAIL: probe exited 1 -- ffmpeg vulkan filter exited 244; NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest ...
