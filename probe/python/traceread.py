@@ -60,13 +60,15 @@ MEASUREMENT = frozenset(POSITIONAL)
 # as a field. `size` and `attr` of an NVOS32 are IN/OUT -- the caller asks
 # and RM writes back what it really did -- so both samples are the point.
 PHASED = frozenset({"nvos02", "nvos33", "nvos32", "nvos46", "nvos64",
-                    "memparams", "ctrlout"})
+                    "memparams", "ctrlout", "uvmout"})
 
-# Two kinds mix positional and keyed fields in the old format, and this is
-# the whole of that irregularity:
+# Three kinds mix positional and keyed fields, and this is the whole of that
+# irregularity:
 #   cardinfo  [0]     gpu_id=... pci=... ...      -- `i` is positional, as [n]
 #   ctrlout   0x214   len=384 status=0x0  <dump>  -- `cmd` and `dump` are
-MIXED = {"cardinfo": ("i",), "ctrlout": ("cmd", "dump")}
+#   uvmout    0x25    len=32   <dump>             -- `nr` and `dump` are
+MIXED = {"cardinfo": ("i",), "ctrlout": ("cmd", "dump"),
+         "uvmout": ("nr", "dump")}
 
 
 def _split_phase(kind):

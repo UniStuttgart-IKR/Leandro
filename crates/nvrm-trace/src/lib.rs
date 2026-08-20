@@ -148,7 +148,7 @@ pub unsafe extern "C" fn ioctl(fd: c_int, req: c_ulong, arg: *mut c_void) -> c_i
     // NVOS33.flags in particular the input is the interesting value.
     if let Some(d) = dev {
         let cmd = req as u32;
-        log::detail_pre(d, nvrm_abi::ioc_nr(cmd), nvrm_abi::ioc_size(cmd), arg);
+        log::detail_pre(d, cmd, arg);
     }
 
     let ret = f(fd, req, arg);

@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T22:23:02Z",
-    "commit:  2783ba4 (working tree modified)"
+    "date:    2026-08-20T22:32:19Z",
+    "commit:  a1fb1a3 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -5952,7 +5952,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 3 call(s), 256 of 2192 bytes, masked {'not-written': 58}"
+        "answer bytes compared against a native run: 3 call(s), 256 of 2192 bytes, masked {'not-written': 49}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7598,9 +7598,7 @@
       "flags": [
         "none"
       ],
-      "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 83972 bytes"
-      ],
+      "notes": [],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -9812,399 +9810,6 @@
       "xlate_size": null
     },
     {
-      "device": "uvm",
-      "nr": "0x19",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_REGISTER_GPU_VASPACE",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:288",
-      "params_struct": "UVM_REGISTER_GPU_VASPACE_PARAMS",
-      "params_size": 32,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 10,
-      "rm_status": {},
-      "flags": [
-        "fd-field"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 32
-    },
-    {
-      "device": "uvm",
-      "nr": "0x1b",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_REGISTER_CHANNEL",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:313",
-      "params_struct": "UVM_REGISTER_CHANNEL_PARAMS",
-      "params_size": 56,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls": 180,
-      "rm_status": {},
-      "flags": [
-        "fd-field"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 56
-    },
-    {
-      "device": "uvm",
-      "nr": "0x21",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_MAP_EXTERNAL_ALLOCATION",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:365",
-      "params_struct": "UVM_MAP_EXTERNAL_ALLOCATION_PARAMS",
-      "params_size": 9264,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls": 275,
-      "rm_status": {},
-      "flags": [
-        "fd-field"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 9264
-    },
-    {
-      "device": "uvm",
-      "nr": "0x25",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_REGISTER_GPU",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:405",
-      "params_struct": "UVM_REGISTER_GPU_PARAMS",
-      "params_size": 40,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 10,
-      "rm_status": {},
-      "flags": [
-        "fd-field"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 40
-    },
-    {
-      "device": "uvm",
-      "nr": "0x27",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_PAGEABLE_MEM_ACCESS",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:429",
-      "params_struct": "UVM_PAGEABLE_MEM_ACCESS_PARAMS",
-      "params_size": 8,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 11,
-      "rm_status": {},
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 8
-    },
-    {
-      "device": "uvm",
-      "nr": "0x30000001",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_INITIALIZE",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_linux_ioctl.h:32",
-      "params_struct": "UVM_INITIALIZE_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 11,
-      "rm_status": {},
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 16
-    },
-    {
-      "device": "uvm",
-      "nr": "0x41",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_MAP_DYNAMIC_PARALLELISM_REGION",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:723",
-      "params_struct": "UVM_MAP_DYNAMIC_PARALLELISM_REGION_PARAMS",
-      "params_size": 40,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls": 9,
-      "rm_status": {},
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 40
-    },
-    {
-      "device": "uvm",
-      "nr": "0x44",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_ALLOC_SEMAPHORE_POOL",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:757",
-      "params_struct": "UVM_ALLOC_SEMAPHORE_POOL_PARAMS",
-      "params_size": 9248,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls": 9,
-      "rm_status": {},
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 9248
-    },
-    {
-      "device": "uvm",
-      "nr": "0x46",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_PAGEABLE_MEM_ACCESS_ON_GPU",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:779",
-      "params_struct": "UVM_PAGEABLE_MEM_ACCESS_ON_GPU_PARAMS",
-      "params_size": 24,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 10,
-      "rm_status": {},
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 24
-    },
-    {
-      "device": "uvm",
-      "nr": "0x48",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_VALIDATE_VA_RANGE",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:834",
-      "params_struct": "UVM_VALIDATE_VA_RANGE_PARAMS",
-      "params_size": 24,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls": 12,
-      "rm_status": {},
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 24
-    },
-    {
-      "device": "uvm",
-      "nr": "0x49",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_CREATE_EXTERNAL_RANGE",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:842",
-      "params_struct": "UVM_CREATE_EXTERNAL_RANGE_PARAMS",
-      "params_size": 24,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls": 275,
-      "rm_status": {},
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 24
-    },
-    {
-      "device": "uvm",
-      "nr": "0x4b",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_MM_INITIALIZE",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:887",
-      "params_struct": "UVM_MM_INITIALIZE_PARAMS",
-      "params_size": 8,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 11,
-      "rm_status": {},
-      "flags": [
-        "fd-field"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 8
-    },
-    {
       "device": "gpu",
       "nr": "0xcf",
       "sub": "-",
@@ -10241,95 +9846,6 @@
       "notes": [],
       "status": "implemented-unverified",
       "xlate_size": null
-    },
-    {
-      "device": "uvm",
-      "nr": "0x1a",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_UNREGISTER_GPU_VASPACE",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:302",
-      "params_struct": "UVM_UNREGISTER_GPU_VASPACE_PARAMS",
-      "params_size": 20,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "nvdec",
-        "nvenc",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 7,
-      "rm_status": {},
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 20
-    },
-    {
-      "device": "uvm",
-      "nr": "0x1c",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_UNREGISTER_CHANNEL",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:329",
-      "params_struct": "UVM_UNREGISTER_CHANNEL_PARAMS",
-      "params_size": 12,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls": 120,
-      "rm_status": {},
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 12
-    },
-    {
-      "device": "uvm",
-      "nr": "0x22",
-      "sub": "-",
-      "kind": "uvm",
-      "name": "UVM_FREE",
-      "description": "",
-      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:383",
-      "params_struct": "UVM_FREE_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls": 199,
-      "rm_status": {},
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "fields": [],
-      "status": "implemented-unverified",
-      "xlate_size": 16
     },
     {
       "device": "uvm",
@@ -11264,7 +10780,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24",
-        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 51}"
+        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 57}"
       ],
       "fields": [
         {
@@ -11351,7 +10867,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 15}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 19}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11410,7 +10926,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16",
-        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 580}"
+        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 620}"
       ],
       "fields": [
         {
@@ -11434,6 +10950,518 @@
       ],
       "status": "implemented-verified",
       "xlate_size": null
+    },
+    {
+      "device": "uvm",
+      "nr": "0x19",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_REGISTER_GPU_VASPACE",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:288",
+      "params_struct": "UVM_REGISTER_GPU_VASPACE_PARAMS",
+      "params_size": 32,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 10,
+      "rm_status": {},
+      "flags": [
+        "fd-field"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 9 call(s), 32 of 32 bytes, masked {'not-written': 11}"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 32
+    },
+    {
+      "device": "uvm",
+      "nr": "0x1b",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_REGISTER_CHANNEL",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:313",
+      "params_struct": "UVM_REGISTER_CHANNEL_PARAMS",
+      "params_size": 56,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "calls": 180,
+      "rm_status": {},
+      "flags": [
+        "fd-field"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 160 call(s), 56 of 56 bytes, masked {'not-written': 180}"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 56
+    },
+    {
+      "device": "uvm",
+      "nr": "0x21",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_MAP_EXTERNAL_ALLOCATION",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:365",
+      "params_struct": "UVM_MAP_EXTERNAL_ALLOCATION_PARAMS",
+      "params_size": 9264,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "calls": 275,
+      "rm_status": {},
+      "flags": [
+        "fd-field"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 202 call(s), 256 of 9264 bytes, masked {'not-written': 4}; NOT paired in nvdec, which judged nothing either way"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 9264
+    },
+    {
+      "device": "uvm",
+      "nr": "0x25",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_REGISTER_GPU",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:405",
+      "params_struct": "UVM_REGISTER_GPU_PARAMS",
+      "params_size": 40,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 10,
+      "rm_status": {},
+      "flags": [
+        "fd-field"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 9 call(s), 40 of 40 bytes"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 40
+    },
+    {
+      "device": "uvm",
+      "nr": "0x27",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_PAGEABLE_MEM_ACCESS",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:429",
+      "params_struct": "UVM_PAGEABLE_MEM_ACCESS_PARAMS",
+      "params_size": 8,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 11,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 10 call(s), 8 of 8 bytes"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 8
+    },
+    {
+      "device": "uvm",
+      "nr": "0x30000001",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_INITIALIZE",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_linux_ioctl.h:32",
+      "params_struct": "UVM_INITIALIZE_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 11,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 10 call(s), 16 of 16 bytes"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 16
+    },
+    {
+      "device": "uvm",
+      "nr": "0x41",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_MAP_DYNAMIC_PARALLELISM_REGION",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:723",
+      "params_struct": "UVM_MAP_DYNAMIC_PARALLELISM_REGION_PARAMS",
+      "params_size": 40,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "calls": 9,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 8 call(s), 40 of 40 bytes"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 40
+    },
+    {
+      "device": "uvm",
+      "nr": "0x44",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_ALLOC_SEMAPHORE_POOL",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:757",
+      "params_struct": "UVM_ALLOC_SEMAPHORE_POOL_PARAMS",
+      "params_size": 9248,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "calls": 9,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 8 call(s), 256 of 9248 bytes"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 9248
+    },
+    {
+      "device": "uvm",
+      "nr": "0x46",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_PAGEABLE_MEM_ACCESS_ON_GPU",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:779",
+      "params_struct": "UVM_PAGEABLE_MEM_ACCESS_ON_GPU_PARAMS",
+      "params_size": 24,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 10,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 9 call(s), 24 of 24 bytes"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 24
+    },
+    {
+      "device": "uvm",
+      "nr": "0x48",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_VALIDATE_VA_RANGE",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:834",
+      "params_struct": "UVM_VALIDATE_VA_RANGE_PARAMS",
+      "params_size": 24,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "calls": 12,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 7 call(s), 24 of 24 bytes; NOT paired in cuda-managed, which judged nothing either way"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 24
+    },
+    {
+      "device": "uvm",
+      "nr": "0x49",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_CREATE_EXTERNAL_RANGE",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:842",
+      "params_struct": "UVM_CREATE_EXTERNAL_RANGE_PARAMS",
+      "params_size": 24,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "calls": 275,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 202 call(s), 24 of 24 bytes, masked {'not-written': 4}; NOT paired in nvdec, which judged nothing either way"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 24
+    },
+    {
+      "device": "uvm",
+      "nr": "0x4b",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_MM_INITIALIZE",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:887",
+      "params_struct": "UVM_MM_INITIALIZE_PARAMS",
+      "params_size": 8,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 11,
+      "rm_status": {},
+      "flags": [
+        "fd-field"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 10 call(s), 8 of 8 bytes, masked {'not-written': 2}"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 8
+    },
+    {
+      "device": "uvm",
+      "nr": "0x1a",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_UNREGISTER_GPU_VASPACE",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:302",
+      "params_struct": "UVM_UNREGISTER_GPU_VASPACE_PARAMS",
+      "params_size": 20,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "nvdec",
+        "nvenc",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 7,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 7 call(s), 20 of 20 bytes"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 20
+    },
+    {
+      "device": "uvm",
+      "nr": "0x1c",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_UNREGISTER_CHANNEL",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:329",
+      "params_struct": "UVM_UNREGISTER_CHANNEL_PARAMS",
+      "params_size": 12,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "calls": 120,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 120 call(s), 12 of 12 bytes, masked {'not-written': 120}"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 12
+    },
+    {
+      "device": "uvm",
+      "nr": "0x22",
+      "sub": "-",
+      "kind": "uvm",
+      "name": "UVM_FREE",
+      "description": "",
+      "header": "kernel-open/nvidia-uvm/uvm_ioctl.h:383",
+      "params_struct": "UVM_FREE_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "calls": 199,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 161 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in nvdec, which judged nothing either way"
+      ],
+      "fields": [],
+      "status": "implemented-verified",
+      "xlate_size": 16
     },
     {
       "device": "ctl",
@@ -11471,7 +11499,7 @@
       "notes": [
         "answered by the backend itself: fbInfoList[].data @4 (backend-answered, mediation.txt)",
         "pointer field(s), offsets compiled: fbInfoList @8",
-        "answer bytes compared against a native run: 5 call(s), 16 of 16 bytes, masked {'not-written': 5}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 5 call(s), 16 of 16 bytes, masked {'not-written': 10}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11637,7 +11665,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 2}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -13166,7 +13194,7 @@
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 29877"
+      "criterion": "glmark2 --off-screen rendered the build scene, score 31250"
     },
     {
       "probe": "gles",
@@ -13200,7 +13228,7 @@
     },
     {
       "probe": "nvdec",
-      "result": "PASS",
+      "result": "PASS (matched on attempt 3)",
       "tracer": "996",
       "strace": "996",
       "delta": "0",

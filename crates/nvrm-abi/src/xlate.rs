@@ -173,6 +173,105 @@ pub fn uvm_param_size(cmd: u32) -> Option<u32> {
     })
 }
 
+/// Payload size of a UVM command, **as the compiler measures it**.
+///
+/// The sibling above is a hand-computed table: every entry carries the
+/// arithmetic that produced it in a comment, and the guest module forwards
+/// UVM commands on its authority. This one asks `size_of` of the bindgen
+/// struct, so it is the header's answer rather than anyone's reading of it.
+///
+/// WHY BOTH EXIST. `nvrm-trace` dumps a UVM answer buffer at this length,
+/// and it must not take that length from `uvm_param_size`: the point of
+/// dumping UVM answers is to judge the forwarding that table drives, and an
+/// instrument measuring with the table under test agrees with it by
+/// construction. The test below then asks the two for the same command and
+/// requires the same answer, which is what turns a hand-computed table into
+/// a checked one.
+///
+/// `None` means no compiled struct. UVM_DEINITIALIZE takes no parameter
+/// block at all and is the only command in the list without one.
+pub fn uvm_param_size_compiled(cmd: u32) -> Option<usize> {
+    Some(match cmd {
+        uvm::INITIALIZE => size_of::<sys::UVM_INITIALIZE_PARAMS>(),
+        uvm::PAGEABLE_MEM_ACCESS => size_of::<sys::UVM_PAGEABLE_MEM_ACCESS_PARAMS>(),
+        uvm::MM_INITIALIZE => size_of::<sys::UVM_MM_INITIALIZE_PARAMS>(),
+        uvm::REGISTER_GPU_VASPACE => size_of::<sys::UVM_REGISTER_GPU_VASPACE_PARAMS>(),
+        uvm::UNREGISTER_GPU_VASPACE => size_of::<sys::UVM_UNREGISTER_GPU_VASPACE_PARAMS>(),
+        uvm::REGISTER_CHANNEL => size_of::<sys::UVM_REGISTER_CHANNEL_PARAMS>(),
+        uvm::UNREGISTER_CHANNEL => size_of::<sys::UVM_UNREGISTER_CHANNEL_PARAMS>(),
+        uvm::MAP_EXTERNAL_ALLOCATION => size_of::<sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS>(),
+        uvm::FREE => size_of::<sys::UVM_FREE_PARAMS>(),
+        uvm::REGISTER_GPU => size_of::<sys::UVM_REGISTER_GPU_PARAMS>(),
+        uvm::MAP_DYNAMIC_PARALLELISM_REGION => size_of::<sys::UVM_MAP_DYNAMIC_PARALLELISM_REGION_PARAMS>(),
+        uvm::ALLOC_SEMAPHORE_POOL => size_of::<sys::UVM_ALLOC_SEMAPHORE_POOL_PARAMS>(),
+        uvm::SET_PREFERRED_LOCATION => size_of::<sys::UVM_SET_PREFERRED_LOCATION_PARAMS>(),
+        uvm::UNSET_PREFERRED_LOCATION => size_of::<sys::UVM_UNSET_PREFERRED_LOCATION_PARAMS>(),
+        uvm::ENABLE_READ_DUPLICATION => size_of::<sys::UVM_ENABLE_READ_DUPLICATION_PARAMS>(),
+        uvm::DISABLE_READ_DUPLICATION => size_of::<sys::UVM_DISABLE_READ_DUPLICATION_PARAMS>(),
+        uvm::SET_ACCESSED_BY => size_of::<sys::UVM_SET_ACCESSED_BY_PARAMS>(),
+        uvm::UNSET_ACCESSED_BY => size_of::<sys::UVM_UNSET_ACCESSED_BY_PARAMS>(),
+        uvm::MIGRATE => size_of::<sys::UVM_MIGRATE_PARAMS>(),
+        uvm::PAGEABLE_MEM_ACCESS_ON_GPU => size_of::<sys::UVM_PAGEABLE_MEM_ACCESS_ON_GPU_PARAMS>(),
+        uvm::VALIDATE_VA_RANGE => size_of::<sys::UVM_VALIDATE_VA_RANGE_PARAMS>(),
+        uvm::CREATE_EXTERNAL_RANGE => size_of::<sys::UVM_CREATE_EXTERNAL_RANGE_PARAMS>(),
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod uvm_size_tests {
+    use super::*;
+
+    /// The hand-computed UVM sizes against the compiler's.
+    ///
+    /// The guest module copies exactly `uvm_param_size` bytes to and from
+    /// the host on every UVM call. An entry that is too small truncates a
+    /// caller's request; one that is too large is an out-of-bounds read in
+    /// `copy_from_user`. Neither is visible to any sweep, because a wrong
+    /// size is wrong identically on both sides of the boundary -- the guest
+    /// and the host would agree perfectly about a truncated struct. So the
+    /// compiler checks the arithmetic instead.
+    #[test]
+    fn the_hand_computed_uvm_sizes_are_what_the_compiler_measures() {
+        let cmds = [
+            uvm::INITIALIZE,
+            uvm::PAGEABLE_MEM_ACCESS,
+            uvm::MM_INITIALIZE,
+            uvm::REGISTER_GPU_VASPACE,
+            uvm::UNREGISTER_GPU_VASPACE,
+            uvm::REGISTER_CHANNEL,
+            uvm::UNREGISTER_CHANNEL,
+            uvm::MAP_EXTERNAL_ALLOCATION,
+            uvm::FREE,
+            uvm::REGISTER_GPU,
+            uvm::MAP_DYNAMIC_PARALLELISM_REGION,
+            uvm::ALLOC_SEMAPHORE_POOL,
+            uvm::SET_PREFERRED_LOCATION,
+            uvm::UNSET_PREFERRED_LOCATION,
+            uvm::ENABLE_READ_DUPLICATION,
+            uvm::DISABLE_READ_DUPLICATION,
+            uvm::SET_ACCESSED_BY,
+            uvm::UNSET_ACCESSED_BY,
+            uvm::MIGRATE,
+            uvm::PAGEABLE_MEM_ACCESS_ON_GPU,
+            uvm::VALIDATE_VA_RANGE,
+            uvm::CREATE_EXTERNAL_RANGE,
+        ];
+        for cmd in cmds {
+            let hand = uvm_param_size(cmd).expect("in the hand-written table");
+            let compiled = uvm_param_size_compiled(cmd).expect("has a struct");
+            assert_eq!(
+                hand as usize, compiled,
+                "UVM command {cmd:#x}: the table says {hand} bytes, the compiler {compiled}"
+            );
+        }
+        assert_eq!(cmds.len(), 22, "every command with a compiled struct is checked");
+        // The one command that genuinely has no parameter block.
+        assert_eq!(uvm_param_size(uvm::DEINITIALIZE), Some(0));
+        assert_eq!(uvm_param_size_compiled(uvm::DEINITIALIZE), None);
+    }
+}
+
 // ===========================================================================
 // fd field offset  (the only value translation besides the aux pointer)
 // ===========================================================================

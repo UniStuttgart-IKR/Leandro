@@ -152,8 +152,12 @@ def read_stability(paths):
             # is what number 60 needs), and pooling them would compare a
             # command's question with its answer and call the difference
             # instability.
-            if r["t"] == "ctrlout" and r.get("phase") != "in":
-                calls[r["cmd"]].append(list(bytes.fromhex(r["dump"])))
+            if r.get("phase") == "in":
+                continue
+            if r["t"] == "ctrlout":
+                calls[f"ctl 0x2a {r['cmd']}"].append(list(bytes.fromhex(r["dump"])))
+            elif r["t"] == "uvmout":
+                calls[f"uvm {r['nr']} -"].append(list(bytes.fromhex(r["dump"])))
         for cmd, cs in calls.items():
             rep[cmd] = max(rep[cmd], len(cs))
             if len(cs) < 2:
@@ -276,15 +280,27 @@ def read_side(path):
     if not pathlib.Path(path).is_file():
         return None
     for r in traceread.read(path):
+        # KEYED BY THE SIGNATURE THE CATALOGUE USES, "<device> <nr> <sub>",
+        # so that a control and a UVM command are the same kind of thing to
+        # everything downstream. They are: both are one entry of the surface
+        # with an answer that either survives the boundary or does not.
+        sig = None
         if r["t"] == "ctrlout":
+            sig, status = f"ctl 0x2a {r['cmd']}", r["status"]
+        elif r["t"] == "uvmout":
+            # UVM has no status field in the ioctl. Every UVM command carries
+            # its rmStatus INSIDE the parameter block, so it is compared as
+            # part of the answer rather than beside it.
+            sig, status = f"uvm {r['nr']} -", "-"
+        if sig is not None:
             # The two samples go into two dicts. `calls` is the ANSWER, and
             # is what every existing comparison is about; `asked` is the
             # buffer as the caller handed it over, which is the only thing
             # that can tell an OUT pointer the boundary dropped from an IN
             # pointer the caller never supplied (number 60).
             where = asked if r.get("phase") == "in" else calls
-            where[r["cmd"]].append({
-                "len": int(r["len"]), "status": r["status"],
+            where[sig].append({
+                "len": int(r["len"]), "status": status,
                 "bytes": list(bytes.fromhex(r["dump"])),
             })
             continue
@@ -533,17 +549,23 @@ def main():
             "native_handles": len(n["handles"]), "guest_handles": len(g["handles"]),
             "commands_with_an_answer_dump": len(n["calls"]),
         }
-        for cmd in sorted(set(n["calls"]) | set(g["calls"])):
-            key = f"ctl 0x2a {cmd}"
+        for key in sorted(set(n["calls"]) | set(g["calls"])):
+            # The field map, the mediation manifest and the declared-pointer
+            # list are all keyed by the CONTROL command, because that is the
+            # only namespace they cover. A UVM signature simply has none of
+            # them, and the comparison falls back to offsets and byte
+            # equality -- which is what it had for every command before the
+            # masks existed.
+            cmd = key.split()[-1] if key.startswith("ctl 0x2a ") else None
             fm = fields.get(cmd)
             med = mediation.get(cmd)
-            st = stability.get(cmd)
-            ok, why, masked = compare_cmd(cmd, n["calls"].get(cmd, []),
-                                          g["calls"].get(cmd, []), n, g,
+            st = stability.get(key)
+            ok, why, masked = compare_cmd(key, n["calls"].get(key, []),
+                                          g["calls"].get(key, []), n, g,
                                           declared.get(cmd, ()), fm, med, st,
-                                          n["asked"].get(cmd, []),
-                                          g["asked"].get(cmd, []))
-            row = cat.get(("ctl", "0x2a", cmd), {})
+                                          n["asked"].get(key, []),
+                                          g["asked"].get(key, []))
+            row = cat.get(tuple(key.split()), {})
             if ok == "abstain":
                 abstained.setdefault(key, []).append({"probe": p, "reason": why})
                 continue
@@ -574,13 +596,13 @@ def main():
                 })["probes"].append(p)
                 continue
             if ok:
-                nb = len(n["calls"][cmd][0]["bytes"])
+                nb = len(n["calls"][key][0]["bytes"])
                 e = ok_by_sig.setdefault(key, {
                     "name": row.get("name", ""),
                     "status_before": row.get("status", ""),
                     "probes": [], "calls_compared": 0,
                     "bytes_compared": nb,
-                    "answer_size": n["calls"][cmd][0]["len"],
+                    "answer_size": n["calls"][key][0]["len"],
                     # WHICH FIELDS the compared bytes actually cover, by
                     # name and type out of the compiled field map. "32 of 384
                     # bytes" says how much; this says WHAT, which is the
@@ -602,7 +624,7 @@ def main():
                         for r in (med or ())],
                 })
                 e["probes"].append(p)
-                e["calls_compared"] += len(n["calls"].get(cmd, []))
+                e["calls_compared"] += len(n["calls"].get(key, []))
                 for k2, v2 in masked.items():
                     e["words_masked"][k2] = e["words_masked"].get(k2, 0) + v2
             else:
@@ -674,8 +696,7 @@ def main():
     # CAVEAT, not a demotion: a match on a word that moves within a native
     # run is luck, and a reader deciding what to trust should be told.
     for k in ok_all:
-        cmd = k.split()[-1]
-        st = stability.get(cmd, {})
+        st = stability.get(k, {})
         nb = evidence[k]["bytes_compared"]
         evidence[k]["native_calls_seen"] = st.get("repeats", 0)
         evidence[k]["unstable_words_in_extent"] = [
@@ -696,8 +717,7 @@ def main():
     notv_all = [bad_by_sig[k] for k in sorted(bad_by_sig)]
     mismatch, stability_unknown = [], []
     for x in notv_all:
-        cmd = x["signature"].split()[-1]
-        if stability.get(cmd, {}).get("repeats", 0) < 2:
+        if stability.get(x["signature"], {}).get("repeats", 0) < 2:
             x["stability"] = ("unknown -- no native trace called this command "
                               "twice, so the control test cannot say whether "
                               "the differing word is stable. NOT the same as "

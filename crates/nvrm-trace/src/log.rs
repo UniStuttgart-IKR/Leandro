@@ -528,6 +528,30 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
     // numaEnabled @16, numaNodeId @20, rmCtrlFd @24, hClient @28,
     // hSmcPartRef @32, rmStatus @36.
     if matches!(dev, NvDev::Uvm) {
+        // THE UVM ANSWER, for every command whose parameter block the
+        // compiler can measure. UVM is where a large part of the governed
+        // class lives and it had no answer evidence of any kind: its ioctls
+        // carry no size (UVM_IOCTL_BASE(i) is a bare number, so _IOC_SIZE is
+        // 0), which is exactly why the length has to come from somewhere
+        // else.
+        //
+        // AND NOT FROM `xlate::uvm_param_size`, which is the hand-computed
+        // table the guest module forwards on. Dumping UVM answers exists to
+        // JUDGE that forwarding, and an instrument that measured with the
+        // table under test would agree with it by construction. The length
+        // is `size_of` of the bindgen struct; nvrm-abi's own test requires
+        // the two to agree, so the table is checked rather than trusted.
+        if let Some(plen) = nvrm_abi::xlate::uvm_param_size_compiled(nr) {
+            if plen > 0 {
+                let n = plen.min(dump_cap());
+                let bytes = core::slice::from_raw_parts(arg as *const u8, n);
+                rec("uvmout", phase_of(tag), &[
+                    pos("nr", V::H32(nr)),
+                    key("len", V::I(plen as i64)),
+                    pos("dump", V::Dump(bytes)),
+                ]);
+            }
+        }
         // UVM_INITIALIZE (0x30000001): flags IN/OUT @0 (u64), rmStatus @8.
         // The driver reads the flags back and decides on the pageable/ATS
         // path from them -- the branch point between "calls 0x46" and
@@ -821,7 +845,13 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
 /// Without this the trace shows only write-back values, and for
 /// NVOS33.flags the input is the interesting one: input and output share
 /// the same field.
-pub unsafe fn detail_pre(dev: NvDev, nr: u32, size: u32, arg: *const c_void) {
+pub unsafe fn detail_pre(dev: NvDev, cmd: u32, arg: *const c_void) {
+    // DECODE HERE, not at the call site. The caller used to unpack the
+    // number with `ioc_nr`, which is right for every device except the two
+    // that matter most here: UVM numbers carry no _IOC encoding, so masking
+    // one yields a number no arm below matches, and UVM has therefore never
+    // had a before-call sample at all.
+    let (nr, size) = decode(dev, cmd);
     detail(dev, nr, size, arg, "in")
 }
 
