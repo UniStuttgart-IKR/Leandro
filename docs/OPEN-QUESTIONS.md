@@ -686,6 +686,21 @@ instance per point: the limiter lands monotonically close to the target at
 all three. Number 37 had only the 60 Hz point and drew too much from it.
 X11 `vkcube` escapes only sometimes, not always.
 
+**How far it escapes, measured 2026-08-20.** With `LEA_FRL_HZ` unset (the
+limiter off, confirmed by the absence of the "frame limiter on" line) and
+a guest whose only mode is 1920x1080 at 59.96 Hz, plain `vkcube` on the
+compositor's Xwayland ran 900 frames three times in a row at **590.6,
+595.6 and 575.4 FPS** -- about ten times the display. So the limiter is
+still needed for this client and the display's own rate does not bound it.
+
+Two traps this measurement walked into and out of, both worth the ink. The
+FIRST run of the four gave 44.3 FPS and would have supported the opposite
+conclusion; it was window-mapping and startup cost inside the 900-frame
+window, and repeating it is what exposed that. And the operator watching
+the stream reported about 64 FPS at the same time as these 590 -- not a
+contradiction but number 30's rule from the other side: 64 is what reached
+a screen, 590 is what the client swapped.
+
 ### 45. `NV_ESC_ATTACH_GPUS_TO_FD` answers `-1` to Xwayland
 **Resolved 2026-08-20, and the cause was ours rather than the ioctl's.** A
 signal interrupted the guest module's wait for the host's reply AFTER the
