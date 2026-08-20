@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T15:38:16Z
-commit:  7984ca8 (working tree modified)
+date:    2026-08-20T16:08:46Z
+commit:  9fb7da8 (working tree modified)
 ```
 
 Probes against status. This is the compatibility statement: a probe
@@ -25,14 +25,14 @@ guest. A probe with `missing` commands names the work.
 | `cuda-launch` | compute | predicted-green | 630 | 107 | 0 | 64 | 43 | 0 | libcuda |
 | `cuda-managed` | compute | predicted-green | 439 | 103 | 0 | 61 | 42 | 0 | libcuda |
 | `cuda-torch` | compute | predicted-green | 517 | 106 | 0 | 66 | 40 | 0 | libcuda |
-| `egl-gbm` | egl | predicted-green | 564 | 107 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
-| `egl-wayland` | egl | predicted-green | 566 | 108 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
-| `egl-xcb` | egl | predicted-green | 566 | 107 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
-| `egl-xlib` | egl | predicted-green | 566 | 107 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `egl-gbm` | egl | predicted-green | 564 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `egl-wayland` | egl | predicted-green | 566 | 114 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `egl-xcb` | egl | predicted-green | 566 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `egl-xlib` | egl | predicted-green | 566 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
 | `gl-32bit` | compat | blocked: needs kernel-side trace point | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `gl-enum` | gl | predicted-green | 531 | 115 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
-| `gl-render` | gl | predicted-green | 522 | 113 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
-| `gles` | gl | predicted-green | 568 | 111 | 0 | 68 | 34 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `gl-enum` | gl | predicted-green | 531 | 121 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
+| `gl-render` | gl | predicted-green | 522 | 119 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
+| `gles` | gl | predicted-green | 568 | 117 | 0 | 68 | 34 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
 | `kms-nvkms` | kms | blocked: needs kernel-side trace point | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
 | `nvdec` | video | predicted-green * | 996 | 131 | 0 | 81 | 50 | 0 | libcuda<br>libnvcuvid |
 | `nvenc` | video | predicted-green | 1600 | 135 | 0 | 84 | 51 | 0 | libcuda<br>libnvcuvid<br>libnvidia-encode |
@@ -41,13 +41,13 @@ guest. A probe with `missing` commands names the work.
 | `nvofa` | video | declared-unsupported: workload not procurable in this environment | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
 | `opencl` | compute | predicted-green | 620 | 107 | 0 | 64 | 43 | 0 | libcuda<br>libnvidia-nvvm<br>libnvidia-opencl |
 | `pkcs11` | compat | declared-unsupported: no workload exists | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `vk-enum` | vulkan | predicted-green | 961 | 113 | 0 | 73 | 35 | 405 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
-| `vk-offscreen` | vulkan | predicted-green | 5568 | 115 | 0 | 73 | 37 | 2 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-tls |
-| `vk-rt` | vulkan | predicted-green | 1289 | 153 | 0 | 102 | 46 | 2 | libGLX_nvidia<br>libcuda<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
+| `vk-enum` | vulkan | predicted-green | 961 | 123 | 0 | 73 | 35 | 405 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
+| `vk-offscreen` | vulkan | predicted-green | 5568 | 117 | 0 | 73 | 37 | 2 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-tls |
+| `vk-rt` | vulkan | predicted-green | 1289 | 155 | 0 | 102 | 46 | 2 | libGLX_nvidia<br>libcuda<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
 | `vk-sc` | vulkan | declared-unsupported: no workload exists | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
 
 - \* `cuda-gdb`: ungated: none -- strace cannot follow a process that is itself ptracing. Measured: under `strace -f` cuda-gdb records zero ioctls, because its own ptrace of the inferior is the one strace has already taken. There is no second instrument here that could count the same calls, so this probe's CRITERION stands and its signatures do NOT enter the catalogue. The instrument that would gate it is the same kernel-side trace point the 32-bit set needs.
-- \* `nvdec`: PASS (matched on attempt 3)
+- \* `nvdec`: PASS (matched on attempt 2)
 
 `catalogued` is the number of signatures from this probe that reached
 the catalogue, which is smaller than the raw count in its trace: the
@@ -69,12 +69,9 @@ and those collapse to one row.
 
 | library | why |
 |---|---|
-| `libGLESv1_CM_nvidia` | not staged into the guest (staged 32-bit only) |
-| `libGLESv2_nvidia` | not staged into the guest (staged 32-bit only) |
 | `libglxserver_nvidia` | not staged into the guest (not staged at all) |
 | `libnvidia-api` | not staged into the guest (not staged at all) |
 | `libnvidia-ngx` | not staged into the guest (not staged at all) |
-| `libnvidia-opticalflow` | not staged into the guest (staged 32-bit only) |
 | `libnvidia-present` | not staged into the guest (not staged at all) |
 | `libnvidia-sandboxutils` | not staged into the guest (not staged at all) |
 | `libnvoptix` | not staged into the guest (not staged at all) |

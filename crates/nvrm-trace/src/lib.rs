@@ -88,6 +88,22 @@ pub enum NvDev {
     /// /dev/nvidia at all. Tracing only one of them answers "no RM call
     /// failed" and leaves the other half dark.
     Drm(bool),
+    /// `/dev/nvidia-modeset`, NVKMS's own door.
+    ///
+    /// Not RM traffic and not in-kernel: the GL and Vulkan libraries open
+    /// this node themselves, so it is a userspace boundary like the others
+    /// and the calls on it are part of what a guest has to carry. Measured
+    /// 2026-08-20, by counting this tracer against strace on the same
+    /// probes: 451 ioctls in one matrix run that appeared in NO trace,
+    /// 405 of them from `vulkaninfo` alone.
+    ///
+    /// NVKMS carries every one of them under a SINGLE ioctl number
+    /// (`_IOWR('m', 0, struct NvKmsIoctlParams)`, nvkms-ioctl.h), with the
+    /// real command in a field of that struct. The number is therefore
+    /// recorded, and nothing more: the NVKMS command namespace is not the
+    /// RM one, resolves against no `ctrl*.h`, and inventing names for it
+    /// here would be decoration.
+    Modeset,
 }
 
 fn classify(path: &CStr) -> Option<NvDev> {
@@ -96,6 +112,7 @@ fn classify(path: &CStr) -> Option<NvDev> {
         "/dev/nvidiactl" => Some(NvDev::Ctl),
         "/dev/nvidia-uvm" => Some(NvDev::Uvm),
         "/dev/nvidia-uvm-tools" => Some(NvDev::UvmTools),
+        "/dev/nvidia-modeset" => Some(NvDev::Modeset),
         _ => {
             if let Some(n) = s.strip_prefix("/dev/dri/card") {
                 if n.parse::<u32>().is_ok() {
@@ -166,7 +183,19 @@ pub unsafe extern "C" fn ioctl(fd: c_int, req: c_ulong, arg: *mut c_void) -> c_i
 /// (`nv_ioctl_alloc_os_event_t { hClient, hDevice, fd, Status }` in
 /// nv-ioctl.h), so the field name below is checked at compile time.
 unsafe fn note_event_fd(dev: NvDev, cmd: u32, arg: *const c_void) {
-    if arg.is_null() || matches!(dev, NvDev::Uvm | NvDev::UvmTools | NvDev::Event) {
+    // Every device whose ioctl argument is not an RM parameter block, for
+    // the same reason subcode() and detail() exclude them -- the cast below
+    // reads at NVIDIA offsets. DRM is in the list since 2026-08-20 and it
+    // was not cosmetic: NV_ESC_ALLOC_OS_EVENT is 206, and DRM nr 206 is
+    // DRM_IOCTL_MODE_GETFB2, whose struct has an unrelated value where the
+    // event fd is read -- enough to register a stranger's fd as an event
+    // channel and mislabel every later line on it.
+    if arg.is_null()
+        || matches!(
+            dev,
+            NvDev::Uvm | NvDev::UvmTools | NvDev::Event | NvDev::Drm(_) | NvDev::Modeset
+        )
+    {
         return;
     }
     if nvrm_abi::ioc_nr(cmd) != nvrm_abi::sys::NV_ESC_ALLOC_OS_EVENT {
@@ -413,7 +442,7 @@ mod tests {
             ("/dev/dri/renderD128", Some(NvDev::Drm(true))),
             // The modeset node is not an RM device and carries neither the
             // frontend ABI nor a minor number in its name.
-            ("/dev/nvidia-modeset", None),
+            ("/dev/nvidia-modeset", Some(NvDev::Modeset)),
             // Trailing junk must not be truncated into a minor number: the
             // suffix is parsed whole, so "ctl2" is not GPU 2.
             ("/dev/nvidiactl2", None),

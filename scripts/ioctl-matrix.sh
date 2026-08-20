@@ -379,11 +379,16 @@ kernel side, and this tree has none on the host. If one appears, ONE 32-bit
 probe -- glxgears or equivalent -- validates the trace path for the whole
 20-library set.
 
-nvidia_modeset and nvidia_drm are not a userspace column at all. NVKMS is an
-in-kernel RM client, so its RM traffic never crosses a userspace ioctl
-boundary and no interposer can see it whatever the client does; and NVKMS
-command numbers are a namespace of their own, which do not resolve against
-`ctrl*.h`. The DRM surface a client presents to `nvidia_drm` IS measurable
+nvidia_modeset and nvidia_drm are not a userspace column at all -- as KERNEL
+MODULES. NVKMS is an in-kernel RM client, so its RM traffic never crosses a
+userspace ioctl boundary and no interposer can see it whatever the client
+does. That is what this row is blocked on, and it is NOT the same statement
+as "NVKMS is invisible": `/dev/nvidia-modeset` is a userspace node the GL
+and Vulkan libraries open themselves, it is traced and gated since
+2026-08-20, and the catalogue has a section for it. What those calls still
+lack is names -- NVKMS command numbers are a namespace of their own and do
+not resolve against `ctrl*.h`. The DRM surface a client presents to
+`nvidia_drm` IS measurable
 natively and this tree already measures it -- `probe/run/drmtrace.sh`, which
 decodes the numbers out of the headers that apply because strace names
 NVIDIA's private DRM numbers after other vendors' drivers. That is a
@@ -443,9 +448,16 @@ PROSE
 # look 1062 calls short. Both traps are the same trap: count what the rule
 # means, not what the substring matches (OPEN-QUESTIONS number 47).
 #
-# /dev/nvidia-modeset is counted SEPARATELY and does not gate. The tracer
-# has no device tag for that node and cannot see those calls at all, which
-# is a finding rather than a discrepancy -- OPEN-QUESTIONS number 48.
+# /dev/nvidia-modeset is counted and gated SEPARATELY, in its own pair of
+# columns. Separately because it is a different namespace -- NVKMS commands
+# resolve against no `ctrl*.h` -- and gated because it is a userspace
+# boundary like the others: the GL and Vulkan libraries open that node
+# themselves. It was ungated until 2026-08-20 for the only reason that ever
+# justified it, that the tracer had no tag for the node and could see
+# nothing there (OPEN-QUESTIONS number 48); it has one now, so the same
+# counter-check applies and the same rule holds -- a delta other than 0
+# means an instrument is blind and every number derived from it is
+# decoration.
 do_trace() {
     local only=("$@")
     lea_matrix_check_driver || return 1
@@ -483,9 +495,10 @@ do_trace() {
     rows=$(mktemp) || die "mktemp"
     lea_on_exit "rm -f $(printf '%q' "$rows")"
 
-    local pdir p f status gate tsv strc outf raw a b nsig rc crit seen mset drm short
+    local pdir p f status gate tsv strc outf raw a b nsig rc crit seen am mset drm short
     pdir=$(lea_matrix_probes_dir)
-    printf '%-16s %8s %8s %7s %7s %7s  %s\n' probe tracer strace delta sigs nvkms result
+    printf '%-16s %8s %8s %7s %7s %7s %7s  %s\n' \
+        probe tracer strace delta sigs nvkms nvkmsd result
     for p in $(lea_matrix_probe_list); do
         if [[ ${#only[@]} -gt 0 ]]; then
             local hit=0 o
@@ -495,7 +508,7 @@ do_trace() {
         f=$pdir/$p.sh
         status=$(lea_matrix_meta "$f" status)
         if [[ $status != ready ]]; then
-            printf '%-16s %8s %8s %7s %7s %7s  %s\n' "$p" - - - - - "$status"
+            printf '%-16s %8s %8s %7s %7s %7s %7s  %s\n' "$p" - - - - - - "$status"
             printf '%s\t%s\t\t\t\t\t\t\t\t%s\t%s\t\t%s\n' "$p" "$status" \
                 "$(lea_matrix_meta "$f" group)" "$(lea_matrix_meta "$f" libs)" \
                 "$(lea_matrix_meta "$f" criterion)" >> "$rows"
@@ -557,14 +570,19 @@ do_trace() {
             # Like for like: the tracer's NVIDIA-node lines against strace's
             # unnamed requests on those same nodes. DRM is excluded on both
             # sides -- it is a different namespace and a different report.
-            a=$(awk -F'\t' '$1=="ioctl" && $2!="drm" && $2!="render"' "$tsv" | wc -l)
+            a=$(awk -F'\t' '$1=="ioctl" && $2!="drm" && $2!="render" && $2!="modeset"' "$tsv" | wc -l)
             b=$(grep '_IOC(' "$strc" 2>/dev/null \
                 | grep -cE '/dev/nvidia(ctl|-uvm|[0-9])') || b=0
+            # The same check on the NVKMS node, against its own pair of
+            # counters. `/dev/nvidia-modeset` does not match the pattern
+            # above -- the alternation is `ctl`, `-uvm` or a digit -- so the
+            # two counts stay disjoint, which is the point.
+            am=$(awk -F'\t' '$1=="ioctl" && $2=="modeset"' "$tsv" | wc -l)
+            mset=$(grep '_IOC(' "$strc" 2>/dev/null | grep -c '/dev/nvidia-modeset') || mset=0
             [[ -n $gate ]] && break
             [[ $rc -ne 0 ]] && break
-            [[ $((b - a)) -eq 0 ]] && break
+            [[ $((b - a)) -eq 0 && $((mset - am)) -eq 0 ]] && break
         done
-        mset=$(grep '_IOC(' "$strc" 2>/dev/null | grep -c '/dev/nvidia-modeset') || mset=0
         drm=$(awk -F'\t' '$1=="ioctl" && ($2=="drm" || $2=="render")' "$tsv" | wc -l)
         nsig=$(awk -F'\t' '$1=="ioctl"{print $2"\t"$3"\t"$4}' "$tsv" | sort -u | wc -l)
         crit=$(sed -n 's/^CRITERION: //p' "$outf" | tail -1)
@@ -587,20 +605,28 @@ do_trace() {
             result="ungated: $gate"
             short="ungated: ${gate%%.*}"
             b=          # no counter-check ran, so there is no delta to print
+            mset=       # ... on either node
         elif [[ $((b - a)) -ne 0 ]]; then
             # The strace gate. A probe that fails it does not enter the
             # matrix: its trace is incomplete and every signature derived
             # from it would understate the surface.
             result="FAIL: strace gate, delta $((b - a))"
+        elif [[ $((mset - am)) -ne 0 ]]; then
+            # The NVKMS node has its own gate for the same reason the RM
+            # nodes have one, and it fails the probe for the same reason: a
+            # trace that is short on one node understates the surface just as
+            # badly as one that is short on another.
+            result="FAIL: NVKMS gate, delta $((mset - am))"
         else
             result=PASS
             [[ $try -gt 1 ]] && result="PASS (matched on attempt $try)"
         fi
-        printf '%-16s %8s %8s %7s %7s %7s  %s\n' "$p" "$a" "${b:--}" \
-            "$([[ -n $b ]] && echo $((b - a)) || echo -)" "$nsig" "$mset" "${short:-$result}"
+        printf '%-16s %8s %8s %7s %7s %7s %7s  %s\n' "$p" "$a" "${b:--}" \
+            "$([[ -n $b ]] && echo $((b - a)) || echo -)" "$nsig" "$am" \
+            "$([[ -n $mset ]] && echo $((mset - am)) || echo -)" "${short:-$result}"
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$p" "$result" "$a" "${b:--}" "$([[ -n $b ]] && echo $((b - a)) || echo -)" \
-            "$a" "$nsig" "$mset" "$drm" \
+            "$a" "$nsig" "$am" "$drm" \
             "$(lea_matrix_meta "$f" group)" "$(lea_matrix_meta "$f" libs)" \
             "$seen" "$crit" >> "$rows"
     done
@@ -622,8 +648,9 @@ do_trace() {
     echo "traces: $TDIR"
     echo "delta must be 0 in every row. A non-zero delta means the tracer missed"
     echo "calls, and a catalogue built on it would understate the surface."
-    echo "nvkms counts ioctls on /dev/nvidia-modeset: the tracer has no device tag"
-    echo "for that node, so those calls are seen by strace and by nothing else."
+    echo "nvkms counts ioctls on /dev/nvidia-modeset, nvkmsd is that node's own"
+    echo "delta against strace. It must be 0 for the same reason: NVKMS is a second"
+    echo "userspace boundary, not a second opinion about the first."
 }
 
 # _lea_matrix_libs_seen STRACE -- which NVIDIA libraries this run actually

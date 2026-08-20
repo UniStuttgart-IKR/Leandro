@@ -37,6 +37,10 @@ const EVENT: u8 = 4;
 // take different paths through the driver.
 const DRM_CARD: u8 = 5;
 const DRM_RENDER: u8 = 6;
+// /dev/nvidia-modeset. A code of its own and not folded into anything: the
+// calls on it are NVKMS's, not RM's, and every reader downstream separates
+// the two.
+const MODESET: u8 = 7;
 const GPU_BASE: u8 = 0x80; // 0x80 | index
 
 static TABLE: [AtomicU8; MAX_FD] = [const { AtomicU8::new(NONE) }; MAX_FD];
@@ -53,6 +57,7 @@ fn encode(d: NvDev) -> u8 {
         NvDev::Event => EVENT,
         NvDev::Drm(false) => DRM_CARD,
         NvDev::Drm(true) => DRM_RENDER,
+        NvDev::Modeset => MODESET,
         NvDev::Gpu(n) => GPU_BASE | (n as u8 & 0x7f),
     }
 }
@@ -66,6 +71,7 @@ fn decode(v: u8) -> Option<NvDev> {
         EVENT => Some(NvDev::Event),
         DRM_CARD => Some(NvDev::Drm(false)),
         DRM_RENDER => Some(NvDev::Drm(true)),
+        MODESET => Some(NvDev::Modeset),
         g => Some(NvDev::Gpu((g & 0x7f) as u32)),
     }
 }
@@ -128,6 +134,7 @@ mod tests {
             NvDev::Event,
             NvDev::Drm(false),
             NvDev::Drm(true),
+            NvDev::Modeset,
             NvDev::Gpu(0),
             NvDev::Gpu(5),
             NvDev::Gpu(127),

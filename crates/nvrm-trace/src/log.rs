@@ -84,6 +84,7 @@ fn dev_tag(d: NvDev) -> &'static str {
         NvDev::Event => "event",
         NvDev::Drm(false) => "drm",
         NvDev::Drm(true) => "render",
+        NvDev::Modeset => "modeset",
     }
 }
 
@@ -136,6 +137,25 @@ unsafe fn subcode(
     // not a device node (an eventfd, typically) -- an ioctl on it carries
     // whatever that file's ioctls carry, never an NVIDIA block.
     if arg.is_null() || matches!(dev, NvDev::Uvm | NvDev::UvmTools | NvDev::Drm(_) | NvDev::Event) {
+        return (None, None, None);
+    }
+    // NVKMS. The whole interface goes through ONE ioctl number, so `nr` is
+    // 0 on every line and says nothing; the command is a field of the
+    // 16-byte indirection struct (nvkms-ioctl.h, offsets guarded by
+    // nvrm-sys's layout tests) and that is what `sub` carries. `psize` is
+    // the size of the block the struct points AT.
+    //
+    // No status. NVKMS answers inside that block, per command, with no
+    // field in a shared position -- so `ret` is the only verdict this line
+    // can carry without inventing one. Reading the block would need a
+    // decoder for the NVKMS command namespace, which is a separate piece of
+    // work and deliberately not here: those commands resolve against no
+    // `ctrl*.h`, and a made-up name is worse than a number.
+    if matches!(dev, NvDev::Modeset) {
+        if size as usize >= size_of::<sys::NvKmsIoctlParams>() {
+            let p = &*(arg as *const sys::NvKmsIoctlParams);
+            return (Some(p.cmd), Some(p.size), None);
+        }
         return (None, None, None);
     }
     match nr {
@@ -244,7 +264,10 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
     }
     // See subcode(): a DRM ioctl's argument is not an NVIDIA parameter
     // block, and every arm below assumes it is.
-    if matches!(dev, NvDev::UvmTools | NvDev::Drm(_) | NvDev::Event) {
+    // Modeset for the same reason, one step further: its argument IS a
+    // known struct, but everything it points at belongs to a namespace
+    // nothing here decodes.
+    if matches!(dev, NvDev::UvmTools | NvDev::Drm(_) | NvDev::Event | NvDev::Modeset) {
         return;
     }
     match nr {
@@ -458,7 +481,7 @@ mod tests {
 
     /// The device tag is column 2 of every line above (except `eventreg`,
     /// whose column 2 is the fd), and
-    /// `probe/run/trace.sh` selects on it by string. These seven spellings
+    /// `probe/run/trace.sh` selects on it by string. These eight spellings
     /// are therefore an interface, not a label: renaming one silently
     /// empties whatever an analysis run filters for (that is exactly how
     /// `eventreg`'s third column read `neu` until 2026-08-18 and matched
@@ -472,6 +495,7 @@ mod tests {
         assert_eq!(dev_tag(NvDev::Event), "event");
         assert_eq!(dev_tag(NvDev::Drm(false)), "drm");
         assert_eq!(dev_tag(NvDev::Drm(true)), "render");
+        assert_eq!(dev_tag(NvDev::Modeset), "modeset");
         // The GPU index deliberately does NOT reach the tag -- the FD
         // column says which node, the tag says which kind.
         assert_eq!(dev_tag(NvDev::Gpu(0)), dev_tag(NvDev::Gpu(7)));
@@ -498,6 +522,7 @@ mod tests {
             NvDev::Event,
             NvDev::Drm(false),
             NvDev::Drm(true),
+            NvDev::Modeset,
         ] {
             assert_eq!(decode(dev, cmd), (0x2a, 32), "{dev:?}");
         }
@@ -615,6 +640,42 @@ mod tests {
         // legitimately pass one.
         assert_eq!(
             unsafe { subcode(NvDev::Ctl, sys::NV_ESC_RM_CONTROL, 32, std::ptr::null()) },
+            (None, None, None),
+        );
+    }
+
+    /// The NVKMS line's whole information content is in `sub`: every call
+    /// on /dev/nvidia-modeset carries the same ioctl number, so a trace
+    /// that recorded only `nr` would be 451 identical lines.
+    #[test]
+    fn a_modeset_line_carries_the_command_out_of_the_indirection_struct() {
+        let full = size_of::<sys::NvKmsIoctlParams>() as u32;
+        assert_eq!(full, 16, "NvKmsIoctlParams is 16 bytes (nvrm-sys layout test)");
+
+        let mut p = sys::NvKmsIoctlParams::default();
+        p.cmd = 42;
+        p.size = 0x340;
+        p.address = 0xdead_beef;
+        let arg = &p as *const _ as *const c_void;
+
+        // The real number: _IOWR('m', 0, struct NvKmsIoctlParams), i.e.
+        // nr 0 and size 16 for every command NVKMS has.
+        let cmd = iowr_raw(sys::NVKMS_IOCTL_CMD, full);
+        assert_eq!(decode(NvDev::Modeset, cmd), (0, full));
+        assert_eq!(
+            unsafe { subcode(NvDev::Modeset, 0, full, arg) },
+            (Some(42), Some(0x340), None),
+            "sub is the NVKMS command, psize the block it points at, and              there is no status field to report",
+        );
+
+        // A caller that passed something shorter than the struct is not
+        // read at all -- the rule the RM arms follow.
+        assert_eq!(
+            unsafe { subcode(NvDev::Modeset, 0, full - 1, arg) },
+            (None, None, None),
+        );
+        assert_eq!(
+            unsafe { subcode(NvDev::Modeset, 0, full, std::ptr::null()) },
             (None, None, None),
         );
     }

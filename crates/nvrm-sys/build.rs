@@ -15,6 +15,11 @@ const INCLUDE_DIRS: &[&str] = &[
     // (nvCpuUuid.h, nv_uvm_user_types.h) resolve through
     // kernel-open/common/inc.
     "kernel-open/nvidia-uvm",
+    // NVKMS's user-facing ioctl header. Last for the same reason as the
+    // line above: this directory has its own nvkms.h/nvtypes-adjacent
+    // names, and the four directories above must keep winning on any
+    // duplicate.
+    "kernel-open/nvidia-modeset",
 ];
 
 fn main() {
@@ -84,6 +89,12 @@ fn main() {
         .allowlist_type("NVA083_CTRL_.*")
         .allowlist_type("NVC36F_CTRL_.*")
         .allowlist_type("nv_ioctl_.*")
+        // /dev/nvidia-modeset carries ONE ioctl number, and the command is a
+        // field inside this 16-byte struct (nvkms-ioctl.h). The tracer reads
+        // that field, so the offsets are a layout guard here rather than two
+        // numbers written into the reader.
+        .allowlist_type("NvKmsIoctlParams")
+        .allowlist_var("NVKMS_IOCTL_.*")
         .allowlist_type("nv_pci_info_t")
         .allowlist_type("nv_ioctl_card_info_t")     // NV_ESC_CARD_INFO: the BDF as an ioctl, not a control
         .allowlist_var("NV_ESC_.*")

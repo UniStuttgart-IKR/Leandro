@@ -4,11 +4,11 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T15:38:16Z",
-    "commit:  7984ca8 (working tree modified)"
+    "date:    2026-08-20T16:08:46Z",
+    "commit:  9fb7da8 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
-  "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, or '-'",
+  "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
   "answer_verification_evidence": null,
   "signatures": [
     {
@@ -8799,6 +8799,198 @@
       "xlate_size": 24
     },
     {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x0",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x5a0"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 10,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x1",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x8"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 10,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x11",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x98"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles"
+      ],
+      "calls": 7,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x12",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles"
+      ],
+      "calls": 7,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x3c",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x20"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles"
+      ],
+      "calls": 7,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x3d",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles"
+      ],
+      "calls": 7,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
       "device": "render",
       "nr": "0x0",
       "sub": "-",
@@ -9268,17 +9460,209 @@
       "notes": [],
       "status": "not-governed",
       "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x10",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x14"
+      ],
+      "seen_in": [
+        "vk-enum"
+      ],
+      "calls": 36,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x17",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x18"
+      ],
+      "seen_in": [
+        "vk-enum"
+      ],
+      "calls": 36,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x2",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0xac"
+      ],
+      "seen_in": [
+        "vk-enum"
+      ],
+      "calls": 9,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x3",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x2c"
+      ],
+      "seen_in": [
+        "vk-enum"
+      ],
+      "calls": 63,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x4",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x14"
+      ],
+      "seen_in": [
+        "vk-enum"
+      ],
+      "calls": 27,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x5",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x60"
+      ],
+      "seen_in": [
+        "vk-enum"
+      ],
+      "calls": 18,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x6",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x9130"
+      ],
+      "seen_in": [
+        "vk-enum"
+      ],
+      "calls": 63,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
+    },
+    {
+      "device": "modeset",
+      "nr": "0x0",
+      "sub": "0x7",
+      "kind": "other",
+      "name": "unknown -- not in public headers",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
+      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
+      "params_struct": "NvKmsIoctlParams",
+      "params_size": null,
+      "observed_params_size": [
+        "0x2e0"
+      ],
+      "seen_in": [
+        "vk-enum"
+      ],
+      "calls": 151,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [],
+      "status": "not-governed",
+      "xlate_size": null
     }
   ],
   "not_staged": [
-    {
-      "library": "libGLESv1_CM_nvidia",
-      "where": "staged 32-bit only"
-    },
-    {
-      "library": "libGLESv2_nvidia",
-      "where": "staged 32-bit only"
-    },
     {
       "library": "libglxserver_nvidia",
       "where": "not staged at all"
@@ -9290,10 +9674,6 @@
     {
       "library": "libnvidia-ngx",
       "where": "not staged at all"
-    },
-    {
-      "library": "libnvidia-opticalflow",
-      "where": "staged 32-bit only"
     },
     {
       "library": "libnvidia-present",
@@ -9425,7 +9805,7 @@
       "strace": "564",
       "delta": "0",
       "ioctls": "564",
-      "sigs": "128",
+      "sigs": "134",
       "modeset": "6",
       "drm": "28",
       "group": "egl",
@@ -9440,7 +9820,7 @@
       "strace": "566",
       "delta": "0",
       "ioctls": "566",
-      "sigs": "129",
+      "sigs": "135",
       "modeset": "6",
       "drm": "36",
       "group": "egl",
@@ -9455,7 +9835,7 @@
       "strace": "566",
       "delta": "0",
       "ioctls": "566",
-      "sigs": "128",
+      "sigs": "134",
       "modeset": "6",
       "drm": "20",
       "group": "egl",
@@ -9470,7 +9850,7 @@
       "strace": "566",
       "delta": "0",
       "ioctls": "566",
-      "sigs": "128",
+      "sigs": "134",
       "modeset": "6",
       "drm": "20",
       "group": "egl",
@@ -9500,7 +9880,7 @@
       "strace": "531",
       "delta": "0",
       "ioctls": "531",
-      "sigs": "137",
+      "sigs": "143",
       "modeset": "6",
       "drm": "56",
       "group": "gl",
@@ -9515,13 +9895,13 @@
       "strace": "522",
       "delta": "0",
       "ioctls": "522",
-      "sigs": "135",
+      "sigs": "141",
       "modeset": "6",
       "drm": "32",
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 31685"
+      "criterion": "glmark2 --off-screen rendered the build scene, score 35612"
     },
     {
       "probe": "gles",
@@ -9530,11 +9910,11 @@
       "strace": "568",
       "delta": "0",
       "ioctls": "568",
-      "sigs": "131",
+      "sigs": "137",
       "modeset": "6",
       "drm": "28",
       "group": "gl",
-      "libs": "libGLESv2_nvidia libGLESv1_CM_nvidia libEGL_nvidia",
+      "libs": "libEGL_nvidia libnvidia-eglcore libnvidia-glsi",
       "libs_seen": "libEGL_nvidia libnvidia-egl-gbm libnvidia-egl-wayland libnvidia-egl-wayland2 libnvidia-egl-xcb libnvidia-egl-xlib libnvidia-eglcore libnvidia-glsi libnvidia-gpucomp",
       "criterion": "GLES2 enumeration resolved to 'NVIDIA GeForce RTX 2070/PCIe/SSE2'"
     },
@@ -9555,7 +9935,7 @@
     },
     {
       "probe": "nvdec",
-      "result": "PASS (matched on attempt 3)",
+      "result": "PASS (matched on attempt 2)",
       "tracer": "996",
       "strace": "996",
       "delta": "0",
@@ -9665,7 +10045,7 @@
       "strace": "961",
       "delta": "0",
       "ioctls": "961",
-      "sigs": "151",
+      "sigs": "161",
       "modeset": "405",
       "drm": "18",
       "group": "vulkan",
@@ -9680,7 +10060,7 @@
       "strace": "5568",
       "delta": "0",
       "ioctls": "5568",
-      "sigs": "359",
+      "sigs": "361",
       "modeset": "2",
       "drm": "42",
       "group": "vulkan",
@@ -9695,7 +10075,7 @@
       "strace": "1289",
       "delta": "0",
       "ioctls": "1289",
-      "sigs": "211",
+      "sigs": "213",
       "modeset": "2",
       "drm": "18",
       "group": "vulkan",

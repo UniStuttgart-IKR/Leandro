@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T15:38:16Z
-commit:  7984ca8 (working tree modified)
+date:    2026-08-20T16:08:46Z
+commit:  9fb7da8 (working tree modified)
 ```
 
 Generated from the catalogue. One task per missing-command GROUP,
@@ -44,7 +44,7 @@ produces an answer that looks valid.
   gets a note saying so), or the command joins the mediation table and
   the status diff against the native trace stays 0.
 
-## Task 2: 451 ioctls on /dev/nvidia-modeset that no instrument here can see
+## Task 2: 451 ioctls on /dev/nvidia-modeset, 14 command(s), none of them named
 
 | probe | calls |
 |---|---:|
@@ -59,40 +59,35 @@ produces an answer that looks valid.
 | `vk-offscreen` | 2 |
 | `vk-rt` | 2 |
 
-The tracer has no device tag for `/dev/nvidia-modeset`, so it classifies
-neither the fd nor the calls on it. They were found by counting the two
-instruments against each other and asking what the difference was made of.
+The node is traced since 2026-08-20 and gated against strace like every
+other, so the count above is the tracer's own and the 14 command(s)
+behind it are catalogue rows. What is left is the second half of the work:
 
-Two pieces of work, in order:
+A decoder for the NVKMS command namespace. These are NOT RM_CONTROL
+commands and resolve against no `ctrl*.h`; the enum that names them is
+`nvkms-api.h`, and nothing here reads it. Until something does, each row
+carries its raw command number, the size of the block the command points
+at, and the probes that issued it -- which is enough to price the work and
+not enough to implement it.
 
-1. Give `crates/nvrm-trace` a device tag for the node, so the calls are
-   recorded at all. Cheap, and it is the prerequisite for everything else.
-2. A decoder for the NVKMS command namespace -- these are NOT RM_CONTROL
-   commands and resolve against no `ctrl*.h`. Until it exists the catalogue
-   can honestly carry the count and the node, and nothing more.
+- **Criterion:** every command in the catalogue's NVKMS section carries a
+  name and a params struct out of `nvkms-api.h`, the way an RM_CONTROL row
+  carries one out of `ctrl*.h`.
 
-- **Criterion:** the tracer's count on that node equals strace's, the way
-  it already does for /dev/nvidiactl and /dev/nvidiaN.
-
-## Task 3: decide 10 staging question(s)
+## Task 3: decide 7 staging question(s)
 
 | library | where it is |
 |---|---|
-| `libGLESv1_CM_nvidia` | staged 32-bit only |
-| `libGLESv2_nvidia` | staged 32-bit only |
 | `libglxserver_nvidia` | not staged at all |
 | `libnvidia-api` | not staged at all |
 | `libnvidia-ngx` | not staged at all |
-| `libnvidia-opticalflow` | staged 32-bit only |
 | `libnvidia-present` | not staged at all |
 | `libnvidia-sandboxutils` | not staged at all |
 | `libnvoptix` | not staged at all |
 | `libvdpau_nvidia` | not staged at all |
 
 Each is a decision, not a defect: the host driver ships it and the guest
-never gets it. 3 of them are staged for 32-bit clients and for nobody else,
-so a 64-bit client looks for the name and does not find it -- the case most
-likely to be an oversight rather than a choice.
+never gets it.
 
 - **Criterion:** each library either enters a staging array in
   `scripts/lib/provision.sh` with a probe that exercises it, or gets a line

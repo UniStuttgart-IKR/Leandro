@@ -748,6 +748,24 @@ def resolve(sigs, gov, hdr, sizes, mediated, drm):
             row["status"] = "implemented-unverified" if gi else "passthrough"
         else:
             row["status"] = "not-governed"
+            if dev == "modeset":
+                # NVKMS carries its whole interface under ONE ioctl number
+                # (_IOWR('m', 0, struct NvKmsIoctlParams), nvkms-ioctl.h), so
+                # `nr` is 0 on every row and the command is the `sub` column
+                # -- read by the tracer out of that struct, whose offsets are
+                # a compiled layout guard in nvrm-sys.
+                #
+                # The command NAMESPACE is deliberately not resolved. These
+                # are not RM_CONTROL commands, they resolve against no
+                # `ctrl*.h`, and the enum that does name them (nvkms-api.h)
+                # is a decoder this pipeline does not have. The raw number IS
+                # the honest catalogue entry until it does.
+                row["header"] = "kernel-open/nvidia-modeset/nvkms-ioctl.h"
+                row["params_struct"] = "NvKmsIoctlParams"
+                row["description"] = (
+                    "NVKMS, not RM: a second userspace boundary, one ioctl number for "
+                    "the whole interface, and the command in the `sub` column. The "
+                    "name needs a decoder for the NVKMS namespace (TASKS)")
             if dev in ("drm", "render") and nr is not None:
                 n = drm.get(nr)
                 if n:
@@ -934,7 +952,8 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
         "provenance": prov,
         "generated_by": "scripts/ioctl-matrix.sh catalog",
         "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, "
-                         "the RM_ALLOC hClass, or '-'",
+                         "the RM_ALLOC hClass, the NVKMS command on device "
+                         "'modeset', or '-'",
         "answer_verification_evidence": evpath if ev else None,
         "signatures": sorted(rows, key=sortkey),
         "not_staged": [{"library": l[0], "where": l[1]} for l in inv.get("notstaged", [])],
@@ -957,7 +976,7 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
             "| `passthrough` | forwarded without interpretation (RM_CONTROL is self-describing) |\n"
             "| `implemented-unverified` | governed by the descriptor table; the response bytes have NEVER been compared against a native run |\n"
             "| `implemented-verified` | as above AND present in the answer-verification evidence file |\n"
-            "| `not-governed` | a different namespace (DRM), carried here for completeness |\n\n")
+            "| `not-governed` | a different namespace (DRM, NVKMS), carried here for completeness |\n\n")
         if not ev:
             fh.write(
                 "**`implemented-verified` is empty in this run, and that is a correct\n"
@@ -1027,27 +1046,43 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
                 fh.write(f"| | | | | *{n}* | | | | | |\n")
 
         ms = [pr for pr in probes if (pr["modeset"] or "0") not in ("", "0")]
+        km = [r for r in rows if r["device"] == "modeset"]
         fh.write("\n## The NVKMS userspace node\n\n")
         if ms:
             fh.write(
-                "Every one of these calls is INVISIBLE to the tracer, and that is why\n"
-                "they have no rows above. `/dev/nvidia-modeset` is a device node the\n"
-                "interposer has no tag for, so it classifies neither the fd nor the\n"
-                "calls on it; strace sees them because strace sees every fd. They were\n"
-                "found by counting the two instruments against each other and asking\n"
-                "what the difference was made of.\n\n"
-                "NVKMS command numbers are their own namespace: they are not RM_CONTROL\n"
-                "commands and do not resolve against `ctrl*.h`. Decoding them needs a\n"
-                "reader this pipeline does not have, so the honest output is the count\n"
-                "and the node, not invented names.\n\n"
+                "`/dev/nvidia-modeset` is a userspace boundary of its own. NVKMS is an\n"
+                "in-kernel RM client, and that part of it no interposer can see -- but\n"
+                "the node itself is opened by the GL and Vulkan libraries directly, and\n"
+                "those calls are as much a part of what a guest has to carry as any\n"
+                "escape. They were found by counting the two instruments against each\n"
+                "other and asking what the difference was made of, and until\n"
+                "2026-08-20 the tracer had no tag for the node and could see none of\n"
+                "them. It has one now, and this node passes the same counter-check\n"
+                "against strace that the RM nodes do.\n\n"
+                "One ioctl number carries the whole interface\n"
+                "(`_IOWR('m', 0, struct NvKmsIoctlParams)`, nvkms-ioctl.h), so `nr` is\n"
+                "0 in every row and the command is the `sub` column, read out of that\n"
+                "struct. The command NAMESPACE is not decoded: these are not RM_CONTROL\n"
+                "commands, they resolve against no `ctrl*.h`, and the raw number is the\n"
+                "honest entry until a decoder for `nvkms-api.h` exists (TASKS).\n\n"
                 "| probe | ioctls on /dev/nvidia-modeset |\n|---|---:|\n")
             for pr in sorted(ms, key=lambda x: -int(x["modeset"])):
                 fh.write(f"| `{pr['probe']}` | {pr['modeset']} |\n")
             fh.write(
                 "\nThe size of the Vulkan number is the finding. An enumerating Vulkan\n"
                 "client makes more calls to NVKMS from userspace than the entire NVML\n"
-                "path makes to RM, and none of them appear in any trace this project\n"
-                "has taken.\n")
+                "path makes to RM.\n\n"
+                f"### The {len(km)} command(s) behind that count\n\n"
+                "| command (`sub`) | calls | params size | seen in |\n|---|---:|---|---|\n")
+            for r in sorted(km, key=lambda x: -x["calls"]):
+                fh.write("| `{sub}` | {calls} | {ps} | {seen} |\n".format(
+                    sub=r["sub"], calls=r["calls"],
+                    ps=", ".join(r["observed_params_size"]) or "&mdash;",
+                    seen=", ".join(r["seen_in"])))
+            fh.write(
+                "\n`params size` is the size NVKMS was handed for the block the command\n"
+                "points at, not the size of the 16-byte indirection struct. It is the\n"
+                "one number a decoder can be checked against before it is trusted.\n")
         else:
             fh.write("No probe issued an ioctl on `/dev/nvidia-modeset` in this run.\n")
 
@@ -1220,29 +1255,29 @@ def write_tasks(outdir, driver, prov, rows, probes, inv, evpath):
                 "  the status diff against the native trace stays 0.\n\n")
 
         ms = [pr for pr in probes if (pr["modeset"] or "0") not in ("", "0")]
+        kmds = [r for r in rows if r["device"] == "modeset"]
         if ms:
             n += 1
             total = sum(int(pr["modeset"]) for pr in ms)
-            fh.write(f"## Task {n}: {total} ioctls on /dev/nvidia-modeset that no "
-                     "instrument here can see\n\n")
+            fh.write(f"## Task {n}: {total} ioctls on /dev/nvidia-modeset, "
+                     f"{len(kmds)} command(s), none of them named\n\n")
             fh.write("| probe | calls |\n|---|---:|\n")
             for pr in sorted(ms, key=lambda x: -int(x["modeset"])):
                 fh.write(f"| `{pr['probe']}` | {pr['modeset']} |\n")
             fh.write(
-                "\nThe tracer has no device tag for `/dev/nvidia-modeset`, so it "
-                "classifies\nneither the fd nor the calls on it. They were found by "
-                "counting the two\ninstruments against each other and asking what the "
-                "difference was made of.\n\n"
-                "Two pieces of work, in order:\n\n"
-                "1. Give `crates/nvrm-trace` a device tag for the node, so the calls "
-                "are\n   recorded at all. Cheap, and it is the prerequisite for "
-                "everything else.\n"
-                "2. A decoder for the NVKMS command namespace -- these are NOT "
-                "RM_CONTROL\n   commands and resolve against no `ctrl*.h`. Until it "
-                "exists the catalogue\n   can honestly carry the count and the node, "
-                "and nothing more.\n\n"
-                "- **Criterion:** the tracer's count on that node equals strace's, the "
-                "way\n  it already does for /dev/nvidiactl and /dev/nvidiaN.\n\n")
+                f"\nThe node is traced since 2026-08-20 and gated against strace like "
+                f"every\nother, so the count above is the tracer's own and the "
+                f"{len(kmds)} command(s)\nbehind it are catalogue rows. What is left "
+                "is the second half of the work:\n\n"
+                "A decoder for the NVKMS command namespace. These are NOT RM_CONTROL\n"
+                "commands and resolve against no `ctrl*.h`; the enum that names them "
+                "is\n`nvkms-api.h`, and nothing here reads it. Until something does, "
+                "each row\ncarries its raw command number, the size of the block the "
+                "command points\nat, and the probes that issued it -- which is enough "
+                "to price the work and\nnot enough to implement it.\n\n"
+                "- **Criterion:** every command in the catalogue's NVKMS section "
+                "carries a\n  name and a params struct out of `nvkms-api.h`, the way "
+                "an RM_CONTROL row\n  carries one out of `ctrl*.h`.\n\n")
 
         ns = inv.get("notstaged", [])
         if ns:
@@ -1254,11 +1289,15 @@ def write_tasks(outdir, driver, prov, rows, probes, inv, evpath):
             only32 = sum(1 for l in ns if "32-bit only" in l[1])
             fh.write(
                 "\nEach is a decision, not a defect: the host driver ships it and the "
-                "guest\nnever gets it. "
-                + (f"{only32} of them are staged for 32-bit clients and for "
+                "guest\nnever gets it."
+                # The trailing space belongs to the sentence that may not be
+                # written: without it the paragraph ended in "gets it. " and
+                # ran straight into the criterion with no blank line, which
+                # is what an empty branch looks like in the artefact.
+                + (f" {only32} of them are staged for 32-bit clients and for "
                    "nobody else,\nso a 64-bit client looks for the name and does not "
                    "find it -- the case most\nlikely to be an oversight rather than a "
-                   "choice.\n\n" if only32 else "\n")
+                   "choice.\n\n" if only32 else "\n\n")
                 + "- **Criterion:** each library either enters a staging array in\n"
                 "  `scripts/lib/provision.sh` with a probe that exercises it, or gets a "
                 "line\n  saying why it is deliberately absent. Either way the row stops "

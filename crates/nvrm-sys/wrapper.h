@@ -79,6 +79,13 @@
                                            GPU list nvidia-drm sees is RM's and
                                            not this module's invention        */
 
+/* NVKMS. /dev/nvidia-modeset is a userspace boundary of its own -- the GL
+ * and Vulkan libraries call it directly -- and every one of its ioctls
+ * carries the same number, with the real command in a field of this
+ * struct. Only the indirection header is needed: the command NAMESPACE
+ * (nvkms-api.h) is not decoded anywhere here. */
+#include <nvkms-ioctl.h>
+
 /* UVM. Needed because the semaphore-pool path talks to /dev/nvidia-uvm
  * directly. Command numbers there are RAW integers (UVM_IOCTL_BASE(i) == i,
  * uvm_ioctl.h:40), not _IOWR - only UVM_INITIALIZE carries the special value

@@ -531,10 +531,10 @@ is the third time this project has been bitten by exactly that (`grep
 '^nvos64'` also matching `nvos64in` is in `probe/README.md`).
 
 ### 48. Userspace talks to `/dev/nvidia-modeset`, and the tracer cannot see it
-**Open, measured 2026-08-20.** The tracer classifies `ctl`, `gpu`, `uvm`,
-`uvm-tools`, `event`, `drm` and `render`. There is no tag for
-`/dev/nvidia-modeset`, so an ioctl on that node is not recorded, not
-counted, and not visible in any trace this project has taken.
+**Open, half fixed 2026-08-20.** The tracer classified `ctl`, `gpu`, `uvm`,
+`uvm-tools`, `event`, `drm` and `render`. There was no tag for
+`/dev/nvidia-modeset`, so an ioctl on that node was not recorded, not
+counted, and not visible in any trace this project had taken.
 
 They exist, and there are more of them than expected. Counted across the
 matrix probes: **451 calls**, of which **405 come from `vulkaninfo
@@ -553,6 +553,26 @@ invents nothing.
 This also sharpens what "NVKMS is in-kernel" meant. Its RM traffic is, and
 that half is still unobservable from userspace. Its *own* ioctl surface is
 not: userspace calls it directly, and that half we could measure today.
+
+**The cheap half is done (2026-08-20).** `NvDev::Modeset` exists, the node
+is traced, and it passes the same counter-check against `strace -y` that
+`/dev/nvidiactl` and `/dev/nvidiaN` do — 405 against 405 on `vk-enum`, 6
+against 6 on every GL and EGL probe, in its own pair of columns so the two
+namespaces never share a total. The 451 calls are **14 commands**, and
+`nr` is 0 in all of them: NVKMS carries its whole interface under
+`_IOWR('m', 0, struct NvKmsIoctlParams)` and puts the real command in a
+field of that 16-byte struct. The tracer reads it there, so the catalogue's
+`sub` column is the command and its `psize` column is the size of the block
+the command points at — the one number a future decoder can be checked
+against before it is trusted. Offsets are not written into the reader: the
+struct comes through bindgen with its layout tests, like every other.
+
+What is left is the expensive half, unchanged: **naming** them. That is the
+task in `matrix/TASKS-<driver>.md`, and the criterion is that every row in
+the catalogue's NVKMS section carries a name and a params struct out of
+`nvkms-api.h`, the way an RM_CONTROL row carries one out of `ctrl*.h`.
+Every reference trace taken before 2026-08-20 is incomplete on this node
+and was re-cut; the older ones stay as history.
 
 ### 49. A deprecated control is forwarded verbatim with a pointer inside it
 **Open, 2026-08-20, one row out of 276.** The catalogue flags every
