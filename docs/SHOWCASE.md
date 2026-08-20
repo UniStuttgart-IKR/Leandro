@@ -219,6 +219,21 @@ with `--with-steam`.
 answers `307` to `/welcome` and the PIN can never arrive. `showcase.sh
 pair` detects exactly this, writes the login and restarts Sunshine once.
 
+**A backend refuses to start: `driver mismatch: running X, bindings for
+Y`.** The host driver changed and the binaries did not: `nvrm-sys` derives
+its bindings from the vendor headers and asserts the running version at
+startup, so a stale backend says so instead of talking to the driver with
+old offsets. `./scripts/build.sh cargo`. After a driver change the guest
+side needs the same treatment -- `test.sh vdisplay --fresh`, because the
+guest builds `nvidia-modeset.ko` and `nvidia-drm.ko` from the host's
+sources and a kept overlay carries the old ones.
+
+**`nvidia-smi` says `Driver/library version mismatch`.** The packages were
+updated and the machine was not rebooted: libcuda is the new version and
+the loaded kernel module is the old one. Nothing in this tree can work in
+that state. Reboot -- a module reload only helps if nothing holds the card,
+which on a desktop is never true.
+
 **`RIG-ERROR: driver mismatch`.** The tree targets `DRIVER_VERSION` and
 the host runs something else. `./scripts/build.sh all --driver auto`, or
 `--driver <version>` for a specific one.
