@@ -373,6 +373,23 @@ two clients that differ only in the outcome -- tighter than the native host
 run, which differs in compositor, resolution and kernel. Evidence under
 `vm/out-glxgears/`: the core (33 MB), the dmesg lines, the backend delta.
 
+**Number 29's discriminator holds on demand, and both arms were taken in
+the same minute.** In that same guest: `glxgears` on the compositor's
+Xwayland (`:0`) takes SIGSEGV at address 8, and `glxgears` on an Xwayland
+this session started itself (`:3`, an ordinary Wayland client of the same
+mutter) runs its full twelve seconds and reports 71.7 then 60.0 FPS, with
+`glxinfo` naming the same renderer on both. Same binary, same driver, same
+guest, same compositor underneath; the only variable is who started
+Xwayland. Per number 30 that FPS figure is a swap counter and NOT a claim
+that anything reached a screen -- what is measured here is only that the
+process does not die.
+
+That pair is the experiment number 44 has been waiting for: two clients
+that differ in outcome and in nothing else, both driven over
+`showcase.sh ssh`. `LEA_DEBUG=2` across it needs a backend restart, since
+the level is read once per process, and a restart costs the live crashed
+instance -- which is why the evidence above was written out first.
+
 ---
 
 ## Resolved and decided
