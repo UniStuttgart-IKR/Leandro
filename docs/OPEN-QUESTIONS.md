@@ -498,6 +498,103 @@ Recorded because nothing in this tree mentioned `setpriority` or RTKit
 before, and because a stall with sound is exactly the shape a reader would
 otherwise file against numbers 10, 20 or 44.
 
+### 47. Two counting rules in our own instruments are wrong
+**Open, both measured 2026-08-20, both found by building a second
+consumer of the same traces.** Neither is a driver question; both make our
+own numbers say something they do not mean.
+
+**A mapping handle is counted as a signature.** The `sig()` key everything
+here uses is `(dev, nr, sub)`, and `sub` is documented as the second
+*dispatch* level. For `NV_ESC_RM_MAP_MEMORY` (0x4e) it is not: `log.rs`
+puts **hMemory** there, deliberately, so that mappings can be matched to
+their allocations by handle. A handle is an instance, not a call. In
+`lvl3.tsv`, `lvl4blocking.tsv` and `torch5conv.tsv` alike, **29 of the 135
+"signatures" are hMemory values** — 21 % — and they are stable only because
+RM hands out handles deterministically for a fixed workload. Under an
+enumerating Vulkan client the same escape produced **409** of them. The
+saturation curve in `trace.sh analyse` therefore starts about 29 rows too
+high and, on a workload that maps a lot, would never look saturated at all.
+`scripts/ioctl-matrix.sh` collapses 0x4e to one row and says so; `trace.sh`
+still counts the old way.
+
+**`grep '_IOC'` counts DRM calls as NVIDIA ones.** The delta column of
+`trace.sh` counts strace lines carrying the substring `_IOC`, and
+`DRM_IOCTL_VERSION` contains it. For `nvprobe` and `torch` that never
+mattered, because a CUDA probe touches no DRM node. For a GL, EGL or Vulkan
+client it does: one `eglinfo`-shaped run showed **441 phantom calls** the
+tracer had supposedly missed, every one of them a DRM ioctl strace had
+named. The token that means "strace has no name for this request" is
+`_IOC(` with the parenthesis, and the count has to be restricted to the fds
+that are NVIDIA nodes — which needs `strace -y`. Both are the same mistake:
+counting what the substring matches instead of what the rule means, and it
+is the third time this project has been bitten by exactly that (`grep
+'^nvos64'` also matching `nvos64in` is in `probe/README.md`).
+
+### 48. Userspace talks to `/dev/nvidia-modeset`, and the tracer cannot see it
+**Open, measured 2026-08-20.** The tracer classifies `ctl`, `gpu`, `uvm`,
+`uvm-tools`, `event`, `drm` and `render`. There is no tag for
+`/dev/nvidia-modeset`, so an ioctl on that node is not recorded, not
+counted, and not visible in any trace this project has taken.
+
+They exist, and there are more of them than expected. Counted across the
+matrix probes: **451 calls**, of which **405 come from `vulkaninfo
+--summary` alone** — an enumerating Vulkan client makes more calls to NVKMS
+from userspace than the whole NVML path makes to RM. Every GL and EGL probe
+makes six. They were found only by counting the tracer against `strace -y`
+per node and asking what the remainder was made of.
+
+Two things follow. The cheap one is a device tag in `crates/nvrm-trace`, so
+the calls are recorded at all. The expensive one is that **NVKMS command
+numbers are their own namespace** — not RM_CONTROL commands, resolving
+against no `ctrl*.h` — so naming them needs a reader that does not exist
+here. `matrix/catalog-<driver>.md` carries the count and the node and
+invents nothing.
+
+This also sharpens what "NVKMS is in-kernel" meant. Its RM traffic is, and
+that half is still unobservable from userspace. Its *own* ioctl surface is
+not: userspace calls it directly, and that half we could measure today.
+
+### 49. A deprecated control is forwarded verbatim with a pointer inside it
+**Open, 2026-08-20, one row out of 276.** The catalogue flags every
+signature that is forwarded without interpretation *and* whose parameter
+struct holds an `NvP64` or a file descriptor. Exactly one comes back:
+`NV0000_CTRL_CMD_GPU_GET_ID_INFO` (0x202, 40 bytes,
+`NV0000_CTRL_GPU_GET_ID_INFO_PARAMS`), seen in every CUDA, GL and Vulkan
+probe. Its header says "Deprecated. Please use
+`NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2` instead", and V2 (0x205) — which the
+same clients also call — has no pointer in it.
+
+It is on no mediation list, so the `szName` pointer travels as a **guest
+address handed to the host driver**. Whether that is a defect depends on
+something not measured yet: if RM never reads the field, nothing happens.
+Unverified either way, which is why it is a question and not a bug report.
+Worth settling because it is the exact shape of the failure class number 32
+named — a call that succeeds and answers plausibly.
+
+### 50. Nothing compares the answer bytes, so nothing is verified
+**Open, and now counted.** The gpu and display gates compare status codes,
+workload results and a whole PyTorch run bit for bit. Nothing anywhere
+compares the **response bytes of a forwarded RM control** against the bytes
+the same call returns natively.
+
+The consequence is now a number rather than a worry. Of 276 catalogued
+signatures, **75 are governed by the descriptor tables or answered by the
+backend, and all 75 are `implemented-unverified`** — the class
+`implemented-verified` is empty and stays empty until a differential
+harness exists. `matrix/TASKS-<driver>.md` carries the standing task, and
+`scripts/ioctl-matrix.sh` reads `matrix/verified-<driver>.json` the moment
+something writes it. That file is never written by hand: a hand-written
+verification record is not evidence.
+
+Why it matters is already on record twice. Number 32 named the failure
+class — an answer that looks valid and is wrong — and number 44 turned out
+to be exactly it: an object a NULL check waved through whose leading fields
+were never filled. A status comparison cannot see either one.
+
+The hard part is not the comparison, it is the mask: handles, gpuIds and
+addresses are translated on purpose, so a harness that flagged them would
+cry wolf on every call.
+
 ---
 
 ## Resolved and decided

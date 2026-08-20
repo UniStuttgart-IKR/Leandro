@@ -38,7 +38,19 @@ ffmpeg -hide_banner -loglevel error -nostdin \
 
 # -hwaccel_output_format cuda keeps the frames on the card, so a fallback to
 # the software decoder is an ERROR here rather than a quiet substitution.
-out=$(lea_matrix_workload ffmpeg -hide_banner -loglevel error -nostdin \
+# -threads 1, and it is the counter-check that demands it: with ffmpeg's
+# default threading the same decode emitted 1123 or 1128 ioctls run to run.
+#
+# WARNING: single-threaded it is still not perfectly deterministic, and this
+# is the one probe here that is not. It varies by exactly five calls -- one
+# RM_ALLOC of hClass 0x40, its RM_FREE and three UVM calls, i.e. the decoder
+# taking one extra surface -- and the SIGNATURE set is identical either way,
+# so nothing in the catalogue depends on which run it was. Pinning the pool
+# with `-extra_hw_frames` does NOT fix it: measured at 8 and at 32, the split
+# stayed about even, it only moved the totals (996 -> 1070 -> 1168). The
+# runner's bounded retry is what covers it, and the attempt count in its
+# output is what makes the flakiness visible instead of quiet.
+out=$(lea_matrix_workload ffmpeg -hide_banner -loglevel error -nostdin -threads 1 \
         -hwaccel cuda -hwaccel_output_format cuda -i "$work/in.h264" \
         -vf hwdownload,format=nv12 -f rawvideo -y /dev/null 2>&1); rc=$?
 echo "$out"

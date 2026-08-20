@@ -10,9 +10,9 @@
 # matrix-group:     gl
 # matrix-libs:      libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator
 # matrix-entry:     GLX context + FBO rendering
-# matrix-criterion: a non-zero glmark2 score, i.e. frames were drawn -- an
-#                   enumerating client would produce ioctls without ever
-#                   rendering anything
+# matrix-criterion: a non-zero glmark2 score over a FIXED 100 frames, i.e.
+#                   frames were drawn -- an enumerating client would produce
+#                   ioctls without ever rendering anything
 # matrix-status:    ready
 set -uo pipefail
 _LEA_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib" && pwd) || exit 1
@@ -25,7 +25,12 @@ source "$_LEA_LIB/matrix.sh"
 
 command -v glmark2 >/dev/null || { echo "declared-unsupported: workload not procurable in this environment -- no glmark2"; exit 2; }
 
-out=$(lea_matrix_workload glmark2 --off-screen --size 640x480 -b build:duration=2 2>&1); rc=$?
+# nframes, NOT duration. A duration-based benchmark renders however many
+# frames the machine manages in the time, so the traced run and the
+# counter-check run are not the same workload -- measured here first: with
+# duration=2 the two runs differed by 441 ioctls, which reads exactly like a
+# tracer that misses calls and is nothing of the kind.
+out=$(lea_matrix_workload glmark2 --off-screen --size 640x480 -b build:nframes=100 2>&1); rc=$?
 echo "$out"
 [[ $rc -eq 0 ]] || { error "glmark2 exited $rc"; exit 1; }
 score=$(sed -n 's/.*glmark2 Score: *\([0-9][0-9]*\).*/\1/p' <<<"$out" | tail -1)

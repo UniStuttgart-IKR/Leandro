@@ -28,7 +28,10 @@ lea_require_tools ffmpeg
 work=$(mktemp -d) || exit 1
 lea_on_exit "rm -rf $(printf '%q' "$work")"
 
-out=$(lea_matrix_workload ffmpeg -hide_banner -loglevel error -nostdin \
+# -threads 1 for the same reason nvdec has it: a threaded ffmpeg emits a
+# different number of ioctls run to run, and the strace counter-check cannot
+# tell that apart from a tracer that missed calls.
+out=$(lea_matrix_workload ffmpeg -hide_banner -loglevel error -nostdin -threads 1 \
         -f lavfi -i 'testsrc2=size=640x480:rate=25:duration=2' \
         -c:v h264_nvenc -f h264 -y "$work/enc.h264" 2>&1); rc=$?
 echo "$out"

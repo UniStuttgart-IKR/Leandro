@@ -15,6 +15,14 @@
 #                   still reported "stage 3 ok" -- the kernel produced the
 #                   right numbers with the debugger back end attached
 # matrix-status:    ready
+# matrix-gate:      none -- strace cannot follow a process that is itself
+#                   ptracing. Measured: under `strace -f` cuda-gdb records
+#                   zero ioctls, because its own ptrace of the inferior is
+#                   the one strace has already taken. There is no second
+#                   instrument here that could count the same calls, so this
+#                   probe's CRITERION stands and its signatures do NOT enter
+#                   the catalogue. The instrument that would gate it is the
+#                   same kernel-side trace point the 32-bit set needs.
 set -uo pipefail
 _LEA_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib" && pwd) || exit 1
 # shellcheck source=scripts/lib/config.sh

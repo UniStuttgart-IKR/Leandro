@@ -96,8 +96,20 @@ lea_matrix_probes_dir() { echo "$LEA_ROOT/probe/matrix"; }
 #                     | blocked: <reason>
 #
 # lea_matrix_meta FILE KEY -- the value, or empty.
+#
+# A value may wrap: a continuation is a following comment line that is
+# INDENTED and does not open a key of its own. Without that, a criterion
+# written on two lines lands in PROBES.md cut in half at the first line
+# break -- which reads like a criterion that stops mid-sentence.
 lea_matrix_meta() {
-    sed -n "s/^# matrix-$2:[[:space:]]*//p" "$1" | head -1
+    awk -v k="# matrix-$2:" '
+        index($0, k) == 1 { sub(/^[^:]*:[[:space:]]*/, ""); v = $0; on = 1; next }
+        on {
+            if ($0 !~ /^#[[:space:]][[:space:]]+/ || $0 ~ /^# matrix-/) { on = 0; next }
+            line = $0; sub(/^#[[:space:]]+/, "", line); v = v " " line
+        }
+        END { if (v != "") print v }
+    ' "$1"
 }
 
 # lea_matrix_probe_list -- every probe, in filename order.
@@ -234,6 +246,20 @@ trusting any artefact from this run."
     return 0
 }
 
+# lea_matrix_driver_packages -- every installed package AT the driver
+# version, one name per line.
+#
+# NOT a list of package names. NVIDIA's userspace is split differently by
+# every distribution -- on this host `libnvidia-opencl` is in `opencl-nvidia`
+# and not in `nvidia-utils`, and asking `nvidia-utils` alone reported OpenCL
+# as a library the driver does not ship at all, while a probe was computing
+# with it. The version IS the driver package: anything installed at exactly
+# DRIVER_VERSION came out of the same release.
+lea_matrix_driver_packages() {
+    command -v pacman >/dev/null 2>&1 || return 1
+    pacman -Q 2>/dev/null | awk -v v="$(lea_want_driver)" '$2 ~ "^" v "-" { print $1 }'
+}
+
 # lea_matrix_host_payload BITS -- every library the INSTALLED host driver
 # ships, one bare name per line.
 #
@@ -246,13 +272,13 @@ trusting any artefact from this run."
 lea_matrix_host_payload() {
     local bits=${1:-64} want dir pkg
     want=$(lea_want_driver)
-    if [[ $bits == 32 ]]; then dir=$(lea_matrix_libdir32); pkg=lib32-nvidia-utils
-    else dir=$(lea_matrix_libdir) || return 1; pkg=nvidia-utils
+    if [[ $bits == 32 ]]; then dir=$(lea_matrix_libdir32)
+    else dir=$(lea_matrix_libdir) || return 1
     fi
-    if command -v pacman >/dev/null 2>&1 && pacman -Q "$pkg" >/dev/null 2>&1; then
-        pacman -Ql "$pkg" 2>/dev/null \
-            | awk -v d="$dir/" '{ if (index($2, d) == 1) print $2 }' \
-            | xargs -r -n1 basename \
+    if [[ -n $(lea_matrix_driver_packages) ]]; then
+        for pkg in $(lea_matrix_driver_packages); do
+            pacman -Ql "$pkg" 2>/dev/null | awk -v d="$dir/" '{ if (index($2, d) == 1) print $2 }'
+        done | xargs -r -n1 basename \
             | grep -E '\.so\.[0-9]' | sed 's/\.so\..*$//' | sort -u
         return 0
     fi
@@ -268,10 +294,10 @@ lea_matrix_host_payload() {
 
 # lea_matrix_host_payload_source BITS -- which of the three answered.
 lea_matrix_host_payload_source() {
-    local pkg=nvidia-utils
-    [[ ${1:-64} == 32 ]] && pkg=lib32-nvidia-utils
-    if command -v pacman >/dev/null 2>&1 && pacman -Q "$pkg" >/dev/null 2>&1; then
-        echo "pacman -Ql $pkg ($(pacman -Q "$pkg" | awk '{print $2}'))"
+    local pkgs
+    pkgs=$(lea_matrix_driver_packages | tr '\n' ' ')
+    if [[ -n ${pkgs// /} ]]; then
+        echo "pacman -Ql over every package at $(lea_want_driver): ${pkgs% }"
     elif command -v dpkg-query >/dev/null 2>&1; then
         echo "dpkg-query -L (Debian/Ubuntu driver package)"
     else

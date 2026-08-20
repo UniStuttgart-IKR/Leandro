@@ -34,3 +34,10 @@ tmp.md
 /.vscode
 /.mcp.json
 /.claude
+
+# The coverage matrix: the REPORTS are versioned, the raw measurement is not.
+# matrix/traces/<driver>/ is tens of megabytes of tsv and strace output that
+# `scripts/ioctl-matrix.sh trace` regenerates in minutes, and every artefact
+# built from it carries the provenance of the run that produced it.
+/matrix/traces/
+/matrix/.tables.txt
