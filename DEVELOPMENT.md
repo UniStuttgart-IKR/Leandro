@@ -548,12 +548,21 @@ person meets them as facts instead of surprises.
   `bash -n` step and the CI ShellCheck invocation both glob `scripts/`
   only. The five runners under `probe/run/` are checked by nothing; they
   are also the scripts a reader is most likely to copy from.
-- **Three display probes are staged but never built or run.**
-  `lea_guest_setup` copies `eglprobe.c`, `fbprobe.c` and `atomicflip.c`
-  into every display guest, and the block above them describes them as
-  readers of the display path. Nothing compiles or runs them today; they
-  were the instruments of the EGLImage hunt (numbers 32-35) and are kept
-  for the next one.
+- **Two of the three staged display probes are still never built or run,
+  and the third is now the one that answers.** `lea_guest_setup` copies
+  `eglprobe.c`, `fbprobe.c` and `atomicflip.c` into every display guest,
+  and the block above them describes them as readers of the display path.
+  Nothing in the rig compiles them: `lea_guest_cc` builds one on demand
+  and is the only path. `fbprobe` has since been through that path -- it
+  was built and run on 2026-08-20 and OPEN-QUESTIONS 44 quotes its output
+  (`STATIC, 0/9 polls, peak 1024/1024`) as the evidence that the scanout
+  buffer was full rather than black. `eglprobe` and `atomicflip` have not
+  been run.
+  What the note used to leave open is that staged might mean rotted. It
+  does not: measured 2026-08-20, all three compile clean with `-O2 -Wall
+  -Wextra` -- `eglprobe` against `-lgbm -lEGL -ldrm`, `atomicflip` against
+  `-ldrm`, `fbprobe` against `-ldrm -lEGL`. They were the instruments of
+  the EGLImage hunt (numbers 32-35) and are kept for the next one.
 - **`Rsp.scm_fd_count` names a transport that is gone.** The field counted
   the FDs passed back with `SCM_RIGHTS` on the retired Unix-socket
   transport; across a VM boundary there is no FD to pass and it is always
