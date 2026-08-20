@@ -200,10 +200,25 @@ display controls), 30 calls answering `NV_ERR_OBJECT_NOT_FOUND` -- which
 is plausible for a display NVKMS invents and no physical monitor backs,
 and is worth ruling out rather than assuming.
 
-The next measurement is the one number 35 also asks for and nobody has
-taken: resolve the two `glcore` addresses against the driver build, and
-compare the same workload natively on the host. Until then this is a
-reproducer and two stacks, not a diagnosis.
+**The native counter-check is in, and it does not crash.** Measured
+2026-08-20 on this host: the same game, native, **under Wayland**
+(Hyprland), 1440p, about **100 FPS**, stable -- no crash, no EGL failures.
+So the two `glcore` addresses are not a place NVIDIA's driver dies on its
+own under a Wayland compositor, and whatever brings it there is on the
+guest side of the boundary.
+
+Two differences remain between the two runs and have to be closed before
+this is called proven: the host compositor is Hyprland (wlroots) and the
+guest's is mutter (GNOME), and the resolutions differ (1440p host, 1080p
+guest). A GNOME Wayland session on the host would remove the first one.
+
+What is therefore still open is the operator's hypothesis, and it is now
+the leading one: a missing or wrongly mediated call in the GL/EGL path.
+The remaining measurement is the last call before the crash --
+`LEA_DEBUG=2` logs every forwarded one, `LEA_CTRL_DUMP` dumps the ANSWER
+of a named control, and that second one matters because the failure class
+here may be "an answer that looks valid and is wrong" (number 32), which
+a status comparison cannot see and only the bytes can.
 
 Under X11 the same guest runs the same game; the `display` gate is 12/12
 green on that path (2026-08-20).
