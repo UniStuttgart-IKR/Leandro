@@ -491,6 +491,17 @@ do_trace() {
     (cd "$LEA_ROOT" && cargo run --release --quiet --bin nvrm-genhdr -- \
         --expect-dump "$TDIR/tables.txt" >/dev/null 2>&1) \
         || die "cannot dump the descriptor tables -- ./scripts/build.sh cargo"
+    # The MEDIATION MANIFEST, the third artefact of this trio and the one
+    # that makes a mediated command judgeable at all. The tables say what can
+    # be CARRIED; this says what is deliberately NOT carried unchanged --
+    # every gpuId, pointer, fd, backend-written field and the card's own
+    # name, with its offset and length. Derived from the code that does the
+    # rewriting (crates/nvrm-abi/src/mediate.rs), which is also where the
+    # guest module's own BDF table is generated from, so the two cannot
+    # describe different fields.
+    (cd "$LEA_ROOT" && cargo run --release --quiet --bin nvrm-genhdr -- \
+        --mediation-dump "$TDIR/mediation.txt" >/dev/null 2>&1) \
+        || die "cannot dump the mediation manifest -- ./scripts/build.sh cargo"
     # The FIELD MAP, beside the table stream and for the same reason: every
     # consumer downstream can then say `biosInfoList, an NvP64` where it used
     # to say `word 2 (offset 8)`. Sizes and offsets are COMPILED out of the

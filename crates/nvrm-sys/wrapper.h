@@ -81,6 +81,11 @@
 #include <ctrl/ctrl0000/ctrl0000gpuacct.h> /* GET_ACCOUNTING_STATE -- another
                                            params block with a gpuId in it,
                                            and NVML asks it per GPU          */
+#include <ctrl/ctrl2080/ctrl2080fb.h>   /* FB_GET_INFO / _V2 -- the VRAM ledger
+                                           rewrites `data` in this list, so the
+                                           mediation manifest needs the entry
+                                           layout COMPILED rather than typed
+                                           (crates/nvrm-abi/src/mediate.rs)   */
 
 /* NVKMS. /dev/nvidia-modeset is a userspace boundary of its own -- the GL
  * and Vulkan libraries call it directly -- and every one of its ioctls

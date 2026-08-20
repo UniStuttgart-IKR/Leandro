@@ -47,6 +47,19 @@ fn main() {
             std::fs::write(path, &text).unwrap_or_else(|e| panic!("{path}: {e}"));
             eprintln!("nvrm-genhdr: wrote {path} ({} lines)", text.lines().count());
         }
+        // The MEDIATION MANIFEST, a sibling of the table stream and written
+        // at the same point for the same reason: the descriptor tables say
+        // what can be CARRIED, and this says what is deliberately NOT
+        // carried unchanged. `verify` masks with it (probe/python/
+        // answerdiff.py), and it is derived from the code that does the
+        // rewriting rather than written beside it.
+        Some((flag, rest)) if flag == "--mediation-dump" => {
+            let path = rest.first().expect("--mediation-dump <file>");
+            let text = nvrm_abi::mediate::dump();
+            std::fs::write(path, &text).unwrap_or_else(|e| panic!("{path}: {e}"));
+            eprintln!("nvrm-genhdr: wrote {path} ({} record(s))",
+                      nvrm_abi::mediate::manifest().len());
+        }
         Some((flag, rest)) if flag == "--check" => {
             let path = rest.first().cloned().unwrap_or_else(|| {
                 "guest-module/virtio_nvrm/nvrm_wire.h".into()
@@ -415,12 +428,11 @@ fn generate() -> String {
                         size_of::<sys::NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS>()));
     o.push_str(&format!("#define NVRM_SIZE_PCI_INFO\t{}u\n",
                         size_of::<sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS>()));
-    for (n, v) in [
-        ("PCI_INFO_GPUID", off!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, gpuId)),
-        ("PCI_INFO_DOMAIN", off!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, domain)),
-        ("PCI_INFO_BUS", off!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, bus)),
-        ("PCI_INFO_SLOT", off!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, slot)),
-    ] {
+    // From nvrm_abi::mediate, for the same reason the BDF tables are: the
+    // module writes the guest's address at these offsets and the mediation
+    // manifest must describe the same bytes, or the mask reports the module
+    // doing its job as a defect. It did, once -- see `pci_info_fields`.
+    for (n, _, v, _) in nvrm_abi::mediate::pci_info_fields() {
         o.push_str(&format!("#define NVRM_{n}_OFF\t{v}u\n"));
     }
     o.push_str(&format!("#define NVRM_MAX_DEVICES\t{}u\n", sys::NV_MAX_DEVICES));
@@ -533,49 +545,12 @@ fn generate() -> String {
     o.push_str("/* ---- every control whose params carry a gpuId ---- */\n");
     o.push_str("/* { cmd, offset } -- one gpuId at a fixed offset */\n");
     o.push_str("#define NVRM_BDF_SCALARS \\\n");
-    let scalars: &[(&str, u32, usize)] = &[
-        ("GET_ID_INFO", sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO,
-         off!(sys::NV0000_CTRL_GPU_GET_ID_INFO_PARAMS, gpuId)),
-        ("GET_ID_INFO_V2", sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2,
-         off!(sys::NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS, gpuId)),
-        // The SAME id a second time in the same block. Measured with
-        // bdf_debug: GET_ID_INFO carries 0x2d00 at +0 and again at +28, and
-        // the second one is boardId -- which is what NVML prints the address
-        // from. A command can appear more than once in this table.
-        ("GET_ID_INFO boardId", sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO,
-         off!(sys::NV0000_CTRL_GPU_GET_ID_INFO_PARAMS, boardId)),
-        ("GET_ID_INFO_V2 boardId", sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2,
-         off!(sys::NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS, boardId)),
-        ("GET_PCI_INFO", sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO,
-         off!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, gpuId)),
-        ("GET_UUID_INFO", sys::NV0000_CTRL_CMD_GPU_GET_UUID_INFO,
-         off!(sys::NV0000_CTRL_GPU_GET_UUID_INFO_PARAMS, gpuId)),
-        ("GET_UUID_FROM_GPU_ID", sys::NV0000_CTRL_CMD_GPU_GET_UUID_FROM_GPU_ID,
-         off!(sys::NV0000_CTRL_GPU_GET_UUID_FROM_GPU_ID_PARAMS, gpuId)),
-        ("MODIFY_DRAIN_STATE", sys::NV0000_CTRL_CMD_GPU_MODIFY_DRAIN_STATE,
-         off!(sys::NV0000_CTRL_GPU_MODIFY_DRAIN_STATE_PARAMS, gpuId)),
-        ("QUERY_DRAIN_STATE", sys::NV0000_CTRL_CMD_GPU_QUERY_DRAIN_STATE,
-         off!(sys::NV0000_CTRL_GPU_QUERY_DRAIN_STATE_PARAMS, gpuId)),
-        // These two are the ones NVML actually attaches with, and leaving
-        // them out was measured, not theorised: nvidia-smi kept printing the
-        // host's 2D:00.0 because ASYNC_ATTACH_ID echoed the host id straight
-        // back and NVML decodes the address OUT OF THE ID.
-        ("ASYNC_ATTACH_ID", sys::NV0000_CTRL_CMD_GPU_ASYNC_ATTACH_ID,
-         off!(sys::NV0000_CTRL_GPU_ASYNC_ATTACH_ID_PARAMS, gpuId)),
-        ("WAIT_ATTACH_ID", sys::NV0000_CTRL_CMD_GPU_WAIT_ATTACH_ID,
-         off!(sys::NV0000_CTRL_GPU_WAIT_ATTACH_ID_PARAMS, gpuId)),
-        // Found by the guest sweep on 2026-08-20 (OPEN-QUESTIONS number 51),
-        // and the only control in nvidia-smi's whole run that answered
-        // NV_ERR_INVALID_ARGUMENT (0x1f) in a guest -- which is what RM says
-        // about a gpuId it does not know, and the same failure as
-        // P2P_CAPS_MATRIX in the raytracing work. Params are
-        // { gpuId, pid, state } = 12 bytes, and the guest trace agrees
-        // (psize 0xc). NVML asks it per GPU while building the accounting
-        // section of `-q`; the report prints without the answer, which is
-        // why no gate has ever seen this and only a trace diff could.
-        ("GPUACCT_GET_ACCOUNTING_STATE", sys::NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE,
-         off!(sys::NV0000_CTRL_GPUACCT_GET_ACCOUNTING_STATE_PARAMS, gpuId)),
-    ];
+    // THE TABLE LIVES IN nvrm_abi::mediate, not here. The C header the guest
+    // module is built from and the mediation manifest `verify` masks with are
+    // now written from the SAME list: a field the module translates that the
+    // mask did not know about would be reported as a defect, and the only way
+    // that cannot happen is for there to be one table.
+    let scalars = nvrm_abi::mediate::bdf_scalars();
     for (i, (n, cmd, off)) in scalars.iter().enumerate() {
         let last = i + 1 == scalars.len();
         o.push_str(&format!("\t{{ {cmd:#x}u, {off}u }}{} /* {n} */{}\n",
@@ -648,38 +623,7 @@ fn generate() -> String {
     // said gpuId 0x6 (mediated), this one said 0x2d00 (the host's), and the
     // RT device init, which asks it right after GET_ID_INFO_V2, found its
     // active device in no list it knew and returned INITIALIZATION_FAILED.
-    let arrays: &[(&str, u32, usize, u32, usize)] = &[
-        ("GET_ATTACHED_IDS", sys::NV0000_CTRL_CMD_GPU_GET_ATTACHED_IDS,
-         off!(sys::NV0000_CTRL_GPU_GET_ATTACHED_IDS_PARAMS, gpuIds),
-         sys::NV0000_CTRL_GPU_MAX_ATTACHED_GPUS, 4),
-        ("GET_PROBED_IDS", sys::NV0000_CTRL_CMD_GPU_GET_PROBED_IDS,
-         off!(sys::NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS, gpuIds),
-         sys::NV0000_CTRL_GPU_MAX_PROBED_GPUS, 4),
-        ("ATTACH_IDS", sys::NV0000_CTRL_CMD_GPU_ATTACH_IDS,
-         off!(sys::NV0000_CTRL_GPU_ATTACH_IDS_PARAMS, gpuIds),
-         sys::NV0000_CTRL_GPU_MAX_PROBED_GPUS, 4),
-        ("DETACH_IDS", sys::NV0000_CTRL_CMD_GPU_DETACH_IDS,
-         off!(sys::NV0000_CTRL_GPU_DETACH_IDS_PARAMS, gpuIds),
-         sys::NV0000_CTRL_GPU_MAX_ATTACHED_GPUS, 4),
-        ("GET_ACTIVE_DEVICE_IDS", sys::NV0000_CTRL_CMD_GPU_GET_ACTIVE_DEVICE_IDS,
-         off!(sys::NV0000_CTRL_GPU_GET_ACTIVE_DEVICE_IDS_PARAMS, devices)
-             + off!(sys::NV0000_CTRL_GPU_ACTIVE_DEVICE, gpuId),
-         sys::NV0000_CTRL_GPU_MAX_ACTIVE_DEVICES,
-         size_of::<sys::NV0000_CTRL_GPU_ACTIVE_DEVICE>()),
-        // The QUESTION side of raytracing init: "P2P caps of GPU group A to
-        // group B", both groups arrays of gpuIds. Measured 2026-08-15:
-        // the guest asked about 0x6, the host knows 0x2d00, and answered
-        // NV_ERR_INVALID_ARGUMENT -- the first non-zero status in the whole
-        // trace diff, right before vkCreateDevice gave up. Two arrays, one
-        // control, hence two rows with the same cmd (the rewrite loop takes
-        // every row that matches).
-        ("P2P_CAPS_MATRIX_A", sys::NV0000_CTRL_CMD_SYSTEM_GET_P2P_CAPS_MATRIX,
-         off!(sys::NV0000_CTRL_SYSTEM_GET_P2P_CAPS_MATRIX_PARAMS, gpuIdGrpA),
-         sys::NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS, 4),
-        ("P2P_CAPS_MATRIX_B", sys::NV0000_CTRL_CMD_SYSTEM_GET_P2P_CAPS_MATRIX,
-         off!(sys::NV0000_CTRL_SYSTEM_GET_P2P_CAPS_MATRIX_PARAMS, gpuIdGrpB),
-         sys::NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS, 4),
-    ];
+    let arrays = nvrm_abi::mediate::bdf_arrays();
     for (i, (n, cmd, off, cnt, stride)) in arrays.iter().enumerate() {
         let last = i + 1 == arrays.len();
         o.push_str(&format!("\t{{ {cmd:#x}u, {off}u, {cnt}u, {stride}u }}{} /* {n} */{}\n",

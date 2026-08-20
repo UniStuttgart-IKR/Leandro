@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T19:00:59Z",
-    "commit:  90b83f3 (working tree modified)"
+    "date:    2026-08-20T19:19:31Z",
+    "commit:  e9131da (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -233,7 +233,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 38 call(s), 32 of 128 bytes, masked {'gpuId': 38}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "gpuIds",
@@ -288,7 +290,8 @@
         "embedded-ptr"
       ],
       "notes": [
-        "pointer field(s), offsets compiled: szName @16"
+        "pointer field(s), offsets compiled: szName @16",
+        "answer bytes compared against a native run: 53 call(s), 32 of 40 bytes, masked {'gpuId': 106}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -391,7 +394,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 42 call(s), 32 of 32 bytes, masked {'gpuId': 84}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "gpuId",
@@ -487,7 +492,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 24 call(s), 32 of 580 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "gpuInfoListSize",
@@ -592,7 +599,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 14 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "type",
@@ -646,7 +655,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 11 call(s), 32 of 1664 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "units",
@@ -871,7 +882,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 34 call(s), 32 of 340 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "engineCount",
@@ -982,7 +995,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 18 call(s), 32 of 32 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "flags",
@@ -1110,7 +1125,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 10 call(s), 32 of 9240 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "numSm",
@@ -1325,7 +1342,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 15 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "architecture",
@@ -1397,7 +1416,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 14 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "pciDeviceId",
@@ -1731,7 +1752,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 24 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "flags",
@@ -2242,7 +2265,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 13 call(s), 32 of 384 bytes, masked {'gpuId': 13}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "gpuIds",
@@ -2310,7 +2335,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 18 call(s), 32 of 132 bytes, masked {'gpuId': 12}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "gpuIds",
@@ -2415,7 +2442,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 14 call(s), 32 of 3076 bytes, masked {'gpuId': 14}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "numDevices",
@@ -3867,7 +3896,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 4 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "gpuId",
@@ -3911,7 +3942,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 18 call(s), 32 of 144 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "engineType",
@@ -4023,7 +4056,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 2 call(s), 32 of 40 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "widthAlignPixels",
@@ -4183,7 +4218,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "powerState",
@@ -4245,7 +4282,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 2 call(s), 32 of 904 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "numFBRegions",
@@ -4295,7 +4334,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 2 call(s), 32 of 32 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "maxSubmittedSemaphoreValueOffset",
@@ -4357,7 +4398,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 42 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "ceEngineType",
@@ -4407,7 +4450,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 110 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "ceEngineType",
@@ -4540,7 +4585,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 4 call(s), 32 of 128 bytes, masked {'gpuId': 3}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "gpuIds",
@@ -4586,7 +4633,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 9 call(s), 32 of 268 bytes, masked {'gpuId': 9}; NOT paired in egl-xlib, gles, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "gpuId",
@@ -7887,7 +7936,10 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 4 call(s), 12 of 12 bytes, masked {'gpuId': 4, 'mediated:bdf-address': 4}",
+        "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (GET_PCI_INFO (bdf-scalar) @0; domain (bdf-address) @4; bus (bdf-address) @8; slot (bdf-address) @10) and in no other byte. That is a different claim from byte equality"
+      ],
       "fields": [
         {
           "name": "gpuId",
@@ -8716,189 +8768,6 @@
           "type": "NvU32",
           "offset": 36,
           "size": 4
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x20800110",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_GPU_GET_NAME_STRING",
-      "description": "This command returns the name of the GPU in string form in ASCII format.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:325",
-      "params_struct": "NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS",
-      "params_size": 68,
-      "observed_params_size": [
-        "0x44"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 52,
-      "rm_status": {
-        "0x0": 52
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [
-        "answered by the backend itself: CMD_GPU_GET_NAME_STRING (vram.rs:797)"
-      ],
-      "fields": [
-        {
-          "name": "gpuNameStringFlags",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "gpuNameString",
-          "type": "struct",
-          "offset": 4,
-          "size": 64
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x20801201",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_GR_GET_INFO",
-      "description": "This command returns gr engine information for the associated GPU.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:408",
-      "params_struct": "NV2080_CTRL_GR_GET_INFO_PARAMS",
-      "params_size": 32,
-      "observed_params_size": [
-        "0x20"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "nvdec",
-        "nvenc",
-        "opencl",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 30,
-      "rm_status": {
-        "0x0": 30
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: grInfoList @8"
-      ],
-      "fields": [
-        {
-          "name": "grInfoListSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "grInfoList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        },
-        {
-          "name": "grRouteInfo",
-          "type": "NV2080_CTRL_GR_ROUTE_INFO",
-          "offset": 16,
-          "size": 16
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x20801303",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_FB_GET_INFO_V2",
-      "description": "",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:489",
-      "params_struct": "NV2080_CTRL_FB_GET_INFO_V2_PARAMS",
-      "params_size": 1028,
-      "observed_params_size": [
-        "0x404"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 56,
-      "rm_status": {
-        "0x0": 56
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [
-        "answered by the backend itself: CMD_FB_GET_INFO_V2 (vram.rs:782)"
-      ],
-      "fields": [
-        {
-          "name": "fbInfoListSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "fbInfoList",
-          "type": "NV2080_CTRL_FB_INFO[NV2080_CTRL_FB_INFO_MAX_LIST_SIZE]",
-          "offset": 4,
-          "size": 1024
         }
       ],
       "status": "implemented-unverified",
@@ -10535,60 +10404,6 @@
     {
       "device": "ctl",
       "nr": "0x2a",
-      "sub": "0x20801301",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_FB_GET_INFO",
-      "description": "This command returns fb engine information for the associated GPU.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:480",
-      "params_struct": "NV2080_CTRL_FB_GET_INFO_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 54,
-      "rm_status": {
-        "0x0": 54
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "answered by the backend itself: CMD_FB_GET_INFO (vram.rs:795)",
-        "pointer field(s), offsets compiled: fbInfoList @8"
-      ],
-      "fields": [
-        {
-          "name": "fbInfoListSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "fbInfoList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
       "sub": "0x3d05",
       "kind": "ctrl",
       "name": "NV0000_CTRL_CMD_OS_UNIX_EXPORT_OBJECT_TO_FD",
@@ -11553,61 +11368,6 @@
     {
       "device": "ctl",
       "nr": "0x2a",
-      "sub": "0x2080018d",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_GPU_GET_PIDS",
-      "description": "Given a resource identifier and its type, this command returns a set of process identifiers (PIDs) of processes that have instantiated this resource. For exampl",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3501",
-      "params_struct": "NV2080_CTRL_GPU_GET_PIDS_PARAMS",
-      "params_size": 3812,
-      "observed_params_size": [
-        "0xee4"
-      ],
-      "seen_in": [
-        "nvml"
-      ],
-      "calls": 3,
-      "rm_status": {
-        "0x0": 3
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [
-        "answered by the backend itself: CMD_GPU_GET_PIDS (vram.rs:628)"
-      ],
-      "fields": [
-        {
-          "name": "idType",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "id",
-          "type": "NvU32",
-          "offset": 4,
-          "size": 4
-        },
-        {
-          "name": "pidTblCount",
-          "type": "NvU32",
-          "offset": 8,
-          "size": 4
-        },
-        {
-          "name": "pidTbl",
-          "type": "NvU32[NV2080_CTRL_GPU_GET_PIDS_MAX_COUNT]",
-          "offset": 12,
-          "size": 3800
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
       "sub": "0x2080018e",
       "kind": "ctrl",
       "name": "NV2080_CTRL_CMD_GPU_GET_PID_INFO",
@@ -11629,7 +11389,7 @@
         "none"
       ],
       "notes": [
-        "answered by the backend itself: CMD_GPU_GET_PID_INFO (vram.rs:630)"
+        "answered by the backend itself: pidInfoListCount @0 (backend-answered, mediation.txt); pidInfoList @8 (backend-answered, mediation.txt)"
       ],
       "fields": [
         {
@@ -11775,6 +11535,130 @@
     {
       "device": "ctl",
       "nr": "0x2a",
+      "sub": "0x20801201",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_GR_GET_INFO",
+      "description": "This command returns gr engine information for the associated GPU.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:408",
+      "params_struct": "NV2080_CTRL_GR_GET_INFO_PARAMS",
+      "params_size": 32,
+      "observed_params_size": [
+        "0x20"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "opencl",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 30,
+      "rm_status": {
+        "0x0": 30
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: grInfoList @8",
+        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'nested-ptr': 19}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
+      "fields": [
+        {
+          "name": "grInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "grInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "grRouteInfo",
+          "type": "NV2080_CTRL_GR_ROUTE_INFO",
+          "offset": 16,
+          "size": 16
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x20801301",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_FB_GET_INFO",
+      "description": "This command returns fb engine information for the associated GPU.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:480",
+      "params_struct": "NV2080_CTRL_FB_GET_INFO_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 54,
+      "rm_status": {
+        "0x0": 54
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "answered by the backend itself: fbInfoList[].data @4 (backend-answered, mediation.txt)",
+        "pointer field(s), offsets compiled: fbInfoList @8",
+        "answer bytes compared against a native run: 5 call(s), 16 of 16 bytes, masked {'nested-ptr': 10}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
+      "fields": [
+        {
+          "name": "fbInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "fbInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
       "sub": "0x20801802",
       "kind": "ctrl",
       "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
@@ -11910,6 +11794,182 @@
         }
       ],
       "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x20800110",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_GPU_GET_NAME_STRING",
+      "description": "This command returns the name of the GPU in string form in ASCII format.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:325",
+      "params_struct": "NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS",
+      "params_size": 68,
+      "observed_params_size": [
+        "0x44"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 52,
+      "rm_status": {
+        "0x0": 52
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answered by the backend itself: gpuNameString @4 (identity-string, mediation.txt)",
+        "answer bytes compared against a native run: 20 call(s), 32 of 68 bytes, masked {'mediated:identity-string': 120}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way",
+        "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (gpuNameString (identity-string) @4) and in no other byte. That is a different claim from byte equality"
+      ],
+      "fields": [
+        {
+          "name": "gpuNameStringFlags",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "gpuNameString",
+          "type": "struct",
+          "offset": 4,
+          "size": 64
+        }
+      ],
+      "status": "implemented-verified-mediated",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x20801303",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_FB_GET_INFO_V2",
+      "description": "",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:489",
+      "params_struct": "NV2080_CTRL_FB_GET_INFO_V2_PARAMS",
+      "params_size": 1028,
+      "observed_params_size": [
+        "0x404"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 56,
+      "rm_status": {
+        "0x0": 56
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answered by the backend itself: fbInfoList[].data @8 (backend-answered, mediation.txt)",
+        "answer bytes compared against a native run: 51 call(s), 32 of 1028 bytes, masked {'mediated:backend-answered': 11}",
+        "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (fbInfoList[].data (backend-answered) @8 x128 stride 8) and in no other byte. That is a different claim from byte equality"
+      ],
+      "fields": [
+        {
+          "name": "fbInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "fbInfoList",
+          "type": "NV2080_CTRL_FB_INFO[NV2080_CTRL_FB_INFO_MAX_LIST_SIZE]",
+          "offset": 4,
+          "size": 1024
+        }
+      ],
+      "status": "implemented-verified-mediated",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x2080018d",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_GPU_GET_PIDS",
+      "description": "Given a resource identifier and its type, this command returns a set of process identifiers (PIDs) of processes that have instantiated this resource. For exampl",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3501",
+      "params_struct": "NV2080_CTRL_GPU_GET_PIDS_PARAMS",
+      "params_size": 3812,
+      "observed_params_size": [
+        "0xee4"
+      ],
+      "seen_in": [
+        "nvml"
+      ],
+      "calls": 3,
+      "rm_status": {
+        "0x0": 3
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answered by the backend itself: pidTblCount @8 (backend-answered, mediation.txt); pidTbl @12 (backend-answered, mediation.txt)",
+        "answer bytes compared against a native run: 3 call(s), 32 of 3812 bytes, masked {'mediated:backend-answered': 11}",
+        "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (pidTblCount (backend-answered) @8; pidTbl (backend-answered) @12 x950 stride 4) and in no other byte. That is a different claim from byte equality"
+      ],
+      "fields": [
+        {
+          "name": "idType",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "id",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pidTblCount",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "pidTbl",
+          "type": "NvU32[NV2080_CTRL_GPU_GET_PIDS_MAX_COUNT]",
+          "offset": 12,
+          "size": 3800
+        }
+      ],
+      "status": "implemented-verified-mediated",
       "xlate_size": null
     },
     {

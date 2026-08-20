@@ -104,6 +104,60 @@ def read_declared_pointers(tables):
     return out
 
 
+def read_mediation(path):
+    """cmd -> [ {off, len, stride, count, kind, field}, ... ] out of the
+    manifest the trace phase wrote beside ``tables.txt``.
+
+    THE FOURTH MASK, and its semantics are INVERTED against the other three.
+    The first three answer "this word may differ, here is the proof". This
+    one answers "this command is MEDIATED, so it MUST differ inside these
+    fields and nowhere else". A mediated command that matches byte for byte
+    outside them is a stronger statement than one that merely matches, and a
+    mediated command that differs OUTSIDE them is a finding on a row where
+    byte equality could previously only shrug -- `GPU_GET_NAME_STRING`
+    answering `NVID` natively and `Lean` in a guest was reported as a
+    mismatch, which is the mediation working exactly as designed.
+
+    Derived like the rest: `crates/nvrm-abi/src/mediate.rs` is the code the
+    backend and the guest module rewrite FROM, and the manifest is generated
+    out of it. It is not a list of bytes to ignore maintained beside the
+    code.
+    """
+    out = collections.defaultdict(list)
+    if not path.is_file():
+        return {}
+    for ln in path.read_text(errors="replace").splitlines():
+        f = ln.split()
+        if f[:1] != ["mediated"] or len(f) < 8:
+            continue
+        out[f[1]].append({
+            "off": int(f[2]), "len": int(f[3]), "stride": int(f[4]),
+            "count": int(f[5]), "kind": f[6], "field": " ".join(f[7:]),
+        })
+    return dict(out)
+
+
+def mediated_hit(recs, off):
+    """The manifest record covering byte `off`, or None.
+
+    An array record covers element starts only: `stride`-spaced windows of
+    `len` bytes. The GAP between elements is NOT covered, deliberately --
+    NV2080_CTRL_FB_INFO is {index, data} and only `data` is rewritten, so a
+    changed `index` has to stay visible. Masking a whole array because part
+    of it moves is the looseness this mask exists to avoid.
+    """
+    for r in recs or ():
+        if r["count"] > 1 and r["stride"] > 0:
+            if off < r["off"]:
+                continue
+            k, rem = divmod(off - r["off"], r["stride"])
+            if k < r["count"] and rem < r["len"]:
+                return r
+        elif r["off"] <= off < r["off"] + r["len"]:
+            return r
+    return None
+
+
 def read_fieldmap(path):
     """cmd -> {"struct": name, "size": n, "members": [...]}, out of the
     compiled field map the trace phase wrote beside ``tables.txt``.
@@ -198,11 +252,37 @@ def explain(nw, gw, off, ptrs, native, guest):
     return None
 
 
-def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None):
-    """One signature's verdict: verified, or the reason it is not."""
+def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None):
+    """One signature's verdict: verified, or the reason it is not.
+
+    Returns `(ok, why, masked)`. With a mediation manifest for this command
+    the test changes shape: a differing word must fall INSIDE a manifest
+    field, and `masked` records which ones actually moved. The caller then
+    separates two claims that must never share a row -- bytes that matched
+    outright, and bytes that differed exactly where the mediation says they
+    would.
+    """
     if len(ncalls) != len(gcalls):
-        return None, (f"{len(ncalls)} call(s) natively and {len(gcalls)} in the "
-                      "guest -- the answers cannot be paired"), {}
+        # NOT A MISMATCH -- NOT COMPARABLE, and the difference matters.
+        #
+        # A mismatch is evidence AGAINST the signature: bytes were compared
+        # and they differed outside every mask. Unequal call counts are
+        # evidence about NEITHER side's bytes -- call i of one run is not
+        # call i of the other, so there is nothing to compare. Conflating the
+        # two made a probe that merely asked once more veto the positive
+        # evidence of every probe that did pair, which is how
+        # GPU_GET_NAME_STRING came to be judged by nothing: it pairs in nvml,
+        # cuda-core, opencl, nvdec and nvenc, and does not in gl-enum (5
+        # against 4) and vk-enum (3 against 2).
+        #
+        # The caller keeps this apart from a mismatch. It never promotes on
+        # its own: a signature that no probe could pair is judged by nothing
+        # and stays out of both verified classes. Call-count differences are
+        # reported where they belong -- the guest evidence file, which
+        # compares signature sets and counts as its whole job.
+        return "abstain", (f"{len(ncalls)} call(s) natively and {len(gcalls)} in "
+                           "the guest -- not comparable, so this probe judges "
+                           "nothing either way"), {}
     masked = collections.Counter()
     for i, (n, g) in enumerate(zip(ncalls, gcalls)):
         if n["status"] != g["status"]:
@@ -218,9 +298,29 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None):
             if nw == gw:
                 continue
             why = explain(nw, gw, j * 4, ptrs, native, guest)
+            if why is None and med:
+                # The inverted test. Inside a manifest field this word is
+                # SUPPOSED to differ, and that it does is the evidence.
+                #
+                # BYTE granularity, not word granularity, and that is not
+                # pedantry. GET_PCI_INFO puts `bus` and `slot` in one word as
+                # two NvU16; if only one of them were mediated, masking the
+                # whole word would hide a real change in the other. So every
+                # byte that ACTUALLY differs has to be covered -- a mediated
+                # field can never shield the neighbour it shares a word with.
+                nb = nw.to_bytes(4, "little")
+                gb = gw.to_bytes(4, "little")
+                hits = [mediated_hit(med, j * 4 + b)
+                        for b in range(4) if nb[b] != gb[b]]
+                if hits and all(h is not None for h in hits):
+                    why = "mediated:" + hits[0]["kind"]
             if why is None:
+                extra = (" -- this command IS mediated, and this byte is in "
+                         "none of the fields the mediation declares"
+                         if med else "")
                 return None, (f"call {i}, {name_at(fm, j * 4)}: "
-                              f"{nw:#010x} natively, {gw:#010x} in the guest"), {}
+                              f"{nw:#010x} natively, {gw:#010x} in the guest"
+                              f"{extra}"), {}
             masked[why] += 1
         # The tail the word view does not cover, compared as bytes.
         tail = len(n["bytes"]) - len(n["bytes"]) % 4
@@ -243,6 +343,7 @@ def main():
                           pathlib.Path(a.out))
     declared = read_declared_pointers(ndir / "tables.txt")
     fields = read_fieldmap(ndir / "fields.json")
+    mediation = read_mediation(ndir / "mediation.txt")
     cat = {}
     catf = outdir / f"catalog-{a.driver}.json"
     if catf.is_file():
@@ -255,6 +356,7 @@ def main():
     # version of this file appended to a list as it went and would have kept
     # the good half of exactly that case.
     ok_by_sig, bad_by_sig, evidence, sides, skipped = {}, {}, {}, {}, []
+    abstained = {}
     for p in a.probes:
         n = read_side(ndir / f"{p}.tsv")
         g = read_side(gdir / f"{p}.tsv")
@@ -280,10 +382,14 @@ def main():
         for cmd in sorted(set(n["calls"]) | set(g["calls"])):
             key = f"ctl 0x2a {cmd}"
             fm = fields.get(cmd)
+            med = mediation.get(cmd)
             ok, why, masked = compare_cmd(cmd, n["calls"].get(cmd, []),
                                           g["calls"].get(cmd, []), n, g,
-                                          declared.get(cmd, ()), fm)
+                                          declared.get(cmd, ()), fm, med)
             row = cat.get(("ctl", "0x2a", cmd), {})
+            if ok == "abstain":
+                abstained.setdefault(key, []).append({"probe": p, "reason": why})
+                continue
             if ok:
                 nb = len(n["calls"][cmd][0]["bytes"])
                 e = ok_by_sig.setdefault(key, {
@@ -306,6 +412,11 @@ def main():
                         for m in (fm or {}).get("members", [])
                         if m["offset"] >= nb],
                     "words_masked": {},
+                    "mediation": [
+                        f"{r['field']} ({r['kind']}) @{r['off']}"
+                        + (f" x{r['count']} stride {r['stride']}"
+                           if r["count"] > 1 else "")
+                        for r in (med or ())],
                 })
                 e["probes"].append(p)
                 e["calls_compared"] += len(n["calls"].get(cmd, []))
@@ -325,10 +436,39 @@ def main():
                 b["probes"].append(p)
 
     # The disqualification: matched somewhere, mismatched somewhere else.
-    verified = sorted(k for k in ok_by_sig if k not in bad_by_sig)
-    evidence = {k: ok_by_sig[k] for k in verified}
+    # A signature is judged only where a probe actually compared bytes. One
+    # that no probe could pair appears in `abstained` alone and is in neither
+    # verified class -- unjudged, which is a third answer and not a pass.
+    # Filled after the sweep, not during it: a probe that abstains may come
+    # after the ones that judged, and a row written as we went would name
+    # only the abstentions that happened to be seen first.
+    for k, e in ok_by_sig.items():
+        e["probes_not_comparable"] = [x["probe"] for x in abstained.get(k, [])]
+        e["fully_paired"] = not e["probes_not_comparable"]
+
+    ok_all = sorted(k for k in ok_by_sig if k not in bad_by_sig)
+    evidence = {k: ok_by_sig[k] for k in ok_all}
     disputed = sorted(set(ok_by_sig) & set(bad_by_sig))
     notv = [bad_by_sig[k] for k in sorted(bad_by_sig)]
+
+    # TWO CLASSES, AND THEY MUST NEVER SHARE AN UNLABELLED ROW.
+    #
+    #   verified          the answer bytes are the SAME on both sides, once
+    #                     the three derived masks are applied.
+    #   verified-mediated the answer bytes DIFFER, in exactly the fields the
+    #                     mediation declares and in no other byte.
+    #
+    # The second is a different claim, and in one respect a stronger one: it
+    # required the rewriting to actually happen. A command whose manifest
+    # fields all happened to match is NOT here -- it is in `verified`, where
+    # it belongs, because nothing about the mediation was exercised. That is
+    # why membership is decided on `words_masked` (what moved in this run)
+    # and never on the manifest alone (what could move).
+    def moved(k):
+        return any(w.startswith("mediated:") for w in evidence[k]["words_masked"])
+
+    verified = [k for k in ok_all if not moved(k)]
+    verified_mediated = [k for k in ok_all if moved(k)]
 
     js = {
         "provenance": [x for x in a.provenance.split("|") if x],
@@ -338,8 +478,15 @@ def main():
             "after the call) from the native trace against the guest trace, "
             "call by call, word by word"),
         "extent": (
-            "the FIRST BYTES of the answer, not the whole answer -- "
-            "bytes_compared against answer_size per signature says how much"),
+            "TWO extents, and both are per signature so that nothing "
+            "downstream can round either up. In BYTES: the first bytes of the "
+            "answer, not the whole answer -- bytes_compared against "
+            "answer_size. In CALLS: only the calls that could be paired -- "
+            "calls_compared, with probes_not_comparable naming any probe whose "
+            "two runs made different numbers of calls and which therefore "
+            "judged nothing. A signature with a non-empty "
+            "probes_not_comparable is a weaker claim than one without, and "
+            "fully_paired says which it is"),
         "mask": (
             "derived, never hand-written: a differing word is allowed only if "
             "it is this side's own gpu_id (cardinfo line), a handle this side "
@@ -347,6 +494,35 @@ def main():
             "declares for that command (tables.txt, the stream the guest "
             "module was handed). Anything else is a mismatch"),
         "declared_pointer_commands": len(declared),
+        "mediation_manifest": (
+            f"{len(mediation)} command(s) and "
+            f"{sum(len(v) for v in mediation.values())} field(s) "
+            "(matrix/traces/<drv>/mediation.txt, generated by nvrm-genhdr "
+            "--mediation-dump from crates/nvrm-abi/src/mediate.rs -- the same "
+            "table the guest module's BDF header is generated from)"
+            if mediation else
+            "absent -- mediated commands are judged by byte equality, which is "
+            "the wrong test for them. scripts/ioctl-matrix.sh trace writes it"),
+        "classes": {
+            "verified": "the answer bytes are the same on both sides under the "
+                        "three derived masks",
+            "verified-mediated": "the answer bytes DIFFER, in exactly the fields "
+                                 "the mediation manifest declares and nowhere "
+                                 "else. A different claim from `verified` and it "
+                                 "must never share a row with it unlabelled",
+            "verified-mediated, what it does NOT prove": (
+                "that the mediation is what moved those bytes. The manifest "
+                "declares what MAY be rewritten; whether it WAS depends on "
+                "runtime configuration, and a declared field can also be a "
+                "value that is simply not stable between two runs. Measured "
+                "2026-08-20: NV2080_CTRL_CMD_FB_GET_INFO_V2 lands here on an "
+                "UNCAPPED rig, where rewrite_fb_info returns without touching "
+                "anything -- the byte that moved is index 0x16 HEAP_FREE, free "
+                "memory, which moves between two native calls as well, while "
+                "0x08 TOTAL_RAM_SIZE and 0x09 HEAP_SIZE are byte-identical on "
+                "both sides. Separating the two needs the control test, not "
+                "this mask"),
+        },
         "field_map": (
             f"{len(fields)} command(s) have a compiled field map "
             f"(matrix/traces/<drv>/fields.json); offsets and member sizes come "
@@ -357,10 +533,23 @@ def main():
             "scripts/ioctl-matrix.sh trace writes it"),
         "probes": sides,
         "verified": verified,
+        "verified_mediated": verified_mediated,
         "evidence": evidence,
         "not_verified": notv,
         "matched_under_one_probe_and_not_another": disputed,
         "probes_skipped": skipped,
+        "not_comparable": {
+            k: v for k, v in sorted(abstained.items())},
+        "not_comparable_note": (
+            "per (signature, probe): the two runs made a different NUMBER of "
+            "calls, so call i of one is not call i of the other and no byte "
+            "comparison is possible. This is not evidence against the "
+            "signature and does not disqualify it -- a signature no probe "
+            "could pair is judged by nothing and appears in neither verified "
+            "class. Call-count differences are a finding of the GUEST "
+            "comparison, which is where they are reported"),
+        "unjudged": sorted(k for k in abstained
+                           if k not in ok_by_sig and k not in bad_by_sig),
     }
     (outdir / f"verified-{a.driver}.json").write_text(json.dumps(js, indent=2) + "\n")
 
@@ -369,18 +558,32 @@ def main():
         print(f"  verified {k:<22} {e['name'][:44]:<44} "
               f"{e['calls_compared']} call(s), {e['bytes_compared']}/{e['answer_size']} bytes"
               + (f", masked {e['words_masked']}" if e["words_masked"] else ""))
+    for k in verified_mediated:
+        e = evidence[k]
+        moved_in = sorted({w.split(":", 1)[1] for w in e["words_masked"]
+                           if w.startswith("mediated:")})
+        print(f"  MEDIATED {k:<22} {e['name'][:44]:<44} "
+              f"{e['calls_compared']} call(s), {e['bytes_compared']}/{e['answer_size']} "
+              f"bytes, differs only in {', '.join(moved_in)}")
     for x in notv[:14]:
         print(f"  NOT      {x['signature'] or x['probe']:<22} {x['reason']}")
     if len(notv) > 14:
         print(f"  ... and {len(notv) - 14} more not verified")
     for x in skipped:
         print(f"  skipped  {x['probe']:<22} {x['reason']}")
+    full = sum(1 for k in verified + verified_mediated if evidence[k]["fully_paired"])
+    part = len(verified) + len(verified_mediated) - full
     print(f"\n{len(verified)} signature(s) verified against a native run, "
-          f"{len(notv)} not"
+          f"{len(verified_mediated)} verified-mediated (differ in exactly the "
+          f"fields the mediation declares), {len(notv)} not"
           + (f", {len(disputed)} of them matched under another probe"
              if disputed else ""))
+    print(f"of the {full + part} verified: {full} paired call for call in every "
+          f"probe, {part} had at least one probe whose two runs made different "
+          f"numbers of calls and which therefore judged nothing "
+          f"(probes_not_comparable per signature says which)")
     print(f"wrote {outdir / f'verified-{a.driver}.json'}")
-    return 0 if verified else 1
+    return 0 if (verified or verified_mediated) else 1
 
 
 if __name__ == "__main__":

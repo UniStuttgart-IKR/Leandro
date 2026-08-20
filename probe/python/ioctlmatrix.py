@@ -395,6 +395,39 @@ BACKEND_CONST = re.compile(
     r"(0x[0-9a-fA-F_]+|sys::[A-Za-z0-9_]+)\s*;", re.M)
 
 
+def manifest_answered(path):
+    """cmd -> why, for the commands the backend ANSWERS ITSELF, read out of
+    the mediation manifest beside the traces.
+
+    This is the authoritative half. The constants that used to be scanned
+    for out of the backend source now live in `crates/nvrm-abi/src/mediate.rs`
+    -- one table, so the guest module's generated header, the manifest
+    `verify` masks with and this catalogue cannot disagree about which field
+    carries what. A reader that kept grepping the backend crate for them
+    found two commands where there are seven, which is how this function
+    came to exist.
+
+    Only `backend-answered` and `identity-string` count here. The gpuId,
+    pointer and fd kinds are mediation too, but they are the DESCRIPTOR
+    TABLE's and the guest module's, and the catalogue already classifies
+    those from the table itself.
+    """
+    out = {}
+    p = pathlib.Path(path)
+    if not p.is_file():
+        return out
+    for ln in p.read_text(errors="replace").splitlines():
+        f = ln.split()
+        if f[:1] != ["mediated"] or len(f) < 8:
+            continue
+        if f[6] not in ("backend-answered", "identity-string"):
+            continue
+        cmd = int(f[1], 16)
+        what = f"{' '.join(f[7:])} @{f[2]} ({f[6]}, mediation.txt)"
+        out[cmd] = f"{out[cmd]}; {what}" if cmd in out else what
+    return out
+
+
 def backend_mediated(crate_dir, hdr):
     """Controls the backend does not merely forward.
 
@@ -1069,7 +1102,8 @@ def resolve(sigs, gov, hdr, sizes, mediated, drm):
 
 
 STATUS_ORDER = ["missing", "passthrough", "implemented-unverified",
-                "implemented-verified", "not-governed"]
+                "implemented-verified", "implemented-verified-mediated",
+                "not-governed"]
 
 
 def verified_evidence(outdir, driver):
@@ -1247,8 +1281,15 @@ def main():
         sys.exit("the vendor header readers came back empty -- ./scripts/build.sh vendor")
     sizes = Sizeof(a.vendor)
     drm = DrmNames(a.vendor)
+    # BOTH halves, and neither is redundant. The manifest names every command
+    # whose params buffer the backend WRITES INTO; the source scan still
+    # catches the ones it intercepts without rewriting a field -- the two
+    # semaphore-surface waiter controls are handled entirely in the backend
+    # and change no byte of the answer, so no manifest record describes them
+    # and only a constant in the code says they exist.
     mediated = backend_mediated(
         pathlib.Path(a.xlate).parent.parent.parent / "vhost-user-nvrm/src", hdr)
+    mediated.update(manifest_answered(tdir / "mediation.txt"))
 
     # The same closure the field map applies, so the catalogue and the field
     # map name the same struct for the same command. Without it a row like
@@ -1270,10 +1311,18 @@ def main():
     ev, evpath = verified_evidence(outdir, a.driver)
     if ev:
         keys = {tuple(k.split()) for k in ev.get("verified", [])}
+        # TWO CLASSES, AND THEY DO NOT SHARE A ROW UNLABELLED. `verified` is
+        # "the same bytes on both sides"; `verified_mediated` is "different
+        # bytes, in exactly the fields the mediation declares and nowhere
+        # else". Both are answer evidence, so both get the note and both can
+        # promote -- but the STATUS says which, because a reader who cannot
+        # tell them apart has been told the boundary carried something
+        # unchanged when it deliberately did not.
+        medkeys = {tuple(k.split()) for k in ev.get("verified_mediated", [])}
         detail = ev.get("evidence", {})
         for r in rows:
             k = (r["device"], r["nr"], r["sub"])
-            if k not in keys:
+            if k not in keys and k not in medkeys:
                 continue
             # The note goes on EVERY row the evidence names, whatever its
             # status. Byte evidence for a passthrough command is evidence --
@@ -1286,8 +1335,19 @@ def main():
                     f"answer bytes compared against a native run: "
                     f"{d.get('calls_compared', '?')} call(s), "
                     f"{d.get('bytes_compared', '?')} of {d.get('answer_size', '?')} bytes"
-                    + (f", masked {d['words_masked']}" if d.get("words_masked") else ""))
-            if r["status"] == "implemented-unverified":
+                    + (f", masked {d['words_masked']}" if d.get("words_masked") else "")
+                    + ("" if d.get("fully_paired", True) else
+                       "; NOT paired in " + ", ".join(d.get("probes_not_comparable", []))
+                       + ", which judged nothing either way"))
+            if k in medkeys:
+                r["notes"].append(
+                    "MEDIATED: the answer differs from the native one in exactly "
+                    "the fields the mediation manifest declares ("
+                    + "; ".join(d.get("mediation", [])) + ") and in no other "
+                    "byte. That is a different claim from byte equality")
+                if r["status"] == "implemented-unverified":
+                    r["status"] = "implemented-verified-mediated"
+            elif r["status"] == "implemented-unverified":
                 r["status"] = "implemented-verified"
 
     # A self-check with teeth: the decoder is only trustworthy if the
@@ -1381,7 +1441,8 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
             "| `missing` | observed in a trace and the backend has no entry that could carry it |\n"
             "| `passthrough` | forwarded without interpretation (RM_CONTROL is self-describing) |\n"
             "| `implemented-unverified` | governed by the descriptor table; the response bytes have NEVER been compared against a native run |\n"
-            "| `implemented-verified` | as above AND present in the answer-verification evidence file |\n"
+            "| `implemented-verified` | as above AND the first bytes of its answer are the SAME in a guest as natively |\n"
+            "| `implemented-verified-mediated` | as above, but the answer DIFFERS -- in exactly the fields the mediation manifest declares and in no other byte. A different claim, and deliberately not the same row |\n"
             "| `not-governed` | a different namespace (DRM, NVKMS), carried here for completeness |\n\n")
         nver = sum(1 for r in rows if r["status"] == "implemented-verified")
         if not ev:
@@ -1591,7 +1652,8 @@ def write_matrix(outdir, driver, prov, rows, probes, inv, guest, guestpath):
         for pr in probes:
             c = by_probe.get(pr["probe"], collections.Counter())
             miss = c.get("missing", 0)
-            gv = c.get("implemented-unverified", 0) + c.get("implemented-verified", 0)
+            gv = (c.get("implemented-unverified", 0) + c.get("implemented-verified", 0)
+                  + c.get("implemented-verified-mediated", 0))
             cat = miss + gv + c.get("passthrough", 0) + c.get("not-governed", 0)
             if passed(pr):
                 verdict = "predicted-green" if miss == 0 else f"{miss} missing"

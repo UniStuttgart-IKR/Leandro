@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T19:00:59Z
-commit:  90b83f3 (working tree modified)
+date:    2026-08-20T19:19:31Z
+commit:  e9131da (working tree modified)
 ```
 
 One row per signature `(device, ioctl nr, sub)`. Names, descriptions,
@@ -25,18 +25,19 @@ sizes are compiled, not parsed. Where a header says nothing the row says
 | `missing` | observed in a trace and the backend has no entry that could carry it |
 | `passthrough` | forwarded without interpretation (RM_CONTROL is self-describing) |
 | `implemented-unverified` | governed by the descriptor table; the response bytes have NEVER been compared against a native run |
-| `implemented-verified` | as above AND present in the answer-verification evidence file |
+| `implemented-verified` | as above AND the first bytes of its answer are the SAME in a guest as natively |
+| `implemented-verified-mediated` | as above, but the answer DIFFERS -- in exactly the fields the mediation manifest declares and in no other byte. A different claim, and deliberately not the same row |
 | `not-governed` | a different namespace (DRM, NVKMS), carried here for completeness |
 
-**Answer evidence exists** (`matrix/verified-610.57.04.json`): 73 signature(s) had the
+**Answer evidence exists** (`matrix/verified-610.57.04.json`): 100 signature(s) had the
 first bytes of their answer compared, call by call, against the same
 call in a native run, and matched. Rows that carry it say so in a
 note, with how many bytes of how large an answer -- 32 bytes of a
 384-byte answer is 32 bytes, and the note is there so that
 `verified` cannot be read as more than what was compared.
 
-Of those, **3 are `implemented-verified`**, i.e. governed by the
-descriptor tables AND matched. They are: `NV2080_CTRL_CMD_BIOS_GET_INFO`, `NV2080_CTRL_CMD_BUS_GET_INFO`, `NV2080_CTRL_CMD_GPU_GET_ENGINES`.
+Of those, **5 are `implemented-verified`**, i.e. governed by the
+descriptor tables AND matched. They are: `NV2080_CTRL_CMD_BIOS_GET_INFO`, `NV2080_CTRL_CMD_BUS_GET_INFO`, `NV2080_CTRL_CMD_FB_GET_INFO`, `NV2080_CTRL_CMD_GPU_GET_ENGINES`, `NV2080_CTRL_CMD_GR_GET_INFO`.
 
 That the number is small has two causes, and neither is an
 omission.
@@ -73,8 +74,9 @@ the two places a size is not self-describing -- they agree.
 | status | signatures |
 |---|---:|
 | `passthrough` | 182 |
-| `implemented-unverified` | 73 |
-| `implemented-verified` | 3 |
+| `implemented-unverified` | 68 |
+| `implemented-verified` | 5 |
+| `implemented-verified-mediated` | 3 |
 | `not-governed` | 32 |
 | **total** | **290** |
 
@@ -98,26 +100,35 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2a` | `0x13a` | `NV0000_CTRL_CMD_SYSTEM_GET_P2P_CAPS_MATRIX` | This command returns peer to peer capabilities present between all pairs of GPU IDs {(a, b) : a in gpuIdGrpA and b in gpuIdGrpB}. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000system.h:1308` | `NV0000_CTRL_SYSTEM_GET_P2P_CAPS_MATRIX_PARAMS` | 1352 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | ctl | `0x2a` | `0x1f0` | `NV0000_CTRL_CMD_SYSTEM_GET_FEATURES` | This command returns a mask of supported features for the SYSTEM category of the 0000 class. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000system.h:56` | `NV0000_CTRL_SYSTEM_GET_FEATURES_PARAMS` | 4 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | ctl | `0x2a` | `0x201` | `NV0000_CTRL_CMD_GPU_GET_ATTACHED_IDS` | This command returns a table of attached gpuId values. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:61` | `NV0000_CTRL_GPU_GET_ATTACHED_IDS_PARAMS` | 128 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 38 call(s), 32 of 128 bytes, masked {'gpuId': 38}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x202` | `NV0000_CTRL_CMD_GPU_GET_ID_INFO` | Deprecated. Please use NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2 instead. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:75` | `NV0000_CTRL_GPU_GET_ID_INFO_PARAMS` | 40 | embedded-ptr | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *pointer field(s), offsets compiled: szName @16* | | | | | |
+| | | | | *answer bytes compared against a native run: 53 call(s), 32 of 40 bytes, masked {'gpuId': 106}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x205` | `NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2` | This command returns GPU instance information for the specified GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:172` | `NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS` | 32 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 42 call(s), 32 of 32 bytes, masked {'gpuId': 84}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20800102` | `NV2080_CTRL_CMD_GPU_GET_INFO_V2` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:298` | `NV2080_CTRL_GPU_GET_INFO_V2_PARAMS` | 580 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 24 call(s), 32 of 580 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20800111` | `NV2080_CTRL_CMD_GPU_GET_SHORT_NAME_STRING` | This command returns the short name of the GPU in ASCII string form. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:361` | `NV2080_CTRL_GPU_GET_SHORT_NAME_STRING_PARAMS` | 64 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 9 call(s), 32 of 64 bytes* | | | | | |
 | ctl | `0x2a` | `0x20800119` | `NV2080_CTRL_CMD_GPU_GET_SIMULATION_INFO` | This command returns the associated subdevices' simulation information. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:471` | `NV2080_CTRL_GPU_GET_SIMULATION_INFO_PARAMS` | 4 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 14 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x2080012f` | `NV2080_CTRL_CMD_GPU_QUERY_ECC_STATUS` | This command is used to query the ECC status of a GPU by a subdevice handle. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:1119` | `NV2080_CTRL_GPU_QUERY_ECC_STATUS_PARAMS` | 1664 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 11 call(s), 32 of 1664 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20800131` | `NV2080_CTRL_CMD_GPU_QUERY_COMPUTE_MODE_RULES` | This command queries the compute mode rules for the associated subdevice. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:1306` | `NV2080_CTRL_GPU_QUERY_COMPUTE_MODE_RULES_PARAMS` | 4 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 10 call(s), 4 of 4 bytes* | | | | | |
 | ctl | `0x2a` | `0x20800145` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | ctl | `0x2a` | `0x2080014a` | `NV2080_CTRL_CMD_GPU_GET_GID_INFO` | This command returns the GPU ID (GID) string for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:1749` | `NV2080_CTRL_GPU_GET_GID_INFO_PARAMS` | 268 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 20 call(s), 32 of 268 bytes* | | | | | |
 | ctl | `0x2a` | `0x20800170` | `NV2080_CTRL_CMD_GPU_GET_ENGINES_V2` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:778` | `NV2080_CTRL_GPU_GET_ENGINES_V2_PARAMS` | 340 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 34 call(s), 32 of 340 bytes; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x2080019f` | `NV2080_CTRL_CMD_GPU_GET_SKYLINE_INFO` | Retrieves skyline information about the GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3995` | `NV2080_CTRL_GPU_GET_SKYLINE_INFO_PARAMS` | 688 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 9 call(s), 32 of 688 bytes* | | | | | |
 | ctl | `0x2a` | `0x20801210` | `NV2080_CTRL_CMD_GR_SET_CTXSW_PREEMPTION_MODE` | This command is used to set the preemption context switch mode for the specified channel. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:831` | `NV2080_CTRL_GR_SET_CTXSW_PREEMPTION_MODE_PARAMS` | 32 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 18 call(s), 32 of 32 bytes; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20801218` | `NV2080_CTRL_CMD_GR_GET_CTX_BUFFER_SIZE` | This command provides the size, alignment of all context buffers including global and local context buffers which has been created & will be mapped on a context | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:1050` | `NV2080_CTRL_GR_GET_CTX_BUFFER_SIZE_PARAMS` | 16 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
 | | | | | *answer bytes compared against a native run: 64 call(s), 16 of 16 bytes* | | | | | |
 | ctl | `0x2a` | `0x2080121b` | `NV2080_CTRL_CMD_GR_GET_GLOBAL_SM_ORDER` | This command returns the global logical ordering of SM w.r.t GPCs/TPCs. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:1205` | `NV2080_CTRL_GR_GET_GLOBAL_SM_ORDER_PARAMS` | 9240 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 10 call(s), 32 of 9240 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20801227` | `NV2080_CTRL_CMD_GR_GET_CAPS_V2` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:1421` | `NV2080_CTRL_GR_GET_CAPS_V2_PARAMS` | 48 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 9 call(s), 32 of 48 bytes* | | | | | |
 | ctl | `0x2a` | `0x2080122a` | `NV2080_CTRL_CMD_GR_GET_GPC_MASK` | This command returns a mask of enabled GPCs for the associated subdevice. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:1448` | `NV2080_CTRL_GR_GET_GPC_MASK_PARAMS` | 24 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
@@ -125,7 +136,9 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2a` | `0x2080122b` | `NV2080_CTRL_CMD_GR_GET_TPC_MASK` | This command returns a mask of enabled TPCs for a specified GPC. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:1476` | `NV2080_CTRL_GR_GET_TPC_MASK_PARAMS` | 24 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 27 call(s), 24 of 24 bytes* | | | | | |
 | ctl | `0x2a` | `0x20801701` | `NV2080_CTRL_CMD_MC_GET_ARCH_INFO` | This command returns chip architecture information from the master control engine in the specified GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080mc.h:61` | `NV2080_CTRL_MC_GET_ARCH_INFO_PARAMS` | 16 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 15 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20801801` | `NV2080_CTRL_CMD_BUS_GET_PCI_INFO` | This command returns PCI bus identifier information for the specified GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:63` | `NV2080_CTRL_BUS_GET_PCI_INFO_PARAMS` | 16 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 14 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20801803` | `NV2080_CTRL_CMD_BUS_GET_PCI_BAR_INFO` | This command returns PCI bus BAR information. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:638` | `NV2080_CTRL_BUS_GET_PCI_BAR_INFO_PARAMS` | 200 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 9 call(s), 32 of 200 bytes* | | | | | |
 | ctl | `0x2a` | `0x20801823` | `NV2080_CTRL_CMD_BUS_GET_INFO_V2` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:588` | `NV2080_CTRL_BUS_GET_INFO_V2_PARAMS` | 420 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
@@ -134,6 +147,7 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2a` | `0x2080182b` | `NV2080_CTRL_CMD_BUS_GET_C2C_INFO` | This command returns the C2C links information. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:1331` | `NV2080_CTRL_CMD_BUS_GET_C2C_INFO_PARAMS` | 28 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 9 call(s), 28 of 28 bytes* | | | | | |
 | ctl | `0x2a` | `0x2080200a` | `NV2080_CTRL_CMD_PERF_BOOST` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080perf.h:95` | `NV2080_CTRL_PERF_BOOST_PARAMS` | 8 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 24 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x2080220c` | `NV2080_CTRL_CMD_RC_RELEASE_WATCHDOG_REQUESTS` | This command releases all of the RM client's outstanding requests to enable or disable the watchdog. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080rc.h:232` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *argument-less: no params struct in the header, and all 13 observed call(s) passed paramsSize 0* | | | | | |
 | ctl | `0x2a` | `0x20802210` | `NV2080_CTRL_CMD_RC_SOFT_DISABLE_WATCHDOG` | This command disables the RC watchdog, similarly to how NV2080_CTRL_CMD_RC_DISABLE_WATCHDOG does. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080rc.h:333` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
@@ -152,10 +166,13 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answer bytes compared against a native run: 9 call(s), 1 of 1 bytes* | | | | | |
 | ctl | `0x2a` | `0x20810108` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
 | ctl | `0x2a` | `0x214` | `NV0000_CTRL_CMD_GPU_GET_PROBED_IDS` | This command returns a table of probed gpuId values. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:310` | `NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS` | 384 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 13 call(s), 32 of 384 bytes, masked {'gpuId': 13}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x215` | `NV0000_CTRL_CMD_GPU_ATTACH_IDS` | This command attaches the GPUs with the gpuIds matching those in the table provided by the client. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:412` | `NV0000_CTRL_GPU_ATTACH_IDS_PARAMS` | 132 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 18 call(s), 32 of 132 bytes, masked {'gpuId': 12}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x27b` | `NV0000_CTRL_CMD_GPU_GET_MEMOP_ENABLE` | This command is used to get the content of the MemOp (CUDA Memory Operation) enablement mask, which can be overridden by using the MemOpOverride RegKey. The ena | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:800` | `NV0000_CTRL_GPU_GET_MEMOP_ENABLE_PARAMS` | 4 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 9 call(s), 4 of 4 bytes* | | | | | |
 | ctl | `0x2a` | `0x288` | `NV0000_CTRL_CMD_GPU_GET_ACTIVE_DEVICE_IDS` | This command returns a list of valid GPUs treating uniformly MIG devices and GPUs not in MIG mode. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:1016` | `NV0000_CTRL_GPU_GET_ACTIVE_DEVICE_IDS_PARAMS` | 3076 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 14 call(s), 32 of 3076 bytes, masked {'gpuId': 14}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x800280` | `NV0080_CTRL_CMD_GPU_GET_NUM_SUBDEVICES` | This command returns the number of subdevices for the device. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gpu.h:91` | `NV0080_CTRL_GPU_GET_NUM_SUBDEVICES_PARAMS` | 4 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x800289` | `NV0080_CTRL_CMD_GPU_GET_VIRTUALIZATION_MODE` | This command returns a value indicating virtualization mode in which the GPU is running. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gpu.h:300` | `NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS` | 8 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x800292` | `NV0080_CTRL_CMD_GPU_GET_CLASSLIST_V2` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gpu.h:506` | `NV0080_CTRL_GPU_GET_CLASSLIST_V2_PARAMS` | 804 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
@@ -192,20 +209,30 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2a` | `0x204` | `NV0000_CTRL_CMD_GPU_GET_DEVICE_IDS` | This command returns a mask of valid device IDs. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:268` | `NV0000_CTRL_GPU_GET_DEVICE_IDS_PARAMS` | 4 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 7 call(s), 4 of 4 bytes* | | | | | |
 | ctl | `0x2a` | `0x20800142` | `NV2080_CTRL_CMD_GPU_GET_ID` | This command returns the gpuId of the associated object. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:1584` | `NV2080_CTRL_GPU_GET_ID_PARAMS` | 4 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 4 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20800147` | `NV2080_CTRL_CMD_GPU_GET_ENGINE_PARTNERLIST` | Returns a list of engines that can partner or coexist when using the target channel or partnership class. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:1691` | `NV2080_CTRL_GPU_GET_ENGINE_PARTNERLIST_PARAMS` | 144 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 18 call(s), 32 of 144 bytes; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20800403` | `NV2080_CTRL_CMD_TIMER_GET_TIME` | This command returns the current GPU timer value. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080tmr.h:101` | `NV2080_CTRL_TIMER_GET_TIME_PARAMS` | 8 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x20801206` | `NV2080_CTRL_CMD_GR_GET_ZCULL_INFO` | This command is used to query the RM for zcull information that the driver will need to allocate and manage the zcull regions. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:521` | `NV2080_CTRL_GR_GET_ZCULL_INFO_PARAMS` | 40 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 2 call(s), 32 of 40 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20801208` | `NV2080_CTRL_CMD_GR_CTXSW_ZCULL_BIND` | This command is used to set the zcull context switch mode and virtual address for the specified channel. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:612` | `NV2080_CTRL_GR_CTXSW_ZCULL_BIND_PARAMS` | 24 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x20801315` | `NV2080_CTRL_CMD_FB_GET_GPU_CACHE_INFO` | This command returns the state of a cache which all GPU memory accesess go through. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:822` | `NV2080_CTRL_FB_GET_GPU_CACHE_INFO_PARAMS` | 16 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 2 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20801320` | `NV2080_CTRL_CMD_FB_GET_FB_REGION_INFO` | This command returns the FB memory region characteristics. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:890` | `NV2080_CTRL_CMD_FB_GET_FB_REGION_INFO_PARAMS` | 904 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 2 call(s), 32 of 904 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20801352` | `NV2080_CTRL_CMD_FB_GET_SEMAPHORE_SURFACE_LAYOUT` | This control command is used by clients to get NV_SEMAPHORE_SURFACE layout/caps before allocation. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:2642` | `NV2080_CTRL_FB_GET_SEMAPHORE_SURFACE_LAYOUT_PARAMS` | 32 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 2 call(s), 32 of 32 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20802a02` | `NV2080_CTRL_CMD_CE_GET_CE_PCE_MASK` | This command returns the mapping of PCE's for the given LCE. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080ce.h:171` | `NV2080_CTRL_CE_GET_CE_PCE_MASK_PARAMS` | 8 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 42 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20802a03` | `NV2080_CTRL_CMD_CE_GET_CAPS_V2` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080ce.h:78` | `NV2080_CTRL_CE_GET_CAPS_V2_PARAMS` | 8 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 110 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20803d07` | `NV2080_CTRL_CMD_OS_UNIX_VIDMEM_PERSISTENCE_STATUS` | This command will be used by clients to check if the GPU video memory will be persistent during system suspend/resume cycle. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080unix.h:166` | `NV2080_CTRL_OS_UNIX_VIDMEM_PERSISTENCE_STATUS_PARAMS` | 1 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 7 call(s), 1 of 1 bytes* | | | | | |
 | ctl | `0x2a` | `0x20810107` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x216` | `NV0000_CTRL_CMD_GPU_DETACH_IDS` | This command detaches the GPUs with the gpuIds matching those in the table provided by the client. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:465` | `NV0000_CTRL_GPU_DETACH_IDS_PARAMS` | 128 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvml, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 4 call(s), 32 of 128 bytes, masked {'gpuId': 3}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x275` | `NV0000_CTRL_CMD_GPU_GET_UUID_FROM_GPU_ID` | This command returns the GPU UUID for the provided GPU ID. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:626` | `NV0000_CTRL_GPU_GET_UUID_FROM_GPU_ID_PARAMS` | 268 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 9 call(s), 32 of 268 bytes, masked {'gpuId': 9}; NOT paired in egl-xlib, gles, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x301` | `NV0000_CTRL_CMD_GSYNC_GET_ATTACHED_IDS` | This command returns a table of attached gsyncId values. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gsync.h:57` | `NV0000_CTRL_GSYNC_GET_ATTACHED_IDS_PARAMS` | 16 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x730101` | `NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2` | This command returns the set of display capabilities for the parent device in the form of an array of unsigned bytes. | `src/common/sdk/nvidia/inc/ctrl/ctrl0073/ctrl0073system.h:93` | `NV0073_CTRL_SYSTEM_GET_CAPS_V2_PARAMS` | 2 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x801707` | `NV0080_CTRL_CMD_FIFO_GET_ENGINE_CONTEXT_PROPERTIES` | This command is used to provide the caller with the alignment and size of the context save region for an engine engineId This parameter is an input parameter sp | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:119` | `NV0080_CTRL_FIFO_GET_ENGINE_CONTEXT_PROPERTIES_PARAMS` | 12 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
@@ -337,6 +364,8 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2a` | `0x2080a63c` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | nvml |
 | | | | | *answer bytes compared against a native run: 1 call(s), 28 of 28 bytes* | | | | | |
 | ctl | `0x2a` | `0x21b` | `NV0000_CTRL_CMD_GPU_GET_PCI_INFO` | This command takes a gpuId and returns PCI bus information about the device. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:353` | `NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS` | 12 | none | nvml, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 4 call(s), 12 of 12 bytes, masked {'gpuId': 4, 'mediated:bdf-address': 4}* | | | | | |
+| | | | | *MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (GET_PCI_INFO (bdf-scalar) @0; domain (bdf-address) @4; bus (bdf-address) @8; slot (bdf-address) @10) and in no other byte. That is a different claim from byte equality* | | | | | |
 | ctl | `0x2a` | `0x279` | `NV0000_CTRL_CMD_GPU_QUERY_DRAIN_STATE` | gpuId (INPUT) This parameter should specify a valid GPU ID value. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:738` | `NV0000_CTRL_GPU_QUERY_DRAIN_STATE_PARAMS` | 12 | none | nvml |
 | | | | | *answer bytes compared against a native run: 1 call(s), 12 of 12 bytes, masked {'gpuId': 1}* | | | | | |
 | ctl | `0x2a` | `0x289` | `NV0000_CTRL_CMD_GPU_ASYNC_ATTACH_ID` | This command attaches the GPU with the given gpuId, similar to NV0000_CTRL_CMD_GPU_ATTACH_IDS. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:1052` | `NV0000_CTRL_GPU_ASYNC_ATTACH_ID_PARAMS` | 4 | none | nvml |
@@ -366,12 +395,6 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x29` | `-` | `NV_ESC_RM_FREE` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:33` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x101` | `NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION` | This command returns the current driver information. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000system.h:108` | `NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS` | 40 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
 | | | | | *pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24* | | | | | |
-| ctl | `0x2a` | `0x20800110` | `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` | This command returns the name of the GPU in string form in ASCII format. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:325` | `NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS` | 68 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
-| | | | | *answered by the backend itself: CMD_GPU_GET_NAME_STRING (vram.rs:797)* | | | | | |
-| ctl | `0x2a` | `0x20801201` | `NV2080_CTRL_CMD_GR_GET_INFO` | This command returns gr engine information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:408` | `NV2080_CTRL_GR_GET_INFO_PARAMS` | 32 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
-| | | | | *pointer field(s), offsets compiled: grInfoList @8* | | | | | |
-| ctl | `0x2a` | `0x20801303` | `NV2080_CTRL_CMD_FB_GET_INFO_V2` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:489` | `NV2080_CTRL_FB_GET_INFO_V2_PARAMS` | 1028 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
-| | | | | *answered by the backend itself: CMD_FB_GET_INFO_V2 (vram.rs:782)* | | | | | |
 | ctl | `0x2a` | `0x80170d` | `NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST` | Takes a list of hChannels as input and returns the corresponding Channel IDs that they corresponding to on hw. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:178` | `NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS` | 24 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
 | | | | | *pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16* | | | | | |
 | ctl | `0x2b` | `0x2080` | `NV20_SUBDEVICE_0` | &mdash; | `src/nvidia/generated/g_allclasses.h:305` | `NV2080_ALLOC_PARAMETERS` | 4 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
@@ -414,9 +437,6 @@ the two places a size is not self-describing -- they agree.
 | uvm | `0x2c` | `-` | `UVM_ENABLE_READ_DUPLICATION` | &mdash; | `kernel-open/nvidia-uvm/uvm_ioctl.h:466` | `UVM_ENABLE_READ_DUPLICATION_PARAMS` | 24 | none | cuda-managed |
 | uvm | `0x2d` | `-` | `UVM_DISABLE_READ_DUPLICATION` | &mdash; | `kernel-open/nvidia-uvm/uvm_ioctl.h:478` | `UVM_DISABLE_READ_DUPLICATION_PARAMS` | 24 | none | cuda-managed |
 | uvm | `0x33` | `-` | `UVM_MIGRATE` | &mdash; | `kernel-open/nvidia-uvm/uvm_ioctl.h:602` | `UVM_MIGRATE_PARAMS` | 80 | none | cuda-managed |
-| ctl | `0x2a` | `0x20801301` | `NV2080_CTRL_CMD_FB_GET_INFO` | This command returns fb engine information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:480` | `NV2080_CTRL_FB_GET_INFO_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
-| | | | | *answered by the backend itself: CMD_FB_GET_INFO (vram.rs:795)* | | | | | |
-| | | | | *pointer field(s), offsets compiled: fbInfoList @8* | | | | | |
 | ctl | `0x2a` | `0x3d05` | `NV0000_CTRL_CMD_OS_UNIX_EXPORT_OBJECT_TO_FD` | This command may be used to export NV0000_CTRL_OS_UNIX_EXPORT_OBJECT_TYPE object to file descriptor. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000unix.h:147` | `NV0000_CTRL_OS_UNIX_EXPORT_OBJECT_TO_FD_PARAMS` | 24 | fd-field | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x801102` | `NV0080_CTRL_CMD_GR_GET_CAPS` | This command returns the set of graphics capabilities for the device in the form of an array of unsigned bytes. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gr.h:60` | `NV0080_CTRL_GR_GET_CAPS_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | | | | | *pointer field(s), offsets compiled: capsTbl @8* | | | | | |
@@ -450,10 +470,8 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2b` | `0xc4b0` | `NVC4B0_VIDEO_DECODER` | &mdash; | `src/nvidia/generated/g_allclasses.h:911` | `&mdash;` | 12 (table) | none | nvdec, vk-offscreen |
 | ctl | `0x2b` | `0xa0bc` | `NVENC_SW_SESSION` | &mdash; | `src/nvidia/generated/g_allclasses.h:1219` | `NVA0BC_ALLOC_PARAMETERS` | 20 | size-table | nvenc |
 | ctl | `0x2b` | `0xc4b7` | `NVC4B7_VIDEO_ENCODER` | &mdash; | `src/nvidia/generated/g_allclasses.h:947` | `&mdash;` | 12 (table) | none | nvenc, vk-offscreen |
-| ctl | `0x2a` | `0x2080018d` | `NV2080_CTRL_CMD_GPU_GET_PIDS` | Given a resource identifier and its type, this command returns a set of process identifiers (PIDs) of processes that have instantiated this resource. For exampl | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3501` | `NV2080_CTRL_GPU_GET_PIDS_PARAMS` | 3812 | none | nvml |
-| | | | | *answered by the backend itself: CMD_GPU_GET_PIDS (vram.rs:628)* | | | | | |
 | ctl | `0x2a` | `0x2080018e` | `NV2080_CTRL_CMD_GPU_GET_PID_INFO` | This command allows querying per-process information from the RM. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3643` | `NV2080_CTRL_GPU_GET_PID_INFO_PARAMS` | 14408 | none | nvml |
-| | | | | *answered by the backend itself: CMD_GPU_GET_PID_INFO (vram.rs:630)* | | | | | |
+| | | | | *answered by the backend itself: pidInfoListCount @0 (backend-answered, mediation.txt); pidInfoList @8 (backend-answered, mediation.txt)* | | | | | |
 | ctl | `0x2b` | `0xc640` | `AMPERE_SMC_MONITOR_SESSION` | &mdash; | `src/nvidia/generated/g_allclasses.h:1147` | `NVC640_ALLOCATION_PARAMETERS` | 8 | size-table | nvml |
 | uvm | `0x30000002` | `-` | `UVM_DEINITIALIZE` | &mdash; | `kernel-open/nvidia-uvm/uvm_linux_ioctl.h:40` | `&mdash;` | 0 (table) | none | nvml |
 | ctl | `0x2b` | `0x5` | `NV01_EVENT` | &mdash; | `src/nvidia/generated/g_allclasses.h:463` | `NV0005_ALLOC_PARAMETERS` | 24 | embedded-ptr, fd-field, size-table | vk-enum, vk-offscreen, vk-rt |
@@ -464,6 +482,13 @@ the two places a size is not self-describing -- they agree.
 
 | device | nr | sub | name | description | header | params | size | flags | seen in |
 |---|---|---|---|---|---|---|---:|---|---|
+| ctl | `0x2a` | `0x20801201` | `NV2080_CTRL_CMD_GR_GET_INFO` | This command returns gr engine information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:408` | `NV2080_CTRL_GR_GET_INFO_PARAMS` | 32 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *pointer field(s), offsets compiled: grInfoList @8* | | | | | |
+| | | | | *answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'nested-ptr': 19}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
+| ctl | `0x2a` | `0x20801301` | `NV2080_CTRL_CMD_FB_GET_INFO` | This command returns fb engine information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:480` | `NV2080_CTRL_FB_GET_INFO_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answered by the backend itself: fbInfoList[].data @4 (backend-answered, mediation.txt)* | | | | | |
+| | | | | *pointer field(s), offsets compiled: fbInfoList @8* | | | | | |
+| | | | | *answer bytes compared against a native run: 5 call(s), 16 of 16 bytes, masked {'nested-ptr': 10}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20801802` | `NV2080_CTRL_CMD_BUS_GET_INFO` | This command returns bus engine information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:579` | `NV2080_CTRL_BUS_GET_INFO_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | nvdec, nvenc, nvml |
 | | | | | *pointer field(s), offsets compiled: busInfoList @8* | | | | | |
 | | | | | *answer bytes compared against a native run: 10 call(s), 16 of 16 bytes, masked {'nested-ptr': 20}* | | | | | |
@@ -474,6 +499,23 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2a` | `0x20800123` | `NV2080_CTRL_CMD_GPU_GET_ENGINES` | Returns a list of supported engine types along with the number of instances of each type. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:769` | `NV2080_CTRL_GPU_GET_ENGINES_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | vk-enum, vk-offscreen, vk-rt |
 | | | | | *pointer field(s), offsets compiled: engineList @8* | | | | | |
 | | | | | *answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'nested-ptr': 6}* | | | | | |
+
+## implemented-verified-mediated
+
+| device | nr | sub | name | description | header | params | size | flags | seen in |
+|---|---|---|---|---|---|---|---:|---|---|
+| ctl | `0x2a` | `0x20800110` | `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` | This command returns the name of the GPU in string form in ASCII format. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:325` | `NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS` | 68 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answered by the backend itself: gpuNameString @4 (identity-string, mediation.txt)* | | | | | |
+| | | | | *answer bytes compared against a native run: 20 call(s), 32 of 68 bytes, masked {'mediated:identity-string': 120}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
+| | | | | *MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (gpuNameString (identity-string) @4) and in no other byte. That is a different claim from byte equality* | | | | | |
+| ctl | `0x2a` | `0x20801303` | `NV2080_CTRL_CMD_FB_GET_INFO_V2` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:489` | `NV2080_CTRL_FB_GET_INFO_V2_PARAMS` | 1028 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
+| | | | | *answered by the backend itself: fbInfoList[].data @8 (backend-answered, mediation.txt)* | | | | | |
+| | | | | *answer bytes compared against a native run: 51 call(s), 32 of 1028 bytes, masked {'mediated:backend-answered': 11}* | | | | | |
+| | | | | *MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (fbInfoList[].data (backend-answered) @8 x128 stride 8) and in no other byte. That is a different claim from byte equality* | | | | | |
+| ctl | `0x2a` | `0x2080018d` | `NV2080_CTRL_CMD_GPU_GET_PIDS` | Given a resource identifier and its type, this command returns a set of process identifiers (PIDs) of processes that have instantiated this resource. For exampl | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3501` | `NV2080_CTRL_GPU_GET_PIDS_PARAMS` | 3812 | none | nvml |
+| | | | | *answered by the backend itself: pidTblCount @8 (backend-answered, mediation.txt); pidTbl @12 (backend-answered, mediation.txt)* | | | | | |
+| | | | | *answer bytes compared against a native run: 3 call(s), 32 of 3812 bytes, masked {'mediated:backend-answered': 11}* | | | | | |
+| | | | | *MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (pidTblCount (backend-answered) @8; pidTbl (backend-answered) @12 x950 stride 4) and in no other byte. That is a different claim from byte equality* | | | | | |
 
 ## not-governed
 

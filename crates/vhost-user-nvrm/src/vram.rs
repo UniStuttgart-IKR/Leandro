@@ -624,32 +624,18 @@ impl Drop for Books {
 // protocol change, no table entry, PROTO_VERSION untouched (4 when this
 // was written, 6 today -- no bump ever came from here).
 
-/// `NV2080_CTRL_CMD_GPU_GET_PIDS` (ctrl2080gpu.h:3501).
-pub const CMD_GPU_GET_PIDS: u32 = 0x2080_018d;
-/// `NV2080_CTRL_CMD_GPU_GET_PID_INFO` (ctrl2080gpu.h:3643).
-pub const CMD_GPU_GET_PID_INFO: u32 = 0x2080_018e;
-
-/// `NV2080_CTRL_GPU_GET_PIDS_PARAMS`: idType @0, id @4, pidTblCount @8,
-/// pidTbl[950] @12 -- 3812 bytes (ctrl2080gpu.h:3508).
-const PIDS_COUNT_OFF: usize = 8;
-const PIDS_TBL_OFF: usize = 12;
-const PIDS_MAX: usize = 950;
-const PIDS_LEN: usize = PIDS_TBL_OFF + 4 * PIDS_MAX;
-
-/// `NV2080_CTRL_GPU_GET_PID_INFO_PARAMS`: pidInfoListCount @0,
-/// pidInfoList[200] @8 -- 14408 bytes (ctrl2080gpu.h:3649).
-const PIDINFO_COUNT_OFF: usize = 0;
-const PIDINFO_LIST_OFF: usize = 8;
-const PIDINFO_MAX: usize = 200;
-/// One `NV2080_CTRL_GPU_PID_INFO`: pid @0, index @4, result @8, data @16,
-/// smcSubscription @64 -- 72 bytes (ctrl2080gpu.h:3617).
-const PIDINFO_ENTRY: usize = 72;
-const PIDINFO_LEN: usize = PIDINFO_LIST_OFF + PIDINFO_ENTRY * PIDINFO_MAX;
-/// Inside one entry: `data.vidMemUsage.memPrivate` sits at the start of the
-/// union, i.e. at entry offset 16.
-const PIDINFO_MEM_PRIVATE: usize = 16;
-/// `NV2080_CTRL_GPU_PID_INFO_INDEX_VIDEO_MEMORY_USAGE` (ctrl2080gpu.h:3570).
-const PIDINFO_INDEX_VIDEO_MEMORY_USAGE: u32 = 0;
+// THE OFFSETS COME FROM `nvrm_abi::mediate`, and so does the manifest that
+// `verify` masks with. That is the point of having moved them: a field this
+// code rewrites and the manifest does not describe would be reported as a
+// defect on every guest run, and a manifest field this code does not touch
+// would quietly widen the mask. Neither can happen while there is one
+// definition, and these are it -- every one an `offset_of!` on the bindgen
+// struct rather than a number anybody typed.
+pub use nvrm_abi::mediate::{
+    CMD_GPU_GET_PIDS, CMD_GPU_GET_PID_INFO, PIDINFO_COUNT_OFF, PIDINFO_ENTRY,
+    PIDINFO_INDEX_VIDEO_MEMORY_USAGE, PIDINFO_LEN, PIDINFO_LIST_OFF, PIDINFO_MAX,
+    PIDINFO_MEM_PRIVATE, PIDS_COUNT_OFF, PIDS_LEN, PIDS_MAX, PIDS_TBL_OFF,
+};
 
 /// Replace the PID table with this VM's guest processes.
 ///
@@ -737,24 +723,15 @@ const _: () = {
 // here is a write target: these functions REPLACE what RM wrote, and an
 // offset that has moved would scatter guest PIDs and byte counts across
 // neighbouring fields of a buffer that goes straight back to the guest.
+// The offsets themselves are `offset_of!` expressions in `nvrm_abi::mediate`
+// now, so asserting them against `offset_of!` here would be asserting a
+// thing against itself. What is left is the statement that is NOT implied by
+// the struct layout: this loop's own bound.
 const _: () = {
-    assert!(PIDS_LEN == core::mem::size_of::<sys::NV2080_CTRL_GPU_GET_PIDS_PARAMS>());
-    assert!(PIDS_COUNT_OFF == core::mem::offset_of!(sys::NV2080_CTRL_GPU_GET_PIDS_PARAMS, pidTblCount));
-    assert!(PIDS_TBL_OFF == core::mem::offset_of!(sys::NV2080_CTRL_GPU_GET_PIDS_PARAMS, pidTbl));
-
-    assert!(PIDINFO_ENTRY == core::mem::size_of::<sys::NV2080_CTRL_GPU_PID_INFO>());
-    assert!(PIDINFO_LEN == core::mem::size_of::<sys::NV2080_CTRL_GPU_GET_PID_INFO_PARAMS>());
-    assert!(PIDINFO_COUNT_OFF
-        == core::mem::offset_of!(sys::NV2080_CTRL_GPU_GET_PID_INFO_PARAMS, pidInfoListCount));
-    assert!(PIDINFO_LIST_OFF
-        == core::mem::offset_of!(sys::NV2080_CTRL_GPU_GET_PID_INFO_PARAMS, pidInfoList));
-    // `data` is the union whose first member is `vidMemUsage`, and
-    // `memPrivate` is that member's first field -- so the union's own
-    // offset inside the entry is what the zeroing loop and the byte count
-    // are written at.
-    assert!(PIDINFO_MEM_PRIVATE == core::mem::offset_of!(sys::NV2080_CTRL_GPU_PID_INFO, data));
     // The zeroing loop writes 6 u64 to clear the whole union; it must stay
-    // inside the entry.
+    // inside the entry. `data` is the union whose first member is
+    // `vidMemUsage`, and `memPrivate` is that member's first field, so the
+    // union's own offset inside the entry is where the loop starts.
     assert!(PIDINFO_MEM_PRIVATE + 6 * 8 <= PIDINFO_ENTRY);
 };
 
@@ -779,7 +756,7 @@ const _: () = {
 // come from one source -- this ledger.
 
 /// `NV2080_CTRL_CMD_FB_GET_INFO_V2` (ctrl2080fb.h:489).
-pub const CMD_FB_GET_INFO_V2: u32 = 0x2080_1303;
+pub use nvrm_abi::mediate::CMD_FB_GET_INFO_V2;
 /// `NV2080_CTRL_CMD_FB_GET_INFO` (ctrl2080fb.h:480), the V1 form -- the
 /// SAME index list, but the array hangs off an `NvP64` instead of sitting
 /// in the params buffer (`xlate::nested_ptrs`, ptr_off 8).
@@ -792,17 +769,14 @@ pub const CMD_FB_GET_INFO_V2: u32 = 0x2080_1303;
 /// 0x20801301, none to 0x20801303. A client sizes its texture budget from
 /// that heap, so an uncapped answer here is not a cosmetic leak: it is the
 /// VM being invited to overcommit the card.
-pub const CMD_FB_GET_INFO: u32 = 0x2080_1301;
+pub use nvrm_abi::mediate::CMD_FB_GET_INFO;
 /// `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` (ctrl2080gpu.h:325).
-pub const CMD_GPU_GET_NAME_STRING: u32 = 0x2080_0110;
+pub use nvrm_abi::mediate::CMD_GPU_GET_NAME_STRING;
 
-/// `NV2080_CTRL_FB_GET_INFO_V2_PARAMS`: fbInfoListSize @0, then
-/// `NV2080_CTRL_FB_INFO { u32 index; u32 data; }` (ctrlxxxx.h:71) -- 1028
-/// bytes for the 128-entry maximum.
-const FBINFO_COUNT_OFF: usize = 0;
-const FBINFO_LIST_OFF: usize = 4;
-const FBINFO_ENTRY: usize = 8;
-const FBINFO_MAX: usize = 128;
+/// `NV2080_CTRL_FB_GET_INFO_V2_PARAMS`: `fbInfoListSize` @0, then
+/// `NV2080_CTRL_FB_INFO { u32 index; u32 data; }` -- 1028 bytes for the
+/// 128-entry maximum.
+pub use nvrm_abi::mediate::{FBINFO_COUNT_OFF, FBINFO_ENTRY, FBINFO_LIST_OFF, FBINFO_MAX};
 
 /// The size indices, all in KILOBYTES (ctrl2080fb.h:76-112, :254-260).
 /// Measured: the guest asks for 0x08, 0x09 and 0x16. The other two are
@@ -885,21 +859,9 @@ fn cap_fb_entries(list: &mut [u8], asked: usize, limit: u64, used: u64) -> Optio
     Some(touched)
 }
 
-/// `NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS`: gpuNameStringFlags @0,
-/// ascii[64] @4 (ctrl2080gpu.h:338, NV2080_GPU_MAX_NAME_STRING_LENGTH=64).
-const NAME_OFF: usize = 4;
-const NAME_MAX: usize = 64;
-
-// Tied to the generated struct like the offsets above. bindgen emits the
-// name field as a nested type of its own (the header writes it as a union
-// of `ascii` and `unicode`, of which this driver's header carries only
-// `ascii`), so its SIZE is `NV2080_GPU_MAX_NAME_STRING_LENGTH`.
-const _: () = {
-    assert!(NAME_OFF
-        == core::mem::offset_of!(sys::NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS, gpuNameString));
-    assert!(NAME_MAX
-        == core::mem::size_of::<sys::NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS__bindgen_ty_1>());
-};
+/// `NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS`: `gpuNameStringFlags` @0,
+/// `ascii[64]` @4 (ctrl2080gpu.h:338, `NV2080_GPU_MAX_NAME_STRING_LENGTH` = 64).
+pub use nvrm_abi::mediate::{NAME_MAX, NAME_OFF};
 
 /// The name the guest's `nvidia-smi` prints for the card.
 ///

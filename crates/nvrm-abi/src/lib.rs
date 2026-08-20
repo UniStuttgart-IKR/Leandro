@@ -19,6 +19,7 @@
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::Path;
 
+pub mod mediate;
 pub mod nvgpu;
 pub mod share;
 pub mod table;
