@@ -390,6 +390,103 @@ that differ in outcome and in nothing else, both driven over
 the level is read once per process, and a restart costs the live crashed
 instance -- which is why the evidence above was written out first.
 
+**The restart was taken, and the crash did not come back.** Measured
+2026-08-20 on a guest brought up fresh with `LEA_DEBUG=2`:
+
+- `glxgears` on the compositor's Xwayland runs, 58.8 FPS. Six rounds of
+  client churn -- eight `glxinfo` and two `glxgears` each, then a test run
+  -- did not change that, and `dmesg` counted zero `segfault at 8`. So the
+  state number 33 calls self-poisoning is NOT reached by use: not by time,
+  not by client count, not by drawing.
+- A second fresh session, traced to 578_690 calls, is equally clean: no
+  crash, no refusal, and not one `ret -1` anywhere.
+
+So the reproducer of the section above is a reproducer only on an ALREADY
+poisoned instance. What poisons it is still unmeasured, and the two
+sessions that had it (the game's and the one `glxgears` was caught on) are
+both gone. Naming it needs a guest kept until it poisons itself, with the
+trace already running -- which is now cheap to arrange and was not before.
+
+**What the healthy instance did give is the missing half of the
+comparison.** Breaking at `libGLX_nvidia+0x836e0` in a healthy guest and
+walking the same list shows two nodes, exactly as the poisoned core had,
+and they differ from it in precisely two fields:
+
+| field | healthy | poisoned |
+|---|---|---|
+| `+0x30` | `0x14`, `0x13` | `0xffffffff` on both |
+| `+0x08` | a valid pointer | `NULL` on both |
+
+`+0x28` is `9` in both, the node count is 2 in both, and in the healthy
+case each node's backing object holds a pointer to ITSELF at `+8`, which
+is the identity token the search compares. `0xffffffff` is
+`NVRM_GPU_INVALID_ID` (`nvrm_wire.h`). So the object is not corrupted
+after the fact: it is BUILT for an id that is already the invalid one, and
+gets no backing because there is nothing to back it with. Whatever hands
+libGLX_nvidia that `-1` is the defect.
+
+The guest's library is the host's, now measured rather than argued:
+`/opt/nvrm-gl/lib/libGLX_nvidia.so.610.57.04` in the guest hashes
+`7ef1112f99de62db27670075e2dd1318235bbb3fe769850bf714b0c7e657784c`, the
+same sha256 as the host's copy.
+
+**Three of our own diagnostics were lying, and all three are fixed** --
+which is the fix this round earned, because it is the part that was
+measured:
+
+1. The `CROSS-SESSION` reader in
+   [`nvrm.rs`](../crates/vhost-user-nvrm/src/nvrm.rs) asked whether the
+   CALLER's mirror holds the token, which stopped being the right question
+   at protocol v6: the translation resolves through `fd_field_proc`. It
+   reported 20 misses in a session that refused nothing, reading exactly
+   like the bug it was added to find. It now fires only on the real
+   refusal condition -- field translated at all, device cannot resolve it,
+   caller's own mirror cannot either. A fresh traced session reports zero.
+2. A hard ioctl failure (`ret != 0`) logged no FD, and for a one-shot
+   escape the FD is the whole question. It now prints the host FD and
+   token beside the failure.
+3. The fd census printed `unaccounted` as `ctl - named - window.len()`,
+   subtracting three different units: nvidiactl-only FDs, session-held FDs
+   of every node type, and guest memory MAPPINGS. It read negative
+   always -- -21 on a bare boot, -203 on a desktop -- for a figure its own
+   doc calls "held outside every session". It is now `total - named` and
+   named `outside every session`.
+
+None of the three is the crash. They are the reason the crash was hunted
+in the wrong place for a session, which is worth the diff on its own.
+
+### 45. `NV_ESC_ATTACH_GPUS_TO_FD` answers `-1` to Xwayland, rarely
+**Open; the host's rule is known, the client is cleared, the FD is not.**
+The escape is one-shot per file descriptor: the host refuses with `EINVAL`
+when `nvlfp->num_attached_gpus != 0`
+([`nv.c`](../vendor/open-gpu-kernel-modules/kernel-open/nvidia/nv.c)),
+before it looks at the ids at all. The only other `EINVAL` on that path is
+a `nvidia_dev_get()` that fails on one of them.
+
+The client is cleared. `strace` of the compositor's Xwayland (2026-08-20)
+shows an `openat("/dev/nvidiactl")` immediately before every attach and
+never two attaches on one FD -- seven attaches, seven fresh FDs, every one
+answering 0 to the guest. So a refusal for "already attached" cannot be
+the guest asking twice.
+
+Rates, all measured 2026-08-20: a desktop session traced at `LEA_DEBUG=2`
+carried 644 of these in 1_392_006 calls, 642 answering 0 and **2**
+answering `-1`, both to Xwayland; two further traced sessions carried
+none; the crash session in number 44 recorded four.
+
+What is missing is which host FD the failing ones rode on, and that is the
+whole question. `Session::on_open` opens a FRESH host FD for every guest
+open, so a "already attached" refusal would mean our routing put a fresh
+guest FD onto an FD that had been attached before -- a real defect -- while
+a `nvidia_dev_get()` failure would mean a bad id and point at BDF
+mediation instead. The failure log did not print the FD. It now does
+(`hard ioctl failure rode host fd N (token 0x..)`), so the next occurrence
+decides it without another round of guessing.
+
+It is NOT the cause of number 44. `glxgears` crashed in a session where
+this escape never fired, and ran to completion in a session where it fired
+twice.
+
 ---
 
 ## Resolved and decided

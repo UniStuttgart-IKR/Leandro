@@ -2740,6 +2740,23 @@ impl Session {
                         self.fail_logs,
                     );
                 }
+                // A HARD ioctl failure (ret != 0, as opposed to an RM status)
+                // does not say which host FD it rode on, and for the one-shot
+                // escapes that is the whole question: NV_ESC_ATTACH_GPUS_TO_FD
+                // answers EINVAL when the FD already carries GPUs
+                // (vendor/.../nv.c, `nvlfp->num_attached_gpus != 0`), so a
+                // spurious one means either the guest attached twice on one FD
+                // or WE routed a fresh guest FD onto a host FD that had been
+                // attached before -- and only the FD number tells those apart.
+                // Not rate-limited with the line above: measured 2026-08-20, a
+                // desktop session traced at LEA_DEBUG=2 produced 2 of these in
+                // 1_392_006 calls, so they cannot bury anything.
+                if ret != 0 {
+                    eprintln!(
+                        "vhost-user-nvrm:   ^ hard ioctl failure rode host fd {} (token {:#x})",
+                        plan.target_fd, plan.target_token
+                    );
+                }
             }
         }
 

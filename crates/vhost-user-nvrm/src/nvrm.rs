@@ -749,16 +749,29 @@ impl NvrmDevice {
             }
         }
         let named: usize = t[0] + t[2] + t[3] + t[4] + t[5] + t[6];
+        // `total`, not `ctl`, and no window term. The old expression was
+        // `ctl - named - window.len()` and subtracted three different units
+        // from each other: `ctl` counts only the fds whose link says
+        // nvidiactl, `named` counts session-held fds of EVERY node
+        // (/dev/nvidia0 and the two uvm nodes as well), and `window` counts
+        // guest memory MAPPINGS, which are not fds at all. It therefore read
+        // negative whenever a session held anything but ctl fds, which is
+        // always: measured 2026-08-20, -21 on a bare boot and -203 on a
+        // desktop, for a figure the doc above calls "held outside every
+        // session" -- a count of things, which cannot be less than zero.
+        // Still i64 and still printed signed: if this ever does go negative
+        // the sessions are claiming fds the process does not have, and that
+        // is worth seeing rather than clamping away.
         eprintln!(
             "vhost-user-nvrm: fd census: {} sessions hold {named} \
              (mirror {} of {} ever, event_ctls {} pooled_waiters {} armed {} pending {} osdesc {}) \
              | window {} maps \
              | process has {total} fds, {ctl} of them nvidiactl \
-             | unaccounted {}",
+             | outside every session {}",
             self.sessions.len(),
             t[0], t[1], t[2], t[3], t[4], t[5], t[6],
             self.window.len(),
-            ctl as i64 - named as i64 - self.window.len() as i64,
+            total as i64 - named as i64,
         );
         for (id, s) in &self.sessions {
             let c = s.census();
@@ -915,53 +928,6 @@ impl NvrmDevice {
                     self.unregister_token(req.guest_proc, req.target_token);
                 }
                 let mem = self.mem.clone();
-                // DIAGNOSTIC 2026-08-17, and it is a READER, not a fix.
-                // `fd_field_token` is resolved INSIDE the session, i.e. only
-                // in the CALLER's mirror (session.rs, Refusal "fd_field_token").
-                // The suspicion: the failing EGLImage import names an fd owned
-                // by a DIFFERENT guest process -- Xwayland imports what a
-                // client exported -- which that lookup cannot see, so it
-                // answers EBADF and NVIDIA's GL stack reports the failed
-                // import as GL_OUT_OF_MEMORY. Measured 2026-08-17: 139936 such
-                // refusals in ONE session while the VRAM ledger stood at 287
-                // of 4096 MiB, so it is not the cap.
-                // If the token resolves in a SIBLING session, the chain is
-                // proven and `fd_field` needs the cross-session resolution
-                // that `aux_fd_field` below already has. If it resolves
-                // NOWHERE, the token is stale and the cause is a lifetime bug
-                // instead -- which is why both cases are printed apart.
-                if req.fd_field_token != proto::NONE_U64
-                    && self
-                        .sessions
-                        .get(&req.guest_proc)
-                        .and_then(|s| s.mirror_raw(req.fd_field_token))
-                        .is_none()
-                {
-                    let mut owner = None;
-                    for (p, s) in self.sessions.iter() {
-                        if *p != req.guest_proc && s.mirror_raw(req.fd_field_token).is_some() {
-                            owner = Some(*p);
-                            break;
-                        }
-                    }
-                    self.fd_field_misses += 1;
-                    // Rate-limited: the guest retries, and 140k lines would
-                    // bury the answer they are supposed to give.
-                    if self.fd_field_misses <= 20 || self.fd_field_misses % 5000 == 0 {
-                        match owner {
-                            Some(o) => eprintln!(
-                                "vhost-user-nvrm: fd_field_token {:#x} asked by proc {} lives in \
-                                 proc {} -- CROSS-SESSION (miss {})",
-                                req.fd_field_token, req.guest_proc, o, self.fd_field_misses
-                            ),
-                            None => eprintln!(
-                                "vhost-user-nvrm: fd_field_token {:#x} asked by proc {} is in NO \
-                                 session -- STALE (miss {})",
-                                req.fd_field_token, req.guest_proc, self.fd_field_misses
-                            ),
-                        }
-                    }
-                }
                 // The fd that sits in the INLINE struct, and below it the one
                 // inside the aux buffer. Both must be resolved HERE, before the
                 // session borrow: the owner may be a different guest process
@@ -982,6 +948,67 @@ impl NvrmDevice {
                 } else {
                     None
                 };
+                // DIAGNOSTIC 2026-08-17, and it is a READER, not a fix. The
+                // EGLImage import that fails names an fd owned by a DIFFERENT
+                // guest process -- Xwayland imports what a client exported --
+                // and a lookup that cannot see it answers EBADF, which
+                // NVIDIA's GL stack reports as GL_OUT_OF_MEMORY. Measured
+                // 2026-08-17: 139936 such refusals in ONE session while the
+                // VRAM ledger stood at 287 of 4096 MiB, so it is not the cap.
+                //
+                // CORRECTED 2026-08-20, and the correction matters more than
+                // the diagnostic. It used to ask only whether the CALLER's own
+                // mirror holds the token, which stopped being the right
+                // question at protocol v6: the resolution just above goes
+                // through `fd_field_proc`, so a token that is absent from the
+                // caller and present in the process that field names is the
+                // HEALTHY cross-process import, not a miss. Asked the old way
+                // it reported 20 CROSS-SESSION misses in a session that
+                // refused NOTHING -- no `session N:` line anywhere in
+                // 1_392_006 traced calls -- which reads exactly like the bug
+                // it was added to find, and cost a reader most of a session.
+                // It now fires only when the call really is about to be
+                // refused, which is all three of: the field is actually
+                // translated at all (`fd_field_off` set -- without it
+                // session.rs never looks the token up and cannot refuse), the
+                // device could not resolve it, and neither can the caller's
+                // own mirror, which is what session.rs falls back to before it
+                // returns EBADF.
+                if req.fd_field_token != proto::NONE_U64
+                    && req.fd_field_off != proto::NONE_U32
+                    && fd_field_fd.is_none()
+                    && self
+                        .sessions
+                        .get(&req.guest_proc)
+                        .and_then(|s| s.mirror_raw(req.fd_field_token))
+                        .is_none()
+                {
+                    let mut owner = None;
+                    for (p, s) in self.sessions.iter() {
+                        if *p != req.guest_proc && s.mirror_raw(req.fd_field_token).is_some() {
+                            owner = Some(*p);
+                            break;
+                        }
+                    }
+                    self.fd_field_misses += 1;
+                    // Rate-limited: the guest retries, and 140k lines would
+                    // bury the answer they are supposed to give.
+                    if self.fd_field_misses <= 20 || self.fd_field_misses % 5000 == 0 {
+                        match owner {
+                            Some(o) => eprintln!(
+                                "vhost-user-nvrm: fd_field_token {:#x} asked by proc {} lives in \
+                                 proc {}, which `fd_field_proc` did not name -- CROSS-SESSION \
+                                 (miss {})",
+                                req.fd_field_token, req.guest_proc, o, self.fd_field_misses
+                            ),
+                            None => eprintln!(
+                                "vhost-user-nvrm: fd_field_token {:#x} asked by proc {} is in NO \
+                                 session -- STALE (miss {})",
+                                req.fd_field_token, req.guest_proc, self.fd_field_misses
+                            ),
+                        }
+                    }
+                }
                 let aux_fd = if req.aux_fd_field_token != proto::NONE_U64
                     && req.aux_fd_field_proc != proto::NONE_U32
                 {
