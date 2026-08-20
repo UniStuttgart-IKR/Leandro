@@ -1140,6 +1140,67 @@ Score such a day by class-coverage delta, not by probes added. That is the
 number that makes "did we find non-carryable ioctls" answerable instead of
 hopeful.
 
+### 60. One answer survived every mask, and it looks like an address that did not travel
+**Open, measured 2026-08-20.** The only `mismatch` left in the byte
+comparison after the fourth mask and the control test, and therefore the
+only potential defect in `matrix/verified-<driver>.json`. Before this run it
+was the twelfth line of a list of forty-five and nobody could have seen it.
+
+`ctl nr=0x2a sub=0x20809064`, 13 calls across `nvml`, `nvdec`, `nvenc` and
+`cuda-torch`, `paramsSize 0x208` (520 bytes), **`NV_OK` on both sides**. The
+command resolves to no public header, so the catalogue row is
+`unknown -- not in public headers` and the field map cannot name its members
+— which is why the finding reads as an offset.
+
+Bytes 24..31, little-endian, in the `nvenc` probe:
+
+| | offset 24 |
+|---|---|
+| native | `30 14 03 80 84 7f 00 00` = **`0x00007f8480031430`** |
+| guest | `00 00 00 00 00 00 00 00` = **0** |
+
+In `nvml` and `nvdec` the same eight bytes are zero on BOTH sides, so the
+difference appears only where the value is non-zero natively.
+
+`0x00007f84_8003_1430` is a canonical x86-64 user-space address. An
+eight-byte field holding one, in a control whose parameter block is 520
+bytes, is the shape of an `NvP64` — and this command is in no header, so
+`xlate::nested_ptrs` has no entry for it, the descriptor table declares
+nothing, and the catalogue calls it `passthrough` because RM_CONTROL is
+self-describing. That is precisely the class numbers 32 and 44 are about:
+**a forwarded, wrongly-answered call fails quietly three steps later
+somewhere else, while a non-carryable one fails loudly and immediately.**
+
+**Not yet a defect, and here is the honest reason.** `ctrlout` dumps the
+params buffer AFTER the call, so this cannot presently distinguish:
+
+  a. an OUT pointer field the mediation does not know about, which the
+     boundary therefore dropped — a real hole; from
+  b. an IN pointer the CALLER supplied, where the guest's
+     `libnvidia-encode` simply took a branch that passes NULL — a userspace
+     difference and nobody's bug.
+
+Both are testable and the test is cheap: dump the params buffer BEFORE the
+call as well and compare. If the field is non-zero on entry natively and
+zero on entry in the guest, it is (b); if it is zero on entry on both sides
+and non-zero on return natively, it is (a) and it is a hole. That dump is
+part of the tracer work the reach half of number 55 needs anyway, so this
+entry is one more reason to do it and not a separate project.
+
+Worth stating plainly: **`nvenc` is `guest-validated`** — it met its own
+criterion in the guest, its signature set and status fingerprint matched
+call for call, and it encoded video. Whatever this field is, it did not
+break encoding. That is the whole argument for comparing answer bytes: a
+gate that asks "did anything fail" cannot see this, and did not.
+
+Two neighbours in the same class, both `stability-unknown` rather than
+mismatches because no native trace called them twice:
+`0x2080852f` (offset 0: `0xf7403501` natively, `0x00000001` in the guest)
+and `0x2080a097` (offset 8: `0x00000014` natively, `0x00000007` in one guest
+sweep and `0x00000023` in the next — which is two-run evidence that it is
+volatile, obtained by accident, and exactly what the second-native-trace
+variant would establish on purpose).
+
 ---
 
 ## Resolved and decided
