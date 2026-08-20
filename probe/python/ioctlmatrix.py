@@ -1056,7 +1056,27 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
                     "each of them with the catalogue's own words about why it is\n"
                     "mediated, so the list is a work list rather than a complaint.\n\n")
             else:
-                fh.write("\n\n")
+                named = [r["name"] for r in rows
+                         if r["status"] == "implemented-verified"]
+                fh.write(
+                    "They are: " + ", ".join(f"`{n}`" for n in sorted(named)) + ".\n\n"
+                    "That the number is small has two causes, and neither is an\n"
+                    "omission.\n\n"
+                    "**Reach.** The evidence comes from the tracer's `ctrlout` line,\n"
+                    "which dumps root-client (0x2xx) and subdevice (0x2080xxxx)\n"
+                    "controls and nothing else. Allocations and UVM commands -- where\n"
+                    "most of the governed class lives, because those are the two places\n"
+                    "a size is not self-describing -- have no answer dump at all and are\n"
+                    "out of reach of this comparison entirely.\n\n"
+                    "**Criterion.** Several of the governed controls it does reach are\n"
+                    "the ones the backend answers ITSELF, and their answers differ from\n"
+                    "the native ones deliberately: that is what mediation IS. Byte\n"
+                    "equality is the wrong test for them, and the right one -- differs\n"
+                    "in exactly the fields the mediation rewrites, and nowhere else --\n"
+                    "needs the mediation to name its own fields. `not_verified` in the\n"
+                    "evidence file carries each of them with the catalogue's own words\n"
+                    "about why it is mediated, so the list is a work list rather than a\n"
+                    "complaint.\n\n")
 
         # The diff against xlate, stated rather than implied. Silence here
         # would read as "the comparison was not run", which is a different

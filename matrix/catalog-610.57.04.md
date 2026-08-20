@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T17:25:44Z
-commit:  d6144d1 (working tree modified)
+date:    2026-08-20T17:47:15Z
+commit:  91bb590 (working tree modified)
 ```
 
 One row per signature `(device, ioctl nr, sub)`. Names, descriptions,
@@ -36,7 +36,27 @@ note, with how many bytes of how large an answer -- 32 bytes of a
 `verified` cannot be read as more than what was compared.
 
 Of those, **3 are `implemented-verified`**, i.e. governed by the
-descriptor tables AND matched. 
+descriptor tables AND matched. They are: `NV2080_CTRL_CMD_BIOS_GET_INFO`, `NV2080_CTRL_CMD_BUS_GET_INFO`, `NV2080_CTRL_CMD_GPU_GET_ENGINES`.
+
+That the number is small has two causes, and neither is an
+omission.
+
+**Reach.** The evidence comes from the tracer's `ctrlout` line,
+which dumps root-client (0x2xx) and subdevice (0x2080xxxx)
+controls and nothing else. Allocations and UVM commands -- where
+most of the governed class lives, because those are the two places
+a size is not self-describing -- have no answer dump at all and are
+out of reach of this comparison entirely.
+
+**Criterion.** Several of the governed controls it does reach are
+the ones the backend answers ITSELF, and their answers differ from
+the native ones deliberately: that is what mediation IS. Byte
+equality is the wrong test for them, and the right one -- differs
+in exactly the fields the mediation rewrites, and nowhere else --
+needs the mediation to name its own fields. `not_verified` in the
+evidence file carries each of them with the catalogue's own words
+about why it is mediated, so the list is a work list rather than a
+complaint.
 
 ## The diff against xlate.rs
 

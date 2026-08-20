@@ -760,12 +760,22 @@ allocated, which its own allocation lines name. Anything else that differs
 is a mismatch, and one unexplained word anywhere disqualifies the
 signature, including when it matched under a different probe.
 
-First run: **67 signatures matched**, over the twenty probes that produced
+First run: 67 signatures matched, over the twenty probes that produced
 answers on both sides, several of them with `masked {gpuId: n}` — which is
-not a difference tolerated but the translation observed working.
+not a difference tolerated but the translation observed working. **0 of them
+were `implemented-verified`**, and that was the finding.
 
-**And 0 of the 67 are `implemented-verified`.** That is the finding, and it
-has two halves that are worth keeping apart.
+Then a third mask was added: a word may differ if it is part of a pointer
+field the DESCRIPTOR TABLE declares for that command, read out of
+`tables.txt` beside the traces. With it the numbers are **72 matched, 3 of
+them `implemented-verified`** — `NV2080_CTRL_CMD_BUS_GET_INFO`,
+`NV2080_CTRL_CMD_BIOS_GET_INFO` and `NV2080_CTRL_CMD_GPU_GET_ENGINES`, each
+over the whole 16 bytes of its params with only the pointer masked. The
+class is not empty any more, and its first entry is the control number 51
+had just fixed.
+
+**That it is 3 and not 73 is the finding, and it has two halves that are
+worth keeping apart.**
 
 *Reach.* `ctrlout` covers root-client (0x2xx) and subdevice (0x2080xxxx)
 controls and nothing else. Allocations and UVM commands have no answer dump
@@ -773,9 +783,9 @@ at all — and those are where most of the governed class lives, because they
 are the two places a size is not self-describing. This slice cannot see
 them.
 
-*Criterion.* The governed CONTROLS it does reach are the seven the backend
-answers itself, and their answers differ from the native ones on purpose:
-that is what mediation is. `NV2080_CTRL_CMD_GPU_GET_NAME` differs at offset
+*Criterion.* Several of the governed controls it does reach are the seven
+the backend answers itself, and their answers differ from the native ones
+on purpose: that is what mediation is. `NV2080_CTRL_CMD_GPU_GET_NAME` differs at offset
 4 by `NVID` against `Lean` — the mediated product name, working exactly as
 designed and reported as a mismatch, because byte equality is the wrong
 test for a mediated command. The right test is "differs in exactly the
@@ -783,9 +793,16 @@ fields the mediation rewrites, and nowhere else", and it needs the
 mediation to name its own fields.
 
 So the pipeline is real and its coverage is honest, and the two things it
-would take to make `implemented-verified` non-empty are now specific rather
-than a standing wish: an answer dump for allocations and UVM, and a
-per-command field mask that the mediation itself declares.
+would take to make `implemented-verified` more than a handful are now
+specific rather than a standing wish: an answer dump for allocations and
+UVM, and a per-command field mask that the mediation itself declares.
+
+The three masks are worth noting as a pattern, because all three are of one
+kind: each is DERIVED from something the run already produced — the card's
+own id out of `cardinfo`, the handles out of the allocation lines, the
+pointer offsets out of the descriptor stream. None of them is a list
+somebody maintains, and each one made the comparison sharper rather than
+looser.
 
 One thing the slice settled in passing: `NV0000_CTRL_CMD_GPU_GET_ID_INFO`
 (number 49, the deprecated control with an `NvP64` in it) answers
