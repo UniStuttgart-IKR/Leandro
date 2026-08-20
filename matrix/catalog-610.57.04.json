@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T18:39:12Z",
-    "commit:  f08ef32 (working tree modified)"
+    "date:    2026-08-20T19:00:59Z",
+    "commit:  90b83f3 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -44,6 +44,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "fabricStatus",
+          "type": "NV0000_CTRL_GET_SYSTEM_FABRIC_STATUS",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -80,6 +88,62 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "grpACount",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "grpBCount",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "gpuIdGrpA",
+          "type": "NvU32[NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS]",
+          "offset": 8,
+          "size": 32
+        },
+        {
+          "name": "gpuIdGrpB",
+          "type": "NvU32[NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS]",
+          "offset": 40,
+          "size": 32
+        },
+        {
+          "name": "p2pCaps",
+          "type": "NvU32[NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS][NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS]",
+          "offset": 72,
+          "size": 256
+        },
+        {
+          "name": "a2bOptimalReadCes",
+          "type": "NvU32[NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS][NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS]",
+          "offset": 328,
+          "size": 256
+        },
+        {
+          "name": "a2bOptimalWriteCes",
+          "type": "NvU32[NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS][NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS]",
+          "offset": 584,
+          "size": 256
+        },
+        {
+          "name": "b2aOptimalReadCes",
+          "type": "NvU32[NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS][NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS]",
+          "offset": 840,
+          "size": 256
+        },
+        {
+          "name": "b2aOptimalWriteCes",
+          "type": "NvU32[NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS][NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS]",
+          "offset": 1096,
+          "size": 256
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -116,6 +180,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "featuresMask",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -162,6 +234,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "gpuIds",
+          "type": "NvU32[NV0000_CTRL_GPU_MAX_ATTACHED_GPUS]",
+          "offset": 0,
+          "size": 128
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -207,7 +287,65 @@
       "flags": [
         "embedded-ptr"
       ],
-      "notes": [],
+      "notes": [
+        "pointer field(s), offsets compiled: szName @16"
+      ],
+      "fields": [
+        {
+          "name": "gpuId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "gpuFlags",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "deviceInstance",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "subDeviceInstance",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "szName",
+          "type": "NvP64",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "sliStatus",
+          "type": "NvU32",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "boardId",
+          "type": "NvU32",
+          "offset": 28,
+          "size": 4
+        },
+        {
+          "name": "gpuInstance",
+          "type": "NvU32",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "numaId",
+          "type": "NvS32",
+          "offset": 36,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -254,6 +392,56 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "gpuId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "gpuFlags",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "deviceInstance",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "subDeviceInstance",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "sliStatus",
+          "type": "NvU32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "boardId",
+          "type": "NvU32",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "gpuInstance",
+          "type": "NvU32",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "numaId",
+          "type": "NvS32",
+          "offset": 28,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -300,6 +488,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "gpuInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "gpuInfoList",
+          "type": "NV2080_CTRL_GPU_INFO[NV2080_CTRL_GPU_INFO_MAX_LIST_SIZE]",
+          "offset": 4,
+          "size": 576
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -336,7 +538,15 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 32 of 64 bytes"
+        "answer bytes compared against a native run: 9 call(s), 32 of 64 bytes"
+      ],
+      "fields": [
+        {
+          "name": "gpuShortNameString",
+          "type": "NvU8[NV2080_GPU_MAX_NAME_STRING_LENGTH]",
+          "offset": 0,
+          "size": 64
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -383,6 +593,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "type",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -429,6 +647,38 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "units",
+          "type": "NV2080_CTRL_GPU_QUERY_ECC_UNIT_STATUS[NV2080_CTRL_GPU_ECC_UNIT_COUNT]",
+          "offset": 0,
+          "size": 1640
+        },
+        {
+          "name": "bFatalPoisonError",
+          "type": "NvBool",
+          "offset": 1640,
+          "size": 1
+        },
+        {
+          "name": "uncorrectableError",
+          "type": "NvU8",
+          "offset": 1641,
+          "size": 1
+        },
+        {
+          "name": "flags",
+          "type": "NvU32",
+          "offset": 1644,
+          "size": 4
+        },
+        {
+          "name": "grRouteInfo",
+          "type": "NV2080_CTRL_GR_ROUTE_INFO",
+          "offset": 1648,
+          "size": 16
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -466,7 +716,15 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 4 of 4 bytes"
+        "answer bytes compared against a native run: 10 call(s), 4 of 4 bytes"
+      ],
+      "fields": [
+        {
+          "name": "rules",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -541,7 +799,33 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 18 call(s), 32 of 268 bytes"
+        "answer bytes compared against a native run: 20 call(s), 32 of 268 bytes"
+      ],
+      "fields": [
+        {
+          "name": "index",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "length",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "data",
+          "type": "NvU8[NV2080_GPU_MAX_GID_LENGTH]",
+          "offset": 12,
+          "size": 256
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -588,6 +872,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "engineCount",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "engineList",
+          "type": "NvU32[NV2080_GPU_MAX_ENGINES_LIST_SIZE]",
+          "offset": 4,
+          "size": 336
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -624,7 +922,21 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 32 of 688 bytes"
+        "answer bytes compared against a native run: 9 call(s), 32 of 688 bytes"
+      ],
+      "fields": [
+        {
+          "name": "skylineTable",
+          "type": "NV2080_CTRL_GPU_SKYLINE_INFO[NV2080_CTRL_GPU_SKYLINE_INFO_MAX_SKYLINES]",
+          "offset": 0,
+          "size": 684
+        },
+        {
+          "name": "validEntries",
+          "type": "NvU32",
+          "offset": 684,
+          "size": 4
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -671,6 +983,38 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "flags",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hChannel",
+          "type": "NvHandle",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "gfxpPreemptMode",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "cilpPreemptMode",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "grRouteInfo",
+          "type": "NV2080_CTRL_GR_ROUTE_INFO",
+          "offset": 16,
+          "size": 16
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -706,7 +1050,21 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 56 call(s), 16 of 16 bytes"
+        "answer bytes compared against a native run: 64 call(s), 16 of 16 bytes"
+      ],
+      "fields": [
+        {
+          "name": "hChannel",
+          "type": "NvHandle",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "totalBufferSize",
+          "type": "NvU64",
+          "offset": 8,
+          "size": 8
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -753,6 +1111,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "numSm",
+          "type": "NvU16",
+          "offset": 9216,
+          "size": 2
+        },
+        {
+          "name": "numTpc",
+          "type": "NvU16",
+          "offset": 9218,
+          "size": 2
+        },
+        {
+          "name": "grRouteInfo",
+          "type": "NV2080_CTRL_GR_ROUTE_INFO",
+          "offset": 9224,
+          "size": 16
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -789,8 +1167,9 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 32 of 48 bytes"
+        "answer bytes compared against a native run: 9 call(s), 32 of 48 bytes"
       ],
+      "fields": [],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -827,7 +1206,21 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 24 of 24 bytes"
+        "answer bytes compared against a native run: 9 call(s), 24 of 24 bytes"
+      ],
+      "fields": [
+        {
+          "name": "grRouteInfo",
+          "type": "NV2080_CTRL_GR_ROUTE_INFO",
+          "offset": 0,
+          "size": 16
+        },
+        {
+          "name": "gpcMask",
+          "type": "NvU32",
+          "offset": 16,
+          "size": 4
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -865,7 +1258,27 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 24 call(s), 24 of 24 bytes"
+        "answer bytes compared against a native run: 27 call(s), 24 of 24 bytes"
+      ],
+      "fields": [
+        {
+          "name": "grRouteInfo",
+          "type": "NV2080_CTRL_GR_ROUTE_INFO",
+          "offset": 0,
+          "size": 16
+        },
+        {
+          "name": "gpcId",
+          "type": "NvU32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "tpcMask",
+          "type": "NvU32",
+          "offset": 20,
+          "size": 4
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -913,6 +1326,32 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "architecture",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "implementation",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "revision",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "subRevision",
+          "type": "NvU8",
+          "offset": 12,
+          "size": 1
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -959,6 +1398,32 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "pciDeviceId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pciSubSystemId",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pciRevisionId",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "pciExtDeviceId",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -995,7 +1460,21 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 32 of 200 bytes"
+        "answer bytes compared against a native run: 9 call(s), 32 of 200 bytes"
+      ],
+      "fields": [
+        {
+          "name": "pciBarCount",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pciBarInfo",
+          "type": "NV2080_CTRL_BUS_PCI_BAR_INFO[NV2080_CTRL_BUS_MAX_PCI_BARS]",
+          "offset": 8,
+          "size": 192
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -1042,6 +1521,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "busInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "busInfoList",
+          "type": "NV2080_CTRL_BUS_INFO[NV2080_CTRL_BUS_INFO_MAX_LIST_SIZE]",
+          "offset": 4,
+          "size": 416
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1078,7 +1571,27 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 32 of 112 bytes"
+        "answer bytes compared against a native run: 9 call(s), 32 of 112 bytes"
+      ],
+      "fields": [
+        {
+          "name": "capType",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "dbdf",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "atomicOp",
+          "type": "NV2080_CTRL_BUS_PCIE_GPU_ATOMIC_OP_INFO[NV2080_CTRL_PCIE_SUPPORTED_GPU_ATOMICS_OP_TYPE_COUNT]",
+          "offset": 8,
+          "size": 104
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -1116,7 +1629,63 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 28 of 28 bytes"
+        "answer bytes compared against a native run: 9 call(s), 28 of 28 bytes"
+      ],
+      "fields": [
+        {
+          "name": "bIsLinkUp",
+          "type": "NvBool",
+          "offset": 0,
+          "size": 1
+        },
+        {
+          "name": "bLinkInHS",
+          "type": "NvBool",
+          "offset": 1,
+          "size": 1
+        },
+        {
+          "name": "bEncryptionEnabled",
+          "type": "NvBool",
+          "offset": 2,
+          "size": 1
+        },
+        {
+          "name": "nrLinks",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "maxNrLinks",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "linkMask",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "perLinkBwMBps",
+          "type": "NvU32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "perLinkLaneWidth",
+          "type": "NvU32",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "remoteType",
+          "type": "NvU32",
+          "offset": 24,
+          "size": 4
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -1163,6 +1732,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "flags",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "duration",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1200,7 +1783,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "argument-less: no params struct in the header, and all 13 observed call(s) passed paramsSize 0"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1236,7 +1821,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "argument-less: no params struct in the header, and all 10 observed call(s) passed paramsSize 0"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1273,7 +1860,21 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 11 call(s), 32 of 136 bytes"
+        "answer bytes compared against a native run: 12 call(s), 32 of 136 bytes"
+      ],
+      "fields": [
+        {
+          "name": "capsTbl",
+          "type": "NvU8[NV2080_CTRL_MAX_CES][NV2080_CTRL_CE_CAPS_TBL_SIZE]",
+          "offset": 0,
+          "size": 128
+        },
+        {
+          "name": "present",
+          "type": "NvU64",
+          "offset": 128,
+          "size": 8
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -1311,7 +1912,45 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 32 of 13864 bytes"
+        "answer bytes compared against a native run: 9 call(s), 32 of 13864 bytes"
+      ],
+      "fields": [
+        {
+          "name": "enabledLinkMask",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "enabledLinks",
+          "type": "NV2080_CTRL_NVLINK_LINK_MASK",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "bSublinkStateInst",
+          "type": "NvBool",
+          "offset": 24,
+          "size": 1
+        },
+        {
+          "name": "bNvleModeEnabled",
+          "type": "NvBool",
+          "offset": 25,
+          "size": 1
+        },
+        {
+          "name": "linkInfo",
+          "type": "NV2080_CTRL_NVLINK_LINK_STATUS_INFO[NV2080_CTRL_NVLINK_MAX_ARR_SIZE]",
+          "offset": 32,
+          "size": 13824
+        },
+        {
+          "name": "enabledNvlpwMask",
+          "type": "NvU64",
+          "offset": 13856,
+          "size": 8
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -1350,7 +1989,33 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 18 call(s), 32 of 72 bytes"
+        "answer bytes compared against a native run: 20 call(s), 32 of 72 bytes"
+      ],
+      "fields": [
+        {
+          "name": "gspFeatures",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "bValid",
+          "type": "NvBool",
+          "offset": 4,
+          "size": 1
+        },
+        {
+          "name": "bDefaultGspRmGpu",
+          "type": "NvBool",
+          "offset": 5,
+          "size": 1
+        },
+        {
+          "name": "firmwareVersion",
+          "type": "NvU8[NV2080_GSP_MAX_BUILD_VERSION_LENGTH]",
+          "offset": 6,
+          "size": 64
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -1388,7 +2053,27 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 32 of 1928 bytes"
+        "answer bytes compared against a native run: 9 call(s), 32 of 1928 bytes"
+      ],
+      "fields": [
+        {
+          "name": "numQueries",
+          "type": "NvU16",
+          "offset": 0,
+          "size": 2
+        },
+        {
+          "name": "reserved",
+          "type": "NvU8[6]",
+          "offset": 2,
+          "size": 6
+        },
+        {
+          "name": "queries",
+          "type": "NV2080_CTRL_GRMGR_GR_FS_INFO_QUERY_PARAMS[NV2080_CTRL_GRMGR_GR_FS_INFO_MAX_QUERIES]",
+          "offset": 8,
+          "size": 1920
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -1435,7 +2120,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 15 call(s), 32 of 332 bytes"
+        "answer bytes compared against a native run: 16 call(s), 32 of 332 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -1473,7 +2158,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 1 of 1 bytes"
+        "answer bytes compared against a native run: 9 call(s), 1 of 1 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -1558,6 +2243,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "gpuIds",
+          "type": "NvU32[NV0000_CTRL_GPU_MAX_PROBED_GPUS]",
+          "offset": 0,
+          "size": 128
+        },
+        {
+          "name": "excludedGpuIds",
+          "type": "NvU32[NV0000_CTRL_GPU_MAX_PROBED_GPUS]",
+          "offset": 128,
+          "size": 128
+        },
+        {
+          "name": "gpuFlags",
+          "type": "NvU32[NV0000_CTRL_GPU_MAX_PROBED_GPUS]",
+          "offset": 256,
+          "size": 128
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1606,6 +2311,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "gpuIds",
+          "type": "NvU32[NV0000_CTRL_GPU_MAX_PROBED_GPUS]",
+          "offset": 0,
+          "size": 128
+        },
+        {
+          "name": "failedId",
+          "type": "NvU32",
+          "offset": 128,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1642,7 +2361,15 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 4 of 4 bytes"
+        "answer bytes compared against a native run: 9 call(s), 4 of 4 bytes"
+      ],
+      "fields": [
+        {
+          "name": "enableMask",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -1689,6 +2416,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "numDevices",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "devices",
+          "type": "NV0000_CTRL_GPU_ACTIVE_DEVICE[NV0000_CTRL_GPU_MAX_ACTIVE_DEVICES]",
+          "offset": 4,
+          "size": 3072
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1734,6 +2475,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "numSubDevices",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1780,6 +2529,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "virtualizationMode",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "isGridBuild",
+          "type": "NvBool",
+          "offset": 4,
+          "size": 1
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1826,6 +2589,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "numClasses",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "classList",
+          "type": "NvU32[NV0080_CTRL_GPU_CLASSLIST_MAX_SIZE]",
+          "offset": 4,
+          "size": 800
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1862,6 +2639,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "capsTbl",
+          "type": "NvU8[NV0080_CTRL_FB_CAPS_TBL_SIZE]",
+          "offset": 0,
+          "size": 3
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1898,6 +2683,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "capsTbl",
+          "type": "NvU8[NV0080_CTRL_HOST_CAPS_TBL_SIZE]",
+          "offset": 0,
+          "size": 3
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1933,6 +2726,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "bCudaLimit",
+          "type": "NvBool",
+          "offset": 0,
+          "size": 1
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -1968,6 +2769,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "exceptionMask",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2049,6 +2858,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "groupCount",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pBoostGroups",
+          "type": "NV0000_SYNC_GPU_BOOST_GROUP_CONFIG[NV0000_SYNC_GPU_BOOST_MAX_GROUPS]",
+          "offset": 4,
+          "size": 2240
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2084,6 +2907,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2119,6 +2943,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2164,6 +2989,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "workSubmitToken",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2175,8 +3008,8 @@
       "name": "NV_CONF_COMPUTE_CTRL_CMD_SYSTEM_GET_CAPABILITIES",
       "description": "This control call returns overall system and gpu capabilities Final operating environment depends on a lot of factors: APM: Ampere Protected Memory HCC: Hopper",
       "header": "src/common/sdk/nvidia/inc/ctrl/ctrlcb33.h:106",
-      "params_struct": "",
-      "params_size": null,
+      "params_struct": "NV_CONF_COMPUTE_CTRL_CMD_SYSTEM_GET_CAPABILITIES_PARAMS",
+      "params_size": 6,
       "observed_params_size": [
         "0x6"
       ],
@@ -2199,7 +3032,47 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "params struct name not in the finn: comment; convention (_CMD_ dropped, _PARAMS appended), typedef present and sizeof compiled"
+      ],
+      "fields": [
+        {
+          "name": "cpuCapability",
+          "type": "NvU8",
+          "offset": 0,
+          "size": 1
+        },
+        {
+          "name": "gpusCapability",
+          "type": "NvU8",
+          "offset": 1,
+          "size": 1
+        },
+        {
+          "name": "environment",
+          "type": "NvU8",
+          "offset": 2,
+          "size": 1
+        },
+        {
+          "name": "ccFeature",
+          "type": "NvU8",
+          "offset": 3,
+          "size": 1
+        },
+        {
+          "name": "devToolsMode",
+          "type": "NvU8",
+          "offset": 4,
+          "size": 1
+        },
+        {
+          "name": "multiGpuMode",
+          "type": "NvU8",
+          "offset": 5,
+          "size": 1
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2245,6 +3118,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "hObject",
+          "type": "NvHandle",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "mapFlags",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "addrSpaceType",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2281,6 +3174,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "sharePolicy",
+          "type": "RS_SHARE_POLICY",
+          "offset": 0,
+          "size": 12
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2552,6 +3453,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "bWait",
+          "type": "NvBool",
+          "offset": 0,
+          "size": 1
+        },
+        {
+          "name": "bManualTimeout",
+          "type": "NvBool",
+          "offset": 1,
+          "size": 1
+        },
+        {
+          "name": "timeoutUs",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2773,6 +3694,98 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "type",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capabilities",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "clock",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "L1DataCacheSize",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "L2DataCacheSize",
+          "type": "NvU32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "dataCacheLineSize",
+          "type": "NvU32",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "numLogicalCpus",
+          "type": "NvU32",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "numPhysicalCpus",
+          "type": "NvU32",
+          "offset": 28,
+          "size": 4
+        },
+        {
+          "name": "name",
+          "type": "NvU8[52]",
+          "offset": 32,
+          "size": 52
+        },
+        {
+          "name": "family",
+          "type": "NvU32",
+          "offset": 84,
+          "size": 4
+        },
+        {
+          "name": "model",
+          "type": "NvU32",
+          "offset": 88,
+          "size": 4
+        },
+        {
+          "name": "stepping",
+          "type": "NvU8",
+          "offset": 92,
+          "size": 1
+        },
+        {
+          "name": "coresOnDie",
+          "type": "NvU32",
+          "offset": 96,
+          "size": 4
+        },
+        {
+          "name": "bCCEnabled",
+          "type": "NvBool",
+          "offset": 100,
+          "size": 1
+        },
+        {
+          "name": "selfHostedSocType",
+          "type": "NV0000_CTRL_SYSTEM_SH_SOC_TYPE",
+          "offset": 104,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2811,6 +3824,14 @@
       "notes": [
         "answer bytes compared against a native run: 7 call(s), 4 of 4 bytes"
       ],
+      "fields": [
+        {
+          "name": "deviceIds",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2847,6 +3868,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "gpuId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2883,6 +3912,38 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "engineType",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "partnershipClassId",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "runqueue",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "numPartners",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "partnerList",
+          "type": "NvU32[NV2080_CTRL_GPU_MAX_ENGINE_PARTNERS]",
+          "offset": 16,
+          "size": 128
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2919,6 +3980,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "time_nsec",
+          "type": "NvU64",
+          "offset": 0,
+          "size": 8
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2955,6 +4024,68 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "widthAlignPixels",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "heightAlignPixels",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pixelSquaresByAliquots",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "aliquotTotal",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "zcullRegionByteMultiplier",
+          "type": "NvU32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "zcullRegionHeaderSize",
+          "type": "NvU32",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "zcullSubregionHeaderSize",
+          "type": "NvU32",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "subregionCount",
+          "type": "NvU32",
+          "offset": 28,
+          "size": 4
+        },
+        {
+          "name": "subregionWidthAlignPixels",
+          "type": "NvU32",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "subregionHeightAlignPixels",
+          "type": "NvU32",
+          "offset": 36,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2991,6 +4122,32 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "hClient",
+          "type": "NvHandle",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hChannel",
+          "type": "NvHandle",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "vMemPtr",
+          "type": "NvU64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "zcullMode",
+          "type": "NvU32",
+          "offset": 16,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3027,6 +4184,32 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "powerState",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "writeMode",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "bypassMode",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "rcmState",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3063,6 +4246,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "numFBRegions",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "fbRegion",
+          "type": "NV2080_CTRL_CMD_FB_GET_FB_REGION_FB_REGION_INFO[NV2080_CTRL_CMD_FB_GET_FB_REGION_INFO_MAX_ENTRIES]",
+          "offset": 8,
+          "size": 896
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3099,6 +4296,32 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "maxSubmittedSemaphoreValueOffset",
+          "type": "NvU64",
+          "offset": 0,
+          "size": 8
+        },
+        {
+          "name": "monitoredFenceThresholdOffset",
+          "type": "NvU64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "size",
+          "type": "NvU64",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "caps",
+          "type": "NvU32",
+          "offset": 24,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3135,6 +4358,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "ceEngineType",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pceMask",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3171,6 +4408,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "ceEngineType",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvU8[NV2080_CTRL_CE_CAPS_TBL_SIZE]",
+          "offset": 4,
+          "size": 2
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3208,6 +4459,14 @@
       ],
       "notes": [
         "answer bytes compared against a native run: 7 call(s), 1 of 1 bytes"
+      ],
+      "fields": [
+        {
+          "name": "bVidmemPersistent",
+          "type": "NvBool",
+          "offset": 0,
+          "size": 1
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -3282,6 +4541,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "gpuIds",
+          "type": "NvU32[NV0000_CTRL_GPU_MAX_ATTACHED_GPUS]",
+          "offset": 0,
+          "size": 128
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3320,6 +4587,32 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "gpuId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "gpuUuid",
+          "type": "NvU8[NV0000_GPU_MAX_GID_LENGTH]",
+          "offset": 8,
+          "size": 256
+        },
+        {
+          "name": "uuidStrLen",
+          "type": "NvU32",
+          "offset": 264,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3356,6 +4649,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "gsyncIds",
+          "type": "NvU32[NV30F1_MAX_GSYNCS]",
+          "offset": 0,
+          "size": 16
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3392,6 +4693,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "capsTbl",
+          "type": "NvU8[NV0073_CTRL_SYSTEM_CAPS_TBL_SIZE]",
+          "offset": 0,
+          "size": 2
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3428,6 +4737,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "engineId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "alignment",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "size",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3464,6 +4793,86 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "vaBitCount",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pdeCoverageBitCount",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "num4KPageTableFormats",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "bigPageSize",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "compressionPageSize",
+          "type": "NvU32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "dualPageTableSupported",
+          "type": "NvU32",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "idealVRAMPageSize",
+          "type": "NvU32",
+          "offset": 24,
+          "size": 4
+        },
+        {
+          "name": "pageTableBigFormat",
+          "type": "NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PAGE_TABLE_FORMAT",
+          "offset": 28,
+          "size": 8
+        },
+        {
+          "name": "pageTable4KFormat",
+          "type": "NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PAGE_TABLE_FORMAT[NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_MAX_NUM_PAGE_TABLE_FORMATS]",
+          "offset": 36,
+          "size": 128
+        },
+        {
+          "name": "hVASpace",
+          "type": "NvHandle",
+          "offset": 164,
+          "size": 4
+        },
+        {
+          "name": "vaRangeLo",
+          "type": "NvU64",
+          "offset": 168,
+          "size": 8
+        },
+        {
+          "name": "vaSpaceId",
+          "type": "NvU32",
+          "offset": 176,
+          "size": 4
+        },
+        {
+          "name": "supportedPageSizeMask",
+          "type": "NvU64",
+          "offset": 184,
+          "size": 8
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3500,6 +4909,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvU8[NV0080_CTRL_DMA_CAPS_TBL_SIZE]",
+          "offset": 4,
+          "size": 8
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3536,6 +4959,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "indexStart",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "indexEnd",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "tableType",
+          "type": "NV9096_CTRL_ZBC_CLEAR_TABLE_TYPE",
+          "offset": 8,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3572,6 +5015,38 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "value",
+          "type": "struct",
+          "offset": 0,
+          "size": 40
+        },
+        {
+          "name": "format",
+          "type": "NvU32",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "index",
+          "type": "NvU32",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "bIndexValid",
+          "type": "NvBool",
+          "offset": 48,
+          "size": 1
+        },
+        {
+          "name": "tableType",
+          "type": "NV9096_CTRL_ZBC_CLEAR_TABLE_TYPE",
+          "offset": 52,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3610,6 +5085,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "bEnable",
+          "type": "NvBool",
+          "offset": 0,
+          "size": 1
+        },
+        {
+          "name": "bSkipSubmit",
+          "type": "NvBool",
+          "offset": 1,
+          "size": 1
+        },
+        {
+          "name": "bSkipEnable",
+          "type": "NvBool",
+          "offset": 2,
+          "size": 1
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3648,6 +5143,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "engineType",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3686,6 +5189,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "index",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3722,6 +5233,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "hChannel",
+          "type": "NvHandle",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "numNotifyIndices",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "notifyIndices",
+          "type": "NvU32[NV_SEMAPHORE_SURFACE_CTRL_CMD_BIND_CHANNEL_MAX_INDICES]",
+          "offset": 8,
+          "size": 32
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3758,6 +5289,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "hChannel",
+          "type": "NvHandle",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "numNotifyIndices",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "notifyIndices",
+          "type": "NvU32[NV_SEMAPHORE_SURFACE_CTRL_CMD_BIND_CHANNEL_MAX_INDICES]",
+          "offset": 8,
+          "size": 32
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4205,6 +5756,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "cpuClkId",
+          "type": "NvU8",
+          "offset": 0,
+          "size": 1
+        },
+        {
+          "name": "sampleCount",
+          "type": "NvU8",
+          "offset": 1,
+          "size": 1
+        },
+        {
+          "name": "samples",
+          "type": "NV2080_CTRL_TIMER_GPU_CPU_TIME_SAMPLE[NV2080_CTRL_TIMER_GPU_CPU_TIME_MAX_SAMPLES]",
+          "offset": 8,
+          "size": 256
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4291,6 +5862,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "capsTbl",
+          "type": "NvU8[NV0080_CTRL_GR_CAPS_TBL_SIZE]",
+          "offset": 0,
+          "size": 23
+        },
+        {
+          "name": "grRouteInfo",
+          "type": "NV0080_CTRL_GR_ROUTE_INFO",
+          "offset": 24,
+          "size": 16
+        },
+        {
+          "name": "bCapsPopulated",
+          "type": "NvBool",
+          "offset": 40,
+          "size": 1
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4322,6 +5913,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "capsTbl",
+          "type": "NvU8[NV0080_CTRL_NVDEC_CAPS_TBL_SIZE]",
+          "offset": 0,
+          "size": 8
+        },
+        {
+          "name": "instanceId",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4349,6 +5954,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "queryType",
+          "type": "NV2080_CTRL_ENCODER_CAPACITY_QUERY_TYPE",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "encoderCapacity",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4436,6 +6055,74 @@
       "notes": [
         "answer bytes compared against a native run: 3 call(s), 32 of 136 bytes"
       ],
+      "fields": [
+        {
+          "name": "buildDate",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "marketingName",
+          "type": "NvU8[NV2080_GPU_MAX_MARKETING_NAME_LENGTH]",
+          "offset": 4,
+          "size": 24
+        },
+        {
+          "name": "serialNumber",
+          "type": "NvU8[NV2080_GPU_MAX_SERIAL_NUMBER_LENGTH]",
+          "offset": 28,
+          "size": 16
+        },
+        {
+          "name": "memoryManufacturer",
+          "type": "NvU8",
+          "offset": 44,
+          "size": 1
+        },
+        {
+          "name": "memoryPartID",
+          "type": "NvU8[NV2080_GPU_MAX_MEMORY_PART_ID_LENGTH]",
+          "offset": 45,
+          "size": 20
+        },
+        {
+          "name": "memoryDateCode",
+          "type": "NvU8[NV2080_GPU_MAX_MEMORY_DATE_CODE_LENGTH]",
+          "offset": 65,
+          "size": 6
+        },
+        {
+          "name": "productPartNumber",
+          "type": "NvU8[NV2080_GPU_MAX_PRODUCT_PART_NUMBER_LENGTH]",
+          "offset": 71,
+          "size": 20
+        },
+        {
+          "name": "boardRevision",
+          "type": "NvU8[3]",
+          "offset": 91,
+          "size": 3
+        },
+        {
+          "name": "boardType",
+          "type": "NvU8",
+          "offset": 94,
+          "size": 1
+        },
+        {
+          "name": "board699PartNumber",
+          "type": "NvU8[NV2080_GPU_MAX_PRODUCT_PART_NUMBER_LENGTH]",
+          "offset": 95,
+          "size": 20
+        },
+        {
+          "name": "board965PartNumber",
+          "type": "NvU8[NV2080_GPU_MAX_PRODUCT_PART_NUMBER_LENGTH]",
+          "offset": 115,
+          "size": 20
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4466,6 +6153,26 @@
       "notes": [
         "answer bytes compared against a native run: 5 call(s), 5 of 5 bytes"
       ],
+      "fields": [
+        {
+          "name": "objectType",
+          "type": "char[NV2080_CTRL_GPU_INFOROM_OBJ_TYPE_LEN]",
+          "offset": 0,
+          "size": 3
+        },
+        {
+          "name": "version",
+          "type": "NvU8",
+          "offset": 3,
+          "size": 1
+        },
+        {
+          "name": "subversion",
+          "type": "NvU8",
+          "offset": 4,
+          "size": 1
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4495,6 +6202,14 @@
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes"
       ],
+      "fields": [
+        {
+          "name": "version",
+          "type": "NvU8[NV2080_CTRL_GPU_INFOROM_IMAGE_VERSION_LEN]",
+          "offset": 0,
+          "size": 16
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4521,7 +6236,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "argument-less: no params struct in the header, and all 1 observed call(s) passed paramsSize 0"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4609,6 +6326,56 @@
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 32 of 56 bytes"
       ],
+      "fields": [
+        {
+          "name": "state",
+          "type": "NvU8",
+          "offset": 0,
+          "size": 1
+        },
+        {
+          "name": "status",
+          "type": "NV_STATUS",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "clusterUuid",
+          "type": "NvU8[NV2080_GPU_FABRIC_CLUSTER_UUID_LEN]",
+          "offset": 8,
+          "size": 16
+        },
+        {
+          "name": "fabricPartitionId",
+          "type": "NvU16",
+          "offset": 24,
+          "size": 2
+        },
+        {
+          "name": "fabricCaps",
+          "type": "NvU64",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "name": "fabricCliqueId",
+          "type": "NvU32",
+          "offset": 40,
+          "size": 4
+        },
+        {
+          "name": "fabricHealthMask",
+          "type": "NvU32",
+          "offset": 44,
+          "size": 4
+        },
+        {
+          "name": "fabricHealthSummary",
+          "type": "NvU8",
+          "offset": 48,
+          "size": 1
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4637,6 +6404,32 @@
       ],
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes"
+      ],
+      "fields": [
+        {
+          "name": "pciDevId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "chipSku",
+          "type": "NvU8[NV2080_MAX_CHIP_SKU_LENGTH]",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "chipMajor",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "chipMinor",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -4667,6 +6460,14 @@
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes"
       ],
+      "fields": [
+        {
+          "name": "action",
+          "type": "NV2080_CTRL_GPU_RECOVERY_ACTION",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4695,6 +6496,50 @@
       ],
       "notes": [
         "answer bytes compared against a native run: 3 call(s), 32 of 1432 bytes"
+      ],
+      "fields": [
+        {
+          "name": "clientAPIVersion",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "clientAPIRevision",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "clientInstructionSizeOf",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "executeFlags",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "successfulInstructions",
+          "type": "NvU32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "instructionListSize",
+          "type": "NvU32",
+          "offset": 20,
+          "size": 4
+        },
+        {
+          "name": "instructionList",
+          "type": "NV2080_CTRL_THERMAL_SYSTEM_INSTRUCTION[NV2080_CTRL_THERMAL_SYSTEM_INSTRUCTION_MAX_COUNT]",
+          "offset": 24,
+          "size": 1408
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -4725,6 +6570,32 @@
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 32 of 2056 bytes"
       ],
+      "fields": [
+        {
+          "name": "offlined",
+          "type": "NV2080_CTRL_FB_OFFLINED_ADDRESS_INFO[NV2080_CTRL_FB_OFFLINED_PAGES_MAX_PAGES]",
+          "offset": 0,
+          "size": 2048
+        },
+        {
+          "name": "validEntries",
+          "type": "NvU32",
+          "offset": 2048,
+          "size": 4
+        },
+        {
+          "name": "bRetirementPending",
+          "type": "NvBool",
+          "offset": 2052,
+          "size": 1
+        },
+        {
+          "name": "retirementPending",
+          "type": "NvU8",
+          "offset": 2053,
+          "size": 1
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4753,6 +6624,26 @@
       ],
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 32 of 6152 bytes"
+      ],
+      "fields": [
+        {
+          "name": "entryCount",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvU8",
+          "offset": 4,
+          "size": 1
+        },
+        {
+          "name": "entries",
+          "type": "NV2080_CTRL_FB_ROW_REMAP_ENTRY[NV2080_CTRL_FB_REMAPPED_ROWS_MAX_ROWS]",
+          "offset": 8,
+          "size": 6144
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -4783,6 +6674,14 @@
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes"
       ],
+      "fields": [
+        {
+          "name": "isSupported",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4812,6 +6711,50 @@
       "notes": [
         "answer bytes compared against a native run: 2 call(s), 32 of 76 bytes"
       ],
+      "fields": [
+        {
+          "name": "pexCounterMask",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pexTotalCorrectableErrors",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pexCorrectableErrors",
+          "type": "NvU16",
+          "offset": 8,
+          "size": 2
+        },
+        {
+          "name": "pexTotalNonFatalErrors",
+          "type": "NvU8",
+          "offset": 10,
+          "size": 1
+        },
+        {
+          "name": "pexTotalFatalErrors",
+          "type": "NvU8",
+          "offset": 11,
+          "size": 1
+        },
+        {
+          "name": "pexTotalUnsupportedReqs",
+          "type": "NvU8",
+          "offset": 12,
+          "size": 1
+        },
+        {
+          "name": "pexCounters",
+          "type": "NvU16[NV2080_CTRL_PEX_MAX_COUNTER_TYPES]",
+          "offset": 14,
+          "size": 62
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4839,6 +6782,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "pexCounterMask",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pexCounters",
+          "type": "NvU32[NV2080_CTRL_PEX_UTIL_MAX_COUNTER_TYPES]",
+          "offset": 4,
+          "size": 28
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4867,6 +6824,26 @@
       ],
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 12 of 12 bytes"
+      ],
+      "fields": [
+        {
+          "name": "capType",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "dbdf",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "atomicsCaps",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -4897,6 +6874,14 @@
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes"
       ],
+      "fields": [
+        {
+          "name": "atomicsCaps",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4923,7 +6908,17 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes"
+      ],
+      "fields": [
+        {
+          "name": "currPstate",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4953,6 +6948,26 @@
       "notes": [
         "answer bytes compared against a native run: 4 call(s), 12 of 12 bytes"
       ],
+      "fields": [
+        {
+          "name": "engineType",
+          "type": "NV2080_CTRL_CMD_PERF_VID_ENG",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "clkPercentBusy",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "samplingPeriodUs",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4981,6 +6996,62 @@
       ],
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 32 of 39 bytes"
+      ],
+      "fields": [
+        {
+          "name": "ibGuid",
+          "type": "NvU8[16]",
+          "offset": 0,
+          "size": 16
+        },
+        {
+          "name": "rackGuid",
+          "type": "NvU8[16]",
+          "offset": 16,
+          "size": 16
+        },
+        {
+          "name": "chassisPhysicalSlotNumber",
+          "type": "NvU8",
+          "offset": 32,
+          "size": 1
+        },
+        {
+          "name": "computeSlotIndex",
+          "type": "NvU8",
+          "offset": 33,
+          "size": 1
+        },
+        {
+          "name": "nodeIndex",
+          "type": "NvU8",
+          "offset": 34,
+          "size": 1
+        },
+        {
+          "name": "peerType",
+          "type": "NvU8",
+          "offset": 35,
+          "size": 1
+        },
+        {
+          "name": "moduleId",
+          "type": "NvU8",
+          "offset": 36,
+          "size": 1
+        },
+        {
+          "name": "nvlinkSignalingProtocol",
+          "type": "NvU8",
+          "offset": 37,
+          "size": 1
+        },
+        {
+          "name": "linksPerSpigot",
+          "type": "NvU8",
+          "offset": 38,
+          "size": 1
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5817,6 +7888,32 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "gpuId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "domain",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "bus",
+          "type": "NvU16",
+          "offset": 8,
+          "size": 2
+        },
+        {
+          "name": "slot",
+          "type": "NvU16",
+          "offset": 10,
+          "size": 2
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -5845,6 +7942,26 @@
       ],
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 12 of 12 bytes, masked {'gpuId': 1}"
+      ],
+      "fields": [
+        {
+          "name": "gpuId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "drainState",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        }
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5875,6 +7992,14 @@
       "notes": [
         "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes, masked {'gpuId': 1}"
       ],
+      "fields": [
+        {
+          "name": "gpuId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -5902,6 +8027,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "subDeviceInstance",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "numHeads",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -5929,6 +8074,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "subDeviceInstance",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "displayMask",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "displayMaskDDC",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -5956,6 +8121,32 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "subDeviceInstance",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "displayMask",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "retryTimeMs",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -5983,6 +8174,32 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "subDeviceInstance",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "head",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "displayId",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -6010,6 +8227,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "swStatePersistence",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -6037,6 +8262,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "isVgx",
+          "type": "NvBool",
+          "offset": 0,
+          "size": 1
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -6064,6 +8297,14 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "brands",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -6091,6 +8332,38 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "timeStart",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "timeEnd",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "timeRun",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "time24Hours",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "time100Hours",
+          "type": "NvU32",
+          "offset": 16,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -6118,6 +8391,20 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "timestamp",
+          "type": "NvU64",
+          "offset": 0,
+          "size": 8
+        },
+        {
+          "name": "durationUs",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -6145,6 +8432,26 @@
         "none"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "gpuId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pid",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "state",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -6228,6 +8535,38 @@
       "notes": [
         "answer bytes compared against a native run: 6 call(s), 20 of 20 bytes"
       ],
+      "fields": [
+        {
+          "name": "event",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "action",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "bNotifyState",
+          "type": "NvBool",
+          "offset": 8,
+          "size": 1
+        },
+        {
+          "name": "info32",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "info16",
+          "type": "NvU16",
+          "offset": 16,
+          "size": 2
+        }
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -6256,7 +8595,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "argument-less: no params struct in the header, and all 3 observed call(s) passed paramsSize 0"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -6336,7 +8677,47 @@
         "embedded-ptr",
         "embedded-ptr(second-level)"
       ],
-      "notes": [],
+      "notes": [
+        "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24"
+      ],
+      "fields": [
+        {
+          "name": "sizeOfStrings",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pDriverVersionBuffer",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "pVersionBuffer",
+          "type": "NvP64",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "pTitleBuffer",
+          "type": "NvP64",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "changelistNumber",
+          "type": "NvU32",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "officialChangelistNumber",
+          "type": "NvU32",
+          "offset": 36,
+          "size": 4
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -6385,6 +8766,20 @@
       "notes": [
         "answered by the backend itself: CMD_GPU_GET_NAME_STRING (vram.rs:797)"
       ],
+      "fields": [
+        {
+          "name": "gpuNameStringFlags",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "gpuNameString",
+          "type": "struct",
+          "offset": 4,
+          "size": 64
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -6430,7 +8825,29 @@
         "embedded-ptr",
         "embedded-ptr(second-level)"
       ],
-      "notes": [],
+      "notes": [
+        "pointer field(s), offsets compiled: grInfoList @8"
+      ],
+      "fields": [
+        {
+          "name": "grInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "grInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "grRouteInfo",
+          "type": "NV2080_CTRL_GR_ROUTE_INFO",
+          "offset": 16,
+          "size": 16
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -6470,6 +8887,20 @@
       "notes": [
         "answered by the backend itself: CMD_FB_GET_INFO_V2 (vram.rs:782)"
       ],
+      "fields": [
+        {
+          "name": "fbInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "fbInfoList",
+          "type": "NV2080_CTRL_FB_INFO[NV2080_CTRL_FB_INFO_MAX_LIST_SIZE]",
+          "offset": 4,
+          "size": 1024
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -6505,7 +8936,29 @@
         "embedded-ptr",
         "embedded-ptr(second-level)"
       ],
-      "notes": [],
+      "notes": [
+        "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16"
+      ],
+      "fields": [
+        {
+          "name": "numChannels",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pChannelHandleList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "pChannelList",
+          "type": "NvP64",
+          "offset": 16,
+          "size": 8
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -6552,6 +9005,14 @@
         "size-table"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "subDeviceId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": 4
     },
@@ -6598,6 +9059,14 @@
         "size-table"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "reserved",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": 4
     },
@@ -6796,6 +9265,62 @@
         "size-table"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "deviceId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hClientShare",
+          "type": "NvHandle",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hTargetClient",
+          "type": "NvHandle",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "hTargetDevice",
+          "type": "NvHandle",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvV32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "vaSpaceSize",
+          "type": "NvU64",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "vaStartInternal",
+          "type": "NvU64",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "name": "vaLimitInternal",
+          "type": "NvU64",
+          "offset": 40,
+          "size": 8
+        },
+        {
+          "name": "vaMode",
+          "type": "NvV32",
+          "offset": 48,
+          "size": 4
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": 56
     },
@@ -6831,6 +9356,26 @@
         "size-table"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "hDebuggerClient_Obsolete",
+          "type": "NvHandle",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hAppClient",
+          "type": "NvHandle",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hClass3dObject",
+          "type": "NvHandle",
+          "offset": 8,
+          "size": 4
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": 12
     },
@@ -7130,6 +9675,14 @@
         "size-table"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "hClient",
+          "type": "NvHandle",
+          "offset": 0,
+          "size": 4
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": 4
     },
@@ -7175,6 +9728,14 @@
         "size-table"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "polledDataMask",
+          "type": "NvU64",
+          "offset": 0,
+          "size": 8
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": 8
     },
@@ -7408,6 +9969,7 @@
         "fd-field"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 32
     },
@@ -7439,6 +10001,7 @@
         "fd-field"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 56
     },
@@ -7470,6 +10033,7 @@
         "fd-field"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 9264
     },
@@ -7502,6 +10066,7 @@
         "fd-field"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 40
     },
@@ -7535,6 +10100,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 8
     },
@@ -7568,6 +10134,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 16
     },
@@ -7599,6 +10166,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 40
     },
@@ -7630,6 +10198,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 9248
     },
@@ -7662,6 +10231,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 24
     },
@@ -7693,6 +10263,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 24
     },
@@ -7724,6 +10295,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 24
     },
@@ -7757,6 +10329,7 @@
         "fd-field"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 8
     },
@@ -7824,6 +10397,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 20
     },
@@ -7852,6 +10426,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 12
     },
@@ -7881,6 +10456,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 16
     },
@@ -7904,6 +10480,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 24
     },
@@ -7927,6 +10504,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 24
     },
@@ -7950,6 +10528,7 @@
         "none"
       ],
       "notes": [],
+      "fields": [],
       "status": "implemented-unverified",
       "xlate_size": 80
     },
@@ -7987,7 +10566,22 @@
         "embedded-ptr(second-level)"
       ],
       "notes": [
-        "answered by the backend itself: CMD_FB_GET_INFO (vram.rs:795)"
+        "answered by the backend itself: CMD_FB_GET_INFO (vram.rs:795)",
+        "pointer field(s), offsets compiled: fbInfoList @8"
+      ],
+      "fields": [
+        {
+          "name": "fbInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "fbInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
       ],
       "status": "implemented-unverified",
       "xlate_size": null
@@ -8025,6 +10619,26 @@
         "fd-field"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "object",
+          "type": "NV0000_CTRL_OS_UNIX_EXPORT_OBJECT",
+          "offset": 0,
+          "size": 16
+        },
+        {
+          "name": "fd",
+          "type": "NvS32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvU32",
+          "offset": 20,
+          "size": 4
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -8061,7 +10675,23 @@
         "embedded-ptr",
         "embedded-ptr(second-level)"
       ],
-      "notes": [],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -8098,7 +10728,23 @@
         "embedded-ptr",
         "embedded-ptr(second-level)"
       ],
-      "notes": [],
+      "notes": [
+        "pointer field(s), offsets compiled: grInfoList @8"
+      ],
+      "fields": [
+        {
+          "name": "grInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "grInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -8135,7 +10781,23 @@
         "embedded-ptr",
         "embedded-ptr(second-level)"
       ],
-      "notes": [],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -8172,7 +10834,23 @@
         "embedded-ptr",
         "embedded-ptr(second-level)"
       ],
-      "notes": [],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -8211,6 +10889,26 @@
         "size-table"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "offset",
+          "type": "NvU64",
+          "offset": 0,
+          "size": 8
+        },
+        {
+          "name": "limit",
+          "type": "NvU64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "hVASpace",
+          "type": "NvHandle",
+          "offset": 16,
+          "size": 4
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": 24
     },
@@ -8283,6 +10981,26 @@
       ],
       "notes": [
         "class carries KF_UNVERIFIED: never allocated on real silicon"
+      ],
+      "fields": [
+        {
+          "name": "logicalHeadId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "displayMask",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "caps",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        }
       ],
       "status": "implemented-unverified",
       "xlate_size": 12
@@ -8398,6 +11116,26 @@
       "notes": [
         "class carries KF_UNVERIFIED: never allocated on real silicon"
       ],
+      "fields": [
+        {
+          "name": "hSemaphoreMem",
+          "type": "NvHandle",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hMaxSubmittedMem",
+          "type": "NvHandle",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvU64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": 16
     },
@@ -8435,6 +11173,32 @@
       ],
       "notes": [
         "class carries KF_UNVERIFIED: never allocated on real silicon"
+      ],
+      "fields": [
+        {
+          "name": "hSemaphoreSurface",
+          "type": "NvHandle",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "maxQueueSize",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hNotificationMemory",
+          "type": "NvHandle",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "notificationOffset",
+          "type": "NvU64",
+          "offset": 16,
+          "size": 8
+        }
       ],
       "status": "implemented-unverified",
       "xlate_size": 24
@@ -8533,6 +11297,20 @@
         "fd-field"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "fd",
+          "type": "NvS32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "object",
+          "type": "NV0000_CTRL_OS_UNIX_EXPORT_OBJECT",
+          "offset": 4,
+          "size": 16
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -8561,7 +11339,23 @@
         "embedded-ptr",
         "embedded-ptr(second-level)"
       ],
-      "notes": [],
+      "notes": [
+        "pointer field(s), offsets compiled: classList @8"
+      ],
+      "fields": [
+        {
+          "name": "numClasses",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "classList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -8593,7 +11387,23 @@
         "embedded-ptr",
         "embedded-ptr(second-level)"
       ],
-      "notes": [],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -8677,6 +11487,38 @@
         "size-table"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "codecType",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hResolution",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "vResolution",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "version",
+          "type": "NvU32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "hMem",
+          "type": "NvHandle",
+          "offset": 16,
+          "size": 4
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": 20
     },
@@ -8734,6 +11576,32 @@
       "notes": [
         "answered by the backend itself: CMD_GPU_GET_PIDS (vram.rs:628)"
       ],
+      "fields": [
+        {
+          "name": "idType",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "id",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pidTblCount",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "pidTbl",
+          "type": "NvU32[NV2080_CTRL_GPU_GET_PIDS_MAX_COUNT]",
+          "offset": 12,
+          "size": 3800
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -8763,6 +11631,20 @@
       "notes": [
         "answered by the backend itself: CMD_GPU_GET_PID_INFO (vram.rs:630)"
       ],
+      "fields": [
+        {
+          "name": "pidInfoListCount",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pidInfoList",
+          "type": "NV2080_CTRL_GPU_PID_INFO[NV2080_CTRL_GPU_GET_PID_INFO_MAX_COUNT]",
+          "offset": 8,
+          "size": 14400
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": null
     },
@@ -8790,6 +11672,14 @@
         "size-table"
       ],
       "notes": [],
+      "fields": [
+        {
+          "name": "capDescriptor",
+          "type": "NvU64",
+          "offset": 0,
+          "size": 8
+        }
+      ],
       "status": "implemented-unverified",
       "xlate_size": 8
     },
@@ -8844,7 +11734,40 @@
         "size-table"
       ],
       "notes": [
-        "class carries KF_UNVERIFIED: never allocated on real silicon"
+        "class carries KF_UNVERIFIED: never allocated on real silicon",
+        "pointer field(s), offsets compiled: data @16"
+      ],
+      "fields": [
+        {
+          "name": "hParentClient",
+          "type": "NvHandle",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hSrcResource",
+          "type": "NvHandle",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hClass",
+          "type": "NvV32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "notifyIndex",
+          "type": "NvV32",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "data",
+          "type": "NvP64",
+          "offset": 16,
+          "size": 8
+        }
       ],
       "status": "implemented-unverified",
       "xlate_size": 24
@@ -8876,7 +11799,22 @@
         "embedded-ptr(second-level)"
       ],
       "notes": [
+        "pointer field(s), offsets compiled: busInfoList @8",
         "answer bytes compared against a native run: 10 call(s), 16 of 16 bytes, masked {'nested-ptr': 20}"
+      ],
+      "fields": [
+        {
+          "name": "busInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "busInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
       ],
       "status": "implemented-verified",
       "xlate_size": null
@@ -8889,8 +11827,8 @@
       "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
       "description": "This command returns bios information for the associated GPU.",
       "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bios.h:71",
-      "params_struct": "",
-      "params_size": null,
+      "params_struct": "NV2080_CTRL_BIOS_GET_INFO_PARAMS",
+      "params_size": 16,
       "observed_params_size": [
         "0x10"
       ],
@@ -8902,10 +11840,27 @@
         "0x0": 1
       },
       "flags": [
+        "embedded-ptr",
         "embedded-ptr(second-level)"
       ],
       "notes": [
+        "params struct name not in the finn: comment; convention (_CMD_ dropped, _PARAMS appended), typedef present and sizeof compiled",
+        "pointer field(s), offsets compiled: biosInfoList @8",
         "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes, masked {'nested-ptr': 2}"
+      ],
+      "fields": [
+        {
+          "name": "biosInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "biosInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
       ],
       "status": "implemented-verified",
       "xlate_size": null
@@ -8937,7 +11892,22 @@
         "embedded-ptr(second-level)"
       ],
       "notes": [
+        "pointer field(s), offsets compiled: engineList @8",
         "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'nested-ptr': 6}"
+      ],
+      "fields": [
+        {
+          "name": "engineCount",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "engineList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
       ],
       "status": "implemented-verified",
       "xlate_size": null

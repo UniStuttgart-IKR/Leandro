@@ -430,7 +430,22 @@ def backend_mediated(crate_dir, hdr):
 # sizeof, compiled
 # ---------------------------------------------------------------------------
 class Sizeof:
-    """sizeof for a set of structs, one translation unit per header.
+    """Layout for a set of structs, one translation unit per header.
+
+    Two things come out of it and they have DIFFERENT provenance, which is
+    the whole reason this class exists rather than a regex:
+
+      * ``sizeof(S)``, ``offsetof(S, m)`` and ``sizeof(((S *)0)->m)`` are
+        COMPILED. No number here is parsed out of a header, ever. A layout
+        read with a regex is a layout that is wrong the first time NVIDIA
+        wraps a member in an alignment macro -- which they do, constantly.
+      * the member NAME and its declared TYPE are parsed, because they are
+        text and there is nothing to compile about them.
+
+    The two cannot drift apart in the dangerous direction. A misparsed
+    member name produces a line the COMPILER REFUSES, so it is dropped and
+    counted; it cannot produce a wrong offset. That asymmetry is what makes
+    the textual half safe.
 
     Per header rather than one big file on purpose: the SDK headers are not
     all mutually includable, and a single failure would take every size with
@@ -441,6 +456,8 @@ class Sizeof:
     def __init__(self, vendor):
         self.root = pathlib.Path(vendor)
         self.cache = {}
+        self.fields = {}    # struct -> [{name, type, offset, size}]
+        self.dropped = {}   # struct -> [member, ...] the compiler refused
         self.failed = {}
         self.cc = shutil.which("cc") or shutil.which("gcc")
 
@@ -450,8 +467,13 @@ class Sizeof:
             out.append(f"-I{self.root / d}")
         return out
 
-    def batch(self, wants):
-        """wants: {include_path: {struct, ...}} -> {struct: size}"""
+    def batch(self, wants, members_of=None):
+        """wants: {include_path: {struct, ...}}.
+
+        Fills ``cache`` with sizes and, when ``members_of`` is given (a
+        callable ``(incl, struct) -> [(type, name), ...]``), ``fields`` with
+        one compiled offset and member size per member.
+        """
         if not self.cc:
             self.failed["*"] = "no C compiler"
             return
@@ -459,34 +481,99 @@ class Sizeof:
             structs = sorted(s for s in structs if s and s not in self.cache)
             if not incl or not structs:
                 continue
-            with tempfile.TemporaryDirectory() as td:
-                src = pathlib.Path(td) / "s.c"
-                lines = ["#include <stdio.h>", "#include <nvtypes.h>", "#include <nvos.h>"]
-                if incl not in ("nvos.h",):
-                    lines.append(f'#include "{incl}"')
-                lines.append("int main(void){")
-                for s in structs:
-                    lines.append(f'    printf("%s\\t%zu\\n", "{s}", sizeof({s}));')
-                lines += ["    return 0;", "}"]
+            self._one(incl, structs, members_of)
+
+    def _one(self, incl, structs, members_of):
+        with tempfile.TemporaryDirectory() as td:
+            src = pathlib.Path(td) / "s.c"
+            head = ["#include <stdio.h>", "#include <stddef.h>",
+                    "#include <nvtypes.h>", "#include <nvos.h>"]
+            if incl not in ("nvos.h",):
+                head.append(f'#include "{incl}"')
+            head.append("int main(void){")
+            # One PROBE per line, so a line number out of the compiler's
+            # error maps back to exactly one struct or one member and
+            # nothing else has to be guessed.
+            probes = []
+            for st in structs:
+                probes.append(("S", st, None,
+                               f'    printf("S\\t%s\\t%zu\\n", "{st}", sizeof({st}));'))
+                for ty, mem in (members_of(incl, st) if members_of else ()):
+                    probes.append(("M", st, mem,
+                                   f'    printf("M\\t%s\\t%s\\t%s\\t%zu\\t%zu\\n", '
+                                   f'"{st}", "{mem}", "{ty}", '
+                                   f'(size_t)offsetof({st}, {mem}), '
+                                   f'sizeof(((({st} *)0)->{mem})));'))
+            exe = pathlib.Path(td) / "s"
+            # DROP THE LINE THE COMPILER NAMES, then try again. A member the
+            # textual scan invented (a bitfield, a member of an anonymous
+            # union, a macro that did not expand to a declaration) is one
+            # refused line, and losing the header for it would throw away
+            # every good offset beside it. Bounded, because a compiler that
+            # keeps failing on new lines is a header that does not build and
+            # that is a different answer, reported as one.
+            dead = set()
+            for _ in range(24):
+                lines = head + [t[3] for i, t in enumerate(probes) if i not in dead] \
+                        + ["    return 0;", "}"]
                 src.write_text("\n".join(lines) + "\n")
-                exe = pathlib.Path(td) / "s"
-                p = subprocess.run([self.cc, *self._flags(), "-o", str(exe), str(src)],
+                r = subprocess.run([self.cc, *self._flags(), "-o", str(exe), str(src)],
                                    capture_output=True, text=True)
-                if p.returncode != 0:
-                    # Retry one struct at a time: usually a single struct
-                    # names a type the header does not pull in, and losing
-                    # the whole header for it would be a worse answer.
+                if r.returncode == 0:
+                    break
+                # Map the reported line numbers back onto the probe list.
+                live = [i for i in range(len(probes)) if i not in dead]
+                hit = set()
+                for m in re.finditer(r"^[^:\n]*s\.c:(\d+):", r.stderr, re.M):
+                    k = int(m.group(1)) - len(head) - 1
+                    if 0 <= k < len(live):
+                        hit.add(live[k])
+                if not hit:
+                    # The compiler is unhappy about something that is not one
+                    # of our lines -- the header itself. Fall back to the old
+                    # behaviour: one struct at a time, so the loss is named.
                     if len(structs) > 1:
-                        for s in structs:
-                            self.batch({incl: {s}})
+                        for st in structs:
+                            self._one(incl, [st], members_of)
                     else:
-                        self.failed[structs[0]] = p.stderr.strip().splitlines()[-1:] or ["?"]
-                    continue
-                r = subprocess.run([str(exe)], capture_output=True, text=True)
-                for ln in r.stdout.splitlines():
-                    name, _, sz = ln.partition("\t")
-                    if sz.isdigit():
-                        self.cache[name] = int(sz)
+                        self.failed[structs[0]] = \
+                            r.stderr.strip().splitlines()[-1:] or ["?"]
+                    return
+                dead |= hit
+            else:
+                self.failed[incl] = ["the compiler kept refusing new lines"]
+                return
+            for i in sorted(dead):
+                kind, st, mem, _ = probes[i]
+                if kind == "M":
+                    self.dropped.setdefault(st, []).append(mem)
+                else:
+                    self.failed[st] = ["the sizeof probe itself did not compile"]
+            out = subprocess.run([str(exe)], capture_output=True, text=True)
+            for ln in out.stdout.splitlines():
+                f = ln.split("\t")
+                if f[0] == "S" and len(f) == 3 and f[2].isdigit():
+                    self.cache[f[1]] = int(f[2])
+                elif f[0] == "M" and len(f) == 6 and f[4].isdigit() and f[5].isdigit():
+                    self.fields.setdefault(f[1], []).append({
+                        "name": f[2], "type": f[3],
+                        "offset": int(f[4]), "size": int(f[5]),
+                    })
+
+    def members(self, name):
+        """The compiled field list of one struct, offset order."""
+        return sorted(self.fields.get(name, []), key=lambda m: (m["offset"], m["name"]))
+
+    def field_at(self, name, off):
+        """The member covering byte `off`, or None. Innermost wins: a member
+        of size 0 or one that merely starts there loses to one that actually
+        spans the byte."""
+        best = None
+        for m in self.fields.get(name, []):
+            if m["offset"] <= off < m["offset"] + max(m["size"], 1):
+                if best is None or m["size"] < best["size"]:
+                    best = m
+        return best
 
     def get(self, name):
         return self.cache.get(name)
@@ -507,6 +594,126 @@ class Sizeof:
 FD_MEMBER = re.compile(
     r"\b(?:NvS32|NvU32|int|NvHandle)\s+\**\s*([A-Za-z0-9_]*[Ff][Dd][A-Za-z0-9_]*)\s*[;\[,)]")
 P64_MEMBER = re.compile(r"\bNvP64\s+\**\s*([A-Za-z0-9_]+)")
+
+
+# One member declaration inside a struct body. The TYPE and the NAME are all
+# this takes from the text -- the offset and the member's size are compiled
+# (class Sizeof), so a wrong guess here becomes a line the compiler refuses
+# and never a wrong number.
+# Read from the RIGHT, which is the only way that is not ambiguous: a
+# declaration is <type words and stars> <name> <array suffix>, and a
+# left-to-right type pattern is greedy over the name -- `NvU32 subdeviceMask`
+# parses as type `NvU32 subdeviceMas` and member `k`, which compiles into
+# nothing and silently empties the field map.
+MEMBER_ARR = re.compile(r"(?:\s*\[[^\]]*\])+$")
+MEMBER_NAME = re.compile(r"(?:^|[\s*])([A-Za-z_][A-Za-z0-9_]*)$")
+# NVIDIA wraps aligned members in a macro. Unwrapping it is not optional:
+# every NvP64 in these headers is inside one.
+ALIGNED = re.compile(r"NV_DECLARE_ALIGNED\s*\(\s*(.*?)\s*,\s*\d+\s*\)", re.S)
+BLOCK = re.compile(r"\{[^{}]*\}", re.S)
+
+
+def struct_members(headers, incl, name):
+    """[(type, member), ...] for one struct, from its text.
+
+    Anonymous inner blocks are collapsed rather than descended into: their
+    members are addressable in C, but naming them needs the union's own
+    rules and the compiler will refuse anything this gets wrong anyway. A
+    named inner struct survives as its own member, which is what a caller
+    reading an offset wants.
+    """
+    body = struct_body(headers, incl, name)
+    if not body:
+        return []
+    body = re.sub(r"/\*.*?\*/", " ", body, flags=re.S)
+    body = re.sub(r"//[^\n]*", " ", body)
+    body = ALIGNED.sub(r"\1", body)
+    # Collapse inner {...} until none are left, so `struct { ... } foo;`
+    # still yields `foo` and the members inside do not leak out as members
+    # of the outer struct at offsets they do not have.
+    prev = None
+    while prev != body:
+        prev, body = body, BLOCK.sub(" @ ", body)
+    body = body.strip()
+    if body.startswith("{"):
+        body = body[1:]
+    out, seen = [], set()
+    for decl in body.split(";"):
+        decl = " ".join(decl.split())
+        if not decl or ":" in decl or "(" in decl:
+            continue          # bitfield or function pointer
+        if "@" in decl:
+            # A collapsed inner block. `union { ... } gpuNameString;` becomes
+            # `union @ gpuNameString`, and that member IS addressable --
+            # offsetof takes it and the compiler checks the name. Keeping it
+            # matters: NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS puts the whole
+            # name in one, so dropping it left the mediated identity of all
+            # things reported as a bare offset. An ANONYMOUS block leaves
+            # nothing after the `@` and is skipped -- its members belong to
+            # the outer struct at offsets this text cannot attribute.
+            head_kw = decl.split("@")[0].strip() or "struct"
+            rest = decl.split("@", 1)[1].strip()
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", rest):
+                continue
+            if rest not in seen:
+                seen.add(rest)
+                out.append((head_kw, rest))
+            continue
+        arr = MEMBER_ARR.search(decl)
+        head = decl[:arr.start()].rstrip() if arr else decl
+        m = MEMBER_NAME.search(head)
+        if not m:
+            continue
+        mem = m.group(1)
+        ty = " ".join(head[:m.start(1)].split())
+        if not ty or mem in seen:
+            continue
+        seen.add(mem)
+        out.append((ty + ("".join(arr.group(0).split()) if arr else ""), mem))
+    return out
+
+
+def params_by_convention(headers, info):
+    """The params struct of a command whose `finn:` comment does not name one.
+
+    NVIDIA's newer commands carry the struct in that comment and the reader
+    mines it. The older ones evaluate a bare number instead --
+    `NV2080_CTRL_CMD_BIOS_GET_INFO` is one, and it is the control number 51
+    had just fixed, so the undercount lands on exactly the rows this
+    pipeline cares most about.
+
+    The name is not invented. It is PROPOSED by the two conventions these
+    headers actually follow and accepted only when TWO independent things
+    agree: the typedef is present in the command's own header, and the
+    compiler answers `sizeof` for it (which the caller checks, because it
+    compiles it anyway). A proposal that either check refuses is dropped
+    and counted, never written down.
+
+    There are two conventions and both are real, which is why the candidates
+    are a list:
+
+      * drop `_CMD`, append `_PARAMS` -- the common one, and the one that
+        closes `NV2080_CTRL_CMD_BIOS_GET_INFO`;
+      * append `_PARAMS` to the symbol verbatim, `_CMD` and all -- which is
+        how `NV_CONF_COMPUTE_CTRL_CMD_SYSTEM_GET_CAPABILITIES_PARAMS` and
+        `NV2080_CTRL_CMD_BIOS_GET_POST_TIME_PARAMS` are spelled.
+
+    A command whose header holds BOTH is ambiguous and is left alone: two
+    candidates that both pass every check is not a fact, it is a coin toss,
+    and this pipeline does not have those.
+    """
+    incl, sym = info.get("incl"), info.get("name") or ""
+    if not incl or "_CMD_" not in sym:
+        return None
+    cands = [sym.replace("_CMD_", "_", 1) + "_PARAMS", sym + "_PARAMS"]
+    for d in INCLUDE_DIRS:
+        f = headers.root / d / incl
+        if not f.is_file():
+            continue
+        have = set(TYPEDEF.findall(f.read_text(errors="replace")))
+        hit = [c for c in cands if c in have]
+        return hit[0] if len(hit) == 1 else None
+    return None
 
 
 def struct_body(headers, incl, name):
@@ -654,7 +861,7 @@ def resolve(sigs, gov, hdr, sizes, mediated, drm):
         if meta and meta.get("params") and meta.get("incl"):
             wants[meta["incl"]].add(meta["params"])
         plan.append(((dev, nrs, subs), info, kind, meta, nr, sub))
-    sizes.batch(wants)
+    sizes.batch(wants, members_of=lambda i, st: struct_members(hdr, i, st))
 
     for (dev, nrs, subs), info, kind, meta, nr, sub in plan:
         devcode = DEV_CODE.get(dev)
@@ -678,6 +885,24 @@ def resolve(sigs, gov, hdr, sizes, mediated, drm):
             row["description"] = UNKNOWN
         if meta and meta.get("params"):
             row["params_size"] = sizes.get(meta["params"])
+            # The COMPILED field list. Every offset here came from offsetof
+            # in a translation unit that included the pinned header, so a row
+            # can name the member a difference lands in instead of a word
+            # index -- which is the whole point of the field map.
+            row["fields"] = sizes.members(meta["params"])
+            if meta.get("params_by"):
+                row["notes"].append(
+                    f"params struct name not in the finn: comment; "
+                    f"{meta['params_by']}")
+        elif meta and kind == "ctrl" and info["psize"] and set(info["psize"]) == {"0x0"}:
+            # NOT an undercount: the header names no params struct AND every
+            # observed call passed a zero-length params buffer. Two
+            # independent statements that this command takes no arguments,
+            # which is a closed answer rather than a missing one.
+            row["notes"].append(
+                f"argument-less: no params struct in the header, and all "
+                f"{sum(info['probes'].values())} observed call(s) passed "
+                f"paramsSize 0")
 
         # ---- governance -> status ----------------------------------------
         gi = gov.ioctls.get((devcode, nr)) if devcode is not None else None
@@ -798,6 +1023,16 @@ def resolve(sigs, gov, hdr, sizes, mediated, drm):
             row["notes"].append(f"params member '{m.group(1)}' looks like a process-local fd")
         if body and P64_MEMBER.search(body):
             row["flags"].append("embedded-ptr")
+            # WHICH pointer, and where. The regex above answers "is there
+            # one" off the header text; the offset comes from the compiled
+            # field map, never from counting members in that text -- these
+            # structs wrap every NvP64 in NV_DECLARE_ALIGNED, so a counted
+            # offset is wrong exactly where it matters most.
+            ptrs = [f"{m['name']} @{m['offset']}"
+                    for m in (row.get("fields") or []) if m["type"] == "NvP64"]
+            if ptrs:
+                row["notes"].append("pointer field(s), offsets compiled: "
+                                    + ", ".join(ptrs))
         if generic and gi and gi["emb_ptr_off"] != NONE_U32 \
                 and "embedded-ptr" not in row["flags"]:
             row["flags"].append("embedded-ptr")
@@ -871,6 +1106,117 @@ def guest_evidence(outdir, driver):
         return None, f"{shown} (unreadable: {e})"
 
 
+def apply_convention_params(hdr, sizes):
+    """Fill in the params struct of every command whose `finn:` comment does
+    not name one, where the convention proposes a name that the header AND
+    the compiler both accept. Returns (closed, still_open).
+
+    Run BEFORE the batch, because the compiler's answer is the second of the
+    two checks: a proposal `sizeof` refuses is withdrawn here, not recorded.
+    """
+    proposals = {}
+    for cmd, info in hdr.ctrl.items():
+        if info.get("params"):
+            continue
+        cand = params_by_convention(hdr, info)
+        if cand:
+            proposals[cmd] = cand
+    wants = collections.defaultdict(set)
+    for cmd, cand in proposals.items():
+        wants[hdr.ctrl[cmd]["incl"]].add(cand)
+    sizes.batch(wants, members_of=lambda i, st: struct_members(hdr, i, st))
+    closed = 0
+    for cmd, cand in proposals.items():
+        if sizes.get(cand) is None:
+            continue
+        hdr.ctrl[cmd]["params"] = cand
+        hdr.ctrl[cmd]["params_by"] = "convention (_CMD_ dropped, _PARAMS " \
+                                     "appended), typedef present and sizeof compiled"
+        closed += 1
+    still = sum(1 for c in hdr.ctrl.values() if not c.get("params"))
+    return closed, still
+
+
+def write_fieldmap(path, hdr, sizes, prov):
+    """The compiled field map, beside tables.txt in the trace artefacts.
+
+    RAW MATERIAL, not a claim: it is a property of the vendor headers this
+    tree is pinned to, it is regenerated from them in seconds, and nothing
+    in it is a decision anybody took. That is why it lives with the traces
+    and not under matrix/ (the versioning rule).
+
+    Header-wide rather than run-wide on purpose. A consumer that only has
+    the run's own signatures cannot name a field of a command this run did
+    not make, and the next run's set is different -- so the artefact would
+    change for reasons that have nothing to do with what it describes.
+    """
+    closed, still = apply_convention_params(hdr, sizes)
+    wants = collections.defaultdict(set)
+    for d in (hdr.ctrl, hdr.klass, hdr.uvm):
+        for c in d.values():
+            if c.get("params") and c.get("incl"):
+                wants[c["incl"]].add(c["params"])
+    sizes.batch(wants, members_of=lambda i, st: struct_members(hdr, i, st))
+
+    def commands(d, kind):
+        out = {}
+        for k, c in d.items():
+            if not c.get("params"):
+                continue
+            out[f"{k:#x}"] = {
+                "name": c["name"], "kind": kind, "params_struct": c["params"],
+                "header": f"{c['file']}:{c['line']}",
+                "params_name_from": c.get("params_by", "finn: comment"),
+            }
+        return out
+
+    structs = {}
+    for name, size in sorted(sizes.cache.items()):
+        structs[name] = {"size": size, "members": sizes.members(name)}
+    js = {
+        "provenance": prov,
+        "generated_by": "scripts/ioctl-matrix.sh trace (probe/python/ioctlmatrix.py --fieldmap-only)",
+        "method": (
+            "sizeof(S), offsetof(S, m) and sizeof(((S *)0)->m) are COMPILED, one "
+            "translation unit per header -- no number here is parsed. The member "
+            "NAME and TYPE are read from the header text, and a misparse becomes a "
+            "line the compiler refuses rather than a wrong offset"),
+        "params_name": (
+            "from the command's finn: comment where it carries one. Where it does "
+            "not, PROPOSED by convention (drop _CMD, append _PARAMS) and accepted "
+            "only when the typedef is in the command's own header and sizeof "
+            "compiles -- two checks, neither of them a list somebody maintains"),
+        "counts": {
+            "structs": len(structs),
+            "members": sum(len(v["members"]) for v in structs.values()),
+            "params_named_by_convention": closed,
+            "controls_still_without_params": still,
+            "structs_that_did_not_compile": len(sizes.failed),
+            "members_the_compiler_refused":
+                sum(len(v) for v in sizes.dropped.values()),
+        },
+        "commands": {
+            "ctrl": commands(hdr.ctrl, "ctrl"),
+            "uvm": commands(hdr.uvm, "uvm"),
+            "class": commands(hdr.klass, "alloc"),
+        },
+        "structs": structs,
+        "did_not_compile": {k: v for k, v in sorted(sizes.failed.items())},
+        "members_refused": {k: sorted(v) for k, v in sorted(sizes.dropped.items())},
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(js, indent=2) + "\n")
+    c = js["counts"]
+    print(f"  field map: {c['structs']} struct(s), {c['members']} member(s), "
+          f"offsets compiled; {c['params_named_by_convention']} params struct(s) "
+          f"named by convention, {c['controls_still_without_params']} control(s) "
+          f"still without one")
+    if c["structs_that_did_not_compile"] or c["members_the_compiler_refused"]:
+        print(f"  field map: {c['structs_that_did_not_compile']} struct(s) did not "
+              f"compile, {c['members_the_compiler_refused']} member(s) refused")
+    print(f"wrote {path}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--traces", required=True)
@@ -879,10 +1225,20 @@ def main():
     ap.add_argument("--vendor", required=True)
     ap.add_argument("--xlate", required=True)
     ap.add_argument("--provenance", default="")
+    ap.add_argument("--fieldmap", default="",
+                    help="also write the compiled field map here")
+    ap.add_argument("--fieldmap-only", action="store_true",
+                    help="write only the field map and stop -- needs no traces")
     a = ap.parse_args()
 
     tdir, outdir = pathlib.Path(a.traces), pathlib.Path(a.out)
     prov = [x for x in a.provenance.split("|") if x.strip()]
+
+    if a.fieldmap_only:
+        hdr = Headers(a.vendor)
+        sizes = Sizeof(a.vendor)
+        write_fieldmap(pathlib.Path(a.fieldmap), hdr, sizes, prov)
+        return 0
 
     gov = Governance(tdir / "tables.txt")
     gov.selfcheck()
@@ -894,10 +1250,22 @@ def main():
     mediated = backend_mediated(
         pathlib.Path(a.xlate).parent.parent.parent / "vhost-user-nvrm/src", hdr)
 
+    # The same closure the field map applies, so the catalogue and the field
+    # map name the same struct for the same command. Without it a row like
+    # NV2080_CTRL_CMD_BIOS_GET_INFO -- whose finn: comment evaluates a bare
+    # number instead of naming its params -- carries no struct here while
+    # fields.json has one, and the two artefacts would disagree about the
+    # same header.
+    closed, still = apply_convention_params(hdr, sizes)
+    print(f"  params struct names: {closed} taken from the naming convention "
+          f"and checked twice, {still} control(s) still without one")
+
     probes = read_probes(tdir)
     inv = read_inventory(tdir)
     sigs = collect_signatures(tdir, probes)
     rows = resolve(sigs, gov, hdr, sizes, mediated, drm)
+    if a.fieldmap:
+        write_fieldmap(pathlib.Path(a.fieldmap), hdr, sizes, prov)
 
     ev, evpath = verified_evidence(outdir, a.driver)
     if ev:

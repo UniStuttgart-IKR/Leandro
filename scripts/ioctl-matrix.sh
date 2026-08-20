@@ -491,6 +491,23 @@ do_trace() {
     (cd "$LEA_ROOT" && cargo run --release --quiet --bin nvrm-genhdr -- \
         --expect-dump "$TDIR/tables.txt" >/dev/null 2>&1) \
         || die "cannot dump the descriptor tables -- ./scripts/build.sh cargo"
+    # The FIELD MAP, beside the table stream and for the same reason: every
+    # consumer downstream can then say `biosInfoList, an NvP64` where it used
+    # to say `word 2 (offset 8)`. Sizes and offsets are COMPILED out of the
+    # pinned vendor headers, one translation unit per header -- nothing here
+    # is parsed, which is the property the catalogue's sizeof cross-check
+    # already rests on, one level finer.
+    #
+    # It needs no traces, so it is written HERE rather than in `catalog`:
+    # `verify` runs answerdiff BEFORE it regenerates the catalogue, and a
+    # field map that only appeared afterwards would be missing on exactly
+    # the first run that wanted it.
+    python3 "$LEA_ROOT/probe/python/ioctlmatrix.py" --fieldmap-only \
+        --fieldmap "$TDIR/fields.json" --traces "$TDIR" --out "$MDIR" \
+        --driver "$DRV" --vendor "$LEA_ROOT/vendor/open-gpu-kernel-modules" \
+        --xlate "$LEA_ROOT/crates/nvrm-abi/src/xlate.rs" \
+        --provenance "$(lea_matrix_provenance | tr '\n' '|')" \
+        || die "cannot generate the field map"
     {
         lea_matrix_staged 64 | sed 's/^/staged64\t/'
         lea_matrix_staged 32 | sed 's/^/staged32\t/'

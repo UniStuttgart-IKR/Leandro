@@ -1,17 +1,11 @@
 {
-  "provenance": [
-    "driver:  610.57.04",
-    "gpu:     NVIDIA GeForce RTX 2070",
-    "arch:    Turing (compute 7.5)",
-    "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T17:25:44Z",
-    "commit:  d6144d1 (working tree modified)"
-  ],
+  "provenance": [],
   "generated_by": "scripts/ioctl-matrix.sh verify",
   "method": "the tracer's ctrlout line (first 32 bytes of the params buffer after the call) from the native trace against the guest trace, call by call, word by word",
   "extent": "the FIRST BYTES of the answer, not the whole answer -- bytes_compared against answer_size per signature says how much",
   "mask": "derived, never hand-written: a differing word is allowed only if it is this side's own gpu_id (cardinfo line), a handle this side allocated, or part of a pointer field the descriptor table declares for that command (tables.txt, the stream the guest module was handed). Anything else is a mismatch",
   "declared_pointer_commands": 14,
+  "field_map": "1474 command(s) have a compiled field map (matrix/traces/<drv>/fields.json); offsets and member sizes come from offsetof/sizeof in a translation unit that included the pinned vendor header, never from parsing",
   "probes": {
     "cuda-core": {
       "native_gpuid": [
@@ -145,6 +139,17 @@
       "guest_handles": 12,
       "commands_with_an_answer_dump": 72
     },
+    "opencl": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 136,
+      "guest_handles": 136,
+      "commands_with_an_answer_dump": 37
+    },
     "vk-enum": {
       "native_gpuid": [
         "0x2d00"
@@ -211,6 +216,7 @@
     "ctl 0x2a 0x2080182a",
     "ctl 0x2a 0x2080182b",
     "ctl 0x2a 0x20801830",
+    "ctl 0x2a 0x20802068",
     "ctl 0x2a 0x20802087",
     "ctl 0x2a 0x20802a0a",
     "ctl 0x2a 0x20803002",
@@ -269,6 +275,11 @@
       "calls_compared": 7,
       "bytes_compared": 4,
       "answer_size": 4,
+      "params_struct": "NV0000_CTRL_GPU_GET_DEVICE_IDS_PARAMS",
+      "fields_covered": [
+        "deviceIds (NvU32) @0"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20800111": {
@@ -282,16 +293,22 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 8,
+      "calls_compared": 9,
       "bytes_compared": 32,
       "answer_size": 64,
+      "params_struct": "NV2080_CTRL_GPU_GET_SHORT_NAME_STRING_PARAMS",
+      "fields_covered": [
+        "gpuShortNameString (NvU8[NV2080_GPU_MAX_NAME_STRING_LENGTH]) @0"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20800123": {
       "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "vk-enum",
         "vk-offscreen",
@@ -300,6 +317,12 @@
       "calls_compared": 3,
       "bytes_compared": 16,
       "answer_size": 16,
+      "params_struct": "NV2080_CTRL_GPU_GET_ENGINES_PARAMS",
+      "fields_covered": [
+        "engineCount (NvU32) @0",
+        "engineList (NvP64) @8"
+      ],
+      "fields_not_covered": [],
       "words_masked": {
         "nested-ptr": 6
       }
@@ -316,11 +339,17 @@
         "nvdec",
         "nvenc",
         "nvml",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 9,
+      "calls_compared": 10,
       "bytes_compared": 4,
       "answer_size": 4,
+      "params_struct": "NV2080_CTRL_GPU_QUERY_COMPUTE_MODE_RULES_PARAMS",
+      "fields_covered": [
+        "rules (NvU32) @0"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080013f": {
@@ -332,6 +361,22 @@
       "calls_compared": 3,
       "bytes_compared": 32,
       "answer_size": 136,
+      "params_struct": "NV2080_CTRL_GPU_GET_OEM_BOARD_INFO_PARAMS",
+      "fields_covered": [
+        "buildDate (NvU32) @0",
+        "marketingName (NvU8[NV2080_GPU_MAX_MARKETING_NAME_LENGTH]) @4",
+        "serialNumber (NvU8[NV2080_GPU_MAX_SERIAL_NUMBER_LENGTH]) @28"
+      ],
+      "fields_not_covered": [
+        "memoryManufacturer (NvU8) @44",
+        "memoryPartID (NvU8[NV2080_GPU_MAX_MEMORY_PART_ID_LENGTH]) @45",
+        "memoryDateCode (NvU8[NV2080_GPU_MAX_MEMORY_DATE_CODE_LENGTH]) @65",
+        "productPartNumber (NvU8[NV2080_GPU_MAX_PRODUCT_PART_NUMBER_LENGTH]) @71",
+        "boardRevision (NvU8[3]) @91",
+        "boardType (NvU8) @94",
+        "board699PartNumber (NvU8[NV2080_GPU_MAX_PRODUCT_PART_NUMBER_LENGTH]) @95",
+        "board965PartNumber (NvU8[NV2080_GPU_MAX_PRODUCT_PART_NUMBER_LENGTH]) @115"
+      ],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080014a": {
@@ -346,11 +391,20 @@
         "nvdec",
         "nvenc",
         "nvml",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 18,
+      "calls_compared": 20,
       "bytes_compared": 32,
       "answer_size": 268,
+      "params_struct": "NV2080_CTRL_GPU_GET_GID_INFO_PARAMS",
+      "fields_covered": [
+        "index (NvU32) @0",
+        "flags (NvU32) @4",
+        "length (NvU32) @8",
+        "data (NvU8[NV2080_GPU_MAX_GID_LENGTH]) @12"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080014b": {
@@ -362,6 +416,13 @@
       "calls_compared": 5,
       "bytes_compared": 5,
       "answer_size": 5,
+      "params_struct": "NV2080_CTRL_GPU_GET_INFOROM_OBJECT_VERSION_PARAMS",
+      "fields_covered": [
+        "objectType (char[NV2080_CTRL_GPU_INFOROM_OBJ_TYPE_LEN]) @0",
+        "version (NvU8) @3",
+        "subversion (NvU8) @4"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20800156": {
@@ -373,6 +434,11 @@
       "calls_compared": 1,
       "bytes_compared": 16,
       "answer_size": 16,
+      "params_struct": "NV2080_CTRL_GPU_GET_INFOROM_IMAGE_VERSION_PARAMS",
+      "fields_covered": [
+        "version (NvU8[NV2080_CTRL_GPU_INFOROM_IMAGE_VERSION_LEN]) @0"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080016d": {
@@ -384,6 +450,9 @@
       "calls_compared": 1,
       "bytes_compared": 12,
       "answer_size": 12,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080017b": {
@@ -395,6 +464,9 @@
       "calls_compared": 1,
       "bytes_compared": 12,
       "answer_size": 12,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080019f": {
@@ -408,11 +480,19 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 8,
+      "calls_compared": 9,
       "bytes_compared": 32,
       "answer_size": 688,
+      "params_struct": "NV2080_CTRL_GPU_GET_SKYLINE_INFO_PARAMS",
+      "fields_covered": [
+        "skylineTable (NV2080_CTRL_GPU_SKYLINE_INFO[NV2080_CTRL_GPU_SKYLINE_INFO_MAX_SKYLINES]) @0"
+      ],
+      "fields_not_covered": [
+        "validEntries (NvU32) @684"
+      ],
       "words_masked": {}
     },
     "ctl 0x2a 0x208001a3": {
@@ -424,6 +504,19 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 56,
+      "params_struct": "NV2080_CTRL_CMD_GET_GPU_FABRIC_PROBE_INFO_PARAMS",
+      "fields_covered": [
+        "state (NvU8) @0",
+        "status (NV_STATUS) @4",
+        "clusterUuid (NvU8[NV2080_GPU_FABRIC_CLUSTER_UUID_LEN]) @8",
+        "fabricPartitionId (NvU16) @24"
+      ],
+      "fields_not_covered": [
+        "fabricCaps (NvU64) @32",
+        "fabricCliqueId (NvU32) @40",
+        "fabricHealthMask (NvU32) @44",
+        "fabricHealthSummary (NvU8) @48"
+      ],
       "words_masked": {}
     },
     "ctl 0x2a 0x208001a4": {
@@ -435,6 +528,14 @@
       "calls_compared": 1,
       "bytes_compared": 16,
       "answer_size": 16,
+      "params_struct": "NV2080_CTRL_GPU_GET_CHIP_DETAILS_PARAMS",
+      "fields_covered": [
+        "pciDevId (NvU32) @0",
+        "chipSku (NvU8[NV2080_MAX_CHIP_SKU_LENGTH]) @4",
+        "chipMajor (NvU32) @8",
+        "chipMinor (NvU32) @12"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x208001b2": {
@@ -446,6 +547,11 @@
       "calls_compared": 1,
       "bytes_compared": 4,
       "answer_size": 4,
+      "params_struct": "NV2080_CTRL_GPU_GET_RECOVERY_ACTION_PARAMS",
+      "fields_covered": [
+        "action (NV2080_CTRL_GPU_RECOVERY_ACTION) @0"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20800301": {
@@ -459,6 +565,15 @@
       "calls_compared": 6,
       "bytes_compared": 20,
       "answer_size": 20,
+      "params_struct": "NV2080_CTRL_EVENT_SET_NOTIFICATION_PARAMS",
+      "fields_covered": [
+        "event (NvU32) @0",
+        "action (NvU32) @4",
+        "bNotifyState (NvBool) @8",
+        "info32 (NvU32) @12",
+        "info16 (NvU16) @16"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20800513": {
@@ -470,6 +585,17 @@
       "calls_compared": 3,
       "bytes_compared": 32,
       "answer_size": 1432,
+      "params_struct": "NV2080_CTRL_THERMAL_SYSTEM_EXECUTE_V2_PARAMS",
+      "fields_covered": [
+        "clientAPIVersion (NvU32) @0",
+        "clientAPIRevision (NvU32) @4",
+        "clientInstructionSizeOf (NvU32) @8",
+        "executeFlags (NvU32) @12",
+        "successfulInstructions (NvU32) @16",
+        "instructionListSize (NvU32) @20",
+        "instructionList (NV2080_CTRL_THERMAL_SYSTEM_INSTRUCTION[NV2080_CTRL_THERMAL_SYSTEM_INSTRUCTION_MAX_COUNT]) @24"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20800802": {
@@ -481,6 +607,12 @@
       "calls_compared": 1,
       "bytes_compared": 16,
       "answer_size": 16,
+      "params_struct": "NV2080_CTRL_BIOS_GET_INFO_PARAMS",
+      "fields_covered": [
+        "biosInfoListSize (NvU32) @0",
+        "biosInfoList (NvP64) @8"
+      ],
+      "fields_not_covered": [],
       "words_masked": {
         "nested-ptr": 2
       }
@@ -495,11 +627,18 @@
         "cuda-launch",
         "cuda-managed",
         "nvdec",
-        "nvenc"
+        "nvenc",
+        "opencl"
       ],
-      "calls_compared": 56,
+      "calls_compared": 64,
       "bytes_compared": 16,
       "answer_size": 16,
+      "params_struct": "NV2080_CTRL_GR_GET_CTX_BUFFER_SIZE_PARAMS",
+      "fields_covered": [
+        "hChannel (NvHandle) @0",
+        "totalBufferSize (NvU64) @8"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20801227": {
@@ -513,11 +652,15 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 8,
+      "calls_compared": 9,
       "bytes_compared": 32,
       "answer_size": 48,
+      "params_struct": "NV2080_CTRL_GR_GET_CAPS_V2_PARAMS",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080122a": {
@@ -531,11 +674,18 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 8,
+      "calls_compared": 9,
       "bytes_compared": 24,
       "answer_size": 24,
+      "params_struct": "NV2080_CTRL_GR_GET_GPC_MASK_PARAMS",
+      "fields_covered": [
+        "grRouteInfo (NV2080_CTRL_GR_ROUTE_INFO) @0",
+        "gpcMask (NvU32) @16"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080122b": {
@@ -549,11 +699,19 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 24,
+      "calls_compared": 27,
       "bytes_compared": 24,
       "answer_size": 24,
+      "params_struct": "NV2080_CTRL_GR_GET_TPC_MASK_PARAMS",
+      "fields_covered": [
+        "grRouteInfo (NV2080_CTRL_GR_ROUTE_INFO) @0",
+        "gpcId (NvU32) @16",
+        "tpcMask (NvU32) @20"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20801322": {
@@ -565,6 +723,15 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 2056,
+      "params_struct": "NV2080_CTRL_FB_GET_OFFLINED_PAGES_PARAMS",
+      "fields_covered": [
+        "offlined (NV2080_CTRL_FB_OFFLINED_ADDRESS_INFO[NV2080_CTRL_FB_OFFLINED_PAGES_MAX_PAGES]) @0"
+      ],
+      "fields_not_covered": [
+        "validEntries (NvU32) @2048",
+        "bRetirementPending (NvBool) @2052",
+        "retirementPending (NvU8) @2053"
+      ],
       "words_masked": {}
     },
     "ctl 0x2a 0x20801344": {
@@ -576,6 +743,13 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 6152,
+      "params_struct": "NV2080_CTRL_FB_GET_REMAPPED_ROWS_PARAMS",
+      "fields_covered": [
+        "entryCount (NvU32) @0",
+        "flags (NvU8) @4",
+        "entries (NV2080_CTRL_FB_ROW_REMAP_ENTRY[NV2080_CTRL_FB_REMAPPED_ROWS_MAX_ROWS]) @8"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20801357": {
@@ -587,6 +761,11 @@
       "calls_compared": 1,
       "bytes_compared": 4,
       "answer_size": 4,
+      "params_struct": "NV2080_CTRL_FB_DRAM_ENCRYPTION_INFOROM_SUPPORT_PARAMS",
+      "fields_covered": [
+        "isSupported (NvU32) @0"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20801802": {
@@ -600,6 +779,12 @@
       "calls_compared": 10,
       "bytes_compared": 16,
       "answer_size": 16,
+      "params_struct": "NV2080_CTRL_BUS_GET_INFO_PARAMS",
+      "fields_covered": [
+        "busInfoListSize (NvU32) @0",
+        "busInfoList (NvP64) @8"
+      ],
+      "fields_not_covered": [],
       "words_masked": {
         "nested-ptr": 20
       }
@@ -615,11 +800,18 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 8,
+      "calls_compared": 9,
       "bytes_compared": 32,
       "answer_size": 200,
+      "params_struct": "NV2080_CTRL_BUS_GET_PCI_BAR_INFO_PARAMS",
+      "fields_covered": [
+        "pciBarCount (NvU32) @0",
+        "pciBarInfo (NV2080_CTRL_BUS_PCI_BAR_INFO[NV2080_CTRL_BUS_MAX_PCI_BARS]) @8"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20801813": {
@@ -631,6 +823,17 @@
       "calls_compared": 2,
       "bytes_compared": 32,
       "answer_size": 76,
+      "params_struct": "NV2080_CTRL_BUS_GET_PEX_COUNTERS_PARAMS",
+      "fields_covered": [
+        "pexCounterMask (NvU32) @0",
+        "pexTotalCorrectableErrors (NvU32) @4",
+        "pexCorrectableErrors (NvU16) @8",
+        "pexTotalNonFatalErrors (NvU8) @10",
+        "pexTotalFatalErrors (NvU8) @11",
+        "pexTotalUnsupportedReqs (NvU8) @12",
+        "pexCounters (NvU16[NV2080_CTRL_PEX_MAX_COUNTER_TYPES]) @14"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20801829": {
@@ -642,6 +845,13 @@
       "calls_compared": 1,
       "bytes_compared": 12,
       "answer_size": 12,
+      "params_struct": "NV2080_CTRL_CMD_BUS_GET_PCIE_REQ_ATOMICS_CAPS_PARAMS",
+      "fields_covered": [
+        "capType (NvU32) @0",
+        "dbdf (NvU32) @4",
+        "atomicsCaps (NvU32) @8"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080182a": {
@@ -655,11 +865,19 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 8,
+      "calls_compared": 9,
       "bytes_compared": 32,
       "answer_size": 112,
+      "params_struct": "NV2080_CTRL_CMD_BUS_GET_PCIE_SUPPORTED_GPU_ATOMICS_PARAMS",
+      "fields_covered": [
+        "capType (NvU32) @0",
+        "dbdf (NvU32) @4",
+        "atomicOp (NV2080_CTRL_BUS_PCIE_GPU_ATOMIC_OP_INFO[NV2080_CTRL_PCIE_SUPPORTED_GPU_ATOMICS_OP_TYPE_COUNT]) @8"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080182b": {
@@ -673,11 +891,25 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 8,
+      "calls_compared": 9,
       "bytes_compared": 28,
       "answer_size": 28,
+      "params_struct": "NV2080_CTRL_CMD_BUS_GET_C2C_INFO_PARAMS",
+      "fields_covered": [
+        "bIsLinkUp (NvBool) @0",
+        "bLinkInHS (NvBool) @1",
+        "bEncryptionEnabled (NvBool) @2",
+        "nrLinks (NvU32) @4",
+        "maxNrLinks (NvU32) @8",
+        "linkMask (NvU32) @12",
+        "perLinkBwMBps (NvU32) @16",
+        "perLinkLaneWidth (NvU32) @20",
+        "remoteType (NvU32) @24"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20801830": {
@@ -689,6 +921,27 @@
       "calls_compared": 1,
       "bytes_compared": 4,
       "answer_size": 4,
+      "params_struct": "NV2080_CTRL_CMD_BUS_GET_PCIE_CPL_ATOMICS_CAPS_PARAMS",
+      "fields_covered": [
+        "atomicsCaps (NvU32) @0"
+      ],
+      "fields_not_covered": [],
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20802068": {
+      "name": "NV2080_CTRL_CMD_PERF_GET_CURRENT_PSTATE",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 4,
+      "answer_size": 4,
+      "params_struct": "NV2080_CTRL_PERF_GET_CURRENT_PSTATE_PARAMS",
+      "fields_covered": [
+        "currPstate (NvU32) @0"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20802087": {
@@ -700,6 +953,13 @@
       "calls_compared": 4,
       "bytes_compared": 12,
       "answer_size": 12,
+      "params_struct": "NV2080_CTRL_PERF_GET_VID_ENG_PERFMON_SAMPLE_PARAMS",
+      "fields_covered": [
+        "engineType (NV2080_CTRL_CMD_PERF_VID_ENG) @0",
+        "clkPercentBusy (NvU32) @4",
+        "samplingPeriodUs (NvU32) @8"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20802a0a": {
@@ -713,11 +973,19 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 11,
+      "calls_compared": 12,
       "bytes_compared": 32,
       "answer_size": 136,
+      "params_struct": "NV2080_CTRL_CE_GET_ALL_CAPS_PARAMS",
+      "fields_covered": [
+        "capsTbl (NvU8[NV2080_CTRL_MAX_CES][NV2080_CTRL_CE_CAPS_TBL_SIZE]) @0"
+      ],
+      "fields_not_covered": [
+        "present (NvU64) @128"
+      ],
       "words_masked": {}
     },
     "ctl 0x2a 0x20803002": {
@@ -731,11 +999,23 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 8,
+      "calls_compared": 9,
       "bytes_compared": 32,
       "answer_size": 13864,
+      "params_struct": "NV2080_CTRL_CMD_NVLINK_GET_NVLINK_STATUS_PARAMS",
+      "fields_covered": [
+        "enabledLinkMask (NvU32) @0",
+        "enabledLinks (NV2080_CTRL_NVLINK_LINK_MASK) @8",
+        "bSublinkStateInst (NvBool) @24",
+        "bNvleModeEnabled (NvBool) @25"
+      ],
+      "fields_not_covered": [
+        "linkInfo (NV2080_CTRL_NVLINK_LINK_STATUS_INFO[NV2080_CTRL_NVLINK_MAX_ARR_SIZE]) @32",
+        "enabledNvlpwMask (NvU64) @13856"
+      ],
       "words_masked": {}
     },
     "ctl 0x2a 0x20803083": {
@@ -747,6 +1027,20 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 39,
+      "params_struct": "NV2080_CTRL_NVLINK_GET_PLATFORM_INFO_PARAMS",
+      "fields_covered": [
+        "ibGuid (NvU8[16]) @0",
+        "rackGuid (NvU8[16]) @16"
+      ],
+      "fields_not_covered": [
+        "chassisPhysicalSlotNumber (NvU8) @32",
+        "computeSlotIndex (NvU8) @33",
+        "nodeIndex (NvU8) @34",
+        "peerType (NvU8) @35",
+        "moduleId (NvU8) @36",
+        "nvlinkSignalingProtocol (NvU8) @37",
+        "linksPerSpigot (NvU8) @38"
+      ],
       "words_masked": {}
     },
     "ctl 0x2a 0x20803601": {
@@ -761,11 +1055,20 @@
         "nvdec",
         "nvenc",
         "nvml",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 18,
+      "calls_compared": 20,
       "bytes_compared": 32,
       "answer_size": 72,
+      "params_struct": "NV2080_CTRL_GSP_GET_FEATURES_PARAMS",
+      "fields_covered": [
+        "gspFeatures (NvU32) @0",
+        "bValid (NvBool) @4",
+        "bDefaultGspRmGpu (NvBool) @5",
+        "firmwareVersion (NvU8[NV2080_GSP_MAX_BUILD_VERSION_LENGTH]) @6"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20803801": {
@@ -779,11 +1082,19 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 8,
+      "calls_compared": 9,
       "bytes_compared": 32,
       "answer_size": 1928,
+      "params_struct": "NV2080_CTRL_GRMGR_GET_GR_FS_INFO_PARAMS",
+      "fields_covered": [
+        "numQueries (NvU16) @0",
+        "reserved (NvU8[6]) @2",
+        "queries (NV2080_CTRL_GRMGR_GR_FS_INFO_QUERY_PARAMS[NV2080_CTRL_GRMGR_GR_FS_INFO_MAX_QUERIES]) @8"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20803d07": {
@@ -801,6 +1112,11 @@
       "calls_compared": 7,
       "bytes_compared": 1,
       "answer_size": 1,
+      "params_struct": "NV2080_CTRL_OS_UNIX_VIDMEM_PERSISTENCE_STATUS_PARAMS",
+      "fields_covered": [
+        "bVidmemPersistent (NvBool) @0"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20808159": {
@@ -818,13 +1134,17 @@
         "gles",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls_compared": 15,
+      "calls_compared": 16,
       "bytes_compared": 32,
       "answer_size": 332,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20808162": {
@@ -838,11 +1158,15 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 8,
+      "calls_compared": 9,
       "bytes_compared": 1,
       "answer_size": 1,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20808163": {
@@ -854,6 +1178,9 @@
       "calls_compared": 1,
       "bytes_compared": 4,
       "answer_size": 4,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20808164": {
@@ -865,6 +1192,9 @@
       "calls_compared": 1,
       "bytes_compared": 4,
       "answer_size": 4,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20808165": {
@@ -877,6 +1207,9 @@
       "calls_compared": 4,
       "bytes_compared": 1,
       "answer_size": 1,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080852a": {
@@ -888,6 +1221,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 1784,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080852c": {
@@ -899,6 +1235,9 @@
       "calls_compared": 2,
       "bytes_compared": 32,
       "answer_size": 1440,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080852e": {
@@ -910,6 +1249,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 1432,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20808536": {
@@ -921,6 +1263,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 25552,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080853a": {
@@ -932,6 +1277,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 15352,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20808542": {
@@ -943,6 +1291,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 504,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20808546": {
@@ -954,6 +1305,9 @@
       "calls_compared": 13,
       "bytes_compared": 24,
       "answer_size": 24,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20809001": {
@@ -966,6 +1320,9 @@
       "calls_compared": 3,
       "bytes_compared": 8,
       "answer_size": 8,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20809009": {
@@ -979,6 +1336,9 @@
       "calls_compared": 4,
       "bytes_compared": 8,
       "answer_size": 8,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20809019": {
@@ -990,6 +1350,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 12336,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x20809038": {
@@ -1001,6 +1364,9 @@
       "calls_compared": 1,
       "bytes_compared": 4,
       "answer_size": 4,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a014": {
@@ -1012,6 +1378,9 @@
       "calls_compared": 1,
       "bytes_compared": 12,
       "answer_size": 12,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a060": {
@@ -1023,6 +1392,9 @@
       "calls_compared": 1,
       "bytes_compared": 28,
       "answer_size": 28,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a06e": {
@@ -1034,6 +1406,9 @@
       "calls_compared": 1,
       "bytes_compared": 12,
       "answer_size": 12,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a079": {
@@ -1045,6 +1420,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 83972,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a080": {
@@ -1056,6 +1434,9 @@
       "calls_compared": 2,
       "bytes_compared": 32,
       "answer_size": 52,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a0a4": {
@@ -1067,6 +1448,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 67396,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a0a7": {
@@ -1078,6 +1462,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 17676,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a0a8": {
@@ -1089,6 +1476,9 @@
       "calls_compared": 4,
       "bytes_compared": 32,
       "answer_size": 32908,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a0f2": {
@@ -1100,6 +1490,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 96,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a612": {
@@ -1111,6 +1504,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 54352,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a613": {
@@ -1122,6 +1518,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 79936,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a618": {
@@ -1133,6 +1532,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 20000,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a61a": {
@@ -1144,6 +1546,9 @@
       "calls_compared": 1,
       "bytes_compared": 32,
       "answer_size": 13840,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a61f": {
@@ -1155,6 +1560,9 @@
       "calls_compared": 1,
       "bytes_compared": 8,
       "answer_size": 8,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x2080a63c": {
@@ -1166,6 +1574,9 @@
       "calls_compared": 1,
       "bytes_compared": 28,
       "answer_size": 28,
+      "params_struct": "",
+      "fields_covered": [],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x279": {
@@ -1177,6 +1588,13 @@
       "calls_compared": 1,
       "bytes_compared": 12,
       "answer_size": 12,
+      "params_struct": "NV0000_CTRL_GPU_QUERY_DRAIN_STATE_PARAMS",
+      "fields_covered": [
+        "gpuId (NvU32) @0",
+        "drainState (NvU32) @4",
+        "flags (NvU32) @8"
+      ],
+      "fields_not_covered": [],
       "words_masked": {
         "gpuId": 1
       }
@@ -1192,11 +1610,17 @@
         "cuda-managed",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-rt"
       ],
-      "calls_compared": 8,
+      "calls_compared": 9,
       "bytes_compared": 4,
       "answer_size": 4,
+      "params_struct": "NV0000_CTRL_GPU_GET_MEMOP_ENABLE_PARAMS",
+      "fields_covered": [
+        "enableMask (NvU32) @0"
+      ],
+      "fields_not_covered": [],
       "words_masked": {}
     },
     "ctl 0x2a 0x289": {
@@ -1208,6 +1632,11 @@
       "calls_compared": 1,
       "bytes_compared": 4,
       "answer_size": 4,
+      "params_struct": "NV0000_CTRL_GPU_ASYNC_ATTACH_ID_PARAMS",
+      "fields_covered": [
+        "gpuId (NvU32) @0"
+      ],
+      "fields_not_covered": [],
       "words_masked": {
         "gpuId": 1
       }
@@ -1227,9 +1656,7 @@
       ],
       "reason": "11 call(s) natively and 10 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": [
-        "answer bytes compared against a native run: 2 call(s), 32 of 128 bytes, masked {'gpuId': 2}"
-      ]
+      "catalogue_notes": []
     },
     {
       "signature": "ctl 0x2a 0x202",
@@ -1245,7 +1672,7 @@
       "reason": "15 call(s) natively and 14 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
       "catalogue_notes": [
-        "answer bytes compared against a native run: 5 call(s), 32 of 40 bytes, masked {'gpuId': 10}"
+        "pointer field(s), offsets compiled: szName @16"
       ]
     },
     {
@@ -1259,9 +1686,7 @@
       ],
       "reason": "6 call(s) natively and 3 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": [
-        "answer bytes compared against a native run: 2 call(s), 32 of 32 bytes, masked {'gpuId': 4}"
-      ]
+      "catalogue_notes": []
     },
     {
       "signature": "ctl 0x2a 0x20800102",
@@ -1276,9 +1701,7 @@
       ],
       "reason": "5 call(s) natively and 3 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": [
-        "answer bytes compared against a native run: 8 call(s), 32 of 580 bytes"
-      ]
+      "catalogue_notes": []
     },
     {
       "signature": "ctl 0x2a 0x20800110",
@@ -1296,11 +1719,12 @@
         "nvdec",
         "nvenc",
         "nvml",
+        "opencl",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "reason": "call 0, word 1 (offset 4): 0x4449564e natively, 0x6e61654c in the guest",
+      "reason": "call 0, gpuNameString (struct) at offset 4: 0x4449564e natively, 0x6e61654c in the guest",
       "catalogue_status": "implemented-unverified",
       "catalogue_notes": [
         "answered by the backend itself: CMD_GPU_GET_NAME_STRING (vram.rs:797)"
@@ -1334,9 +1758,7 @@
       ],
       "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 1664 bytes"
-      ]
+      "catalogue_notes": []
     },
     {
       "signature": "ctl 0x2a 0x20800142",
@@ -1389,7 +1811,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 3 (offset 12): 0x00000536 natively, 0x000011c9 in the guest",
+      "reason": "call 0, pidTbl (NvU32[NV2080_CTRL_GPU_GET_PIDS_MAX_COUNT]) at offset 12: 0x00000536 natively, 0x00001202 in the guest",
       "catalogue_status": "implemented-unverified",
       "catalogue_notes": [
         "answered by the backend itself: CMD_GPU_GET_PIDS (vram.rs:628)"
@@ -1419,7 +1841,7 @@
         "vk-offscreen",
         "vk-rt"
       ],
-      "reason": "call 0, word 0 (offset 0): 0x6d2c0ac0 natively, 0x88ccdf60 in the guest",
+      "reason": "call 0, time_nsec (NvU64) at offset 0: 0x4bd28500 natively, 0xc13a6780 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1431,7 +1853,7 @@
         "nvenc",
         "nvml"
       ],
-      "reason": "call 0, word 2 (offset 8): 0xb868dbe3 natively, 0xcd393ef7 in the guest",
+      "reason": "call 0, samples (NV2080_CTRL_TIMER_GPU_CPU_TIME_SAMPLE[NV2080_CTRL_TIMER_GPU_CPU_TIME_MAX_SAMPLES]) at offset 8: 0xb868dbe3 natively, 0xd50daf87 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1448,7 +1870,9 @@
       ],
       "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
       "catalogue_status": "implemented-unverified",
-      "catalogue_notes": []
+      "catalogue_notes": [
+        "pointer field(s), offsets compiled: grInfoList @8"
+      ]
     },
     {
       "signature": "ctl 0x2a 0x20801206",
@@ -1472,7 +1896,7 @@
         "gl-enum",
         "vk-offscreen"
       ],
-      "reason": "call 0, word 2 (offset 8): 0x04290000 natively, 0x042a0000 in the guest",
+      "reason": "call 0, vMemPtr (NvU64) at offset 8: 0x04290000 natively, 0x042a0000 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1515,7 +1939,8 @@
       "reason": "5 call(s) natively and 3 in the guest -- the answers cannot be paired",
       "catalogue_status": "implemented-unverified",
       "catalogue_notes": [
-        "answered by the backend itself: CMD_FB_GET_INFO (vram.rs:795)"
+        "answered by the backend itself: CMD_FB_GET_INFO (vram.rs:795)",
+        "pointer field(s), offsets compiled: fbInfoList @8"
       ]
     },
     {
@@ -1530,9 +1955,10 @@
         "nvdec",
         "nvenc",
         "nvml",
+        "opencl",
         "vk-rt"
       ],
-      "reason": "call 2, word 2 (offset 8): 0x00630ec0 natively, 0x00623140 in the guest",
+      "reason": "call 2, fbInfoList (NV2080_CTRL_FB_INFO[NV2080_CTRL_FB_INFO_MAX_LIST_SIZE]) at offset 4, byte 4 of it: 0x00630ec0 natively, 0x00601280 in the guest",
       "catalogue_status": "implemented-unverified",
       "catalogue_notes": [
         "answered by the backend itself: CMD_FB_GET_INFO_V2 (vram.rs:782)"
@@ -1596,9 +2022,7 @@
       ],
       "reason": "3 call(s) natively and 2 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": [
-        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes"
-      ]
+      "catalogue_notes": []
     },
     {
       "signature": "ctl 0x2a 0x20801801",
@@ -1613,9 +2037,7 @@
       ],
       "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": [
-        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes"
-      ]
+      "catalogue_notes": []
     },
     {
       "signature": "ctl 0x2a 0x20801819",
@@ -1623,7 +2045,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 1 (offset 4): 0xedea76d0 natively, 0x2e559560 in the guest",
+      "reason": "call 0, pexCounters (NvU32[NV2080_CTRL_PEX_UTIL_MAX_COUNTER_TYPES]) at offset 4: 0xedea76d0 natively, 0xfddc9bd8 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1641,11 +2063,12 @@
         "gles",
         "nvdec",
         "nvenc",
+        "opencl",
         "vk-enum",
         "vk-offscreen",
         "vk-rt"
       ],
-      "reason": "call 1, word 2 (offset 8): 0x0000002d natively, 0x00000000 in the guest",
+      "reason": "call 1, busInfoList (NV2080_CTRL_BUS_INFO[NV2080_CTRL_BUS_INFO_MAX_LIST_SIZE]) at offset 4, byte 4 of it: 0x0000002d natively, 0x00000000 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1658,18 +2081,6 @@
       "reason": "15 call(s) natively and 30 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
-    },
-    {
-      "signature": "ctl 0x2a 0x20802068",
-      "name": "NV2080_CTRL_CMD_PERF_GET_CURRENT_PSTATE",
-      "probes": [
-        "nvml"
-      ],
-      "reason": "call 0, word 0 (offset 0): 0x00000020 natively, 0x00000100 in the guest",
-      "catalogue_status": "passthrough",
-      "catalogue_notes": [
-        "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes"
-      ]
     },
     {
       "signature": "ctl 0x2a 0x20802a02",
@@ -1697,7 +2108,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 0 (offset 0): 0xf7403501 natively, 0x00000001 in the guest",
+      "reason": "call 0, offset 0: 0xf7403501 natively, 0x00000001 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1707,7 +2118,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 4 (offset 16): 0x000c5c10 natively, 0x000668a0 in the guest",
+      "reason": "call 0, offset 16: 0x000c5c10 natively, 0x000b3718 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1717,11 +2128,9 @@
       "probes": [
         "nvenc"
       ],
-      "reason": "call 0, word 6 (offset 24): 0x80031430 natively, 0x30302030 in the guest",
+      "reason": "call 0, offset 24: 0x80031430 natively, 0x00000000 in the guest",
       "catalogue_status": "passthrough",
-      "catalogue_notes": [
-        "answer bytes compared against a native run: 4 call(s), 32 of 520 bytes"
-      ]
+      "catalogue_notes": []
     },
     {
       "signature": "ctl 0x2a 0x2080a028",
@@ -1730,7 +2139,7 @@
         "nvdec",
         "nvenc"
       ],
-      "reason": "call 1, word 7 (offset 28): 0x00007fda natively, 0x00007954 in the guest",
+      "reason": "call 1, offset 28: 0x00007fda natively, 0x00007e15 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1740,7 +2149,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 4 (offset 16): 0x1770e660 natively, 0x0ece1620 in the guest",
+      "reason": "call 0, offset 16: 0x1770e660 natively, 0x478ae860 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1750,7 +2159,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, word 2 (offset 8): 0x00000014 natively, 0x00000015 in the guest",
+      "reason": "call 0, offset 8: 0x00000014 natively, 0x00000007 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1765,9 +2174,7 @@
       ],
       "reason": "1 call(s) natively and 0 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": [
-        "answer bytes compared against a native run: 2 call(s), 32 of 384 bytes, masked {'gpuId': 2}"
-      ]
+      "catalogue_notes": []
     },
     {
       "signature": "ctl 0x2a 0x215",
@@ -1780,9 +2187,7 @@
       ],
       "reason": "1 call(s) natively and 0 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 132 bytes, masked {'gpuId': 1}"
-      ]
+      "catalogue_notes": []
     },
     {
       "signature": "ctl 0x2a 0x216",
@@ -1795,9 +2200,7 @@
       ],
       "reason": "1 call(s) natively and 0 in the guest -- the answers cannot be paired",
       "catalogue_status": "passthrough",
-      "catalogue_notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 128 bytes"
-      ]
+      "catalogue_notes": []
     },
     {
       "signature": "ctl 0x2a 0x21b",
@@ -1808,7 +2211,7 @@
         "vk-offscreen",
         "vk-rt"
       ],
-      "reason": "call 0, word 2 (offset 8): 0x0000002d natively, 0x00050000 in the guest",
+      "reason": "call 0, bus (NvU16) at offset 8: 0x0000002d natively, 0x00050000 in the guest",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -1884,10 +2287,6 @@
     },
     {
       "probe": "gl-render",
-      "reason": "the guest run produced no answer dumps"
-    },
-    {
-      "probe": "opencl",
       "reason": "the guest run produced no answer dumps"
     }
   ]

@@ -104,6 +104,54 @@ def read_declared_pointers(tables):
     return out
 
 
+def read_fieldmap(path):
+    """cmd -> {"struct": name, "size": n, "members": [...]}, out of the
+    compiled field map the trace phase wrote beside ``tables.txt``.
+
+    Every offset in it came from ``offsetof`` in a translation unit that
+    included the pinned vendor header; nothing was parsed. That is what
+    makes it safe to turn "word 2" into a field NAME here -- the alternative,
+    counting members in header text, is wrong the first time NVIDIA wraps
+    one in ``NV_DECLARE_ALIGNED``, which is every NvP64 in these headers.
+
+    Absent map = no names, and every message falls back to the offset. A
+    missing artefact must degrade the wording, never the verdict.
+    """
+    if not path.is_file():
+        return {}
+    js = json.loads(path.read_text())
+    structs = js.get("structs", {})
+    out = {}
+    for cmd, c in js.get("commands", {}).get("ctrl", {}).items():
+        st = structs.get(c.get("params_struct", ""))
+        if st:
+            out[cmd] = {"struct": c["params_struct"], "size": st["size"],
+                        "members": st["members"],
+                        "params_name_from": c.get("params_name_from", "")}
+    return out
+
+
+def field_at(fm, off):
+    """The member covering byte `off`. Innermost wins, so a big array does
+    not shadow the element the offset is actually in."""
+    best = None
+    for m in (fm or {}).get("members", ()):
+        if m["offset"] <= off < m["offset"] + max(m["size"], 1):
+            if best is None or m["size"] < best["size"]:
+                best = m
+    return best
+
+
+def name_at(fm, off):
+    """`biosInfoList (NvP64) at offset 8` -- or just the offset when the
+    field map cannot say. Never a guess."""
+    m = field_at(fm, off)
+    if not m:
+        return f"offset {off}"
+    where = "" if m["offset"] == off else f", byte {off - m['offset']} of it"
+    return f"{m['name']} ({m['type']}) at offset {m['offset']}{where}"
+
+
 def read_side(path):
     """One side of the comparison: its answers, its gpuId, its handles."""
     calls = collections.defaultdict(list)
@@ -150,7 +198,7 @@ def explain(nw, gw, off, ptrs, native, guest):
     return None
 
 
-def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=()):
+def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None):
     """One signature's verdict: verified, or the reason it is not."""
     if len(ncalls) != len(gcalls):
         return None, (f"{len(ncalls)} call(s) natively and {len(gcalls)} in the "
@@ -171,7 +219,7 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=()):
                 continue
             why = explain(nw, gw, j * 4, ptrs, native, guest)
             if why is None:
-                return None, (f"call {i}, word {j} (offset {j * 4}): "
+                return None, (f"call {i}, {name_at(fm, j * 4)}: "
                               f"{nw:#010x} natively, {gw:#010x} in the guest"), {}
             masked[why] += 1
         # The tail the word view does not cover, compared as bytes.
@@ -194,6 +242,7 @@ def main():
     ndir, gdir, outdir = (pathlib.Path(a.native), pathlib.Path(a.guest),
                           pathlib.Path(a.out))
     declared = read_declared_pointers(ndir / "tables.txt")
+    fields = read_fieldmap(ndir / "fields.json")
     cat = {}
     catf = outdir / f"catalog-{a.driver}.json"
     if catf.is_file():
@@ -230,17 +279,32 @@ def main():
         }
         for cmd in sorted(set(n["calls"]) | set(g["calls"])):
             key = f"ctl 0x2a {cmd}"
+            fm = fields.get(cmd)
             ok, why, masked = compare_cmd(cmd, n["calls"].get(cmd, []),
                                           g["calls"].get(cmd, []), n, g,
-                                          declared.get(cmd, ()))
+                                          declared.get(cmd, ()), fm)
             row = cat.get(("ctl", "0x2a", cmd), {})
             if ok:
+                nb = len(n["calls"][cmd][0]["bytes"])
                 e = ok_by_sig.setdefault(key, {
                     "name": row.get("name", ""),
                     "status_before": row.get("status", ""),
                     "probes": [], "calls_compared": 0,
-                    "bytes_compared": len(n["calls"][cmd][0]["bytes"]),
+                    "bytes_compared": nb,
                     "answer_size": n["calls"][cmd][0]["len"],
+                    # WHICH FIELDS the compared bytes actually cover, by
+                    # name and type out of the compiled field map. "32 of 384
+                    # bytes" says how much; this says WHAT, which is the
+                    # question a reader of a verification claim has.
+                    "params_struct": (fm or {}).get("struct", ""),
+                    "fields_covered": [
+                        f"{m['name']} ({m['type']}) @{m['offset']}"
+                        for m in (fm or {}).get("members", [])
+                        if m["offset"] < nb],
+                    "fields_not_covered": [
+                        f"{m['name']} ({m['type']}) @{m['offset']}"
+                        for m in (fm or {}).get("members", [])
+                        if m["offset"] >= nb],
                     "words_masked": {},
                 })
                 e["probes"].append(p)
@@ -283,6 +347,14 @@ def main():
             "declares for that command (tables.txt, the stream the guest "
             "module was handed). Anything else is a mismatch"),
         "declared_pointer_commands": len(declared),
+        "field_map": (
+            f"{len(fields)} command(s) have a compiled field map "
+            f"(matrix/traces/<drv>/fields.json); offsets and member sizes come "
+            f"from offsetof/sizeof in a translation unit that included the "
+            f"pinned vendor header, never from parsing"
+            if fields else
+            "absent -- messages fall back to byte offsets. "
+            "scripts/ioctl-matrix.sh trace writes it"),
         "probes": sides,
         "verified": verified,
         "evidence": evidence,

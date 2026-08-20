@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T18:39:12Z
-commit:  f08ef32 (working tree modified)
+date:    2026-08-20T19:00:59Z
+commit:  90b83f3 (working tree modified)
 ```
 
 Probes against status. This is the compatibility statement: a probe
