@@ -483,7 +483,7 @@ The per-file responsibilities and the reasoning behind the cuts are in
 | `probe/run/` | probe entry points, including the suite runner |
 | `probe/suites/` | the Python suites |
 | `probe/bin/` | build output, **not** versioned |
-| `patches/` | the two cloud-hypervisor patches |
+| `patches/` | the two cloud-hypervisor patches, with [`patches/README.md`](patches/README.md) on what they close and where they stand against upstream |
 | `vm/` (= `LEA_VM_DIR`) | **the artefact store**: instances, base and baked images, the upstream guest image, the NixOS guest image (`LEA_NIXOS_DIR`), outputs — gitignored, and movable as a whole |
 | `local.env` | this checkout's `LEA_*` answers, read by `config.sh` first (gitignored; `local.env.example` shows the shape) |
 

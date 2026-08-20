@@ -26,7 +26,9 @@ advertise is never acked.
 No effect on virtio-nvrm, by construction rather than by hope: that
 backend advertises bits 28, 30 and 32 only, so the added mask ANDs to
 zero and its acked_features is bit-identical. Counter-measured anyway:
-gate-gpu.sh PASS and bench-transport.sh within noise.
+the compute gate passed and the transport benchmark stayed within noise
+(`scripts/test.sh gpu` and `scripts/bench.sh transport` in the project
+this patch comes from).
 
 diff --git a/virtio-devices/src/vhost_user/generic_vhost_user.rs b/virtio-devices/src/vhost_user/generic_vhost_user.rs
 --- a/virtio-devices/src/vhost_user/generic_vhost_user.rs
