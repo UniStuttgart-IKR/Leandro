@@ -218,9 +218,105 @@ pub fn uvm_param_size_compiled(cmd: u32) -> Option<usize> {
     })
 }
 
+/// Payload size of an allocation's `pAllocParms`, **as the compiler
+/// measures it**, or `None` where no compiled struct backs the class.
+///
+/// The sibling `alloc_param_size` answers for a hundred-odd classes, most
+/// of them from arithmetic done by hand while reading a header. This one
+/// answers only where `size_of` can, and it is deliberately the smaller
+/// answer: `nvrm-trace` dumps an allocation's parameter block at this
+/// length, and the point of dumping allocation answers is to judge the
+/// forwarding that `alloc_param_size` drives. An instrument that took its
+/// length from the table under test would agree with it by construction.
+///
+/// Reading past the end of a caller's struct is the bug this file has had
+/// before -- 88 bytes past a foreign one -- so a class that cannot be
+/// measured gets no dump rather than a guessed one.
+pub fn alloc_param_size_compiled(hclass: u32) -> Option<usize> {
+    Some(match hclass {
+        0x003e | 0x0040 | 0x50a0 | 0x90ce => size_of::<sys::NV_MEMORY_ALLOCATION_PARAMS>(),
+        0x0071 => size_of::<sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS>(),
+        0x0080 => size_of::<sys::NV0080_ALLOC_PARAMETERS>(),
+        0x90f1 => size_of::<sys::NV_VASPACE_ALLOCATION_PARAMETERS>(),
+        0xa06c => size_of::<sys::NV_CHANNEL_GROUP_ALLOCATION_PARAMETERS>(),
+        0x9067 => size_of::<sys::NV_CTXSHARE_ALLOCATION_PARAMETERS>(),
+        0x906f | 0xa06f | 0xa16f | 0xb06f | 0xc06f | 0xc36f | 0xc46f | 0xc56f
+        | 0xc86f | 0xc96f | 0xca6f => size_of::<sys::NV_CHANNEL_ALLOC_PARAMS>(),
+        0x902d | 0xa140 | 0xc597 | 0xc5c0 | 0xc697 | 0xc6c0 | 0xc797 | 0xc7c0
+        | 0xc997 | 0xc9c0 | 0xcb97 | 0xcbc0 | 0xcd40 | 0xcd97 | 0xcdc0
+        | 0xce97 | 0xcec0 => size_of::<sys::NV_GR_ALLOCATION_PARAMETERS>(),
+        0xb8b0 | 0xc4b0 | 0xc6b0 | 0xc7b0 | 0xc9b0 | 0xcdb0 | 0xceb0 | 0xcfb0
+        | 0xd1b0 | 0xd2b0 => size_of::<sys::NV_NVDEC_ALLOCATION_PARAMETERS>(),
+        0xb4b7 | 0xc4b7 | 0xc7b7 | 0xc9b7 | 0xceb7 | 0xcfb7 | 0xd1b7
+            => size_of::<sys::NV_NVENC_ALLOCATION_PARAMETERS>(),
+        0xb8fa | 0xc6fa | 0xc7fa | 0xc9fa | 0xcdfa | 0xcefa | 0xcffa | 0xd1fa
+        | 0xd2fa => size_of::<sys::NV_OFA_ALLOCATION_PARAMETERS>(),
+        0xb8d1 | 0xc4d1 | 0xc9d1 | 0xcdd1 | 0xced0 | 0xcfd1 | 0xd2d1
+            => size_of::<sys::NV_NVJPG_ALLOCATION_PARAMETERS>(),
+        0x0002 => size_of::<sys::NV_CONTEXT_DMA_ALLOCATION_PARAMS>(),
+        0x0005 | 0x0078 | 0x0079 | 0x007e => size_of::<sys::NV0005_ALLOC_PARAMETERS>(),
+        0x2080 => size_of::<sys::NV2080_ALLOC_PARAMETERS>(),
+        0xc661 | 0xc761 => size_of::<sys::NV_HOPPER_USERMODE_A_PARAMS>(),
+        0xc763 | 0xc863 => size_of::<sys::NV_VIDMEM_ACCESS_BIT_ALLOCATION_PARAMS>(),
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod uvm_size_tests {
     use super::*;
+
+    /// The hand-computed ALLOCATION sizes against the compiler's.
+    ///
+    /// `alloc_param_size` is the largest hand-computed table in this tree:
+    /// a hundred-odd classes, most of them a number a person worked out
+    /// while reading a header, with the citation in a comment beside it.
+    /// The guest module copies exactly that many bytes on every allocation.
+    /// A number that is too small truncates the caller's request; one that
+    /// is too large reads out of bounds in `copy_from_user`. Neither is
+    /// visible to any sweep -- a wrong size is wrong identically on both
+    /// sides of the boundary, so the guest and the host agree perfectly
+    /// about a truncated struct.
+    ///
+    /// Each row below is one class and the params struct its comment cites.
+    /// The pairs are what the bindgen allowlist can reach; the rest of the
+    /// table still rests on the arithmetic in its comments, and extending
+    /// this list is a matter of adding the header to nvrm-sys's allowlist.
+    #[test]
+    fn the_hand_computed_allocation_sizes_are_what_the_compiler_measures() {
+        macro_rules! check {
+            ($t:ty, $($hclass:expr),+) => {{
+                $(
+                    let hand = alloc_param_size($hclass)
+                        .expect("class is in the hand-written table");
+                    assert_eq!(
+                        hand as usize, size_of::<$t>(),
+                        "class {:#x}: the table says {} bytes, the compiler {}",
+                        $hclass, hand, size_of::<$t>()
+                    );
+                )+
+            }};
+        }
+        // Graphics/compute, one struct for every architecture (nvos.h:2724).
+        check!(sys::NV_GR_ALLOCATION_PARAMETERS,
+               0xc5c0u32, 0x902d, 0xa140, 0xc597, 0xc6c0, 0xc797, 0xc9c0, 0xcdc0);
+        // Video engines. NV_BSP_/NV_MSENC_ are #defines onto these.
+        check!(sys::NV_NVDEC_ALLOCATION_PARAMETERS, 0xc4b0u32, 0xb8b0, 0xc6b0, 0xd2b0);
+        check!(sys::NV_NVENC_ALLOCATION_PARAMETERS, 0xc4b7u32, 0xb4b7, 0xc7b7, 0xd1b7);
+        check!(sys::NV_OFA_ALLOCATION_PARAMETERS, 0xb8fau32, 0xc6fa, 0xd2fa);
+        check!(sys::NV_NVJPG_ALLOCATION_PARAMETERS, 0xb8d1u32, 0xc4d1, 0xd2d1);
+        // NV01_CONTEXT_DMA (nvos.h:1594).
+        check!(sys::NV_CONTEXT_DMA_ALLOCATION_PARAMS, 0x0002u32);
+        // Hopper/Blackwell USERMODE take an optional params struct where
+        // Volta/Turing/Ampere take none (nvos.h:3327).
+        check!(sys::NV_HOPPER_USERMODE_A_PARAMS, 0xc661u32, 0xc761);
+        // MMU access-bit buffer (nvos.h:3310).
+        check!(sys::NV_VIDMEM_ACCESS_BIT_ALLOCATION_PARAMS, 0xc763u32, 0xc863);
+        // The event classes, which share NV01_EVENT_OS_EVENT's struct.
+        check!(sys::NV0005_ALLOC_PARAMETERS, 0x0079u32, 0x0005, 0x0078, 0x007e);
+        // NV20_SUBDEVICE_0 (cl2080.h).
+        check!(sys::NV2080_ALLOC_PARAMETERS, 0x2080u32);
+    }
 
     /// The hand-computed UVM sizes against the compiler's.
     ///

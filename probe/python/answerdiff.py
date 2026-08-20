@@ -158,6 +158,9 @@ def read_stability(paths):
                 calls[f"ctl 0x2a {r['cmd']}"].append(list(bytes.fromhex(r["dump"])))
             elif r["t"] == "uvmout":
                 calls[f"uvm {r['nr']} -"].append(list(bytes.fromhex(r["dump"])))
+            elif r["t"] == "allocout":
+                calls[f"{r['dev']} 0x2b {r['class']}"].append(
+                    list(bytes.fromhex(r["dump"])))
         for cmd, cs in calls.items():
             rep[cmd] = max(rep[cmd], len(cs))
             if len(cs) < 2:
@@ -292,6 +295,13 @@ def read_side(path):
             # its rmStatus INSIDE the parameter block, so it is compared as
             # part of the answer rather than beside it.
             sig, status = f"uvm {r['nr']} -", "-"
+        elif r["t"] == "allocout":
+            # RM_ALLOC. The sub-dispatch is the CLASS, and the device
+            # matters: the same class allocated through the control node and
+            # through a GPU node are two rows of the catalogue. The escape's
+            # own status travels on the nvos64 line, not here; what this
+            # compares is the parameter block RM wrote back.
+            sig, status = f"{r['dev']} 0x2b {r['class']}", "-"
         if sig is not None:
             # The two samples go into two dicts. `calls` is the ANSWER, and
             # is what every existing comparison is about; `asked` is the

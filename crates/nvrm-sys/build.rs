@@ -80,6 +80,25 @@ fn main() {
         // hand, and treating it as the 128-byte struct is an 88-byte
         // over-read.
         .allowlist_type("NV_OS_DESC_MEMORY_ALLOCATION_PARAMS")
+        // The allocation parameter blocks that live in nvos.h. The header
+        // was already included for NVOS21/33/46/54/64; these types were
+        // filtered out by the allowlist, which meant `xlate::alloc_param_size`
+        // had to carry their sizes as arithmetic done by hand while reading
+        // the header. One line each turns about forty of those entries into
+        // numbers the compiler checks -- see the test in xlate.rs. The guest
+        // module copies exactly that many bytes on every allocation, so a
+        // wrong one truncates a request or reads out of bounds, identically
+        // on both sides of the boundary and therefore invisibly to any sweep.
+        .allowlist_type("NV_GR_ALLOCATION_PARAMETERS")        // graphics/compute
+        // NV_BSP_/NV_MSENC_ are #defines onto these two, so bindgen only
+        // ever sees the real names (nvos.h:2945, :2994).
+        .allowlist_type("NV_NVDEC_ALLOCATION_PARAMETERS")     // NVDEC
+        .allowlist_type("NV_NVENC_ALLOCATION_PARAMETERS")     // NVENC
+        .allowlist_type("NV_OFA_ALLOCATION_PARAMETERS")       // optical flow
+        .allowlist_type("NV_NVJPG_ALLOCATION_PARAMETERS")     // JPEG
+        .allowlist_type("NV_CONTEXT_DMA_ALLOCATION_PARAMS")   // NV01_CONTEXT_DMA
+        .allowlist_type("NV_HOPPER_USERMODE_A_PARAMS")
+        .allowlist_type("NV_VIDMEM_ACCESS_BIT_ALLOCATION_PARAMS")
         .allowlist_type("NV_VASPACE_ALLOCATION_PARAMETERS")
         .allowlist_type("NV_CHANNEL_ALLOC_PARAMS")
         .allowlist_type("NV_CHANNELGPFIFO_ALLOCATION_PARAMETERS")

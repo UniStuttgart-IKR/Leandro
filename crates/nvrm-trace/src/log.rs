@@ -812,6 +812,40 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             // reads far past the end of the caller's struct -- 0x70 was in
             // this list until 2026-08-18.
             let pp = q(arg, 4) as usize as *const c_void;
+
+            // THE ALLOCATION ANSWER, as bytes, for every class whose
+            // parameter block the compiler can measure. RM_ALLOC is the
+            // largest part of the governed class with no answer evidence:
+            // paramsSize is 0 on every one of these calls (the size comes
+            // from the CLASS, which is the whole reason the descriptor table
+            // exists), so nothing self-describing said how much to read.
+            //
+            // The length is `size_of` of the bindgen struct and NOT
+            // `xlate::alloc_param_size`, for the reason the UVM dump does
+            // not use `uvm_param_size`: the point of dumping allocation
+            // answers is to judge the forwarding those tables drive. A class
+            // the compiler cannot measure gets NO dump rather than a guessed
+            // one -- reading past the end of a caller's struct is a bug this
+            // file has had before.
+            //
+            // `memparams` below stays: it is the same bytes NAMED, which is
+            // what a person reads, where this is the same bytes COMPARABLE,
+            // which is what `answerdiff` reads.
+            if !pp.is_null() {
+                if let Some(plen) = nvrm_abi::xlate::alloc_param_size_compiled(hclass) {
+                    if plen > 0 {
+                        let n = plen.min(dump_cap());
+                        let bytes = core::slice::from_raw_parts(pp as *const u8, n);
+                        rec("allocout", phase_of(tag), &[
+                            pos("dev", V::S(dev_tag(dev))),
+                            pos("class", V::H32(hclass)),
+                            key("len", V::I(plen as i64)),
+                            pos("dump", V::Dump(bytes)),
+                        ]);
+                    }
+                }
+            }
+
             if !pp.is_null() && matches!(hclass, 0x3e | 0x40 | 0x50a0) {
                 rec("memparams", phase_of(tag), &[
                     key("hNew", V::H32(w(arg, 2))),

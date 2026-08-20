@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T22:32:19Z",
-    "commit:  a1fb1a3 (working tree modified)"
+    "date:    2026-08-20T22:41:22Z",
+    "commit:  d741f87 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -3670,7 +3670,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 7 call(s), 256 of 520 bytes, masked {'not-written': 60}"
+        "answer bytes compared against a native run: 7 call(s), 256 of 520 bytes, masked {'not-written': 58}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5952,7 +5952,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 3 call(s), 256 of 2192 bytes, masked {'not-written': 49}"
+        "answer bytes compared against a native run: 3 call(s), 256 of 2192 bytes, masked {'not-written': 53}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -8834,60 +8834,6 @@
     {
       "device": "ctl",
       "nr": "0x2b",
-      "sub": "0x2080",
-      "kind": "alloc",
-      "name": "NV20_SUBDEVICE_0",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:305",
-      "params_struct": "NV2080_ALLOC_PARAMETERS",
-      "params_size": 4,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 44,
-      "rm_status": {
-        "0x0": 44
-      },
-      "flags": [
-        "size-table"
-      ],
-      "notes": [],
-      "fields": [
-        {
-          "name": "subDeviceId",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": 4
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
       "sub": "0x2081",
       "kind": "alloc",
       "name": "NV2081_BINAPI",
@@ -8938,41 +8884,6 @@
       ],
       "status": "implemented-unverified",
       "xlate_size": 4
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
-      "sub": "0x3e",
-      "kind": "alloc",
-      "name": "NV01_MEMORY_SYSTEM",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:325",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls": 328,
-      "rm_status": {
-        "0x0": 328
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": 128
     },
     {
       "device": "ctl",
@@ -9058,144 +8969,6 @@
     {
       "device": "ctl",
       "nr": "0x2b",
-      "sub": "0x50a0",
-      "kind": "alloc",
-      "name": "NV50_MEMORY_VIRTUAL",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:879",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 13,
-      "rm_status": {
-        "0x0": 13
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": 128
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
-      "sub": "0x80",
-      "kind": "alloc",
-      "name": "NV01_DEVICE_0",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:301",
-      "params_struct": "NV0080_ALLOC_PARAMETERS",
-      "params_size": 56,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 44,
-      "rm_status": {
-        "0x0": 44
-      },
-      "flags": [
-        "size-table"
-      ],
-      "notes": [],
-      "fields": [
-        {
-          "name": "deviceId",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "hClientShare",
-          "type": "NvHandle",
-          "offset": 4,
-          "size": 4
-        },
-        {
-          "name": "hTargetClient",
-          "type": "NvHandle",
-          "offset": 8,
-          "size": 4
-        },
-        {
-          "name": "hTargetDevice",
-          "type": "NvHandle",
-          "offset": 12,
-          "size": 4
-        },
-        {
-          "name": "flags",
-          "type": "NvV32",
-          "offset": 16,
-          "size": 4
-        },
-        {
-          "name": "vaSpaceSize",
-          "type": "NvU64",
-          "offset": 24,
-          "size": 8
-        },
-        {
-          "name": "vaStartInternal",
-          "type": "NvU64",
-          "offset": 32,
-          "size": 8
-        },
-        {
-          "name": "vaLimitInternal",
-          "type": "NvU64",
-          "offset": 40,
-          "size": 8
-        },
-        {
-          "name": "vaMode",
-          "type": "NvV32",
-          "offset": 48,
-          "size": 4
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": 56
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
       "sub": "0x83de",
       "kind": "alloc",
       "name": "GT200_DEBUGGER",
@@ -9247,141 +9020,6 @@
       ],
       "status": "implemented-unverified",
       "xlate_size": 12
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
-      "sub": "0x9067",
-      "kind": "alloc",
-      "name": "FERMI_CONTEXT_SHARE_A",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:1043",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "nvdec",
-        "nvenc",
-        "opencl",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 41,
-      "rm_status": {
-        "0x0": 41
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": 12
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
-      "sub": "0x90f1",
-      "kind": "alloc",
-      "name": "FERMI_VASPACE_A",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:895",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "nvdec",
-        "nvenc",
-        "opencl",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 35,
-      "rm_status": {
-        "0x0": 35
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": 56
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
-      "sub": "0xa06c",
-      "kind": "alloc",
-      "name": "KEPLER_CHANNEL_GROUP_A",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:1047",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "nvdec",
-        "nvenc",
-        "opencl",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 64,
-      "rm_status": {
-        "0x0": 64
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": 20
     },
     {
       "device": "ctl",
@@ -9472,44 +9110,6 @@
       "notes": [],
       "status": "implemented-unverified",
       "xlate_size": 8
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
-      "sub": "0xc5c0",
-      "kind": "alloc",
-      "name": "TURING_COMPUTE_A",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:1103",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 97,
-      "rm_status": {
-        "0x0": 97
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": 16
     },
     {
       "device": "ctl",
@@ -10382,62 +9982,6 @@
     {
       "device": "ctl",
       "nr": "0x2b",
-      "sub": "0x2",
-      "kind": "alloc",
-      "name": "NV01_CONTEXT_DMA",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:321",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "nvdec",
-        "nvenc"
-      ],
-      "calls": 3,
-      "rm_status": {
-        "0x0": 3
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": 32
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
-      "sub": "0xc4b0",
-      "kind": "alloc",
-      "name": "NVC4B0_VIDEO_DECODER",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:911",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "nvdec",
-        "vk-offscreen"
-      ],
-      "calls": 2,
-      "rm_status": {
-        "0x0": 2
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": 12
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
       "sub": "0xa0bc",
       "kind": "alloc",
       "name": "NVENC_SW_SESSION",
@@ -10493,34 +10037,6 @@
       ],
       "status": "implemented-unverified",
       "xlate_size": 20
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2b",
-      "sub": "0xc4b7",
-      "kind": "alloc",
-      "name": "NVC4B7_VIDEO_ENCODER",
-      "description": "",
-      "header": "src/nvidia/generated/g_allclasses.h:947",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [
-        "0x0"
-      ],
-      "seen_in": [
-        "nvenc",
-        "vk-offscreen"
-      ],
-      "calls": 2,
-      "rm_status": {
-        "0x0": 2
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [],
-      "status": "implemented-unverified",
-      "xlate_size": 12
     },
     {
       "device": "ctl",
@@ -10780,7 +10296,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24",
-        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 57}"
+        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 51}"
       ],
       "fields": [
         {
@@ -10867,7 +10383,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 19}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 18}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -10926,7 +10442,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16",
-        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 620}"
+        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 580}"
       ],
       "fields": [
         {
@@ -10950,6 +10466,422 @@
       ],
       "status": "implemented-verified",
       "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0x2080",
+      "kind": "alloc",
+      "name": "NV20_SUBDEVICE_0",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:305",
+      "params_struct": "NV2080_ALLOC_PARAMETERS",
+      "params_size": 4,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 44,
+      "rm_status": {
+        "0x0": 44
+      },
+      "flags": [
+        "size-table"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 15 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
+      "fields": [
+        {
+          "name": "subDeviceId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 4
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0x3e",
+      "kind": "alloc",
+      "name": "NV01_MEMORY_SYSTEM",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:325",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "calls": 328,
+      "rm_status": {
+        "0x0": 328
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 302 call(s), 128 of 128 bytes, masked {'not-written': 48}"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 128
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0x50a0",
+      "kind": "alloc",
+      "name": "NV50_MEMORY_VIRTUAL",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:879",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 13,
+      "rm_status": {
+        "0x0": 13
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 12 call(s), 128 of 128 bytes, masked {'not-written': 9}"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 128
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0x80",
+      "kind": "alloc",
+      "name": "NV01_DEVICE_0",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:301",
+      "params_struct": "NV0080_ALLOC_PARAMETERS",
+      "params_size": 56,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 44,
+      "rm_status": {
+        "0x0": 44
+      },
+      "flags": [
+        "size-table"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 15 call(s), 56 of 56 bytes, masked {'not-written': 14}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
+      "fields": [
+        {
+          "name": "deviceId",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "hClientShare",
+          "type": "NvHandle",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "hTargetClient",
+          "type": "NvHandle",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "hTargetDevice",
+          "type": "NvHandle",
+          "offset": 12,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvV32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "vaSpaceSize",
+          "type": "NvU64",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "vaStartInternal",
+          "type": "NvU64",
+          "offset": 32,
+          "size": 8
+        },
+        {
+          "name": "vaLimitInternal",
+          "type": "NvU64",
+          "offset": 40,
+          "size": 8
+        },
+        {
+          "name": "vaMode",
+          "type": "NvV32",
+          "offset": 48,
+          "size": 4
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 56
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0x9067",
+      "kind": "alloc",
+      "name": "FERMI_CONTEXT_SHARE_A",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:1043",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "opencl",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 41,
+      "rm_status": {
+        "0x0": 41
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 18 call(s), 12 of 12 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 12
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0x90f1",
+      "kind": "alloc",
+      "name": "FERMI_VASPACE_A",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:895",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "opencl",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 35,
+      "rm_status": {
+        "0x0": 35
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 19 call(s), 56 of 56 bytes; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 56
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0xa06c",
+      "kind": "alloc",
+      "name": "KEPLER_CHANNEL_GROUP_A",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:1047",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "opencl",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 64,
+      "rm_status": {
+        "0x0": 64
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 44 call(s), 20 of 20 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 20
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0xc5c0",
+      "kind": "alloc",
+      "name": "TURING_COMPUTE_A",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:1103",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 97,
+      "rm_status": {
+        "0x0": 97
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 64 call(s), 16 of 16 bytes, masked {'not-written': 112}"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 16
     },
     {
       "device": "uvm",
@@ -11915,7 +11847,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 6 call(s), 16 of 16 bytes, masked {'not-written': 12}"
+        "answer bytes compared against a native run: 6 call(s), 16 of 16 bytes, masked {'not-written': 10}"
       ],
       "fields": [
         {
@@ -11933,6 +11865,96 @@
       ],
       "status": "implemented-verified",
       "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0x2",
+      "kind": "alloc",
+      "name": "NV01_CONTEXT_DMA",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:321",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "nvdec",
+        "nvenc"
+      ],
+      "calls": 3,
+      "rm_status": {
+        "0x0": 3
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 3 call(s), 32 of 32 bytes"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 32
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0xc4b0",
+      "kind": "alloc",
+      "name": "NVC4B0_VIDEO_DECODER",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:911",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "nvdec",
+        "vk-offscreen"
+      ],
+      "calls": 2,
+      "rm_status": {
+        "0x0": 2
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 12 of 12 bytes"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 12
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2b",
+      "sub": "0xc4b7",
+      "kind": "alloc",
+      "name": "NVC4B7_VIDEO_ENCODER",
+      "description": "",
+      "header": "src/nvidia/generated/g_allclasses.h:947",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [
+        "0x0"
+      ],
+      "seen_in": [
+        "nvenc",
+        "vk-offscreen"
+      ],
+      "calls": 2,
+      "rm_status": {
+        "0x0": 2
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 12 of 12 bytes"
+      ],
+      "status": "implemented-verified",
+      "xlate_size": 12
     },
     {
       "device": "ctl",
@@ -12008,7 +12030,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: engineList @8",
-        "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'not-written': 6}"
+        "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'not-written': 4}"
       ],
       "fields": [
         {
@@ -13194,7 +13216,7 @@
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 31250"
+      "criterion": "glmark2 --off-screen rendered the build scene, score 28240"
     },
     {
       "probe": "gles",
@@ -13228,7 +13250,7 @@
     },
     {
       "probe": "nvdec",
-      "result": "PASS (matched on attempt 3)",
+      "result": "PASS (matched on attempt 5)",
       "tracer": "996",
       "strace": "996",
       "delta": "0",
