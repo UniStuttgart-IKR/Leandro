@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T16:48:51Z
-commit:  4b0e898 (working tree modified)
+date:    2026-08-20T16:58:43Z
+commit:  49a3913 (working tree modified)
 ```
 
 Generated from the catalogue. One task per missing-command GROUP,
@@ -113,31 +113,34 @@ writing any code here. `blocked: needs kernel-side trace point` and
 `ungated` are one piece of work -- an instrument on the kernel side would
 settle the 32-bit set, the NVKMS axis and the debugger probe together.
 
-## Standing task: build the differential answer-verification harness
+## Standing task: finish the differential answer-verification harness
 
-Every governed signature in the catalogue is `implemented-unverified`, and
-it will stay that way until this exists. The gates compare status codes and
-workload results; nothing compares the answer BYTES of a forwarded control
-against the bytes the same call returns natively.
+The gates compare status codes and workload results. What they cannot
+see is the failure class this project has a name for -- "an answer that
+looks valid and is wrong" (number 32), which is what number 44's crash
+turned out to be: a returned object that a NULL check waved through and
+whose leading fields were never filled. **A status comparison cannot see
+that. Only the bytes can.** That is OPEN-QUESTIONS number 50.
 
-That gap is OPEN-QUESTIONS number 50, and the failure class it hides has
-a name in this project's history: "an answer that looks valid and is
-wrong" -- number 32, and number 44's crash
-turned out to be exactly it: a returned object that a NULL check waves
-through and whose leading fields were never filled. **A status comparison
-cannot see that. Only the bytes can.**
+**A first slice exists** (`scripts/ioctl-matrix.sh verify`, `matrix/verified-610.57.04.json`): 67 signature(s) had the first
+bytes of their answer compared against a native run, call by call and
+word by word, with a mask derived from the two traces rather than
+declared. 0 of them are `implemented-verified`.
 
-What it has to do:
+What is left is the reason that number is what it is, and it is two
+specific pieces of work rather than a standing wish:
 
-1. Run the same probe twice, guest and native, with the answers recorded
-   per call (`LEA_DEBUG=2` already logs every forwarded one; `LEA_CTRL_DUMP`
-   already dumps a named control's answer).
-2. Compare the answer bytes per signature, with the fields that are
-   ALLOWED to differ named explicitly -- handles, gpuIds and addresses are
-   translated on purpose, and a harness that flagged them would cry wolf on
-   every call.
-3. Emit `matrix/verified-610.57.04.json` mapping signature -> verified-against-native.
+1. **An answer dump for allocations and UVM.** `ctrlout` covers 0x2xx
+   and 0x2080xxxx controls only, and the governed class mostly lives in
+   the two places a size is not self-describing -- RM_ALLOC classes and
+   UVM commands. They are out of reach of the comparison entirely.
+2. **A field mask the mediation declares itself.** The governed controls
+   the slice does reach are the ones the backend answers ITSELF, and
+   those differ from the native answer on purpose. Byte equality is the
+   wrong test for them; "differs in exactly the fields the mediation
+   rewrites, and nowhere else" is the right one, and it needs each
+   mediated command to name its own fields.
 
-This pipeline reads that file the moment it exists and moves every signature
-it names from `implemented-unverified` to `implemented-verified`. The file is
-never written by hand: a hand-written verification record is not evidence.
+The evidence file's `not_verified` list carries every one of them with
+the catalogue's own words about why it is mediated, so it reads as a
+work list rather than as a complaint.

@@ -902,8 +902,24 @@ def main():
     ev, evpath = verified_evidence(outdir, a.driver)
     if ev:
         keys = {tuple(k.split()) for k in ev.get("verified", [])}
+        detail = ev.get("evidence", {})
         for r in rows:
-            if (r["device"], r["nr"], r["sub"]) in keys and r["status"] == "implemented-unverified":
+            k = (r["device"], r["nr"], r["sub"])
+            if k not in keys:
+                continue
+            # The note goes on EVERY row the evidence names, whatever its
+            # status. Byte evidence for a passthrough command is evidence --
+            # it is simply not evidence about the descriptor tables, which is
+            # what the `implemented-*` classes are about. Keeping the two
+            # apart is the difference between a status and a fact.
+            d = detail.get(" ".join(k), {})
+            if d:
+                r["notes"].append(
+                    f"answer bytes compared against a native run: "
+                    f"{d.get('calls_compared', '?')} call(s), "
+                    f"{d.get('bytes_compared', '?')} of {d.get('answer_size', '?')} bytes"
+                    + (f", masked {d['words_masked']}" if d.get("words_masked") else ""))
+            if r["status"] == "implemented-unverified":
                 r["status"] = "implemented-verified"
 
     # A self-check with teeth: the decoder is only trustworthy if the
@@ -945,7 +961,7 @@ def main():
 
     write_catalog(outdir, a.driver, prov, rows, probes, inv, gov, sizes, ev, evpath)
     write_matrix(outdir, a.driver, prov, rows, probes, inv, guest, guestpath)
-    write_tasks(outdir, a.driver, prov, rows, probes, inv, evpath)
+    write_tasks(outdir, a.driver, prov, rows, probes, inv, ev, evpath)
 
 
 # ---------------------------------------------------------------------------
@@ -999,6 +1015,7 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
             "| `implemented-unverified` | governed by the descriptor table; the response bytes have NEVER been compared against a native run |\n"
             "| `implemented-verified` | as above AND present in the answer-verification evidence file |\n"
             "| `not-governed` | a different namespace (DRM, NVKMS), carried here for completeness |\n\n")
+        nver = sum(1 for r in rows if r["status"] == "implemented-verified")
         if not ev:
             fh.write(
                 "**`implemented-verified` is empty in this run, and that is a correct\n"
@@ -1009,6 +1026,37 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
                 "status codes and workload results. Until that harness exists, every\n"
                 "governed signature is honestly `implemented-unverified`. TASKS carries\n"
                 "the standing task that would change it.\n\n")
+        else:
+            nev = len(ev.get("verified", []))
+            fh.write(
+                f"**Answer evidence exists** (`{evpath}`): {nev} signature(s) had the\n"
+                "first bytes of their answer compared, call by call, against the same\n"
+                "call in a native run, and matched. Rows that carry it say so in a\n"
+                "note, with how many bytes of how large an answer -- 32 bytes of a\n"
+                "384-byte answer is 32 bytes, and the note is there so that\n"
+                "`verified` cannot be read as more than what was compared.\n\n"
+                f"Of those, **{nver} are `implemented-verified`**, i.e. governed by the\n"
+                "descriptor tables AND matched. ")
+            if nver == 0:
+                fh.write(
+                    "That the count is zero is a finding rather than an omission, and\n"
+                    "it has two halves.\n\n"
+                    "**Reach.** The evidence comes from the tracer's `ctrlout` line,\n"
+                    "which dumps root-client (0x2xx) and subdevice (0x2080xxxx)\n"
+                    "controls and nothing else. Allocations and UVM commands -- where\n"
+                    "most of the governed class lives, because those are the two places\n"
+                    "a size is not self-describing -- have no answer dump at all and are\n"
+                    "out of reach of this slice entirely.\n\n"
+                    "**Criterion.** The governed CONTROLS it does reach are the ones the\n"
+                    "backend answers itself, and their answers differ from the native\n"
+                    "ones deliberately: that is what mediation IS. Byte equality is the\n"
+                    "wrong test for them. The right one -- differs in exactly the fields\n"
+                    "the mediation rewrites, and nowhere else -- needs the mediation to\n"
+                    "name its own fields, and it does not yet. `not_verified` carries\n"
+                    "each of them with the catalogue's own words about why it is\n"
+                    "mediated, so the list is a work list rather than a complaint.\n\n")
+            else:
+                fh.write("\n\n")
 
         # The diff against xlate, stated rather than implied. Silence here
         # would read as "the comparison was not run", which is a different
@@ -1221,7 +1269,7 @@ def write_matrix(outdir, driver, prov, rows, probes, inv, guest, guestpath):
                 fh.write(f"| {pr['libs'].replace(' ', ', ')} | `{pr['probe']}`: {pr['result']} |\n")
 
 
-def write_tasks(outdir, driver, prov, rows, probes, inv, evpath):
+def write_tasks(outdir, driver, prov, rows, probes, inv, ev, evpath):
     missing = [r for r in rows if r["status"] == "missing"]
     # One task per GROUP, not per number: the work is shaped by the probe
     # that validates it and by the mediation the commands share, and a task
@@ -1373,30 +1421,51 @@ def write_tasks(outdir, driver, prov, rows, probes, inv, evpath):
                 "instrument on the kernel side would\nsettle the 32-bit set, the NVKMS "
                 "axis and the debugger probe together.\n\n")
 
-        fh.write("## Standing task: build the differential answer-verification harness\n\n")
+        fh.write("## Standing task: finish the differential answer-verification harness\n\n")
         fh.write(
-            "Every governed signature in the catalogue is `implemented-unverified`, and\n"
-            "it will stay that way until this exists. The gates compare status codes and\n"
-            "workload results; nothing compares the answer BYTES of a forwarded control\n"
-            "against the bytes the same call returns natively.\n\n"
-            "That gap is OPEN-QUESTIONS number 50, and the failure class it hides has\n"
-            "a name in this project's history: \"an answer that looks valid and is\n"
-            "wrong\" -- number 32, and number 44's crash\n"
-            "turned out to be exactly it: a returned object that a NULL check waves\n"
-            "through and whose leading fields were never filled. **A status comparison\n"
-            "cannot see that. Only the bytes can.**\n\n"
-            "What it has to do:\n\n"
-            "1. Run the same probe twice, guest and native, with the answers recorded\n"
-            "   per call (`LEA_DEBUG=2` already logs every forwarded one; `LEA_CTRL_DUMP`\n"
-            "   already dumps a named control's answer).\n"
-            "2. Compare the answer bytes per signature, with the fields that are\n"
-            "   ALLOWED to differ named explicitly -- handles, gpuIds and addresses are\n"
-            "   translated on purpose, and a harness that flagged them would cry wolf on\n"
-            "   every call.\n"
-            f"3. Emit `{evpath}` mapping signature -> verified-against-native.\n\n"
-            "This pipeline reads that file the moment it exists and moves every signature\n"
-            "it names from `implemented-unverified` to `implemented-verified`. The file is\n"
-            "never written by hand: a hand-written verification record is not evidence.\n")
+            "The gates compare status codes and workload results. What they cannot\n"
+            "see is the failure class this project has a name for -- \"an answer that\n"
+            "looks valid and is wrong\" (number 32), which is what number 44's crash\n"
+            "turned out to be: a returned object that a NULL check waved through and\n"
+            "whose leading fields were never filled. **A status comparison cannot see\n"
+            "that. Only the bytes can.** That is OPEN-QUESTIONS number 50.\n\n")
+        if not ev:
+            fh.write(
+                "Nothing compares those bytes yet. What it has to do:\n\n"
+                "1. Run the same probe twice, guest and native, with the answers\n"
+                "   recorded per call. The tracer's `ctrlout` line already dumps the\n"
+                "   first bytes of a control's answer; `LEA_DEBUG=2` logs every\n"
+                "   forwarded one.\n"
+                "2. Compare the answer bytes per signature, with the fields that are\n"
+                "   ALLOWED to differ derived rather than declared -- handles, gpuIds\n"
+                "   and addresses are translated on purpose, and a harness that\n"
+                "   flagged them would cry wolf on every call.\n"
+                f"3. Emit `{evpath}` mapping signature -> verified-against-native.\n\n"
+                "This pipeline reads that file the moment it exists. It is never\n"
+                "written by hand: a hand-written verification record is not evidence.\n")
+        else:
+            nver = sum(1 for r in rows if r["status"] == "implemented-verified")
+            fh.write(
+                f"**A first slice exists** (`scripts/ioctl-matrix.sh verify`, "
+                f"`{evpath}`): {len(ev.get('verified', []))} signature(s) had the first\n"
+                "bytes of their answer compared against a native run, call by call and\n"
+                "word by word, with a mask derived from the two traces rather than\n"
+                f"declared. {nver} of them are `implemented-verified`.\n\n"
+                "What is left is the reason that number is what it is, and it is two\n"
+                "specific pieces of work rather than a standing wish:\n\n"
+                "1. **An answer dump for allocations and UVM.** `ctrlout` covers 0x2xx\n"
+                "   and 0x2080xxxx controls only, and the governed class mostly lives in\n"
+                "   the two places a size is not self-describing -- RM_ALLOC classes and\n"
+                "   UVM commands. They are out of reach of the comparison entirely.\n"
+                "2. **A field mask the mediation declares itself.** The governed controls\n"
+                "   the slice does reach are the ones the backend answers ITSELF, and\n"
+                "   those differ from the native answer on purpose. Byte equality is the\n"
+                "   wrong test for them; \"differs in exactly the fields the mediation\n"
+                "   rewrites, and nowhere else\" is the right one, and it needs each\n"
+                "   mediated command to name its own fields.\n\n"
+                "The evidence file's `not_verified` list carries every one of them with\n"
+                "the catalogue's own words about why it is mediated, so it reads as a\n"
+                "work list rather than as a complaint.\n")
 
 
 if __name__ == "__main__":

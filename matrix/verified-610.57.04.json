@@ -1,0 +1,1860 @@
+{
+  "provenance": [
+    "driver:  610.57.04",
+    "gpu:     NVIDIA GeForce RTX 2070",
+    "arch:    Turing (compute 7.5)",
+    "kernel:  7.1.8-arch1-3",
+    "date:    2026-08-20T16:57:03Z",
+    "commit:  49a3913 (working tree modified)"
+  ],
+  "generated_by": "scripts/ioctl-matrix.sh verify",
+  "method": "the tracer's ctrlout line (first 32 bytes of the params buffer after the call) from the native trace against the guest trace, call by call, word by word",
+  "extent": "the FIRST BYTES of the answer, not the whole answer -- bytes_compared against answer_size per signature says how much",
+  "mask": "derived from the two traces, never declared: a differing word is allowed only if it is this side's own gpu_id (cardinfo line) or a handle this side allocated. Anything else is a mismatch",
+  "probes": {
+    "cuda-core": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 138,
+      "guest_handles": 138,
+      "commands_with_an_answer_dump": 37
+    },
+    "cuda-hostreg": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 139,
+      "guest_handles": 139,
+      "commands_with_an_answer_dump": 37
+    },
+    "cuda-jit": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 138,
+      "guest_handles": 138,
+      "commands_with_an_answer_dump": 37
+    },
+    "cuda-launch": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 138,
+      "guest_handles": 138,
+      "commands_with_an_answer_dump": 37
+    },
+    "cuda-managed": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 137,
+      "guest_handles": 137,
+      "commands_with_an_answer_dump": 37
+    },
+    "egl-gbm": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 134,
+      "guest_handles": 134,
+      "commands_with_an_answer_dump": 34
+    },
+    "egl-xlib": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 134,
+      "guest_handles": 136,
+      "commands_with_an_answer_dump": 34
+    },
+    "gl-enum": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 138,
+      "guest_handles": 148,
+      "commands_with_an_answer_dump": 34
+    },
+    "gles": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 133,
+      "guest_handles": 134,
+      "commands_with_an_answer_dump": 34
+    },
+    "nvdec": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 202,
+      "guest_handles": 197,
+      "commands_with_an_answer_dump": 45
+    },
+    "nvenc": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 305,
+      "guest_handles": 305,
+      "commands_with_an_answer_dump": 48
+    },
+    "nvml": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 14,
+      "guest_handles": 12,
+      "commands_with_an_answer_dump": 72
+    },
+    "vk-enum": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 190,
+      "guest_handles": 181,
+      "commands_with_an_answer_dump": 37
+    },
+    "vk-offscreen": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 1214,
+      "guest_handles": 1290,
+      "commands_with_an_answer_dump": 37
+    },
+    "vk-rt": {
+      "native_gpuid": [
+        "0x2d00"
+      ],
+      "guest_gpuid": [
+        "0x5"
+      ],
+      "native_handles": 277,
+      "guest_handles": 267,
+      "commands_with_an_answer_dump": 54
+    }
+  },
+  "verified": [
+    "ctl 0x2a 0x204",
+    "ctl 0x2a 0x20800111",
+    "ctl 0x2a 0x20800131",
+    "ctl 0x2a 0x2080013f",
+    "ctl 0x2a 0x2080014a",
+    "ctl 0x2a 0x2080014b",
+    "ctl 0x2a 0x20800156",
+    "ctl 0x2a 0x2080016d",
+    "ctl 0x2a 0x2080017b",
+    "ctl 0x2a 0x2080019f",
+    "ctl 0x2a 0x208001a3",
+    "ctl 0x2a 0x208001a4",
+    "ctl 0x2a 0x208001b2",
+    "ctl 0x2a 0x20800301",
+    "ctl 0x2a 0x20800513",
+    "ctl 0x2a 0x20801218",
+    "ctl 0x2a 0x20801227",
+    "ctl 0x2a 0x2080122a",
+    "ctl 0x2a 0x2080122b",
+    "ctl 0x2a 0x20801322",
+    "ctl 0x2a 0x20801344",
+    "ctl 0x2a 0x20801357",
+    "ctl 0x2a 0x20801803",
+    "ctl 0x2a 0x20801813",
+    "ctl 0x2a 0x20801829",
+    "ctl 0x2a 0x2080182a",
+    "ctl 0x2a 0x2080182b",
+    "ctl 0x2a 0x20801830",
+    "ctl 0x2a 0x20802a0a",
+    "ctl 0x2a 0x20803002",
+    "ctl 0x2a 0x20803083",
+    "ctl 0x2a 0x20803601",
+    "ctl 0x2a 0x20803801",
+    "ctl 0x2a 0x20803d07",
+    "ctl 0x2a 0x20808159",
+    "ctl 0x2a 0x20808162",
+    "ctl 0x2a 0x20808163",
+    "ctl 0x2a 0x20808164",
+    "ctl 0x2a 0x20808165",
+    "ctl 0x2a 0x2080852a",
+    "ctl 0x2a 0x2080852c",
+    "ctl 0x2a 0x2080852e",
+    "ctl 0x2a 0x20808536",
+    "ctl 0x2a 0x2080853a",
+    "ctl 0x2a 0x20808542",
+    "ctl 0x2a 0x20808546",
+    "ctl 0x2a 0x20809001",
+    "ctl 0x2a 0x20809009",
+    "ctl 0x2a 0x20809019",
+    "ctl 0x2a 0x20809038",
+    "ctl 0x2a 0x2080a014",
+    "ctl 0x2a 0x2080a060",
+    "ctl 0x2a 0x2080a06e",
+    "ctl 0x2a 0x2080a080",
+    "ctl 0x2a 0x2080a0a4",
+    "ctl 0x2a 0x2080a0a7",
+    "ctl 0x2a 0x2080a0a8",
+    "ctl 0x2a 0x2080a0f2",
+    "ctl 0x2a 0x2080a612",
+    "ctl 0x2a 0x2080a613",
+    "ctl 0x2a 0x2080a618",
+    "ctl 0x2a 0x2080a61a",
+    "ctl 0x2a 0x2080a61f",
+    "ctl 0x2a 0x2080a63c",
+    "ctl 0x2a 0x279",
+    "ctl 0x2a 0x27b",
+    "ctl 0x2a 0x289"
+  ],
+  "evidence": {
+    "ctl 0x2a 0x204": {
+      "name": "NV0000_CTRL_CMD_GPU_GET_DEVICE_IDS",
+      "status_before": "passthrough",
+      "probes": [
+        "egl-gbm",
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls_compared": 7,
+      "bytes_compared": 4,
+      "answer_size": 4,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20800111": {
+      "name": "NV2080_CTRL_CMD_GPU_GET_SHORT_NAME_STRING",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 8,
+      "bytes_compared": 32,
+      "answer_size": 64,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20800131": {
+      "name": "NV2080_CTRL_CMD_GPU_QUERY_COMPUTE_MODE_RULES",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "vk-rt"
+      ],
+      "calls_compared": 9,
+      "bytes_compared": 4,
+      "answer_size": 4,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080013f": {
+      "name": "NV2080_CTRL_CMD_GPU_GET_OEM_BOARD_INFO",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 3,
+      "bytes_compared": 32,
+      "answer_size": 136,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080014a": {
+      "name": "NV2080_CTRL_CMD_GPU_GET_GID_INFO",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "vk-rt"
+      ],
+      "calls_compared": 18,
+      "bytes_compared": 32,
+      "answer_size": 268,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080014b": {
+      "name": "NV2080_CTRL_CMD_GPU_GET_INFOROM_OBJECT_VERSION",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 5,
+      "bytes_compared": 5,
+      "answer_size": 5,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20800156": {
+      "name": "NV2080_CTRL_CMD_GPU_GET_INFOROM_IMAGE_VERSION",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 16,
+      "answer_size": 16,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080016d": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 12,
+      "answer_size": 12,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080017b": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 12,
+      "answer_size": 12,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080019f": {
+      "name": "NV2080_CTRL_CMD_GPU_GET_SKYLINE_INFO",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 8,
+      "bytes_compared": 32,
+      "answer_size": 688,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x208001a3": {
+      "name": "NV2080_CTRL_CMD_GET_GPU_FABRIC_PROBE_INFO",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 56,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x208001a4": {
+      "name": "NV2080_CTRL_CMD_GPU_GET_CHIP_DETAILS",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 16,
+      "answer_size": 16,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x208001b2": {
+      "name": "NV2080_CTRL_CMD_GPU_GET_RECOVERY_ACTION",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 4,
+      "answer_size": 4,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20800301": {
+      "name": "NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION",
+      "status_before": "passthrough",
+      "probes": [
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls_compared": 6,
+      "bytes_compared": 20,
+      "answer_size": 20,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20800513": {
+      "name": "NV2080_CTRL_CMD_THERMAL_SYSTEM_EXECUTE_V2",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 3,
+      "bytes_compared": 32,
+      "answer_size": 1432,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20801218": {
+      "name": "NV2080_CTRL_CMD_GR_GET_CTX_BUFFER_SIZE",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc"
+      ],
+      "calls_compared": 56,
+      "bytes_compared": 16,
+      "answer_size": 16,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20801227": {
+      "name": "NV2080_CTRL_CMD_GR_GET_CAPS_V2",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 8,
+      "bytes_compared": 32,
+      "answer_size": 48,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080122a": {
+      "name": "NV2080_CTRL_CMD_GR_GET_GPC_MASK",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 8,
+      "bytes_compared": 24,
+      "answer_size": 24,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080122b": {
+      "name": "NV2080_CTRL_CMD_GR_GET_TPC_MASK",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 24,
+      "bytes_compared": 24,
+      "answer_size": 24,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20801322": {
+      "name": "NV2080_CTRL_CMD_FB_GET_OFFLINED_PAGES",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 2056,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20801344": {
+      "name": "NV2080_CTRL_CMD_FB_GET_REMAPPED_ROWS",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 6152,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20801357": {
+      "name": "NV2080_CTRL_CMD_FB_QUERY_DRAM_ENCRYPTION_INFOROM_SUPPORT",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 4,
+      "answer_size": 4,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20801803": {
+      "name": "NV2080_CTRL_CMD_BUS_GET_PCI_BAR_INFO",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 8,
+      "bytes_compared": 32,
+      "answer_size": 200,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20801813": {
+      "name": "NV2080_CTRL_CMD_BUS_GET_PEX_COUNTERS",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 2,
+      "bytes_compared": 32,
+      "answer_size": 76,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20801829": {
+      "name": "NV2080_CTRL_CMD_BUS_GET_PCIE_REQ_ATOMICS_CAPS",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 12,
+      "answer_size": 12,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080182a": {
+      "name": "NV2080_CTRL_CMD_BUS_GET_PCIE_SUPPORTED_GPU_ATOMICS",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 8,
+      "bytes_compared": 32,
+      "answer_size": 112,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080182b": {
+      "name": "NV2080_CTRL_CMD_BUS_GET_C2C_INFO",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 8,
+      "bytes_compared": 28,
+      "answer_size": 28,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20801830": {
+      "name": "NV2080_CTRL_CMD_BUS_GET_PCIE_CPL_ATOMICS_CAPS",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 4,
+      "answer_size": 4,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20802a0a": {
+      "name": "NV2080_CTRL_CMD_CE_GET_ALL_CAPS",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 11,
+      "bytes_compared": 32,
+      "answer_size": 136,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20803002": {
+      "name": "NV2080_CTRL_CMD_NVLINK_GET_NVLINK_STATUS",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 8,
+      "bytes_compared": 32,
+      "answer_size": 13864,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20803083": {
+      "name": "NV2080_CTRL_CMD_NVLINK_GET_PLATFORM_INFO",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 39,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20803601": {
+      "name": "NV2080_CTRL_CMD_GSP_GET_FEATURES",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "vk-rt"
+      ],
+      "calls_compared": 18,
+      "bytes_compared": 32,
+      "answer_size": 72,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20803801": {
+      "name": "NV2080_CTRL_CMD_GRMGR_GET_GR_FS_INFO",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 8,
+      "bytes_compared": 32,
+      "answer_size": 1928,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20803d07": {
+      "name": "NV2080_CTRL_CMD_OS_UNIX_VIDMEM_PERSISTENCE_STATUS",
+      "status_before": "passthrough",
+      "probes": [
+        "egl-gbm",
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls_compared": 7,
+      "bytes_compared": 1,
+      "answer_size": 1,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20808159": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "egl-gbm",
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls_compared": 15,
+      "bytes_compared": 32,
+      "answer_size": 332,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20808162": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 8,
+      "bytes_compared": 1,
+      "answer_size": 1,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20808163": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvenc"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 4,
+      "answer_size": 4,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20808164": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvenc"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 4,
+      "answer_size": 4,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20808165": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvdec",
+        "nvenc"
+      ],
+      "calls_compared": 4,
+      "bytes_compared": 1,
+      "answer_size": 1,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080852a": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 1784,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080852c": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 2,
+      "bytes_compared": 32,
+      "answer_size": 1440,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080852e": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 1432,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20808536": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 25552,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080853a": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 15352,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20808542": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 504,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20808546": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 13,
+      "bytes_compared": 24,
+      "answer_size": 24,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20809001": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvdec",
+        "nvenc"
+      ],
+      "calls_compared": 3,
+      "bytes_compared": 8,
+      "answer_size": 8,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20809009": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvdec",
+        "nvenc",
+        "nvml"
+      ],
+      "calls_compared": 4,
+      "bytes_compared": 8,
+      "answer_size": 8,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20809019": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 12336,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x20809038": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 4,
+      "answer_size": 4,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a014": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 12,
+      "answer_size": 12,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a060": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 28,
+      "answer_size": 28,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a06e": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 12,
+      "answer_size": 12,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a080": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 2,
+      "bytes_compared": 32,
+      "answer_size": 52,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a0a4": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 67396,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a0a7": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 17676,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a0a8": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 4,
+      "bytes_compared": 32,
+      "answer_size": 32908,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a0f2": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 96,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a612": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 54352,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a613": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 79936,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a618": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 20000,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a61a": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 32,
+      "answer_size": 13840,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a61f": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 8,
+      "answer_size": 8,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x2080a63c": {
+      "name": "unknown -- not in public headers",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 28,
+      "answer_size": 28,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x279": {
+      "name": "NV0000_CTRL_CMD_GPU_QUERY_DRAIN_STATE",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 12,
+      "answer_size": 12,
+      "words_masked": {
+        "gpuId": 1
+      }
+    },
+    "ctl 0x2a 0x27b": {
+      "name": "NV0000_CTRL_CMD_GPU_GET_MEMOP_ENABLE",
+      "status_before": "passthrough",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "vk-rt"
+      ],
+      "calls_compared": 8,
+      "bytes_compared": 4,
+      "answer_size": 4,
+      "words_masked": {}
+    },
+    "ctl 0x2a 0x289": {
+      "name": "NV0000_CTRL_CMD_GPU_ASYNC_ATTACH_ID",
+      "status_before": "passthrough",
+      "probes": [
+        "nvml"
+      ],
+      "calls_compared": 1,
+      "bytes_compared": 4,
+      "answer_size": 4,
+      "words_masked": {
+        "gpuId": 1
+      }
+    }
+  },
+  "not_verified": [
+    {
+      "signature": "ctl 0x2a 0x201",
+      "name": "NV0000_CTRL_CMD_GPU_GET_ATTACHED_IDS",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "11 call(s) natively and 10 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x202",
+      "name": "NV0000_CTRL_CMD_GPU_GET_ID_INFO",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "15 call(s) natively and 14 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x205",
+      "name": "NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2",
+      "probes": [
+        "gl-enum",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "6 call(s) natively and 3 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20800102",
+      "name": "NV2080_CTRL_CMD_GPU_GET_INFO_V2",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "5 call(s) natively and 3 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20800110",
+      "name": "NV2080_CTRL_CMD_GPU_GET_NAME_STRING",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "egl-gbm",
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "call 0, word 1 (offset 4): 0x4449564e natively, 0x6e61654c in the guest",
+      "catalogue_status": "implemented-unverified",
+      "catalogue_notes": [
+        "answered by the backend itself: CMD_GPU_GET_NAME_STRING (vram.rs:797)"
+      ]
+    },
+    {
+      "signature": "ctl 0x2a 0x20800119",
+      "name": "NV2080_CTRL_CMD_GPU_GET_SIMULATION_INFO",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "3 call(s) natively and 1 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20800123",
+      "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES",
+      "probes": [
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "call 0, word 2 (offset 8): 0x2975daf0 natively, 0x46b6c380 in the guest",
+      "catalogue_status": "implemented-unverified",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x2080012f",
+      "name": "NV2080_CTRL_CMD_GPU_QUERY_ECC_STATUS",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20800142",
+      "name": "NV2080_CTRL_CMD_GPU_GET_ID",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "4 call(s) natively and 2 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20800147",
+      "name": "NV2080_CTRL_CMD_GPU_GET_ENGINE_PARTNERLIST",
+      "probes": [
+        "vk-offscreen"
+      ],
+      "reason": "21 call(s) natively and 36 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x2080016c",
+      "name": "NV2080_CTRL_CMD_GPU_GET_ENCODER_CAPACITY",
+      "probes": [
+        "nvenc"
+      ],
+      "reason": "22 call(s) natively and 17 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20800170",
+      "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES_V2",
+      "probes": [
+        "vk-offscreen"
+      ],
+      "reason": "23 call(s) natively and 38 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x2080018d",
+      "name": "NV2080_CTRL_CMD_GPU_GET_PIDS",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 0, word 3 (offset 12): 0x00000536 natively, 0x0000155b in the guest",
+      "catalogue_status": "implemented-unverified",
+      "catalogue_notes": [
+        "answered by the backend itself: CMD_GPU_GET_PIDS (vram.rs:628)"
+      ]
+    },
+    {
+      "signature": "ctl 0x2a 0x2080018e",
+      "name": "NV2080_CTRL_CMD_GPU_GET_PID_INFO",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "2 call(s) natively and 3 in the guest -- the answers cannot be paired",
+      "catalogue_status": "implemented-unverified",
+      "catalogue_notes": [
+        "answered by the backend itself: CMD_GPU_GET_PID_INFO (vram.rs:630)"
+      ]
+    },
+    {
+      "signature": "ctl 0x2a 0x20800403",
+      "name": "NV2080_CTRL_CMD_TIMER_GET_TIME",
+      "probes": [
+        "egl-gbm",
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "call 0, word 0 (offset 0): 0x6d2c0ac0 natively, 0x6cc5b2a0 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20800406",
+      "name": "NV2080_CTRL_CMD_TIMER_GET_GPU_CPU_TIME_CORRELATION_INFO",
+      "probes": [
+        "nvdec",
+        "nvenc",
+        "nvml"
+      ],
+      "reason": "call 0, word 2 (offset 8): 0xb868dbe3 natively, 0x4a9cdc02 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20800802",
+      "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 0: status 0x0 natively, 0x1e in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801201",
+      "name": "NV2080_CTRL_CMD_GR_GET_INFO",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "egl-gbm",
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "call 0, word 2 (offset 8): 0x0bf24380 natively, 0x10a581b0 in the guest",
+      "catalogue_status": "implemented-unverified",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801206",
+      "name": "NV2080_CTRL_CMD_GR_GET_ZCULL_INFO",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801208",
+      "name": "NV2080_CTRL_CMD_GR_CTXSW_ZCULL_BIND",
+      "probes": [
+        "gl-enum",
+        "vk-offscreen"
+      ],
+      "reason": "call 0, word 2 (offset 8): 0x04290000 natively, 0x042a0000 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801210",
+      "name": "NV2080_CTRL_CMD_GR_SET_CTXSW_PREEMPTION_MODE",
+      "probes": [
+        "vk-offscreen"
+      ],
+      "reason": "15 call(s) natively and 30 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x2080121b",
+      "name": "NV2080_CTRL_CMD_GR_GET_GLOBAL_SM_ORDER",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801301",
+      "name": "NV2080_CTRL_CMD_FB_GET_INFO",
+      "probes": [
+        "egl-gbm",
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "call 0, word 2 (offset 8): 0x3f5bda70 natively, 0x359b3c00 in the guest",
+      "catalogue_status": "implemented-unverified",
+      "catalogue_notes": [
+        "answered by the backend itself: CMD_FB_GET_INFO (vram.rs:795)"
+      ]
+    },
+    {
+      "signature": "ctl 0x2a 0x20801303",
+      "name": "NV2080_CTRL_CMD_FB_GET_INFO_V2",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "vk-rt"
+      ],
+      "reason": "call 2, word 2 (offset 8): 0x00630ec0 natively, 0x0063f3c0 in the guest",
+      "catalogue_status": "implemented-unverified",
+      "catalogue_notes": [
+        "answered by the backend itself: CMD_FB_GET_INFO_V2 (vram.rs:782)"
+      ]
+    },
+    {
+      "signature": "ctl 0x2a 0x20801315",
+      "name": "NV2080_CTRL_CMD_FB_GET_GPU_CACHE_INFO",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801320",
+      "name": "NV2080_CTRL_CMD_FB_GET_FB_REGION_INFO",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801352",
+      "name": "NV2080_CTRL_CMD_FB_GET_SEMAPHORE_SURFACE_LAYOUT",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801701",
+      "name": "NV2080_CTRL_CMD_MC_GET_ARCH_INFO",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "3 call(s) natively and 2 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801801",
+      "name": "NV2080_CTRL_CMD_BUS_GET_PCI_INFO",
+      "probes": [
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801802",
+      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
+      "probes": [
+        "nvdec",
+        "nvenc",
+        "nvml"
+      ],
+      "reason": "call 0, word 2 (offset 8): 0xdf7eb908 natively, 0x1a5d2c98 in the guest",
+      "catalogue_status": "implemented-unverified",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801819",
+      "name": "NV2080_CTRL_CMD_BUS_GET_PEX_UTIL_COUNTERS",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 0, word 1 (offset 4): 0x380e2690 natively, 0xeae5f740 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20801823",
+      "name": "NV2080_CTRL_CMD_BUS_GET_INFO_V2",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "egl-xlib",
+        "gl-enum",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "call 1, word 2 (offset 8): 0x0000002d natively, 0x00000000 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x2080200a",
+      "name": "NV2080_CTRL_CMD_PERF_BOOST",
+      "probes": [
+        "vk-offscreen"
+      ],
+      "reason": "15 call(s) natively and 30 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20802068",
+      "name": "NV2080_CTRL_CMD_PERF_GET_CURRENT_PSTATE",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 0, word 0 (offset 0): 0x00000001 natively, 0x00000100 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20802087",
+      "name": "NV2080_CTRL_CMD_PERF_GET_VID_ENG_PERFMON_SAMPLE",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 0, word 1 (offset 4): 0x00000004 natively, 0x00000000 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20802a02",
+      "name": "NV2080_CTRL_CMD_CE_GET_CE_PCE_MASK",
+      "probes": [
+        "vk-offscreen"
+      ],
+      "reason": "25 call(s) natively and 40 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20802a03",
+      "name": "NV2080_CTRL_CMD_CE_GET_CAPS_V2",
+      "probes": [
+        "vk-offscreen"
+      ],
+      "reason": "115 call(s) natively and 190 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x2080852f",
+      "name": "unknown -- not in public headers",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 0, word 0 (offset 0): 0x35403501 natively, 0x00000001 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20809004",
+      "name": "unknown -- not in public headers",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 0, word 4 (offset 16): 0x001c61a0 natively, 0x0004ce78 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x20809064",
+      "name": "unknown -- not in public headers",
+      "probes": [
+        "nvenc"
+      ],
+      "reason": "call 0, word 6 (offset 24): 0x80031430 natively, 0x30302030 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x2080a028",
+      "name": "unknown -- not in public headers",
+      "probes": [
+        "nvdec",
+        "nvenc"
+      ],
+      "reason": "call 1, word 7 (offset 28): 0x00007fda natively, 0x0000770d in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x2080a079",
+      "name": "unknown -- not in public headers",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 0, word 2 (offset 8): 0x00000003 natively, 0x00000000 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x2080a081",
+      "name": "unknown -- not in public headers",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 0, word 4 (offset 16): 0x1ea20500 natively, 0x0e3ce3a0 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x2080a097",
+      "name": "unknown -- not in public headers",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 0, word 2 (offset 8): 0x00000003 natively, 0x00000005 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x214",
+      "name": "NV0000_CTRL_CMD_GPU_GET_PROBED_IDS",
+      "probes": [
+        "gl-enum",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "1 call(s) natively and 0 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x215",
+      "name": "NV0000_CTRL_CMD_GPU_ATTACH_IDS",
+      "probes": [
+        "gl-enum",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "1 call(s) natively and 0 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x216",
+      "name": "NV0000_CTRL_CMD_GPU_DETACH_IDS",
+      "probes": [
+        "gl-enum",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "1 call(s) natively and 0 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x21b",
+      "name": "NV0000_CTRL_CMD_GPU_GET_PCI_INFO",
+      "probes": [
+        "nvml",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "call 0, word 2 (offset 8): 0x0000002d natively, 0x00050000 in the guest",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x275",
+      "name": "NV0000_CTRL_CMD_GPU_GET_UUID_FROM_GPU_ID",
+      "probes": [
+        "egl-xlib",
+        "gles"
+      ],
+      "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    },
+    {
+      "signature": "ctl 0x2a 0x288",
+      "name": "NV0000_CTRL_CMD_GPU_GET_ACTIVE_DEVICE_IDS",
+      "probes": [
+        "gl-enum",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "reason": "2 call(s) natively and 1 in the guest -- the answers cannot be paired",
+      "catalogue_status": "passthrough",
+      "catalogue_notes": []
+    }
+  ],
+  "matched_under_one_probe_and_not_another": [
+    "ctl 0x2a 0x201",
+    "ctl 0x2a 0x202",
+    "ctl 0x2a 0x205",
+    "ctl 0x2a 0x20800102",
+    "ctl 0x2a 0x20800119",
+    "ctl 0x2a 0x2080012f",
+    "ctl 0x2a 0x20800142",
+    "ctl 0x2a 0x20800147",
+    "ctl 0x2a 0x20800170",
+    "ctl 0x2a 0x20801206",
+    "ctl 0x2a 0x20801208",
+    "ctl 0x2a 0x20801210",
+    "ctl 0x2a 0x2080121b",
+    "ctl 0x2a 0x20801315",
+    "ctl 0x2a 0x20801320",
+    "ctl 0x2a 0x20801352",
+    "ctl 0x2a 0x20801701",
+    "ctl 0x2a 0x20801801",
+    "ctl 0x2a 0x20801823",
+    "ctl 0x2a 0x2080200a",
+    "ctl 0x2a 0x20802a02",
+    "ctl 0x2a 0x20802a03",
+    "ctl 0x2a 0x20809064",
+    "ctl 0x2a 0x214",
+    "ctl 0x2a 0x215",
+    "ctl 0x2a 0x216",
+    "ctl 0x2a 0x275",
+    "ctl 0x2a 0x288"
+  ],
+  "probes_skipped": [
+    {
+      "probe": "cuda-torch",
+      "reason": "the guest run produced no answer dumps"
+    },
+    {
+      "probe": "egl-wayland",
+      "reason": "the guest run produced no answer dumps"
+    },
+    {
+      "probe": "egl-xcb",
+      "reason": "the guest run produced no answer dumps"
+    },
+    {
+      "probe": "gl-render",
+      "reason": "the guest run produced no answer dumps"
+    },
+    {
+      "probe": "opencl",
+      "reason": "the guest run produced no answer dumps"
+    }
+  ]
+}

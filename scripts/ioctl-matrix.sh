@@ -11,6 +11,8 @@
 #   scripts/ioctl-matrix.sh all          all four, in that order
 #   scripts/ioctl-matrix.sh guest [name] the same probes in a GUEST, against
 #                                        the native traces the four produced
+#   scripts/ioctl-matrix.sh verify       the ANSWER BYTES of the two runs,
+#                                        control by control (needs `guest`)
 #
 # WHAT THIS IS FOR. "The guest can run CUDA" is a claim about one library.
 # The guest is handed thirty, and for most of them nobody has ever looked at
@@ -51,6 +53,8 @@
 #   TASKS-<driver>.md         the implementation task list for follow-up
 #   traces/<driver>/guest/    the guest's own traces, taken by the same tracer
 #   guest-<driver>.json       per probe: guest-validated, or the findings
+#   verified-<driver>.json    per signature: the answer bytes matched a
+#                             native run, and over how many bytes
 #
 # Never overwrites another driver version's trace directory: the driver is
 # part of the path, and every artefact carries the driver in its header.
@@ -945,6 +949,56 @@ do_guest() {
 }
 
 # ===========================================================================
+# verify -- the answer bytes, guest against native
+# ===========================================================================
+# The first slice of the differential harness OPEN-QUESTIONS number 50 asks
+# for, and the ONLY thing in this tree that compares what a forwarded control
+# ANSWERED rather than whether it failed.
+#
+# It logs nothing new. The tracer has dumped the first 32 bytes of the params
+# buffer after the call since the enumeration work (`ctrlout` in log.rs,
+# written for exactly this diff), so both phases have been recording the
+# evidence all along -- this reads the traces that exist. That is also its
+# limit, and the evidence file states it per signature: 32 bytes of a
+# 384-byte answer is 32 bytes, and `implemented-verified` must not be read as
+# more than what was compared.
+#
+# Runs after `guest`, and needs its traces. The mask is derived from those
+# same traces rather than declared (probe/python/answerdiff.py says how).
+do_verify() {
+    local -a only=("$@")
+    local gdir=$TDIR/guest
+    [[ -d $gdir ]] || die "no guest traces in $gdir -- scripts/ioctl-matrix.sh guest"
+    lea_require_tools python3
+    local -a list=()
+    if [[ ${#only[@]} -gt 0 ]]; then
+        list=("${only[@]}")
+    else
+        # Every probe that has both traces. A probe whose guest run failed
+        # left a trace too, and comparing it is not wrong -- what it answered
+        # before it failed is still what it answered.
+        local f
+        for f in "$gdir"/*.tsv; do
+            [[ -e $f ]] || continue
+            f=$(basename "$f" .tsv)
+            # probes.tsv is the run's index, not a probe. It has a .tsv name
+            # because every artefact here does.
+            [[ $f == probes ]] && continue
+            [[ -f $TDIR/$f.tsv ]] && list+=("$f")
+        done
+    fi
+    [[ ${#list[@]} -gt 0 ]] || die "no probe has both a native and a guest trace"
+    python3 "$LEA_ROOT/probe/python/answerdiff.py" \
+        --native "$TDIR" --guest "$gdir" --out "$MDIR" --driver "$DRV" \
+        --provenance "$(lea_matrix_provenance | tr '\n' '|')" \
+        --probes "${list[@]}"
+    local rc=$?
+    info "re-generating the catalogue so it reads the evidence file"
+    do_catalog
+    return $rc
+}
+
+# ===========================================================================
 # catalog -- Phases 4, 5 and 6
 # ===========================================================================
 do_catalog() {
@@ -965,6 +1019,7 @@ case $CMD in
     trace)    do_trace "$@" ;;
     catalog)  do_catalog ;;
     guest)    do_guest "$@" ;;
+    verify)   do_verify "$@" ;;
     all)
         lea_matrix_sample_trace
         do_discover && do_probes && do_trace && do_catalog

@@ -592,7 +592,7 @@ Worth settling because it is the exact shape of the failure class number 32
 named — a call that succeeds and answers plausibly.
 
 ### 50. Nothing compares the answer bytes, so nothing is verified
-**Open, and now counted.** The gpu and display gates compare status codes,
+**Open, first slice built 2026-08-20.** The gpu and display gates compare status codes,
 workload results and a whole PyTorch run bit for bit. Nothing anywhere
 compares the **response bytes of a forwarded RM control** against the bytes
 the same call returns natively.
@@ -622,6 +622,10 @@ survives it is `guest-validated`, which is more than `predicted-green` and
 strictly less than `implemented-verified` — it says the guest asked the
 same questions and got the same KIND of answers, not that the answers
 carried the same bytes. Number 51 is what it found on its first run.
+
+And since the same day there is a first slice of the byte comparison
+itself, `scripts/ioctl-matrix.sh verify` — see number 55, which is mostly
+about what it CANNOT reach.
 
 ### 51. A guest answers two nvml controls differently, and both shapes were predicted
 **Open, measured 2026-08-20.** First run of the guest sweep, twenty probes,
@@ -713,6 +717,54 @@ way the rest of the tree does, rather than the guest run being read as a
 graphics failure. Beside it, `egl-wayland` exits 1 for a missing
 `WAYLAND_DISPLAY` where `egl-xlib` exits 2 for a missing `DISPLAY` — the
 same absence, reported once as a failure and once as a declared reason.
+
+### 55. The answer bytes are compared now, and the class that can be promoted is not the class that can be reached
+**Open, measured 2026-08-20.** `scripts/ioctl-matrix.sh verify` compares the
+ANSWER of a forwarded control, native run against guest run, call by call
+and word by word. It logs nothing new: the tracer has dumped the first 32
+bytes of the params buffer after the call since the enumeration work
+(`ctrlout` in `log.rs`, written for exactly this diff), so both phases had
+been recording the evidence all along.
+
+The mask — the hard half of number 50 — is DERIVED rather than declared. A
+differing word is allowed only if it is this side's own `gpu_id`, which
+each trace states in its own `cardinfo` line, or a handle this side
+allocated, which its own allocation lines name. Anything else that differs
+is a mismatch, and one unexplained word anywhere disqualifies the
+signature, including when it matched under a different probe.
+
+First run: **67 signatures matched**, over the twenty probes that produced
+answers on both sides, several of them with `masked {gpuId: n}` — which is
+not a difference tolerated but the translation observed working.
+
+**And 0 of the 67 are `implemented-verified`.** That is the finding, and it
+has two halves that are worth keeping apart.
+
+*Reach.* `ctrlout` covers root-client (0x2xx) and subdevice (0x2080xxxx)
+controls and nothing else. Allocations and UVM commands have no answer dump
+at all — and those are where most of the governed class lives, because they
+are the two places a size is not self-describing. This slice cannot see
+them.
+
+*Criterion.* The governed CONTROLS it does reach are the seven the backend
+answers itself, and their answers differ from the native ones on purpose:
+that is what mediation is. `NV2080_CTRL_CMD_GPU_GET_NAME` differs at offset
+4 by `NVID` against `Lean` — the mediated product name, working exactly as
+designed and reported as a mismatch, because byte equality is the wrong
+test for a mediated command. The right test is "differs in exactly the
+fields the mediation rewrites, and nowhere else", and it needs the
+mediation to name its own fields.
+
+So the pipeline is real and its coverage is honest, and the two things it
+would take to make `implemented-verified` non-empty are now specific rather
+than a standing wish: an answer dump for allocations and UVM, and a
+per-command field mask that the mediation itself declares.
+
+One thing the slice settled in passing: `NV0000_CTRL_CMD_GPU_GET_ID_INFO`
+(number 49, the deprecated control with an `NvP64` in it) answers
+byte-identically in a guest over the first 32 bytes of its 128, with the
+gpuId translated and nothing else moved. That is evidence that its pointer
+field is not read into, and not yet proof — 32 of 128 bytes is 32 bytes.
 
 ---
 
