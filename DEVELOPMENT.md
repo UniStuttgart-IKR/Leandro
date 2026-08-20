@@ -20,7 +20,7 @@ points at it rather than repeating it.
 |---|---|
 | OS | Linux with a recent kernel. Developed and measured on Arch (kernel 6.x). |
 | GPU | One NVIDIA card. Only **Turing** has ever been run on real silicon. |
-| Driver | Exactly the version in [`DRIVER_VERSION`](DRIVER_VERSION), or retarget with `build.sh all --driver auto`. Not "close enough" — see the Limitations section of the README. The pin is 610.57.04; the gates were last run on real silicon at 610.43.03, and the two differ by nothing this tree reads (below). |
+| Driver | Exactly the version in [`DRIVER_VERSION`](DRIVER_VERSION), or retarget with `build.sh all --driver auto`. Not "close enough" — see the Limitations section of the README. Two versions have been run on real silicon: the pin, 610.57.04, and 610.43.03 before it. |
 | Userspace | The matching `nvidia-utils` (libcuda, libnvidia-ml, nvidia-smi) |
 | Tools | `rustup`, `cargo`, `cc`, `make`, `qemu-img`, `mkfs.vfat` (dosfstools), `mcopy` (mtools), `curl`, `git`, `iptables`, `ip`, `pkg-config` |
 | Rust | Pinned by [`rust-toolchain.toml`](rust-toolchain.toml) |
@@ -40,7 +40,8 @@ itself. No offset, no structure size and no class entry moved, and both
 mechanical checks stayed green — `class-sizes`, which compiles a
 `sizeof()` for every alloc-param size out of the vendor headers, and
 `kapi-abi`, which compares the guest module's kernel-side entry points
-against `nv-modeset-interface.h`.
+against `nv-modeset-interface.h`. The gates then confirmed it on the card
+the next day: `gpu` 8/8 and `vdisplay` 6/6 at 610.57.04.
 
 That is also the procedure for the next bump, and the order matters:
 
@@ -50,12 +51,26 @@ echo <version> > DRIVER_VERSION
 ./scripts/test.sh check          # nvrm-genhdr goes red if anything moved
 cargo run --release --bin nvrm-genhdr -- guest-module/virtio_nvrm/nvrm_wire.h
 git diff guest-module/virtio_nvrm/nvrm_wire.h    # READ this diff
+# then, once the HOST runs the new driver:
+./scripts/build.sh cargo         # the backend asserts the version it was built for
+./scripts/test.sh gpu
+./scripts/test.sh vdisplay --fresh
 ```
 
 A diff that is only the version string means the ABI this tree reads did
 not move. A diff with offsets in it means it did — and then the GPU gates
-have to be run again on the new driver before anything is claimed about
-it.
+have to be run again on the new driver before anything is claimed about it.
+
+Two traps, both met on 2026-08-20 and both loud rather than silent:
+installing the packages does **not** change the running kernel module, so
+`nvidia-smi` answers "Driver/library version mismatch" until the machine is
+rebooted; and a backend binary built before the change refuses to start
+with "driver mismatch: running 610.57.04, bindings for 610.43.03", because
+`nvrm-sys` asserts at startup what its bindings were generated from. That
+second one is why `build.sh cargo` is in the list above. `vdisplay` wants
+`--fresh` after a driver change: the guest builds `nvidia-modeset.ko` and
+`nvidia-drm.ko` from the host's sources, and a kept overlay still carries
+the old ones.
 
 ### Persistence mode
 
