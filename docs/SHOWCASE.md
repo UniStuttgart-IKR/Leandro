@@ -67,7 +67,7 @@ card-dependent and each says so rather than failing quietly:
   `LEA_SUN_ENCODER=software` rather than a silent software stream that
   someone might benchmark.
 - **NvFBC** is restricted on GeForce, and Sunshine picks it by itself when
-  nothing tells it otherwise -- see the black-screen entry in section 6.
+  nothing tells it otherwise -- see the black-screen entry in section 7.
 
 ---
 
@@ -146,6 +146,36 @@ because something is convenient). In that shell:
 
 `status` must show `up up up` and `MODULE loaded` for both.
 
+### A game, downloaded once
+
+A game is tens of gigabytes and is not system state, so it lives on its own
+disk rather than in the image or on a root disk that `--fresh` throws away:
+
+```
+./scripts/showcase.sh games init                 # one qcow2, sparse, 200 G
+./scripts/showcase.sh up --name desktop --index 5 --session gnome --games-init
+#   in the guest: start Steam (nvidia-run steam), log in, install the game
+./scripts/showcase.sh down --name desktop
+```
+
+After that every guest gets a thin overlay on it, and two guests can run
+from the same library AT THE SAME TIME because neither writes to the base:
+
+```
+./scripts/showcase.sh up --name desktop --index 5 --session gnome --games
+./scripts/showcase.sh games status
+```
+
+It is mounted at `~/.local/share/Steam/steamapps`, so Steam finds one
+library where it already looks. Measured: 196 G in the guest, 186 G free
+with an empty library, and the base stays untouched while overlays are in
+use.
+
+`scripts/guest/cs2-settings.sh` in the guest writes CS2's settings at their
+lowest and caps `fps_max` at the display rate -- the frame cap is the one
+that matters here, because every frame above the virtual display's 60 Hz is
+rendered, captured and then thrown away.
+
 ---
 
 ## 5. Streaming it
@@ -158,7 +188,7 @@ moonlight stream 192.168.100.15 Desktop --resolution 1920x1080 --fps 60 --bitrat
 `pair` does what the web UI does for a human: `moonlight pair --pin` and a
 POST to Sunshine's `/api/pin` have to overlap. It is idempotent, and it
 repairs the one thing it can -- a Sunshine with no web login answers every
-API call with a 307 to its `/welcome` page (see section 6).
+API call with a 307 to its `/welcome` page (see section 7).
 
 The desktop bring-up prints what Sunshine settled on, read out of its own
 log rather than assumed:
@@ -197,7 +227,32 @@ as the unattended smoke test.
 
 ---
 
-## 6. When it does not work
+## 6. The three caps, and what a run does without them
+
+Nothing in the chain above sets a cap. That is deliberate -- the default is
+a VM with the whole card -- but it means the defaults are what a
+demonstration runs into, and there are three of them, all independent:
+
+| | where | default | what it bounds |
+|---|---|---|---|
+| `LEA_VRAM_LIMIT_MIB` / `--vram-limit N` | backend, per VM | **off** | VRAM this VM may hold |
+| `max_pin_mib` / `--max-pin-mib N` | guest module | **1024 MiB** | pinned guest memory, cumulative |
+| `LEA_MAX_PIN_MIB=N` | backend, per arena | **256 MiB** | one pinned region |
+
+The third has no flag and is set as an environment variable on `up`. It is
+also the tightest: a single pinned region above 256 MiB is refused, and the
+refusal reaches the guest as a failed mapping.
+
+Measured 2026-08-20 across the VRAM axis (`vramcap.py`, `convoom.py`,
+`nvprobe`) at off / 4096 / 2048 / 1024 MiB: every cap holds, every workload
+either completes or fails with a clean CUDA OOM, and no run produced a
+kernel warning, an oops or a lost guest. Under a cap `torch` reports the
+capped size as the card's total (2048 MiB cap -> "total: 2147483648"), the
+allocation stops below it, and -- the question a VRAM cap actually lives or
+dies on -- the counter comes back DOWN after a free, so the same guest can
+allocate again.
+
+## 7. When it does not work
 
 **Black stream, everything else green.** Sunshine chose NvFBC. It is
 NVIDIA's own frame capture, restricted on GeForce: it initialises, logs
@@ -254,7 +309,7 @@ already carries the venv; the error names the command.
 
 ---
 
-## 7. Taking it down
+## 8. Taking it down
 
 ```
 ./scripts/showcase.sh down --all
@@ -266,7 +321,7 @@ and `--dry-run` prints what it would remove.
 
 ---
 
-## 8. What this shows, and what it does not
+## 9. What this shows, and what it does not
 
 The demonstration `./scripts/showcase.sh demo --fast --pause` walks the
 same ground with a verdict per section and prints every command before it
