@@ -75,9 +75,10 @@ export LEA_TRACE_LIB
 [[ -f $LEA_TRACE_LIB ]] || die "no tracer at $LEA_TRACE_LIB"
 [[ -n $DISP ]] && export DISPLAY=$DISP
 
-tsv=$OUT/$PROBE.tsv; strc=$OUT/$PROBE.strace; outf=$OUT/$PROBE.out
+strc=$OUT/$PROBE.strace; outf=$OUT/$PROBE.out
 raw=$(mktemp) || die "mktemp"
-trap 'rm -f "$raw"' EXIT
+# Both formats, because the tracer writes both (LEA_TRACE_FORMAT).
+trap 'rm -f "$raw" "$raw.jsonl"' EXIT
 
 # Run 1: under the tracer. The wrapper goes around the WORKLOAD only, never
 # around this script: the tracer opens LEA_TRACE_FILE with O_TRUNC in its
@@ -96,12 +97,15 @@ else
     rm -f "$strc"
 fi
 
-{ lea_matrix_provenance '#'
-  printf '#probe: %s\n#side: guest\n#host: %s\n' "$PROBE" "$(hostname)"
-  cat "$raw"; } > "$tsv"
+lea_trace_place "$raw" "$OUT/$PROBE" probe "$PROBE" side guest host "$(hostname)"
+trace=$(lea_trace_file "$OUT" "$PROBE")
 
-a=$(lea_matrix_n_tracer "$tsv")
-am=$(lea_matrix_n_tracer_kms "$tsv")
+# The counting rule is the same function the native phase asks, reading the
+# same format the native phase reads. That is the whole point of it being a
+# function: the two sides cannot drift into counting differently, and the
+# format migration must not be the thing that makes them.
+a=$(lea_matrix_n_tracer "$trace")
+am=$(lea_matrix_n_tracer_kms "$trace")
 if [[ -f $strc ]]; then
     b=$(lea_matrix_n_strace "$strc"); mset=$(lea_matrix_n_strace_kms "$strc")
 else

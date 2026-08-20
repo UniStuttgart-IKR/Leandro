@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T19:26:52Z",
-    "commit:  ead7757 (working tree modified)"
+    "date:    2026-08-20T21:32:05Z",
+    "commit:  0bc80d3 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -6957,9 +6957,7 @@
       "flags": [
         "none"
       ],
-      "notes": [
-        "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes"
-      ],
+      "notes": [],
       "fields": [
         {
           "name": "currPstate",
@@ -7531,9 +7529,7 @@
       "flags": [
         "none"
       ],
-      "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 83972 bytes"
-      ],
+      "notes": [],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -11684,7 +11680,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'nested-ptr': 19}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'nested-ptr': 16}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11745,7 +11741,7 @@
       "notes": [
         "answered by the backend itself: fbInfoList[].data @4 (backend-answered, mediation.txt)",
         "pointer field(s), offsets compiled: fbInfoList @8",
-        "answer bytes compared against a native run: 5 call(s), 16 of 16 bytes, masked {'nested-ptr': 10}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 5 call(s), 16 of 16 bytes, masked {'nested-ptr': 5}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11885,7 +11881,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: engineList @8",
-        "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'nested-ptr': 6}"
+        "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'nested-ptr': 4}"
       ],
       "fields": [
         {
@@ -12881,10 +12877,10 @@
     {
       "probe": "cuda-gdb",
       "result": "ungated: none -- strace cannot follow a process that is itself ptracing. Measured: under `strace -f` cuda-gdb records zero ioctls, because its own ptrace of the inferior is the one strace has already taken. There is no second instrument here that could count the same calls, so this probe's CRITERION stands and its signatures do NOT enter the catalogue. The instrument that would gate it is the same kernel-side trace point the 32-bit set needs.",
-      "tracer": "643",
+      "tracer": "642",
       "strace": "-",
       "delta": "-",
-      "ioctls": "643",
+      "ioctls": "642",
       "sigs": "141",
       "modeset": "0",
       "drm": "0",
@@ -13071,7 +13067,7 @@
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 35612"
+      "criterion": "glmark2 --off-screen rendered the build scene, score 28826"
     },
     {
       "probe": "gles",
@@ -13105,7 +13101,7 @@
     },
     {
       "probe": "nvdec",
-      "result": "PASS (matched on attempt 2)",
+      "result": "PASS (matched on attempt 5)",
       "tracer": "996",
       "strace": "996",
       "delta": "0",

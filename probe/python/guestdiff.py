@@ -56,6 +56,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 # repeating it is not tidiness: a second copy that drifted would compare two
 # differently-keyed sets and report the drift as a finding about the guest.
 from ioctlmatrix import MAP_MEMORY_NR                       # noqa: E402
+import traceread                                            # noqa: E402
 
 
 def read_probes(tsv):
@@ -74,25 +75,25 @@ def read_probes(tsv):
     return rows
 
 
-def signatures(tsv):
-    """(device, nr, sub) -> {'calls': n, 'status': Counter, 'psize': set}"""
+def signatures(trace):
+    """(device, nr, sub) -> {'calls': n, 'status': Counter, 'psize': set}
+
+    Read through `traceread`, so this compares the two sides of the boundary
+    and not the two formats the tracer can write them in.
+    """
     sigs = collections.defaultdict(
         lambda: {"calls": 0, "status": collections.Counter(), "psize": set()})
-    if not tsv.is_file():
-        return sigs
-    for ln in tsv.read_text(errors="replace").splitlines():
-        if not ln.startswith("ioctl\t"):
+    for r in traceread.read(trace):
+        if r["t"] != "ioctl":
             continue
-        c = ln.split("\t")
-        if len(c) < 8:
-            continue
-        key = (c[1], c[2], "-" if c[2] == MAP_MEMORY_NR else c[3])
+        sub = r.get("sub")
+        key = (r["dev"], r["nr"], "-" if r["nr"] == MAP_MEMORY_NR else (sub or "-"))
         e = sigs[key]
         e["calls"] += 1
-        if c[5] not in ("-", ""):
-            e["psize"].add(c[5])
-        if c[7] not in ("-", ""):
-            e["status"][c[7]] += 1
+        if r.get("psize") is not None:
+            e["psize"].add(r["psize"])
+        if r.get("status") is not None:
+            e["status"][r["status"]] += 1
     return sigs
 
 
@@ -195,8 +196,8 @@ def main():
     probes, counts = [], collections.Counter()
     for g in grows:
         p = g["probe"]
-        nat = signatures(ndir / f"{p}.tsv")
-        gst = signatures(gdir / f"{p}.tsv")
+        nat = signatures(traceread.trace_file(ndir, p))
+        gst = signatures(traceread.trace_file(gdir, p))
         findings = compare(nat, gst, names) if gst else []
         drm = (sum(v["calls"] for k, v in nat.items() if k[0] in DRM_DEVICES),
                sum(v["calls"] for k, v in gst.items() if k[0] in DRM_DEVICES))

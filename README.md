@@ -466,6 +466,10 @@ LEA_TRACE_FILE=traces/vectoradd.tsv \
 strace -f -e trace=ioctl -c ./vectorAdd     # the cross-check
 ```
 
+It writes the same records in two formats — the legacy TSV and, beside it,
+`traces/vectoradd.jsonl`. `LEA_TRACE_FORMAT` (`tsv`, `jsonl`, `both`;
+default `both`) chooses.
+
 Details and the rules that apply on the interposed path:
 [`crates/nvrm-trace/README.md`](crates/nvrm-trace/README.md).
 

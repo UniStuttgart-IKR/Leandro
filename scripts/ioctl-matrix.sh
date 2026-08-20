@@ -533,6 +533,8 @@ do_trace() {
     # measured", which is a different and much worse statement than "they
     # were measured earlier".
     local index=$TDIR/probes.tsv rows
+    # How many probes' two renderings disagreed. Must be 0; see the gate below.
+    local fmt_bad=0 fmt_out
     rows=$(mktemp) || die "mktemp"
     lea_on_exit "rm -f $(printf '%q' "$rows")"
 
@@ -558,7 +560,11 @@ do_trace() {
         gate=$(lea_matrix_meta "$f" gate)
         short=
 
-        tsv=$TDIR/$p.tsv; strc=$TDIR/$p.strace; outf=$TDIR/$p.out
+        # `trace` is whichever format the consumers should read (JSONL
+        # first); `strc` and `outf` are unchanged. It is set once the trace
+        # has actually been placed, below.
+        local trace=$TDIR/$p.tsv
+        strc=$TDIR/$p.strace; outf=$TDIR/$p.out
 
         # UP TO FIVE ATTEMPTS, and the reason is not flakiness tolerance.
         # The gate's claim is "the tracer sees every call this workload
@@ -602,11 +608,11 @@ do_trace() {
             LEA_MATRIX_WRAP="strace -f -y -e trace=ioctl,openat -o $strc" \
                 timeout 600 "$f" >/dev/null 2>&1
 
-            # Provenance first, then the tracer's own bytes. The tracer
-            # cannot write the header itself: it opens its file with O_TRUNC.
-            { lea_matrix_provenance '#'; printf '#probe: %s\n#attempt: %s\n' "$p" "$try"
-              cat "$raw"; } > "$tsv"
-            rm -f "$raw"
+            # Provenance first, then the tracer's own bytes -- in every
+            # format the tracer wrote. The tracer cannot write the header
+            # itself: it opens its files with O_TRUNC.
+            lea_trace_place "$raw" "$TDIR/$p" probe "$p" attempt "$try"
+            trace=$(lea_trace_file "$TDIR" "$p")
 
             # Like for like: the tracer's NVIDIA-node lines against strace's
             # unnamed requests on those same nodes. DRM is excluded on both
@@ -614,16 +620,48 @@ do_trace() {
             # The counting rule lives in matrix.sh and nowhere else, so the
             # guest phase counts exactly what this one counts. Two pairs,
             # never added together: the RM nodes, and the NVKMS node.
-            a=$(lea_matrix_n_tracer "$tsv")
+            a=$(lea_matrix_n_tracer "$trace")
             b=$(lea_matrix_n_strace "$strc")
-            am=$(lea_matrix_n_tracer_kms "$tsv")
+            am=$(lea_matrix_n_tracer_kms "$trace")
             mset=$(lea_matrix_n_strace_kms "$strc")
             [[ -n $gate ]] && break
             [[ $rc -ne 0 ]] && break
             [[ $((b - a)) -eq 0 && $((mset - am)) -eq 0 ]] && break
         done
-        drm=$(lea_matrix_n_tracer_drm "$tsv")
-        nsig=$(awk -F'\t' '$1=="ioctl"{print $2"\t"$3"\t"$4}' "$tsv" | sort -u | wc -l)
+        # THE FORMAT GATE. The tracer renders every record into both
+        # formats from ONE run, and this asserts that the JSONL carries the
+        # same records as the TSV. It is deliberately not a verdict about
+        # the probe: a probe that met its criterion met it, and two
+        # renderings that disagree is a broken INSTRUMENT. So it is counted
+        # separately and fails the phase at the end, where it cannot be read
+        # as a finding about a workload.
+        #
+        # AN UNGATED PROBE IS REPORTED AND DOES NOT FAIL THE PHASE. Its
+        # trace is one nothing counted, and this is what that costs:
+        # measured 2026-08-20, `cuda-gdb` writes TORN lines into both
+        # formats, because cuda-gdb and the inferior it launches both
+        # inherit LEA_TRACE_FILE and both open it with O_TRUNC -- two
+        # processes writing one path at independent offsets. That is a
+        # finding about the probe's trace and not about the format, the
+        # trace is already excluded from the catalogue, and failing the
+        # phase on it would mean the gate could never come back clean.
+        if [[ -f $TDIR/$p.jsonl && -f $TDIR/$p.tsv ]]; then
+            if ! fmt_out=$(python3 "$LEA_ROOT/probe/python/traceread.py" \
+                               --check "$TDIR/$p.jsonl" "$TDIR/$p.tsv" 2>&1); then
+                if [[ -n $gate ]]; then
+                    warn "format gate: $p is ungated and its trace is damaged --"
+                    warn "  two processes share LEA_TRACE_FILE. Not counted."
+                else
+                    error "format gate: $p -- the two renderings of one run disagree"
+                    fmt_bad=$((fmt_bad + 1))
+                fi
+                printf '%s\n' "$fmt_out" >&2
+            fi
+        fi
+
+        drm=$(lea_matrix_n_tracer_drm "$trace")
+        nsig=$(lea_trace_stream "$trace" \
+                   | awk -F'\t' '$1=="ioctl"{print $2"\t"$3"\t"$4}' | sort -u | wc -l)
         crit=$(sed -n 's/^CRITERION: //p' "$outf" | tail -1)
         seen=$(_lea_matrix_libs_seen "$strc")
 
@@ -690,6 +728,16 @@ do_trace() {
     echo "nvkms counts ioctls on /dev/nvidia-modeset, nvkmsd is that node's own"
     echo "delta against strace. It must be 0 for the same reason: NVKMS is a second"
     echo "userspace boundary, not a second opinion about the first."
+
+    if [[ $fmt_bad -gt 0 ]]; then
+        echo
+        error "$fmt_bad trace(s) whose JSONL does not project back to their TSV."
+        error "The tracer renders both from one record, so this is not a"
+        error "difference between two runs -- it is a renderer or a reader that"
+        error "is wrong, and every number derived from this run is suspect."
+        return 1
+    fi
+    return 0
 }
 
 # _lea_matrix_libs_seen STRACE -- which NVIDIA libraries this run actually
@@ -983,6 +1031,30 @@ do_guest() {
         printf '#\n#probe\tresult\ttracer\tstrace\tmodeset\tmodeset_strace\tcriterion\n'
         sort -t$'\t' -k1,1 "$rows"
     } > "$gdir/probes.tsv"
+
+    # THE FORMAT GATE, guest side. The same instrument runs on both sides
+    # of the boundary, so it is checked on both: the guest's tracer renders
+    # each record into both formats too, and a guest trace whose two
+    # renderings disagreed would put a defect into the comparison that
+    # belongs to the instrument. Reported here and not in the guest because
+    # this is where python3 is -- the guest half is staged with awk and a
+    # shell and nothing has promised it more.
+    local gfmt_bad=0 gp gout
+    for gp in "$gdir"/*.jsonl; do
+        [[ -f $gp ]] || continue
+        gp=$(basename "$gp" .jsonl)
+        [[ -f $gdir/$gp.tsv ]] || continue
+        if ! gout=$(python3 "$LEA_ROOT/probe/python/traceread.py" \
+                        --check "$gdir/$gp.jsonl" "$gdir/$gp.tsv" 2>&1); then
+            error "format gate (guest): $gp -- the two renderings disagree"
+            printf '%s\n' "$gout" >&2
+            gfmt_bad=$((gfmt_bad + 1))
+        fi
+    done
+    [[ $gfmt_bad -gt 0 ]] \
+        && die "$gfmt_bad guest trace(s) whose two renderings disagree -- the
+      instrument is wrong on the guest side and the comparison below would
+      report its defect as the guest's"
 
     # ---- the comparison --------------------------------------------------
     python3 "$LEA_ROOT/probe/python/guestdiff.py" \

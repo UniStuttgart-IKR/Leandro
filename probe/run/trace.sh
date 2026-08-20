@@ -13,6 +13,7 @@
 # Traces land in probe/traces/ (gitignored) unless --out says otherwise, and
 # `analyse` reads the same default. Every stage leaves three files:
 #   <tag>.tsv     the tracer's own record -- the measurement
+#   <tag>.jsonl   the same records in the new format (LEA_TRACE_FORMAT)
 #   <tag>.strace  the SAME run without the tracer, under strace
 #   <tag>.out     the workload's own output (analyse reads ITERS=/MSPERLAUNCH=)
 #
@@ -97,15 +98,59 @@ lea_trace_stage() {
     return 0
 }
 
+# _lea_stream TAG -- this stage's trace, whatever format it is in,
+# projected once to the canonical columns and cached for the run.
+#
+# Everything below selects on `$1=="ioctl"` and reads columns by number, and
+# that is still exactly what it does: the projection is where the format is
+# known, and it is `lea_trace_stream` in scripts/lib/common.sh -- one reader,
+# the same one the matrix pipeline and the guest half ask.
+# The directory is created ONCE, here, at the top level. It deliberately is
+# not created on demand inside `_lea_stream`: almost every caller is a
+# `$(_lea_stream ...)` command substitution, which is a SUBSHELL, so the
+# assignment would not survive the call and -- much worse -- the `lea_on_exit`
+# cleanup would fire when that subshell exited and delete the directory
+# before the caller could read the path it had just been handed.
+_LEA_STREAMS=$(mktemp -d) || die "cannot create a temporary directory"
+lea_on_exit "rm -rf $(printf '%q' "$_LEA_STREAMS")"
+
+_lea_stream() {
+    local tag=$1 src
+    if [[ ! -s $_LEA_STREAMS/$tag ]]; then
+        src=$(lea_trace_file "$D" "$tag")
+        lea_trace_stream "$src" > "$_LEA_STREAMS/$tag"
+    fi
+    printf '%s' "$_LEA_STREAMS/$tag"
+}
+
+# _lea_stages -- every stage that left a trace, in either format.
+#
+# The TSV glob is walked FIRST and the order it comes back in is kept. That
+# is not arbitrary: the saturation curve's `new` column is cumulative, so it
+# depends on the order the stages are visited in, and `sort -u` over the
+# extensionless names put `smi` before `smi-q` where the glob puts `smi-q`
+# first. A format change that reorders a measurement is not a format change.
+_lea_stages() {
+    local f t
+    local -A seen=()
+    for f in "$D"/*.tsv "$D"/*.jsonl; do
+        [[ -f $f ]] || continue
+        t=$(basename "$f"); t=${t%.tsv}; t=${t%.jsonl}
+        [[ -n ${seen[$t]:-} ]] && continue
+        seen[$t]=1
+        printf '%s\n' "$t"
+    done
+}
+
 # lea_trace_table -- the delta table over everything lea_trace_stage ran.
 lea_trace_table() {
     local t a b nf
     echo
     printf '%-14s %8s %8s %7s %6s\n' stage tracer strace delta NF
     for t in "${TAGS[@]}"; do
-        a=$(grep -c '^ioctl' "$D/$t.tsv" 2>/dev/null) || a=0
+        a=$(grep -c '^ioctl' "$(_lea_stream "$t")" 2>/dev/null) || a=0
         b=$(grep -c '_IOC'   "$D/$t.strace" 2>/dev/null) || b=0
-        nf=$(awk -F'\t' '$1=="ioctl"{print NF; exit}' "$D/$t.tsv" 2>/dev/null)
+        nf=$(awk -F'\t' '$1=="ioctl"{print NF; exit}' "$(_lea_stream "$t")" 2>/dev/null)
         printf '%-14s %8s %8s %7s %6s\n' "$t" "$a" "$b" "$((b - a))" "${nf:-0}"
     done
     echo
@@ -191,13 +236,15 @@ do_smi() {
 
     echo
     echo "--- escapes nvidia-smi uses (nr) ---"
-    awk -F'\t' '$1=="ioctl"{print $2, $3}' "$D/smi.tsv" "$D/smi-q.tsv" | sort -u
+    awk -F'\t' '$1=="ioctl"{print $2, $3}' \
+        "$(_lea_stream smi)" "$(_lea_stream smi-q)" | sort -u
 
     echo
     echo "--- signatures new versus libcuda (needs lvl4blocking.tsv) ---"
-    if [[ -f $D/lvl4blocking.tsv ]]; then
+    if [[ -f $D/lvl4blocking.tsv || -f $D/lvl4blocking.jsonl ]]; then
         sig() { awk -F'\t' '$1=="ioctl"{print $2"\t"$3"\t"$4}' "$@" | sort -u; }
-        comm -13 <(sig "$D/lvl4blocking.tsv") <(sig "$D/smi.tsv" "$D/smi-q.tsv")
+        comm -13 <(sig "$(_lea_stream lvl4blocking)") \
+                 <(sig "$(_lea_stream smi)" "$(_lea_stream smi-q)")
     else
         echo "  (lvl4blocking.tsv missing -- probe/run/trace.sh nvprobe first)"
     fi
@@ -226,20 +273,31 @@ do_analyse() {
     local t f nf L LN prev calc sigs new
 
     [[ -d $D ]] || die "no directory $D -- probe/run/trace.sh nvprobe"
-    [[ -f $D/lvl3.tsv ]] || die "no traces in $D/ -- probe/run/trace.sh nvprobe"
+    [[ -f $D/lvl3.tsv || -f $D/lvl3.jsonl ]] \
+        || die "no traces in $D/ -- probe/run/trace.sh nvprobe"
 
-    nf=$(awk -F'\t' '$1=="ioctl"{print NF; exit}' "$D/lvl3.tsv")
+    # A stale log.rs in the tree writes an ioctl line without the fd field.
+    # The projection keeps a short legacy line short and spells a missing
+    # JSON key as `-`, so both shapes are caught here.
+    nf=$(awk -F'\t' '$1=="ioctl"{print NF; exit}' "$(_lea_stream lvl3)")
     [[ ${nf:-0} -ge 9 ]] || die "NF=${nf:-0}, expected >=9. Stale log.rs in the tree."
+    [[ $(awk -F'\t' '$1=="ioctl"{print $9; exit}' "$(_lea_stream lvl3)") != "-" ]] \
+        || die "the ioctl records carry no fd. Stale log.rs in the tree."
 
     # Known stages in order, then everything else alphabetically.
     local -a ORDER=(lvl0 lvl1 lvl2 lvl3 lvl4auto lvl4blocking) SEEN=()
-    for t in "${ORDER[@]}"; do [[ -f $D/$t.tsv ]] && SEEN+=("$t"); done
-    for f in "$D"/*.tsv; do
-        t=$(basename "$f" .tsv)
-        [[ " ${ORDER[*]} " == *" $t "* ]] || SEEN+=("$t")
+    for t in "${ORDER[@]}"; do
+        [[ -f $D/$t.tsv || -f $D/$t.jsonl ]] && SEEN+=("$t")
     done
+    while read -r t; do
+        [[ -n $t ]] || continue
+        [[ " ${ORDER[*]} " == *" $t "* ]] || SEEN+=("$t")
+    done < <(_lea_stages)
 
-    L="$D/${SEEN[-1]}.tsv"; LN=$(basename "$L")
+    # The heading names the FILE the report was made from, as it always
+    # has -- which now also says which of the two formats that was.
+    L="$(_lea_stream "${SEEN[-1]}")"
+    LN=$(basename "$(lea_trace_file "$D" "${SEEN[-1]}")")
     echo "reference run for the detailed evaluation: $LN"
 
     # Signature sets are compared pairwise, so they have to be kept. A fixed
@@ -258,7 +316,7 @@ do_analyse() {
     printf '%-16s %8s %11s %6s\n' run calls signatures new
     prev=""
     for t in "${SEEN[@]}"; do
-        f="$D/$t.tsv"
+        f="$(_lea_stream "$t")"
         calc=$(awk -F'\t' '$1=="ioctl"' "$f" | wc -l)
         awk -F'\t' '$1=="ioctl"{print $2"\t"$3"\t"$4}' "$f" | sort -u > "$sigdir/$t"
         sigs=$(wc -l < "$sigdir/$t")
@@ -422,12 +480,13 @@ do_analyse() {
     # -----------------------------------------------------------------------
     hdr "cost per kernel launch (difference against lvl3)"
     local b_i b_r b_p it ms n_i n_r n_p
-    b_i=$(awk -F'\t' '$1=="ioctl"' "$D/lvl3.tsv" | wc -l)
-    b_r=$(awk -F'\t' '$1=="read"'  "$D/lvl3.tsv" | wc -l)
-    b_p=$(awk -F'\t' '$1=="poll"'  "$D/lvl3.tsv" | wc -l)
+    b_i=$(awk -F'\t' '$1=="ioctl"' "$(_lea_stream lvl3)" | wc -l)
+    b_r=$(awk -F'\t' '$1=="read"'  "$(_lea_stream lvl3)" | wc -l)
+    b_p=$(awk -F'\t' '$1=="poll"'  "$(_lea_stream lvl3)" | wc -l)
     printf '%-16s %7s %9s %8s %8s   %s\n' run iters ioctl/L read/L poll/L ms/launch
     for t in lvl4auto lvl4blocking; do
-        f="$D/$t.tsv"; [[ -f $f ]] || continue
+        [[ -f $D/$t.tsv || -f $D/$t.jsonl ]] || continue
+        f="$(_lea_stream "$t")"
         it=$(sed -n 's/^ITERS=//p'       "$D/$t.out" 2>/dev/null | tail -1); it=${it:-1}
         ms=$(sed -n 's/^MSPERLAUNCH=//p' "$D/$t.out" 2>/dev/null | tail -1); ms=${ms:-?}
         n_i=$(awk -F'\t' '$1=="ioctl"' "$f" | wc -l)

@@ -68,14 +68,24 @@ import argparse
 import collections
 import json
 import pathlib
-import re
 import sys
 
-CTRLOUT = re.compile(r"^ctrlout\t(0x[0-9a-f]+)\tlen=(\d+)\tstatus=(0x[0-9a-f]+)\t(.*)$")
-CARDINFO = re.compile(r"\bgpu_id=(0x[0-9a-f]+)")
-# Every handle field the detail lines carry, whatever the escape: hRoot,
-# hParent, hNew, hClient, hDevice, hMemory, hObjectParent, hDma, hVASpace.
-HANDLE = re.compile(r"\bh[A-Z][A-Za-z]*=(0x[0-9a-f]+)")
+# The one reader of a trace, whatever format it is in.
+import traceread
+
+# The three things this file reads out of a trace -- the answer dumps, the
+# card's gpuId and the handles this side allocated -- used to be three
+# regexes over raw text. They are fields of a record now, read through
+# `traceread`, because a regex anchored on `^ctrlout\t` finds nothing at all
+# in a JSONL trace and would have reported "no answers to compare" rather
+# than an error.
+#
+# `handles_of` keeps the field-name pattern the old HANDLE regex had
+# (`h[A-Z][A-Za-z]*`), which also matches `hClass` -- a class number, not a
+# handle. That over-inclusion is deliberately preserved here: it is the
+# behaviour every number in the current baseline was measured under, and
+# narrowing it is a change to the MASK, which belongs in its own run with
+# its own re-measurement.
 
 
 def read_declared_pointers(tables):
@@ -137,10 +147,9 @@ def read_stability(paths):
         if not path.is_file():
             continue
         calls = collections.defaultdict(list)
-        for ln in path.read_text(errors="replace").splitlines():
-            m = CTRLOUT.match(ln)
-            if m:
-                calls[m.group(1)].append([int(x, 16) for x in m.group(4).split()])
+        for r in traceread.read(path):
+            if r["t"] == "ctrlout":
+                calls[r["cmd"]].append(list(bytes.fromhex(r["dump"])))
         for cmd, cs in calls.items():
             rep[cmd] = max(rep[cmd], len(cs))
             if len(cs) < 2:
@@ -259,25 +268,20 @@ def read_side(path):
     """One side of the comparison: its answers, its gpuId, its handles."""
     calls = collections.defaultdict(list)
     gpuids, handles = set(), set()
-    if not path.is_file():
+    if not pathlib.Path(path).is_file():
         return None
-    for ln in path.read_text(errors="replace").splitlines():
-        m = CTRLOUT.match(ln)
-        if m:
-            words = [int(x, 16) for x in m.group(4).split()]
-            calls[m.group(1)].append({
-                "len": int(m.group(2)), "status": m.group(3), "bytes": words,
+    for r in traceread.read(path):
+        if r["t"] == "ctrlout":
+            calls[r["cmd"]].append({
+                "len": int(r["len"]), "status": r["status"],
+                "bytes": list(bytes.fromhex(r["dump"])),
             })
             continue
-        if ln.startswith("cardinfo\t"):
-            g = CARDINFO.search(ln)
-            if g:
-                gpuids.add(int(g.group(1), 16))
+        if r["t"] == "cardinfo":
+            if r.get("gpu_id"):
+                gpuids.add(int(r["gpu_id"], 16))
             continue
-        for h in HANDLE.findall(ln):
-            v = int(h, 16)
-            if v:
-                handles.add(v)
+        handles.update(traceread.handles_of(r))
     return {"calls": calls, "gpuids": gpuids, "handles": handles}
 
 
@@ -418,8 +422,7 @@ def main():
     # Every native trace, not just the probes named on the command line: a
     # command's stability is a property of the command, and the more calls
     # the evidence rests on the fewer values are wrongly called stable.
-    stability = read_stability(sorted(
-        f for f in ndir.glob("*.tsv") if f.name != "probes.tsv"))
+    stability = read_stability(traceread.all_traces(ndir))
     cat = {}
     catf = outdir / f"catalog-{a.driver}.json"
     if catf.is_file():
@@ -434,8 +437,8 @@ def main():
     ok_by_sig, bad_by_sig, evidence, sides, skipped = {}, {}, {}, {}, []
     abstained, unstable_by_sig = {}, {}
     for p in a.probes:
-        n = read_side(ndir / f"{p}.tsv")
-        g = read_side(gdir / f"{p}.tsv")
+        n = read_side(traceread.trace_file(ndir, p))
+        g = read_side(traceread.trace_file(gdir, p))
         if not n or not g:
             skipped.append({"probe": p, "reason": "one of the two traces is missing"})
             continue

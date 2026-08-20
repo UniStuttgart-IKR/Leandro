@@ -39,6 +39,9 @@ import subprocess
 import sys
 import tempfile
 
+# The one reader of a trace, whatever format it is in.
+import traceread
+
 # ---------------------------------------------------------------------------
 # the tables the guest module is handed (scripts/ioctl-matrix.sh dumps them)
 # ---------------------------------------------------------------------------
@@ -820,16 +823,10 @@ def collect_signatures(tdir, probes):
     for pr in probes:
         if not passed(pr):
             continue
-        f = tdir / f"{pr['probe']}.tsv"
-        if not f.is_file():
-            continue
-        for ln in f.read_text(errors="replace").splitlines():
-            if not ln.startswith("ioctl\t"):
+        for r in traceread.read(traceread.trace_file(tdir, pr["probe"])):
+            if r["t"] != "ioctl":
                 continue
-            c = ln.split("\t")
-            if len(c) < 8:
-                continue
-            # NORMALISE THE KEY. The tracer's `sub` column is the second
+            # NORMALISE THE KEY. The tracer's `sub` field is the second
             # DISPATCH level for RM_CONTROL (the cmd), RM_ALLOC and
             # RM_ALLOC_MEMORY (the hClass) -- and for NV_ESC_RM_MAP_MEMORY
             # (0x4e) it is hMemory, a runtime HANDLE, put there so mappings
@@ -837,13 +834,14 @@ def collect_signatures(tdir, probes):
             # is not a dimension of the surface: keyed on it, one escape
             # became 409 catalogue rows in the Vulkan trace, all of them the
             # same call. It collapses to one row (OPEN-QUESTIONS number 47).
-            key = (c[1], c[2], "-" if c[2] == MAP_MEMORY_NR else c[3])
+            sub = r.get("sub")
+            key = (r["dev"], r["nr"], "-" if r["nr"] == MAP_MEMORY_NR else (sub or "-"))
             e = sigs[key]
             e["probes"][pr["probe"]] += 1
-            if c[5] not in ("-", ""):
-                e["psize"].add(c[5])
-            if c[7] not in ("-", ""):
-                e["rmstatus"][c[7]] += 1
+            if r.get("psize") is not None:
+                e["psize"].add(r["psize"])
+            if r.get("status") is not None:
+                e["rmstatus"][r["status"]] += 1
     return sigs
 
 

@@ -782,3 +782,103 @@ lea_gate_finish() {
     _lea_gate_emit fail "failed: ${_LEA_GATE_FAILED[*]}"
     exit 1
 }
+
+# ---- the trace reader -------------------------------------------------------
+# ONE place that knows what a trace line looks like, on the shell side. The
+# tracer writes two formats now (crates/nvrm-trace/src/log.rs): the legacy
+# TSV and JSONL, both rendered from the same record, and every shell
+# consumer reads whichever it is handed through this function instead of
+# knowing.
+#
+# WHAT IT EMITS: the MEASUREMENT stream, as the canonical TSV columns, for
+# the six positional kinds --
+#
+#   open      <dev> <fd>
+#   ioctl     <dev> <nr> <sub> <size> <psize> <ret> <status> <fd>
+#   mmap      <dev> <fd> <len> <off> <addr>
+#   read      <dev> <fd> <ret>
+#   poll      <dev> <fd> <revents>
+#   eventreg  <fd> <prev>
+#
+# and DROPS the diagnostic kinds (`nvos*`, `ctrlout`, `cardinfo`, `uvm*`,
+# `memparams`) and the `#` provenance header. That is not a loss: log.rs
+# has always called those diagnostic lines and not measurements, no shell
+# consumer has ever read one, and the ones that matter -- `ctrlout`,
+# `cardinfo` -- are read by probe/python/traceread.py, which models every
+# kind.
+#
+# AWK AND NOT jq, deliberately: this runs inside the guest, where the
+# staged tree is scripts/lib, probe/matrix, probe/bin and the tracer, and
+# nothing has promised jq is installed. The JSON it parses is not arbitrary
+# JSON -- it is what render_json in log.rs writes -- and the reader below
+# extracts by key rather than by position, so a field added in the middle
+# does not move anything.
+#
+# lea_trace_stream FILE
+lea_trace_stream() {
+    [[ -f ${1-} ]] || return 0
+    awk '
+    # The value of key K on this JSON line, or "\002" if the key is absent.
+    # Quoted strings come back unquoted; numbers, null, true and false come
+    # back as written. Escapes inside a string are left ESCAPED -- nothing
+    # the tracer writes today contains one, and a reader that silently
+    # unescaped would be a second, divergent implementation of push_json_str.
+    function jval(line, k,    s, out, i, c, esc) {
+        if (match(line, "\"" k "\":") == 0) return "\002"
+        s = substr(line, RSTART + RLENGTH)
+        if (substr(s, 1, 1) != "\"") {
+            if (match(s, /^[^,}]+/)) return substr(s, RSTART, RLENGTH)
+            return "\002"
+        }
+        out = ""; esc = 0
+        for (i = 2; i <= length(s); i++) {
+            c = substr(s, i, 1)
+            if (esc)        { out = out c; esc = 0; continue }
+            if (c == "\\")  { out = out c; esc = 1; continue }
+            if (c == "\"")  break
+            out = out c
+        }
+        return out
+    }
+    # `null` is the JSON spelling of the TSV `-`, which is what every
+    # selector downstream tests for.
+    function v(line, k,    x) {
+        x = jval(line, k)
+        if (x == "\002" || x == "null") return "-"
+        return x
+    }
+    /^#/ { next }
+    /^\{/ {
+        t = jval($0, "t")
+        if (t == "ioctl")
+            print t "\t" v($0,"dev") "\t" v($0,"nr") "\t" v($0,"sub") "\t" \
+                  v($0,"size") "\t" v($0,"psize") "\t" v($0,"ret") "\t" \
+                  v($0,"status") "\t" v($0,"fd")
+        else if (t == "open")
+            print t "\t" v($0,"dev") "\t" v($0,"fd")
+        else if (t == "mmap")
+            print t "\t" v($0,"dev") "\t" v($0,"fd") "\t" v($0,"len") "\t" \
+                  v($0,"off") "\t" v($0,"addr")
+        else if (t == "read")
+            print t "\t" v($0,"dev") "\t" v($0,"fd") "\t" v($0,"ret")
+        else if (t == "poll")
+            print t "\t" v($0,"dev") "\t" v($0,"fd") "\t" v($0,"revents")
+        else if (t == "eventreg")
+            print t "\t" v($0,"fd") "\t" v($0,"prev")
+        next
+    }
+    # Legacy TSV: the same six kinds, already in these columns.
+    $1=="ioctl" || $1=="open" || $1=="mmap" || $1=="read" || $1=="poll" || $1=="eventreg"
+    ' "$1"
+}
+
+# lea_trace_file DIR PROBE -- the trace to read, JSONL first.
+#
+# Both formats are written during the migration and the equivalence gate
+# proves they agree, so preferring the new one is what actually exercises
+# it. A trace directory from before the migration has no `.jsonl` and falls
+# back without saying anything, because there is nothing wrong with it.
+lea_trace_file() {
+    local d=$1 p=$2
+    if [[ -f $d/$p.jsonl ]]; then echo "$d/$p.jsonl"; else echo "$d/$p.tsv"; fi
+}

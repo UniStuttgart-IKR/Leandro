@@ -76,6 +76,66 @@ lea_matrix_provenance() {
     printf '%scommit:  %s%s\n' "$p" "$commit" "$dirty"
 }
 
+# lea_matrix_provenance_json [KEY VALUE]... -- the same header as ONE JSONL
+# `meta` record, for the JSONL side of a trace.
+#
+# A `#` comment line is not JSON, and a trace file that is JSONL except for
+# its first six lines is a format with an exception in it -- which is how a
+# reader ends up with a special case that later grows. The header is a
+# record instead, and `traceread.meta()` reads it from either format.
+_lea_json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+
+lea_matrix_provenance_json() {
+    local commit dirty="" extra=""
+    commit=$(git -C "$LEA_ROOT" rev-parse --short HEAD 2>/dev/null) || commit=unknown
+    git -C "$LEA_ROOT" diff --quiet 2>/dev/null || dirty=" (working tree modified)"
+    while (($#)); do
+        extra+=$(printf ',"%s":"%s"' "$(_lea_json_escape "$1")" "$(_lea_json_escape "${2-}")")
+        shift 2 2>/dev/null || shift
+    done
+    printf '{"t":"meta","driver":"%s","gpu":"%s","arch":"%s (compute %s)","kernel":"%s","date":"%s","commit":"%s"%s}\n' \
+        "$(_lea_json_escape "$(lea_matrix_driver)")" \
+        "$(_lea_json_escape "$(lea_matrix_gpu_field 'Product Name')")" \
+        "$(_lea_json_escape "$(lea_matrix_gpu_field 'Product Architecture')")" \
+        "$(_lea_json_escape "$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1)")" \
+        "$(_lea_json_escape "$(uname -r)")" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(_lea_json_escape "$commit$dirty")" \
+        "$extra"
+}
+
+# lea_trace_place RAW DEST_BASE [KEY VALUE]... -- put a finished trace where
+# it belongs, in every format the tracer wrote, each with its own header.
+#
+# The tracer writes to a scratch path because it truncates its output file
+# in its constructor; this is the step that gives the result its provenance
+# and its name. It removes the scratch files in both formats, so a probe
+# that is retried does not leave the previous attempt's JSONL behind for the
+# next one to be judged on.
+lea_trace_place() {
+    local raw=$1 base=$2; shift 2
+    # Both headers are built from the SAME key/value pairs, so keep them:
+    # the loop below would otherwise consume "$@" before the JSONL header
+    # ever saw it, and the difference is a header, which nothing gates on.
+    local -a kv=("$@") i
+    { lea_matrix_provenance '#'
+      for ((i = 0; i < ${#kv[@]}; i += 2)); do
+          printf '#%s: %s\n' "${kv[i]}" "${kv[i+1]-}"
+      done
+      cat "$raw"; } > "$base.tsv"
+    if [[ -f $raw.jsonl ]]; then
+        { lea_matrix_provenance_json "${kv[@]}"
+          cat "$raw.jsonl"; } > "$base.jsonl"
+    else
+        # LEA_TRACE_FORMAT=tsv, or a tracer from before the migration. Do
+        # not leave a stale JSONL from an earlier attempt beside a TSV from
+        # this one -- lea_trace_file prefers the JSONL and would hand every
+        # consumer the wrong run.
+        rm -f "$base.jsonl"
+    fi
+    rm -f "$raw" "$raw.jsonl"
+}
+
 # ---- where things go --------------------------------------------------------
 # One place, so no consumer computes a path of its own.
 lea_matrix_dir()    { echo "$LEA_ROOT/matrix"; }
@@ -131,15 +191,26 @@ lea_matrix_probe_list() {
 # The strace patterns are disjoint by construction -- `/dev/nvidia-modeset`
 # does not match the RM alternation, which is `ctl`, `-uvm` or a digit.
 
-# lea_matrix_n_tracer TSV -- ioctls the tracer recorded on the RM nodes.
+# The three tracer counters take a trace in EITHER format and read it
+# through lea_trace_stream, so the selector below is the same awk
+# expression it has always been -- the format changed underneath it and
+# what "how many ioctls" means did not. That is the property the format
+# migration had to preserve: the counter-check against strace is the trust
+# anchor of every probe in the matrix, and an instrument that counts
+# differently is a new instrument, not a new format.
+
+# lea_matrix_n_tracer TRACE -- ioctls the tracer recorded on the RM nodes.
 lea_matrix_n_tracer() {
-    awk -F'\t' '$1=="ioctl" && $2!="drm" && $2!="render" && $2!="modeset"' "$1" | wc -l
+    lea_trace_stream "$1" \
+        | awk -F'\t' '$1=="ioctl" && $2!="drm" && $2!="render" && $2!="modeset"' | wc -l
 }
-# lea_matrix_n_tracer_kms TSV -- ... on /dev/nvidia-modeset.
-lea_matrix_n_tracer_kms() { awk -F'\t' '$1=="ioctl" && $2=="modeset"' "$1" | wc -l; }
-# lea_matrix_n_tracer_drm TSV -- ... on the DRM nodes. Counted, never gated.
+# lea_matrix_n_tracer_kms TRACE -- ... on /dev/nvidia-modeset.
+lea_matrix_n_tracer_kms() {
+    lea_trace_stream "$1" | awk -F'\t' '$1=="ioctl" && $2=="modeset"' | wc -l
+}
+# lea_matrix_n_tracer_drm TRACE -- ... on the DRM nodes. Counted, never gated.
 lea_matrix_n_tracer_drm() {
-    awk -F'\t' '$1=="ioctl" && ($2=="drm" || $2=="render")' "$1" | wc -l
+    lea_trace_stream "$1" | awk -F'\t' '$1=="ioctl" && ($2=="drm" || $2=="render")' | wc -l
 }
 # lea_matrix_n_strace STRACE -- the same count from strace -y.
 #

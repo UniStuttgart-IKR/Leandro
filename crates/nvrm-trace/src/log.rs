@@ -7,7 +7,14 @@
 //! initialization, and that initialization can itself call open/ioctl.
 //! Re-entering the hooks is a particularly nasty deadlock.
 //!
-//! Line format (TSV), one record per line, fields separated by tabs:
+//! TWO LINE FORMATS, ONE RECORD. Every line is built once as a list of
+//! named fields (see `F` and `rec` below) and rendered by BOTH renderers,
+//! so the formats cannot carry different information -- not because two
+//! writers were kept in step, but because there is one writer and two
+//! renderings of it. `LEA_TRACE_FORMAT` picks which are written: `tsv`,
+//! `jsonl`, or `both` (the default, and what the migration runs on).
+//!
+//! The legacy format (TSV), one record per line, fields separated by tabs:
 //!
 //! ```text
 //! open      <dev> <fd>
@@ -18,8 +25,25 @@
 //! eventreg  <fd> <previous dev tag, or "new" if unknown>
 //! ```
 //!
-//! Scripts parse these lines by column, so field order and separators are
-//! part of the interface.
+//! The same records as JSONL, one JSON object per line, `t` first:
+//!
+//! ```text
+//! {"t":"open","dev":"ctl","fd":9}
+//! {"t":"ioctl","dev":"gpu","nr":"0xd6","sub":null,"size":8,...,"fd":9}
+//! ```
+//!
+//! WHY JSONL AT ALL, since TSV counts and greps fine: the reach half of
+//! OPEN-QUESTIONS 55 wants answer dumps for ALLOCATIONS and UVM, whose
+//! lengths are per-command and come from compiled headers. A positional
+//! TSV with a fixed 32-byte tail cannot carry a variable payload without
+//! becoming a format that is parsed by position AND by convention. This
+//! one can.
+//!
+//! Scripts parse TSV lines by column, so field order and separators are
+//! part of the interface; the JSON keys are the same interface by name.
+//! Both are read through ONE reader per language -- `lea_trace_stream` in
+//! `scripts/lib/matrix.sh` and `probe/python/traceread.py` -- and no
+//! consumer opens a trace itself.
 //!
 //! `detail()` emits a SECOND, key=value format beside those: `nvos02`,
 //! `nvos32`, `nvos33`, `nvos46`, `nvos64`, `memparams`, `uvminit`,
@@ -40,34 +64,281 @@ use nvrm_abi::sys;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 
+/// The TSV sink. 2 (stderr) until `init` says otherwise, so a tracer with
+/// no `LEA_TRACE_FILE` still says what it saw; -1 disables it.
 static OUT: AtomicI32 = AtomicI32::new(2);
+/// The JSONL sink. -1 (off) unless `init` opens one: an unconfigured
+/// tracer must not start spraying JSON at stderr beside the TSV.
+static OUT_JSON: AtomicI32 = AtomicI32::new(-1);
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 
-pub fn init() {
-    let Ok(path) = std::env::var("LEA_TRACE_FILE") else { return };
-    let c = std::ffi::CString::new(path.clone()).unwrap();
-    let fd = unsafe {
+/// Where the JSONL goes when only `LEA_TRACE_FILE` was given: the same
+/// path with a `.tsv` suffix replaced, or `.jsonl` appended if there was
+/// none. Deriving it rather than demanding a second variable means every
+/// existing caller gets both formats by changing nothing.
+fn jsonl_path(tsv: &str) -> String {
+    match tsv.strip_suffix(".tsv") {
+        Some(stem) => format!("{stem}.jsonl"),
+        None => format!("{tsv}.jsonl"),
+    }
+}
+
+/// O_TRUNC, like the TSV sink and for the same reason (see
+/// `lea_matrix_workload`: the shell stays outside the wrapper because
+/// every forked child would otherwise truncate the run in progress).
+fn open_out(path: &str) -> i32 {
+    let Ok(c) = std::ffi::CString::new(path) else { return -1 };
+    unsafe {
         libc::open(
             c.as_ptr(),
             libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC | libc::O_CLOEXEC,
             0o644,
         )
-    };
-    if fd >= 0 {
-        OUT.store(fd, Ordering::Relaxed);
-    } else {
-        // Do not fall back to stderr silently - that is exactly how a whole
-        // run gets lost without anyone noticing.
-        emit(&format!("nvrm-trace: cannot open {path}, trace goes to stderr\n"));
     }
 }
 
-fn emit(s: &str) {
-    let fd = OUT.load(Ordering::Relaxed);
+pub fn init() {
+    let Ok(path) = std::env::var("LEA_TRACE_FILE") else { return };
+    // `both` is the default for the duration of the migration: one run
+    // produces both formats, so the equivalence check compares two
+    // renderings of the SAME calls. Two runs would compare two runs, and
+    // this pipeline has measured values that differ between two runs of
+    // one binary -- that confound is exactly what a format check must not
+    // have in it.
+    let fmt = std::env::var("LEA_TRACE_FORMAT").unwrap_or_else(|_| "both".into());
+    let (want_tsv, want_json) = match fmt.as_str() {
+        "tsv" => (true, false),
+        "jsonl" => (false, true),
+        "both" => (true, true),
+        other => {
+            emit_fd(2, &format!(
+                "nvrm-trace: LEA_TRACE_FORMAT={other} is not tsv, jsonl or both -- writing both\n"
+            ));
+            (true, true)
+        }
+    };
+
+    if want_tsv {
+        let fd = open_out(&path);
+        if fd >= 0 {
+            OUT.store(fd, Ordering::Relaxed);
+        } else {
+            // Do not fall back to stderr silently - that is exactly how a whole
+            // run gets lost without anyone noticing.
+            emit_fd(2, &format!("nvrm-trace: cannot open {path}, trace goes to stderr\n"));
+        }
+    } else {
+        OUT.store(-1, Ordering::Relaxed);
+    }
+
+    if want_json {
+        let jp = jsonl_path(&path);
+        let fd = open_out(&jp);
+        if fd >= 0 {
+            OUT_JSON.store(fd, Ordering::Relaxed);
+        } else {
+            // Louder than the TSV case: a missing JSONL is not a trace that
+            // went somewhere else, it is a trace that does not exist, and
+            // the format gate would read that as "nothing differs".
+            emit_fd(2, &format!("nvrm-trace: cannot open {jp}, no JSONL trace this run\n"));
+        }
+    }
+}
+
+fn emit_fd(fd: i32, s: &str) {
+    if fd < 0 {
+        return;
+    }
     let n = unsafe { libc::write(fd, s.as_ptr() as *const c_void, s.len()) };
     if n < 0 || (n as usize) < s.len() {
         DROPPED.fetch_add(1, Ordering::Relaxed);
     }
+}
+
+// ---- the record layer -------------------------------------------------------
+//
+// One record, two renderings, ONE write() per line per format. The write
+// stays per line because that is what makes a trace of a crashed process
+// still a trace up to the crash, and because this sits on a per-frame path
+// -- 86 645 lines in one measured session. A document format (a JSON array,
+// an XML tree) cannot carry that: it has a closing bracket.
+//
+// THE PAIR IS NOT ATOMIC, and that is deliberate. `rec` writes the TSV line
+// and then the JSON line, and another thread can write both of ITS lines in
+// between -- so during the migration the two files hold the same records in
+// a different INTERLEAVING. Measured 2026-08-20: 7 of 20 probes, all of them
+// the concurrent ones. Making the pair atomic would mean holding a lock
+// across two write() calls on a path that runs inside every frame, in a
+// library that is preloaded into processes that fork; the cost and the
+// deadlock surface are real and the benefit is an ordering nothing consumes.
+// The equivalence gate therefore compares the two files as MULTISETS, which
+// is what the renderers actually control -- see `traceread.py --check`.
+// After the cutover only one file is written and the question disappears.
+
+/// A field value. `Copy`, so a record's fields live in the caller's stack
+/// frame and the only allocation per line is the rendered string itself.
+#[derive(Clone, Copy)]
+enum V<'a> {
+    /// Raw in TSV, quoted and escaped in JSON.
+    S(&'a str),
+    H32(u32),
+    H64(u64),
+    I(i64),
+    /// A byte dump: space-separated in TSV, because that is what the
+    /// readers of the old format split on; contiguous in JSON, because a
+    /// variable-length dump is easier to slice without them.
+    Dump(&'a [u8]),
+    /// An array index: `[3]` in TSV, a bare number in JSON.
+    Idx(usize),
+    /// Absent: `-` in TSV -- the spelling every awk site tests for -- and
+    /// `null` in JSON.
+    Nil,
+}
+
+/// One field of one record. `name` is the JSON key always, and the TSV key
+/// only when `keyed`; the TSV format is positional for the measurement
+/// lines and key=value for the diagnostic ones, and this carries both.
+#[derive(Clone, Copy)]
+struct F<'a> {
+    name: &'a str,
+    keyed: bool,
+    v: V<'a>,
+}
+
+/// A positional TSV field (named in JSON regardless).
+const fn pos<'a>(name: &'a str, v: V<'a>) -> F<'a> {
+    F { name, keyed: false, v }
+}
+/// A `name=value` TSV field.
+const fn key<'a>(name: &'a str, v: V<'a>) -> F<'a> {
+    F { name, keyed: true, v }
+}
+
+const HEX: &[u8; 16] = b"0123456789abcdef";
+
+fn push_hex_bytes(s: &mut String, b: &[u8], spaced: bool) {
+    for (i, x) in b.iter().enumerate() {
+        if spaced && i > 0 {
+            s.push(' ');
+        }
+        s.push(HEX[(x >> 4) as usize] as char);
+        s.push(HEX[(x & 0xf) as usize] as char);
+    }
+}
+
+/// JSON string body, escaped. Every string this file writes today is
+/// ASCII and free of quotes, but a field added later will not be, and a
+/// trace that is not parseable JSON fails in the reader rather than here.
+fn push_json_str(s: &mut String, x: &str) {
+    for c in x.chars() {
+        match c {
+            '"' => s.push_str("\\\""),
+            '\\' => s.push_str("\\\\"),
+            '\n' => s.push_str("\\n"),
+            '\r' => s.push_str("\\r"),
+            '\t' => s.push_str("\\t"),
+            c if (c as u32) < 0x20 => s.push_str(&format!("\\u{:04x}", c as u32)),
+            c => s.push(c),
+        }
+    }
+}
+
+fn push_tsv(s: &mut String, v: V) {
+    match v {
+        V::S(x) => s.push_str(x),
+        V::H32(x) => s.push_str(&format!("{x:#x}")),
+        V::H64(x) => s.push_str(&format!("{x:#x}")),
+        V::I(x) => s.push_str(&format!("{x}")),
+        V::Dump(b) => push_hex_bytes(s, b, true),
+        V::Idx(i) => s.push_str(&format!("[{i}]")),
+        V::Nil => s.push('-'),
+    }
+}
+
+fn push_json(s: &mut String, v: V) {
+    match v {
+        V::S(x) => {
+            s.push('"');
+            push_json_str(s, x);
+            s.push('"');
+        }
+        // Hex stays a hex STRING in JSON. A number would lose the spelling
+        // the descriptor tables and the catalogue use, and every consumer
+        // already reads these with int(x, 16).
+        V::H32(x) => s.push_str(&format!("\"{x:#x}\"")),
+        V::H64(x) => s.push_str(&format!("\"{x:#x}\"")),
+        V::I(x) => s.push_str(&format!("{x}")),
+        V::Dump(b) => {
+            s.push('"');
+            push_hex_bytes(s, b, false);
+            s.push('"');
+        }
+        V::Idx(i) => s.push_str(&format!("{i}")),
+        V::Nil => s.push_str("null"),
+    }
+}
+
+/// TSV rendering. `phase` is the `in`/`out` suffix the old format spells
+/// by appending `in` to the kind (`nvos64in` against `nvos64`), which is
+/// why it is a suffix here and a field in JSON.
+fn render_tsv(kind: &str, phase: Option<&str>, fields: &[F]) -> String {
+    let mut s = String::with_capacity(160);
+    s.push_str(kind);
+    if phase == Some("in") {
+        s.push_str("in");
+    }
+    for f in fields {
+        s.push('\t');
+        if f.keyed {
+            s.push_str(f.name);
+            s.push('=');
+        }
+        push_tsv(&mut s, f.v);
+    }
+    s.push('\n');
+    s
+}
+
+fn render_json(kind: &str, phase: Option<&str>, fields: &[F]) -> String {
+    let mut s = String::with_capacity(224);
+    s.push_str("{\"t\":\"");
+    push_json_str(&mut s, kind);
+    s.push('"');
+    if let Some(ph) = phase {
+        s.push_str(",\"phase\":\"");
+        s.push_str(ph);
+        s.push('"');
+    }
+    for f in fields {
+        s.push_str(",\"");
+        push_json_str(&mut s, f.name);
+        s.push_str("\":");
+        push_json(&mut s, f.v);
+    }
+    s.push_str("}\n");
+    s
+}
+
+/// Write one record to every configured sink.
+fn rec(kind: &str, phase: Option<&str>, fields: &[F]) {
+    let tsv = OUT.load(Ordering::Relaxed);
+    if tsv >= 0 {
+        emit_fd(tsv, &render_tsv(kind, phase, fields));
+    }
+    let js = OUT_JSON.load(Ordering::Relaxed);
+    if js >= 0 {
+        emit_fd(js, &render_json(kind, phase, fields));
+    }
+}
+
+/// `rec` for the lines that have no `in` variant.
+fn rec1(kind: &str, fields: &[F]) {
+    rec(kind, None, fields)
+}
+
+/// The `in`/`out` phase for a `detail()` tag, which is `"in"` or `""`.
+fn phase_of(tag: &str) -> Option<&'static str> {
+    Some(if tag == "in" { "in" } else { "out" })
 }
 
 #[allow(dead_code)] // counterpart to the counter above, read when diagnosing
@@ -89,7 +360,7 @@ fn dev_tag(d: NvDev) -> &'static str {
 }
 
 pub fn open(dev: NvDev, fd: i32) {
-    emit(&format!("open\t{}\t{}\n", dev_tag(dev), fd));
+    rec1("open", &[pos("dev", V::S(dev_tag(dev))), pos("fd", V::I(fd as i64))]);
 }
 
 /// What the driver really sees for this number.
@@ -217,11 +488,10 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
         // "does not" (OPEN-QUESTIONS nr 11).
         if nr == 0x30000001 && tag.is_empty() {
             let b = core::slice::from_raw_parts(arg as *const u8, 12);
-            emit(&format!(
-                "uvminit\tflags={:#x}\trmStatus={:#x}\n",
-                u64::from_le_bytes(b[0..8].try_into().unwrap()),
-                u32::from_le_bytes(b[8..12].try_into().unwrap()),
-            ));
+            rec1("uvminit", &[
+                key("flags", V::H64(u64::from_le_bytes(b[0..8].try_into().unwrap()))),
+                key("rmStatus", V::H32(u32::from_le_bytes(b[8..12].try_into().unwrap()))),
+            ]);
         }
         // UVM_PAGEABLE_MEM_ACCESS (0x27: pageableMemAccess NvBool @0,
         // rmStatus @4 -- EIGHT bytes, uvm_ioctl.h) and
@@ -231,20 +501,20 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
         // before, only on the UVM side.
         if nr == nvrm_abi::xlate::uvm::PAGEABLE_MEM_ACCESS && tag.is_empty() {
             let b = core::slice::from_raw_parts(arg as *const u8, 8);
-            emit(&format!(
-                "uvmpma\tnr={nr:#x}\tb0={:#x}\trmStatus={:#x}\n",
-                u32::from_le_bytes(b[0..4].try_into().unwrap()),
-                u32::from_le_bytes(b[4..8].try_into().unwrap()),
-            ));
+            rec1("uvmpma", &[
+                key("nr", V::H32(nr)),
+                key("b0", V::H32(u32::from_le_bytes(b[0..4].try_into().unwrap()))),
+                key("rmStatus", V::H32(u32::from_le_bytes(b[4..8].try_into().unwrap()))),
+            ]);
         }
         if nr == nvrm_abi::xlate::uvm::PAGEABLE_MEM_ACCESS_ON_GPU && tag.is_empty() {
             let b = core::slice::from_raw_parts(arg as *const u8, 24);
-            emit(&format!(
-                "uvmpma\tnr={nr:#x}\tb0={:#x}\tb16={:#x}\tb20={:#x}\n",
-                u32::from_le_bytes(b[0..4].try_into().unwrap()),
-                u32::from_le_bytes(b[16..20].try_into().unwrap()),
-                u32::from_le_bytes(b[20..24].try_into().unwrap()),
-            ));
+            rec1("uvmpma", &[
+                key("nr", V::H32(nr)),
+                key("b0", V::H32(u32::from_le_bytes(b[0..4].try_into().unwrap()))),
+                key("b16", V::H32(u32::from_le_bytes(b[16..20].try_into().unwrap()))),
+                key("b20", V::H32(u32::from_le_bytes(b[20..24].try_into().unwrap()))),
+            ]);
         }
         if nr == nvrm_abi::xlate::uvm::REGISTER_GPU && tag.is_empty() {
             let b = core::slice::from_raw_parts(arg as *const u8, 40);
@@ -252,13 +522,23 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             for x in &b[0..16] {
                 uuid.push_str(&format!("{x:02x}"));
             }
-            emit(&format!(
-                "uvmreg\tuuid={uuid}\tnuma={}/{}\trmCtrlFd={}\thClient={:#x}\trmStatus={:#x}\n",
-                b[16], i32::from_le_bytes(b[20..24].try_into().unwrap()),
-                i32::from_le_bytes(b[24..28].try_into().unwrap()),
-                u32::from_le_bytes(b[28..32].try_into().unwrap()),
-                u32::from_le_bytes(b[36..40].try_into().unwrap()),
-            ));
+            // `numa` stays the composite `enabled/node` string it has
+            // always been. Splitting it would be a better JSON shape and a
+            // worse migration: the equivalence gate compares the two
+            // renderings of this record, and a field that exists on one
+            // side only cannot be compared at all.
+            let numa = format!(
+                "{}/{}",
+                b[16],
+                i32::from_le_bytes(b[20..24].try_into().unwrap())
+            );
+            rec1("uvmreg", &[
+                key("uuid", V::S(&uuid)),
+                key("numa", V::S(&numa)),
+                key("rmCtrlFd", V::I(i32::from_le_bytes(b[24..28].try_into().unwrap()) as i64)),
+                key("hClient", V::H32(u32::from_le_bytes(b[28..32].try_into().unwrap()))),
+                key("rmStatus", V::H32(u32::from_le_bytes(b[36..40].try_into().unwrap()))),
+            ]);
         }
         return;
     }
@@ -281,13 +561,26 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 if c.valid == 0 {
                     continue;
                 }
-                emit(&format!(
-                    "cardinfo\t[{i}]\tgpu_id={:#x}\tpci={:04x}:{:02x}:{:02x}.{}\tvendor={:#06x}\tdevice={:#06x}\
-\tirq={}\treg={:#x}+{:#x}\tfb={:#x}+{:#x}\tminor={}\n",
-                    c.gpu_id, c.pci_info.domain, c.pci_info.bus, c.pci_info.slot, c.pci_info.function,
-                    c.pci_info.vendor_id, c.pci_info.device_id, c.interrupt_line,
-                    c.reg_address, c.reg_size, c.fb_address, c.fb_size, c.minor_number,
-                ));
+                // Three composite fields (`pci`, `reg`, `fb`) keep the
+                // spelling they have in the old format, for the reason
+                // `uvmreg`'s `numa` does.
+                let pci = format!(
+                    "{:04x}:{:02x}:{:02x}.{}",
+                    c.pci_info.domain, c.pci_info.bus, c.pci_info.slot, c.pci_info.function
+                );
+                let reg = format!("{:#x}+{:#x}", c.reg_address, c.reg_size);
+                let fb = format!("{:#x}+{:#x}", c.fb_address, c.fb_size);
+                rec1("cardinfo", &[
+                    pos("i", V::Idx(i)),
+                    key("gpu_id", V::H32(c.gpu_id)),
+                    key("pci", V::S(&pci)),
+                    key("vendor", V::S(&format!("{:#06x}", c.pci_info.vendor_id))),
+                    key("device", V::S(&format!("{:#06x}", c.pci_info.device_id))),
+                    key("irq", V::I(c.interrupt_line as i64)),
+                    key("reg", V::S(&reg)),
+                    key("fb", V::S(&fb)),
+                    key("minor", V::I(c.minor_number as i64)),
+                ]);
             }
         }
         // Root-client controls (0x2xx): the first 32 params bytes after the
@@ -307,25 +600,36 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             if ((cmd >> 8) == 0x2 || (cmd >> 16) == 0x2080) && !pp.is_null() && plen > 0 {
                 let n = plen.min(32);
                 let bytes = core::slice::from_raw_parts(pp, n);
-                let mut hex = String::with_capacity(n * 3);
-                for b in bytes {
-                    hex.push_str(&format!("{b:02x} "));
-                }
-                emit(&format!("ctrlout\t{cmd:#x}\tlen={plen}\tstatus={:#x}\t{}\n", p.status as u32, hex.trim_end()));
+                rec1("ctrlout", &[
+                    pos("cmd", V::H32(cmd)),
+                    key("len", V::I(plen as i64)),
+                    key("status", V::H32(p.status as u32)),
+                    pos("dump", V::Dump(bytes)),
+                ]);
             }
         }
-        sys::NV_ESC_RM_ALLOC_MEMORY if size >= 56 => emit(&format!(
-            "nvos02{tag}\thRoot={:#x}\thParent={:#x}\thNew={:#x}\thClass={:#x}\
-             \tflags={:#x}\tpMemory={:#x}\tlimit={:#x}\tstatus={:#x}\tfd={}\n",
-            w(arg, 0), w(arg, 1), w(arg, 2), w(arg, 3),
-            w(arg, 4), q(arg, 6), q(arg, 8), w(arg, 10), w(arg, 12) as i32,
-        )),
-        sys::NV_ESC_RM_MAP_MEMORY if size >= 56 => emit(&format!(
-            "nvos33{tag}\thClient={:#x}\thDevice={:#x}\thMemory={:#x}\toffset={:#x}\
-             \tlength={:#x}\tpLinear={:#x}\tstatus={:#x}\tflags={:#x}\tfd={}\n",
-            w(arg, 0), w(arg, 1), w(arg, 2), q(arg, 4),
-            q(arg, 6), q(arg, 8), w(arg, 10), w(arg, 11), w(arg, 12) as i32,
-        )),
+        sys::NV_ESC_RM_ALLOC_MEMORY if size >= 56 => rec("nvos02", phase_of(tag), &[
+            key("hRoot", V::H32(w(arg, 0))),
+            key("hParent", V::H32(w(arg, 1))),
+            key("hNew", V::H32(w(arg, 2))),
+            key("hClass", V::H32(w(arg, 3))),
+            key("flags", V::H32(w(arg, 4))),
+            key("pMemory", V::H64(q(arg, 6))),
+            key("limit", V::H64(q(arg, 8))),
+            key("status", V::H32(w(arg, 10))),
+            key("fd", V::I(w(arg, 12) as i32 as i64)),
+        ]),
+        sys::NV_ESC_RM_MAP_MEMORY if size >= 56 => rec("nvos33", phase_of(tag), &[
+            key("hClient", V::H32(w(arg, 0))),
+            key("hDevice", V::H32(w(arg, 1))),
+            key("hMemory", V::H32(w(arg, 2))),
+            key("offset", V::H64(q(arg, 4))),
+            key("length", V::H64(q(arg, 6))),
+            key("pLinear", V::H64(q(arg, 8))),
+            key("status", V::H32(w(arg, 10))),
+            key("flags", V::H32(w(arg, 11))),
+            key("fd", V::I(w(arg, 12) as i32 as i64)),
+        ]),
         // NVOS32: the OTHER allocation door, and the one the graphics stack
         // actually uses. Until this arm existed the tracer emitted a bare
         // `ioctl ctl 0x4a` line with no parameters at all, which is why the
@@ -344,43 +648,70 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             // 2 = ALLOC_SIZE, 3 = FREE (nvos.h:636-637). Only these two
             // carry the union members whose layout is guarded.
             if function == 2 {
-                emit(&format!(
-                    "nvos32{tag}\thRoot={:#x}\thObjectParent={:#x}\tfunction=ALLOC_SIZE\thVASpace={:#x}\tstatus={:#x}\towner={:#x}\thMemory={:#x}\ttype={:#x}\tflags={:#x}\tattr={:#x}\tformat={:#x}\twidth={:#x}\theight={:#x}\tsize={:#x}\talignment={:#x}\toffset={:#x}\tlimit={:#x}\taddress={:#x}\tattr2={:#x}\n",
-                    w(arg, 0), w(arg, 1), w(arg, 3), w(arg, 5),
-                    w(arg, 10), w(arg, 11), w(arg, 12), w(arg, 13),
-                    w(arg, 14), w(arg, 15), w(arg, 19), w(arg, 20),
-                    q(arg, 22), q(arg, 24), q(arg, 26), q(arg, 28),
-                    q(arg, 30), w(arg, 36),
-                ));
+                rec("nvos32", phase_of(tag), &[
+                    key("hRoot", V::H32(w(arg, 0))),
+                    key("hObjectParent", V::H32(w(arg, 1))),
+                    key("function", V::S("ALLOC_SIZE")),
+                    key("hVASpace", V::H32(w(arg, 3))),
+                    key("status", V::H32(w(arg, 5))),
+                    key("owner", V::H32(w(arg, 10))),
+                    key("hMemory", V::H32(w(arg, 11))),
+                    key("type", V::H32(w(arg, 12))),
+                    key("flags", V::H32(w(arg, 13))),
+                    key("attr", V::H32(w(arg, 14))),
+                    key("format", V::H32(w(arg, 15))),
+                    key("width", V::H32(w(arg, 19))),
+                    key("height", V::H32(w(arg, 20))),
+                    key("size", V::H64(q(arg, 22))),
+                    key("alignment", V::H64(q(arg, 24))),
+                    key("offset", V::H64(q(arg, 26))),
+                    key("limit", V::H64(q(arg, 28))),
+                    key("address", V::H64(q(arg, 30))),
+                    key("attr2", V::H32(w(arg, 36))),
+                ]);
             } else if function == 3 {
-                emit(&format!(
-                    "nvos32{tag}\thRoot={:#x}\thObjectParent={:#x}\tfunction=FREE\tstatus={:#x}\towner={:#x}\thMemory={:#x}\tflags={:#x}\n",
-                    w(arg, 0), w(arg, 1), w(arg, 5),
-                    w(arg, 10), w(arg, 11), w(arg, 12),
-                ));
+                rec("nvos32", phase_of(tag), &[
+                    key("hRoot", V::H32(w(arg, 0))),
+                    key("hObjectParent", V::H32(w(arg, 1))),
+                    key("function", V::S("FREE")),
+                    key("status", V::H32(w(arg, 5))),
+                    key("owner", V::H32(w(arg, 10))),
+                    key("hMemory", V::H32(w(arg, 11))),
+                    key("flags", V::H32(w(arg, 12))),
+                ]);
             } else {
-                emit(&format!(
-                    "nvos32{tag}\thRoot={:#x}\thObjectParent={:#x}\tfunction={:#x}\tstatus={:#x}\n",
-                    w(arg, 0), w(arg, 1), function, w(arg, 5),
-                ));
+                rec("nvos32", phase_of(tag), &[
+                    key("hRoot", V::H32(w(arg, 0))),
+                    key("hObjectParent", V::H32(w(arg, 1))),
+                    key("function", V::H32(function)),
+                    key("status", V::H32(w(arg, 5))),
+                ]);
             }
         }
-        sys::NV_ESC_RM_MAP_MEMORY_DMA if size >= 64 => emit(&format!(
-            "nvos46{tag}\thClient={:#x}\thDevice={:#x}\thDma={:#x}\thMemory={:#x}\
-             \toffset={:#x}\tlength={:#x}\tflags={:#x}\tflags2={:#x}\
-             \tkind={:#x}\tdmaOffset={:#x}\tstatus={:#x}\n",
-            w(arg, 0), w(arg, 1), w(arg, 2), w(arg, 3),
-            q(arg, 4), q(arg, 6), w(arg, 8), w(arg, 9),
-            w(arg, 10), q(arg, 12), w(arg, 14),
-        )),
+        sys::NV_ESC_RM_MAP_MEMORY_DMA if size >= 64 => rec("nvos46", phase_of(tag), &[
+            key("hClient", V::H32(w(arg, 0))),
+            key("hDevice", V::H32(w(arg, 1))),
+            key("hDma", V::H32(w(arg, 2))),
+            key("hMemory", V::H32(w(arg, 3))),
+            key("offset", V::H64(q(arg, 4))),
+            key("length", V::H64(q(arg, 6))),
+            key("flags", V::H32(w(arg, 8))),
+            key("flags2", V::H32(w(arg, 9))),
+            key("kind", V::H32(w(arg, 10))),
+            key("dmaOffset", V::H64(q(arg, 12))),
+            key("status", V::H32(w(arg, 14))),
+        ]),
         sys::NV_ESC_RM_ALLOC if size >= 48 => {
             let hclass = w(arg, 3);
-            emit(&format!(
-                "nvos64{tag}\thRoot={:#x}\thParent={:#x}\thNew={:#x}\thClass={:#x}\
-                 \tparamsSize={:#x}\tflags={:#x}\tstatus={:#x}\n",
-                w(arg, 0), w(arg, 1), w(arg, 2), hclass,
-                w(arg, 8), w(arg, 9), w(arg, 10),
-            ));
+            rec("nvos64", phase_of(tag), &[
+                key("hRoot", V::H32(w(arg, 0))),
+                key("hParent", V::H32(w(arg, 1))),
+                key("hNew", V::H32(w(arg, 2))),
+                key("hClass", V::H32(hclass)),
+                key("paramsSize", V::H32(w(arg, 8))),
+                key("flags", V::H32(w(arg, 9))),
+                key("status", V::H32(w(arg, 10))),
+            ]);
 
             // Follow pAllocParms. This only works because paramsSize is
             // always 0, so the size has to come from the class - these are
@@ -399,17 +730,27 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             // this list until 2026-08-18.
             let pp = q(arg, 4) as usize as *const c_void;
             if !pp.is_null() && matches!(hclass, 0x3e | 0x40 | 0x50a0) {
-                emit(&format!(
-                    "memparams{tag}\thNew={:#x}\thClass={:#x}\towner={:#x}\ttype={:#x}\
-\tflags={:#x}\tattr={:#x}\tattr2={:#x}\trangeLo={:#x}\trangeHi={:#x}\
-\tsize={:#x}\talign={:#x}\toffset={:#x}\tlimit={:#x}\taddress={:#x}\
-\tctag={:#x}\thVASpace={:#x}\tinternal={:#x}\ttag={:#x}\tnuma={}\n",
-                    w(arg, 2), hclass,
-                    w(pp, 0), w(pp, 1), w(pp, 2), w(pp, 6), w(pp, 7),
-                    q(pp, 12), q(pp, 14), q(pp, 16), q(pp, 18),
-                    q(pp, 20), q(pp, 22), q(pp, 24),
-                    w(pp, 26), w(pp, 27), w(pp, 28), w(pp, 29), w(pp, 30) as i32,
-                ));
+                rec("memparams", phase_of(tag), &[
+                    key("hNew", V::H32(w(arg, 2))),
+                    key("hClass", V::H32(hclass)),
+                    key("owner", V::H32(w(pp, 0))),
+                    key("type", V::H32(w(pp, 1))),
+                    key("flags", V::H32(w(pp, 2))),
+                    key("attr", V::H32(w(pp, 6))),
+                    key("attr2", V::H32(w(pp, 7))),
+                    key("rangeLo", V::H64(q(pp, 12))),
+                    key("rangeHi", V::H64(q(pp, 14))),
+                    key("size", V::H64(q(pp, 16))),
+                    key("align", V::H64(q(pp, 18))),
+                    key("offset", V::H64(q(pp, 20))),
+                    key("limit", V::H64(q(pp, 22))),
+                    key("address", V::H64(q(pp, 24))),
+                    key("ctag", V::H32(w(pp, 26))),
+                    key("hVASpace", V::H32(w(pp, 27))),
+                    key("internal", V::H32(w(pp, 28))),
+                    key("tag", V::H32(w(pp, 29))),
+                    key("numa", V::I(w(pp, 30) as i32 as i64)),
+                ]);
             }
         }
         _ => {}
@@ -426,16 +767,26 @@ pub unsafe fn detail_pre(dev: NvDev, nr: u32, size: u32, arg: *const c_void) {
 }
 
 pub fn mmap(dev: NvDev, fd: i32, len: usize, off: i64, p: *mut c_void) {
-    emit(&format!(
-        "mmap\t{}\t{}\t{}\t{}\t{:p}\n",
-        dev_tag(dev), fd, len, off, p
-    ));
+    rec1("mmap", &[
+        pos("dev", V::S(dev_tag(dev))),
+        pos("fd", V::I(fd as i64)),
+        pos("len", V::I(len as i64)),
+        pos("off", V::I(off)),
+        pos("addr", V::H64(p as usize as u64)),
+    ]);
 }
 
 /// Wait path: `read`/`poll` on a known FD.
 /// `val` is the return value for `read`, `revents` for `poll`.
 pub fn wait(kind: &str, dev: NvDev, fd: i32, val: i64) {
-    emit(&format!("{}\t{}\t{}\t{}\n", kind, dev_tag(dev), fd, val));
+    // `read` names its last field `ret` and `poll` names it `revents`:
+    // the old format is positional here and said neither, and a JSON key
+    // has to be one or the other.
+    rec1(kind, &[
+        pos("dev", V::S(dev_tag(dev))),
+        pos("fd", V::I(fd as i64)),
+        pos(if kind == "poll" { "revents" } else { "ret" }, V::I(val)),
+    ]);
 }
 
 /// Which FD was registered as an event channel, and was it already known?
@@ -443,21 +794,43 @@ pub fn wait(kind: &str, dev: NvDev, fd: i32, val: i64) {
 /// then reads `new`. (It read `neu` until 2026-08-18; `probe/run/trace.sh`
 /// prints that column and never matches it.)
 pub fn event_registered(fd: i32, prev: Option<NvDev>) {
-    emit(&format!(
-        "eventreg\t{}\t{}\n",
-        fd,
-        prev.map(dev_tag).unwrap_or("new")
-    ));
+    rec1("eventreg", &[
+        pos("fd", V::I(fd as i64)),
+        pos("prev", V::S(prev.map(dev_tag).unwrap_or("new"))),
+    ]);
+}
+
+/// The eight fields of an `ioctl` record, in the order the TSV format has
+/// always had them.
+///
+/// THIS IS THE COUNTING SURFACE. `lea_matrix_n_tracer` and its two
+/// siblings select on `t`/column 1 and on `dev`/column 2, and the strace
+/// counter-check -- the trust anchor of every probe in the matrix -- is
+/// their difference. Reordering these or renaming `dev` changes what the
+/// pipeline counts, so it is one function that both call sites share and
+/// the tests below pin both renderings of it.
+#[allow(clippy::too_many_arguments)]
+fn ioctl_fields<'a>(
+    dev: NvDev, fd: i32, nr: u32, size: u32, ret: i32,
+    sub: Option<u32>, psize: Option<u32>, status: Option<u32>,
+) -> [F<'a>; 8] {
+    let f = |o: Option<u32>| o.map(V::H32).unwrap_or(V::Nil);
+    [
+        pos("dev", V::S(dev_tag(dev))),
+        pos("nr", V::H32(nr)),
+        pos("sub", f(sub)),
+        pos("size", V::I(size as i64)),
+        pos("psize", f(psize)),
+        pos("ret", V::I(ret as i64)),
+        pos("status", f(status)),
+        pos("fd", V::I(fd as i64)),
+    ]
 }
 
 pub fn ioctl(dev: NvDev, fd: i32, cmd: u32, ret: i32, arg: *mut c_void) {
     let (nr, size) = decode(dev, cmd);
     let (sub, psize, status) = unsafe { subcode(dev, nr, size, arg) };
-    let f = |o: Option<u32>| o.map(|v| format!("{v:#x}")).unwrap_or_else(|| "-".into());
-    emit(&format!(
-        "ioctl\t{}\t{:#x}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-        dev_tag(dev), nr, f(sub), size, f(psize), ret, f(status), fd,
-    ));
+    rec1("ioctl", &ioctl_fields(dev, fd, nr, size, ret, sub, psize, status));
     unsafe { detail(dev, nr, size, arg, "") };
 }
 
@@ -466,11 +839,7 @@ pub fn ioctl(dev: NvDev, fd: i32, cmd: u32, ret: i32, arg: *mut c_void) {
 /// not go through `decode()` a second time, and `arg` is the inner pointer.
 pub fn ioctl_unpacked(dev: NvDev, fd: i32, nr: u32, size: u32, ret: i32, arg: *mut c_void) {
     let (sub, psize, status) = unsafe { subcode(dev, nr, size, arg) };
-    let f = |o: Option<u32>| o.map(|v| format!("{v:#x}")).unwrap_or_else(|| "-".into());
-    emit(&format!(
-        "ioctl\t{}\t{:#x}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-        dev_tag(dev), nr, f(sub), size, f(psize), ret, f(status), fd,
-    ));
+    rec1("ioctl", &ioctl_fields(dev, fd, nr, size, ret, sub, psize, status));
     unsafe { detail(dev, nr, size, arg, "") };
 }
 
@@ -478,6 +847,107 @@ pub fn ioctl_unpacked(dev: NvDev, fd: i32, nr: u32, size: u32, ret: i32, arg: *m
 mod tests {
     use super::*;
     use nvrm_abi::iowr_raw;
+
+    /// The `ioctl` line is what the pipeline COUNTS, and the counting rule
+    /// (`lea_matrix_n_*` in scripts/lib/matrix.sh) selects on column 1 and
+    /// column 2. This is a golden line, not a formatting preference: the
+    /// strace counter-check that gates every probe is a difference of two
+    /// counts, and a column that moved would make one of them wrong
+    /// silently -- a short trace is still a valid file.
+    #[test]
+    fn the_ioctl_line_still_has_the_columns_the_counting_rule_selects_on() {
+        let f = ioctl_fields(NvDev::Gpu(0), 9, 0xd6, 8, 0, None, None, None);
+        assert_eq!(render_tsv("ioctl", None, &f), "ioctl\tgpu\t0xd6\t-\t8\t-\t0\t-\t9\n");
+        // Absent is `-` in TSV -- the spelling the awk sites test for --
+        // and `null` in JSON, never the string "-".
+        assert_eq!(
+            render_json("ioctl", None, &f),
+            r#"{"t":"ioctl","dev":"gpu","nr":"0xd6","sub":null,"size":8,"psize":null,"ret":0,"status":null,"fd":9}"#.to_owned() + "\n"
+        );
+    }
+
+    /// A control line with every optional field present, so the hex
+    /// spelling is pinned on both sides. Hex stays a STRING in JSON: the
+    /// catalogue and the descriptor tables spell these `0x...` and a
+    /// number would lose that.
+    #[test]
+    fn an_ioctl_line_with_every_field_spells_hex_the_same_in_both_formats() {
+        let f = ioctl_fields(NvDev::Ctl, 3, 0x2a, 32, 0, Some(0x20800802), Some(16), Some(0x1e));
+        assert_eq!(
+            render_tsv("ioctl", None, &f),
+            "ioctl\tctl\t0x2a\t0x20800802\t32\t0x10\t0\t0x1e\t3\n"
+        );
+        assert_eq!(
+            render_json("ioctl", None, &f),
+            r#"{"t":"ioctl","dev":"ctl","nr":"0x2a","sub":"0x20800802","size":32,"psize":"0x10","ret":0,"status":"0x1e","fd":3}"#.to_owned() + "\n"
+        );
+    }
+
+    /// The IN sample and the OUT sample are one kind with two phases. The
+    /// old format spells that by appending `in` to the kind; JSON spells
+    /// it as a field. Both directions matter, because the projection that
+    /// gates the migration has to be invertible.
+    #[test]
+    fn the_in_sample_is_a_kind_suffix_in_tsv_and_a_field_in_json() {
+        let f = [key("hNew", V::H32(0x5c000003)), key("status", V::H32(0))];
+        assert_eq!(render_tsv("nvos64", phase_of("in"), &f), "nvos64in\thNew=0x5c000003\tstatus=0x0\n");
+        assert_eq!(render_tsv("nvos64", phase_of(""), &f), "nvos64\thNew=0x5c000003\tstatus=0x0\n");
+        assert_eq!(
+            render_json("nvos64", phase_of("in"), &f),
+            "{\"t\":\"nvos64\",\"phase\":\"in\",\"hNew\":\"0x5c000003\",\"status\":\"0x0\"}\n"
+        );
+        assert_eq!(
+            render_json("nvos64", phase_of(""), &f),
+            "{\"t\":\"nvos64\",\"phase\":\"out\",\"hNew\":\"0x5c000003\",\"status\":\"0x0\"}\n"
+        );
+    }
+
+    /// A payload dump is space-separated in the old format and contiguous
+    /// in the new one -- the one deliberate difference between the two
+    /// renderings, and therefore the one the projection has to undo.
+    #[test]
+    fn a_dump_is_spaced_in_tsv_and_contiguous_in_json() {
+        let b = [0x00u8, 0x2d, 0x00, 0x00, 0xff];
+        let f = [
+            pos("cmd", V::H32(0x214)),
+            key("len", V::I(384)),
+            key("status", V::H32(0)),
+            pos("dump", V::Dump(&b)),
+        ];
+        assert_eq!(render_tsv("ctrlout", None, &f), "ctrlout\t0x214\tlen=384\tstatus=0x0\t00 2d 00 00 ff\n");
+        assert_eq!(
+            render_json("ctrlout", None, &f),
+            r#"{"t":"ctrlout","cmd":"0x214","len":384,"status":"0x0","dump":"002d0000ff"}"#.to_owned() + "\n"
+        );
+        // An empty dump is a field, not a missing one: `ctrlout` is only
+        // emitted for plen > 0, but the renderer must not invent a `-`.
+        let e = [pos("dump", V::Dump(&[]))];
+        assert_eq!(render_json("ctrlout", None, &e), "{\"t\":\"ctrlout\",\"dump\":\"\"}\n");
+    }
+
+    /// Nothing this file writes today contains a quote or a backslash.
+    /// Something added later will, and the failure mode is a trace file
+    /// that is not JSON at all -- every consumer of it reporting nothing
+    /// rather than an error.
+    #[test]
+    fn a_string_field_that_needs_escaping_still_leaves_valid_json() {
+        let f = [key("s", V::S("a\"b\\c\td"))];
+        assert_eq!(
+            render_json("x", None, &f),
+            "{\"t\":\"x\",\"s\":\"a\\\"b\\\\c\\td\"}\n"
+        );
+    }
+
+    /// Deriving the JSONL path rather than demanding a second environment
+    /// variable is what lets every existing caller get both formats by
+    /// changing nothing.
+    #[test]
+    fn the_jsonl_path_is_derived_from_the_tsv_one() {
+        assert_eq!(jsonl_path("/t/cuda-core.tsv"), "/t/cuda-core.jsonl");
+        assert_eq!(jsonl_path("/t/raw"), "/t/raw.jsonl");
+        // Only the suffix, never a `.tsv` inside a directory name.
+        assert_eq!(jsonl_path("/t.tsv/raw"), "/t.tsv/raw.jsonl");
+    }
 
     /// The device tag is column 2 of every line above (except `eventreg`,
     /// whose column 2 is the fd), and
