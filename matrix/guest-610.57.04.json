@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T21:30:18Z",
-    "commit:  0bc80d3 (working tree modified)"
+    "date:    2026-08-20T22:17:15Z",
+    "commit:  2783ba4 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh guest",
   "compared": "the signature set and the rm_status fingerprint per signature, native against guest, both traced by the same interposer",
@@ -505,7 +505,7 @@
       "verdict": "guest-validated",
       "guest_result": "PASS",
       "criterion": "NVDEC decoded the 50-frame fixture with the frames kept in CUDA memory (no software fallback)",
-      "native_result": "PASS (matched on attempt 5)",
+      "native_result": "PASS",
       "native_signatures": 131,
       "guest_signatures": 131,
       "native_ioctls": "996",

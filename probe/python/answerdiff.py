@@ -148,7 +148,11 @@ def read_stability(paths):
             continue
         calls = collections.defaultdict(list)
         for r in traceread.read(path):
-            if r["t"] == "ctrlout":
+            # The OUT sample only. The tracer takes both now (the `in` one
+            # is what number 60 needs), and pooling them would compare a
+            # command's question with its answer and call the difference
+            # instability.
+            if r["t"] == "ctrlout" and r.get("phase") != "in":
                 calls[r["cmd"]].append(list(bytes.fromhex(r["dump"])))
         for cmd, cs in calls.items():
             rep[cmd] = max(rep[cmd], len(cs))
@@ -267,12 +271,19 @@ def name_at(fm, off):
 def read_side(path):
     """One side of the comparison: its answers, its gpuId, its handles."""
     calls = collections.defaultdict(list)
+    asked = collections.defaultdict(list)
     gpuids, handles = set(), set()
     if not pathlib.Path(path).is_file():
         return None
     for r in traceread.read(path):
         if r["t"] == "ctrlout":
-            calls[r["cmd"]].append({
+            # The two samples go into two dicts. `calls` is the ANSWER, and
+            # is what every existing comparison is about; `asked` is the
+            # buffer as the caller handed it over, which is the only thing
+            # that can tell an OUT pointer the boundary dropped from an IN
+            # pointer the caller never supplied (number 60).
+            where = asked if r.get("phase") == "in" else calls
+            where[r["cmd"]].append({
                 "len": int(r["len"]), "status": r["status"],
                 "bytes": list(bytes.fromhex(r["dump"])),
             })
@@ -282,7 +293,7 @@ def read_side(path):
                 gpuids.add(int(r["gpu_id"], 16))
             continue
         handles.update(traceread.handles_of(r))
-    return {"calls": calls, "gpuids": gpuids, "handles": handles}
+    return {"calls": calls, "asked": asked, "gpuids": gpuids, "handles": handles}
 
 
 def words_of(byts):
@@ -305,8 +316,41 @@ def explain(nw, gw, off, ptrs, native, guest):
     return None
 
 
+def written_words(asked, calls):
+    """Per call, the set of word offsets the driver actually WROTE.
+
+    A word whose OUT sample equals its IN sample was left as the caller had
+    it. That matters because `ctrlout` dumps a buffer, not an answer: the
+    bytes past the end of what a control fills are the caller's stack or
+    heap, and comparing THOSE native against guest compares two programs'
+    leftovers. Measured 2026-08-21, that is exactly what the two surviving
+    mismatches were -- `0x20809064` agreed perfectly in the two words it
+    answers (`0x1` at 16, `0x64` at 20) and was reported as a defect over an
+    address at offset 24 that neither side ever wrote.
+
+    WHAT IT IS NOT PROOF OF, and the limit is the same shape as the
+    stability test's. A driver that writes the value already there is
+    indistinguishable from one that writes nothing -- most plausibly when a
+    caller zeroes its buffer and the honest answer is zero. So this is used
+    in ONE DIRECTION ONLY: it can stop a difference from being called a
+    defect, and it can never turn one into a pass. Nothing is promoted by it.
+
+    Returns None when the two samples cannot be paired, which makes every
+    caller fall back to comparing the whole dump, as it did before.
+    """
+    if not asked or len(asked) != len(calls):
+        return None
+    out = []
+    for a, c in zip(asked, calls):
+        aw, cw = words_of(a["bytes"]), words_of(c["bytes"])
+        if len(aw) != len(cw):
+            return None
+        out.append({j * 4 for j, (x, y) in enumerate(zip(aw, cw)) if x != y})
+    return out
+
+
 def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
-                stab=None):
+                stab=None, nasked=(), gasked=()):
     """One signature's verdict: verified, or the reason it is not.
 
     Returns `(ok, why, masked)`. With a mediation manifest for this command
@@ -338,6 +382,8 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
                            "the guest -- not comparable, so this probe judges "
                            "nothing either way"), {}
     masked = collections.Counter()
+    nwrote = written_words(nasked, ncalls)
+    gwrote = written_words(gasked, gcalls)
     for i, (n, g) in enumerate(zip(ncalls, gcalls)):
         if n["status"] != g["status"]:
             return None, (f"call {i}: status {n['status']} natively, "
@@ -351,7 +397,17 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
         for j, (nw, gw) in enumerate(zip(nws, gws)):
             if nw == gw:
                 continue
-            why = explain(nw, gw, j * 4, ptrs, native, guest)
+            off = j * 4
+            # NOT WRITTEN NATIVELY: mask, ahead of everything. The other
+            # masks all say something about a VALUE ("this word IS this
+            # side's gpu_id"); this one says there is no value here to talk
+            # about. RM left the native caller's own leftovers at this
+            # offset, so there is no answer to compare the guest against,
+            # whatever the guest did.
+            if nwrote is not None and off not in nwrote[i]:
+                masked["not-written"] += 1
+                continue
+            why = explain(nw, gw, off, ptrs, native, guest)
             # PRECEDENCE, and it is the whole logic of this function.
             #
             #   1. the three DERIVED masks -- each is a positive
@@ -367,9 +423,9 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
             # order would let an unstable value be reported as mediation
             # doing its job. FB_GET_INFO_V2 on an uncapped rig is exactly
             # that case: the byte that moves is HEAP_FREE.
-            if why is None and stab and (j * 4) in stab["unstable"]:
+            if why is None and stab and off in stab["unstable"]:
                 return "unstable", (
-                    f"call {i}, {name_at(fm, j * 4)}: {nw:#010x} natively, "
+                    f"call {i}, {name_at(fm, off)}: {nw:#010x} natively, "
                     f"{gw:#010x} in the guest -- and this word is NOT STABLE "
                     f"between two calls of the native run itself, so it is "
                     f"evidence for nothing"), {}
@@ -385,15 +441,34 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
                 # field can never shield the neighbour it shares a word with.
                 nb = nw.to_bytes(4, "little")
                 gb = gw.to_bytes(4, "little")
-                hits = [mediated_hit(med, j * 4 + b)
+                hits = [mediated_hit(med, off + b)
                         for b in range(4) if nb[b] != gb[b]]
                 if hits and all(h is not None for h in hits):
                     why = "mediated:" + hits[0]["kind"]
             if why is None:
+                # A defect, and now -- and only now -- ask which KIND.
+                #
+                # WRITTEN-NESS IS A LABEL ON A DEFECT, NEVER A BYPASS OF THE
+                # MASKS, and getting that order wrong is not academic: with
+                # this test in front of the mediation check,
+                # GPU_GET_NAME_STRING was reported as "the guest did not
+                # answer" on its first run. It is a mediated command whose
+                # guest buffer already held the mediated name from an earlier
+                # call, so its before and after samples agreed -- exactly the
+                # case `written_words` documents as indistinguishable. Every
+                # mask gets its say first; what reaches here is a difference
+                # nothing explains, and the only question left is whether the
+                # guest wrote anything at all.
+                if gwrote is not None and off not in gwrote[i]:
+                    return "unwritten", (
+                        f"call {i}, {name_at(fm, off)}: RM wrote {nw:#010x} "
+                        f"natively and the guest left the caller's own "
+                        f"{gw:#010x} in place -- the call returned NV_OK and "
+                        f"answered nothing"), {}
                 extra = (" -- this command IS mediated, and this byte is in "
                          "none of the fields the mediation declares"
                          if med else "")
-                return None, (f"call {i}, {name_at(fm, j * 4)}: "
+                return None, (f"call {i}, {name_at(fm, off)}: "
                               f"{nw:#010x} natively, {gw:#010x} in the guest"
                               f"{extra}"), {}
             masked[why] += 1
@@ -435,7 +510,7 @@ def main():
     # version of this file appended to a list as it went and would have kept
     # the good half of exactly that case.
     ok_by_sig, bad_by_sig, evidence, sides, skipped = {}, {}, {}, {}, []
-    abstained, unstable_by_sig = {}, {}
+    abstained, unstable_by_sig, unwritten_by_sig = {}, {}, {}
     for p in a.probes:
         n = read_side(traceread.trace_file(ndir, p))
         g = read_side(traceread.trace_file(gdir, p))
@@ -465,10 +540,26 @@ def main():
             st = stability.get(cmd)
             ok, why, masked = compare_cmd(cmd, n["calls"].get(cmd, []),
                                           g["calls"].get(cmd, []), n, g,
-                                          declared.get(cmd, ()), fm, med, st)
+                                          declared.get(cmd, ()), fm, med, st,
+                                          n["asked"].get(cmd, []),
+                                          g["asked"].get(cmd, []))
             row = cat.get(("ctl", "0x2a", cmd), {})
             if ok == "abstain":
                 abstained.setdefault(key, []).append({"probe": p, "reason": why})
+                continue
+            if ok == "unwritten":
+                # ITS OWN CLASS, and the reason is the same reason
+                # `not_verified` was split three ways: this is not "the
+                # answers differ". It is "the guest returned NV_OK and did
+                # not answer", which a reader can act on directly and which
+                # no status fingerprint can see, because both sides say
+                # NV_OK. Measured 2026-08-21 on NV0080_CTRL_CMD_GR_GET_CAPS_V2.
+                unwritten_by_sig.setdefault(key, {
+                    "signature": key, "name": row.get("name", ""),
+                    "probes": [], "reason": why,
+                    "catalogue_status": row.get("status", ""),
+                    "catalogue_notes": row.get("notes", []),
+                })["probes"].append(p)
                 continue
             if ok == "unstable":
                 # Not a pass and not a defect. It joins neither verified class
@@ -550,7 +641,8 @@ def main():
     # by two the first time it ran, which is the gate this package is
     # measured against catching its own logic inverted.
     ok_all = sorted(k for k in ok_by_sig
-                    if k not in bad_by_sig and k not in unstable_by_sig)
+                    if k not in bad_by_sig and k not in unstable_by_sig
+                    and k not in unwritten_by_sig)
     evidence = {k: ok_by_sig[k] for k in ok_all}
     disputed = sorted(set(ok_by_sig) & set(bad_by_sig))
     notv = [bad_by_sig[k] for k in sorted(bad_by_sig)]
@@ -621,14 +713,17 @@ def main():
     # and the one a reader has to look at.
     unstable = [unstable_by_sig[k] for k in sorted(unstable_by_sig)
                 if k not in bad_by_sig]
+    # Reported ahead of a plain mismatch where a signature is both: "did not
+    # answer" is the more specific statement and the more actionable one.
+    unwritten = [unwritten_by_sig[k] for k in sorted(unwritten_by_sig)]
 
     js = {
         "provenance": [x for x in a.provenance.split("|") if x],
         "generated_by": "scripts/ioctl-matrix.sh verify",
         "method": (
-            "the tracer's ctrlout line (first 32 bytes of the params buffer "
-            "after the call) from the native trace against the guest trace, "
-            "call by call, word by word"),
+            "the tracer's ctrlout lines -- the params buffer sampled BEFORE "
+            "and AFTER each call -- from the native trace against the guest "
+            "trace, call by call, word by word"),
         "extent": (
             "TWO extents, and both are per signature so that nothing "
             "downstream can round either up. In BYTES: the first bytes of the "
@@ -641,10 +736,14 @@ def main():
             "fully_paired says which it is"),
         "mask": (
             "derived, never hand-written: a differing word is allowed only if "
-            "it is this side's own gpu_id (cardinfo line), a handle this side "
-            "allocated, or part of a pointer field the descriptor table "
-            "declares for that command (tables.txt, the stream the guest "
-            "module was handed). Anything else is a mismatch"),
+            "RM never wrote it natively (its before-call sample equals its "
+            "after-call one, so the value is the caller's leftovers and not "
+            "an answer), or it is this side's own gpu_id (cardinfo line), a "
+            "handle this side allocated, or part of a pointer field the "
+            "descriptor table declares for that command (tables.txt, the "
+            "stream the guest module was handed). Anything else is a "
+            "mismatch -- except a word RM DID write natively and the guest "
+            "did not touch, which is its own class, answer_not_written"),
         "declared_pointer_commands": len(declared),
         "mediation_manifest": (
             f"{len(mediation)} command(s) and "
@@ -701,12 +800,19 @@ def main():
         "evidence": evidence,
         "not_verified": notv,
         "mismatch": mismatch,
+        "answer_not_written": unwritten,
         "unstable": unstable,
         "stability_unknown": stability_unknown,
         "verdicts": {
             "mismatch": "the bytes differ, at a word that was constant across "
-                        "the calls one native run made. THE ONLY POTENTIAL "
-                        "DEFECT in this file",
+                        "the calls one native run made, and that BOTH sides "
+                        "wrote. A potential defect",
+            "answer-not-written": "RM wrote this word natively and the guest "
+                                  "left the caller's own value in place, with "
+                                  "NV_OK on both sides. A potential defect, "
+                                  "and a sharper one than a mismatch: no "
+                                  "status fingerprint can see it, because "
+                                  "nothing failed",
             "unstable": "the bytes differ, at a word that moves between two "
                         "calls of the native run itself -- evidence for "
                         "nothing, in either direction",
@@ -765,10 +871,14 @@ def main():
           f"fields the mediation declares)"
           + (f", {len(disputed)} matched under one probe and not another"
              if disputed else ""))
-    print(f"not verified splits three ways: {len(mismatch)} MISMATCH (the only "
-          f"potential defects), {len(unstable)} unstable (differ at a word that "
-          f"moves within one native run), {len(stability_unknown)} of unknown "
-          f"stability (no native trace called them twice)")
+    for x in unwritten:
+        print(f"  NOTANSWERED {x['signature']:<18} {x['name'][:44]:<44} "
+              f"{x['reason'][:90]}")
+    print(f"not verified splits four ways: {len(mismatch)} MISMATCH and "
+          f"{len(unwritten)} ANSWER-NOT-WRITTEN (the potential defects), "
+          f"{len(unstable)} unstable (differ at a word that moves within one "
+          f"native run), {len(stability_unknown)} of unknown stability (no "
+          f"native trace called them twice)")
     print(f"of the {full + part} verified: {full} paired call for call in every "
           f"probe, {part} had at least one probe whose two runs made different "
           f"numbers of calls and which therefore judged nothing "

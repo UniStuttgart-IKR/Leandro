@@ -610,7 +610,8 @@ do_trace() {
 
             # Provenance first, then the tracer's own bytes -- in every
             # format the tracer wrote. The tracer cannot write the header
-            # itself: it opens its files with O_TRUNC.
+            # itself: it is handed an already-created file and appends to
+            # it, so anything it wrote first would be under the header.
             lea_trace_place "$raw" "$TDIR/$p" probe "$p" attempt "$try"
             trace=$(lea_trace_file "$TDIR" "$p")
 

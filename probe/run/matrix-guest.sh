@@ -81,9 +81,9 @@ raw=$(mktemp) || die "mktemp"
 trap 'rm -f "$raw" "$raw.jsonl"' EXIT
 
 # Run 1: under the tracer. The wrapper goes around the WORKLOAD only, never
-# around this script: the tracer opens LEA_TRACE_FILE with O_TRUNC in its
-# constructor, so a preloaded shell would have every child wipe the trace of
-# the run in progress -- silently, because a truncated file is a valid file.
+# around this script: what goes inside the wrapper is what gets measured, and
+# a preloaded shell would put every `mkdir` and `awk` of this script into the
+# trace that is about to be counted against strace.
 LEA_MATRIX_WRAP="env LEA_TRACE_FILE=$raw LD_PRELOAD=$LEA_TRACE_LIB" \
     timeout 600 "$f" > "$outf" 2>&1
 rc=$?

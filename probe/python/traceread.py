@@ -59,7 +59,8 @@ MEASUREMENT = frozenset(POSITIONAL)
 # appending `in` to the kind (`nvos64in` beside `nvos64`) and JSONL spells
 # as a field. `size` and `attr` of an NVOS32 are IN/OUT -- the caller asks
 # and RM writes back what it really did -- so both samples are the point.
-PHASED = frozenset({"nvos02", "nvos33", "nvos32", "nvos46", "nvos64", "memparams"})
+PHASED = frozenset({"nvos02", "nvos33", "nvos32", "nvos46", "nvos64",
+                    "memparams", "ctrlout"})
 
 # Two kinds mix positional and keyed fields in the old format, and this is
 # the whole of that irregularity:

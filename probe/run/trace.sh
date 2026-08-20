@@ -90,6 +90,10 @@ TAGS=()
 lea_trace_stage() {
     local tag=$1; shift
     echo "=== $tag ==="
+    # The tracer APPENDS (log.rs open_out), so the owner of the path
+    # truncates. Both formats: a stale JSONL beside a fresh TSV would be
+    # read in preference to it by lea_trace_file.
+    : > "$D/$tag.tsv"; : > "$D/$tag.jsonl"
     LEA_TRACE_FILE="$D/$tag.tsv" LD_PRELOAD="$LEA_TRACE_LIB" \
         "$@" > "$D/$tag.out" 2>&1
     tail -2 "$D/$tag.out"

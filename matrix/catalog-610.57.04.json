@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T21:32:05Z",
-    "commit:  0bc80d3 (working tree modified)"
+    "date:    2026-08-20T22:23:02Z",
+    "commit:  2783ba4 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -43,7 +43,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 9 call(s), 4 of 4 bytes"
+      ],
       "fields": [
         {
           "name": "fabricStatus",
@@ -87,7 +89,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 9 call(s), 256 of 1352 bytes, masked {'not-written': 9}"
+      ],
       "fields": [
         {
           "name": "grpACount",
@@ -179,7 +183,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 9 call(s), 4 of 4 bytes"
+      ],
       "fields": [
         {
           "name": "featuresMask",
@@ -234,7 +240,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 38 call(s), 32 of 128 bytes, masked {'gpuId': 38}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 38 call(s), 128 of 128 bytes, masked {'gpuId': 38}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -291,7 +297,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: szName @16",
-        "answer bytes compared against a native run: 53 call(s), 32 of 40 bytes, masked {'gpuId': 106}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 53 call(s), 40 of 40 bytes, masked {'not-written': 53, 'gpuId': 53}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -395,7 +401,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 42 call(s), 32 of 32 bytes, masked {'gpuId': 84}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 42 call(s), 32 of 32 bytes, masked {'not-written': 42, 'gpuId': 42}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -493,7 +499,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 24 call(s), 32 of 580 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 24 call(s), 256 of 580 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -545,7 +551,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 32 of 64 bytes"
+        "answer bytes compared against a native run: 9 call(s), 64 of 64 bytes"
       ],
       "fields": [
         {
@@ -656,7 +662,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 11 call(s), 32 of 1664 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 11 call(s), 256 of 1664 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -810,7 +816,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 20 call(s), 32 of 268 bytes"
+        "answer bytes compared against a native run: 20 call(s), 256 of 268 bytes"
       ],
       "fields": [
         {
@@ -883,7 +889,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 34 call(s), 32 of 340 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 34 call(s), 256 of 340 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -935,7 +941,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 32 of 688 bytes"
+        "answer bytes compared against a native run: 9 call(s), 256 of 688 bytes"
       ],
       "fields": [
         {
@@ -1126,7 +1132,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 10 call(s), 32 of 9240 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 256 of 9240 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -1184,7 +1190,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 32 of 48 bytes"
+        "answer bytes compared against a native run: 9 call(s), 48 of 48 bytes"
       ],
       "fields": [],
       "status": "passthrough",
@@ -1481,7 +1487,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 32 of 200 bytes"
+        "answer bytes compared against a native run: 9 call(s), 200 of 200 bytes"
       ],
       "fields": [
         {
@@ -1592,7 +1598,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 32 of 112 bytes"
+        "answer bytes compared against a native run: 9 call(s), 112 of 112 bytes"
       ],
       "fields": [
         {
@@ -1883,7 +1889,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 12 call(s), 32 of 136 bytes"
+        "answer bytes compared against a native run: 12 call(s), 136 of 136 bytes"
       ],
       "fields": [
         {
@@ -1935,7 +1941,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 32 of 13864 bytes"
+        "answer bytes compared against a native run: 9 call(s), 256 of 13864 bytes"
       ],
       "fields": [
         {
@@ -2012,7 +2018,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 20 call(s), 32 of 72 bytes"
+        "answer bytes compared against a native run: 20 call(s), 72 of 72 bytes"
       ],
       "fields": [
         {
@@ -2076,7 +2082,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 32 of 1928 bytes"
+        "answer bytes compared against a native run: 9 call(s), 256 of 1928 bytes"
       ],
       "fields": [
         {
@@ -2143,7 +2149,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 16 call(s), 32 of 332 bytes"
+        "answer bytes compared against a native run: 16 call(s), 256 of 332 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -2219,7 +2225,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 11 call(s), 256 of 992 bytes"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2266,7 +2274,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 13 call(s), 32 of 384 bytes, masked {'gpuId': 13}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 13 call(s), 256 of 384 bytes, masked {'gpuId': 13}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -2336,7 +2344,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 18 call(s), 32 of 132 bytes, masked {'gpuId': 12}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 18 call(s), 132 of 132 bytes, masked {'not-written': 12}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -2443,7 +2451,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 14 call(s), 32 of 3076 bytes, masked {'gpuId': 14}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 14 call(s), 256 of 3076 bytes, masked {'gpuId': 14}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -2503,7 +2511,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 10 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "numSubDevices",
@@ -2557,7 +2567,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 14 call(s), 8 of 8 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "virtualizationMode",
@@ -2617,7 +2629,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 14 call(s), 256 of 804 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "numClasses",
@@ -2667,7 +2681,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 9 call(s), 3 of 3 bytes"
+      ],
       "fields": [
         {
           "name": "capsTbl",
@@ -2711,7 +2727,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 9 call(s), 3 of 3 bytes"
+      ],
       "fields": [
         {
           "name": "capsTbl",
@@ -2754,7 +2772,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 14 call(s), 1 of 1 bytes"
+      ],
       "fields": [
         {
           "name": "bCudaLimit",
@@ -2797,7 +2817,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 8 call(s), 4 of 4 bytes"
+      ],
       "fields": [
         {
           "name": "exceptionMask",
@@ -2850,7 +2872,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 297 call(s), 16 of 16 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -2886,7 +2910,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 9 call(s), 256 of 2244 bytes"
+      ],
       "fields": [
         {
           "name": "groupCount",
@@ -2935,7 +2961,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 32 call(s), 3 of 3 bytes"
+      ],
       "fields": [],
       "status": "passthrough",
       "xlate_size": null
@@ -2971,7 +2999,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 8 call(s), 8 of 8 bytes"
+      ],
       "fields": [],
       "status": "passthrough",
       "xlate_size": null
@@ -3062,7 +3092,8 @@
         "none"
       ],
       "notes": [
-        "params struct name not in the finn: comment; convention (_CMD_ dropped, _PARAMS appended), typedef present and sizeof compiled"
+        "params struct name not in the finn: comment; convention (_CMD_ dropped, _PARAMS appended), typedef present and sizeof compiled",
+        "answer bytes compared against a native run: 9 call(s), 6 of 6 bytes"
       ],
       "fields": [
         {
@@ -3146,7 +3177,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 452 call(s), 12 of 12 bytes, masked {'not-written': 8}; NOT paired in egl-xlib, gl-enum, gles, vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "hObject",
@@ -3202,7 +3235,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 18 call(s), 12 of 12 bytes, masked {'not-written': 18}"
+      ],
       "fields": [
         {
           "name": "sharePolicy",
@@ -3481,7 +3516,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 11 call(s), 8 of 8 bytes"
+      ],
       "fields": [
         {
           "name": "bWait",
@@ -3632,7 +3669,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 7 call(s), 256 of 520 bytes, masked {'not-written': 60}"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -3722,7 +3761,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 7 call(s), 108 of 108 bytes"
+      ],
       "fields": [
         {
           "name": "type",
@@ -3943,7 +3984,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 18 call(s), 32 of 144 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 18 call(s), 144 of 144 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4057,7 +4098,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 32 of 40 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 40 of 40 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4156,7 +4197,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 8 call(s), 24 of 24 bytes, masked {'not-written': 9}; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "hClient",
@@ -4283,7 +4326,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 32 of 904 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 256 of 904 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4548,7 +4591,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 7 call(s), 2 of 2 bytes"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -4586,7 +4631,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 4 call(s), 32 of 128 bytes, masked {'gpuId': 3}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 4 call(s), 128 of 128 bytes, masked {'not-written': 3}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4634,7 +4679,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 32 of 268 bytes, masked {'gpuId': 9}; NOT paired in egl-xlib, gles, which judged nothing either way"
+        "answer bytes compared against a native run: 9 call(s), 256 of 268 bytes, masked {'not-written': 9}; NOT paired in egl-xlib, gles, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4697,7 +4742,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 7 call(s), 16 of 16 bytes"
+      ],
       "fields": [
         {
           "name": "gsyncIds",
@@ -4741,7 +4788,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 2 call(s), 2 of 2 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "capsTbl",
@@ -4785,7 +4834,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 8 call(s), 12 of 12 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "engineId",
@@ -4841,7 +4892,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 2 call(s), 192 of 192 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "vaBitCount",
@@ -4957,7 +5010,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 2 call(s), 12 of 12 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "capsTblSize",
@@ -5007,7 +5062,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 30 call(s), 12 of 12 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "indexStart",
@@ -5063,7 +5120,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 450 call(s), 56 of 56 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "value",
@@ -5133,7 +5192,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 27 call(s), 3 of 3 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "bEnable",
@@ -5191,7 +5252,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 27 call(s), 4 of 4 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "engineType",
@@ -5237,7 +5300,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 27 call(s), 4 of 4 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "index",
@@ -5281,7 +5346,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 24 call(s), 40 of 40 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "hChannel",
@@ -5337,7 +5404,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 24 call(s), 40 of 40 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+      ],
       "fields": [
         {
           "name": "hChannel",
@@ -5882,7 +5951,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 3 call(s), 256 of 2192 bytes, masked {'not-written': 58}"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -5961,7 +6032,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 6 call(s), 12 of 12 bytes"
+      ],
       "fields": [
         {
           "name": "capsTbl",
@@ -6102,7 +6175,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 3 call(s), 32 of 136 bytes"
+        "answer bytes compared against a native run: 3 call(s), 136 of 136 bytes"
       ],
       "fields": [
         {
@@ -6373,7 +6446,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 56 bytes"
+        "answer bytes compared against a native run: 1 call(s), 56 of 56 bytes"
       ],
       "fields": [
         {
@@ -6543,9 +6616,7 @@
       "flags": [
         "none"
       ],
-      "notes": [
-        "answer bytes compared against a native run: 3 call(s), 32 of 1432 bytes"
-      ],
+      "notes": [],
       "fields": [
         {
           "name": "clientAPIVersion",
@@ -6617,7 +6688,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 2056 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 2056 bytes"
       ],
       "fields": [
         {
@@ -6672,7 +6743,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 6152 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 6152 bytes"
       ],
       "fields": [
         {
@@ -6758,7 +6829,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 32 of 76 bytes"
+        "answer bytes compared against a native run: 2 call(s), 76 of 76 bytes"
       ],
       "fields": [
         {
@@ -6992,9 +7063,7 @@
       "flags": [
         "none"
       ],
-      "notes": [
-        "answer bytes compared against a native run: 4 call(s), 12 of 12 bytes"
-      ],
+      "notes": [],
       "fields": [
         {
           "name": "engineType",
@@ -7042,7 +7111,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 39 bytes"
+        "answer bytes compared against a native run: 1 call(s), 39 of 39 bytes"
       ],
       "fields": [
         {
@@ -7127,7 +7196,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 1784 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 1784 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7156,7 +7225,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 32 of 1440 bytes"
+        "answer bytes compared against a native run: 2 call(s), 256 of 1440 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7185,7 +7254,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 1432 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 1432 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7241,7 +7310,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 25552 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 25552 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7270,7 +7339,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 15352 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 15352 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7299,7 +7368,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 504 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 504 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7385,7 +7454,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 12336 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 12336 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7529,7 +7598,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 256 of 83972 bytes"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -7557,7 +7628,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 32 of 52 bytes"
+        "answer bytes compared against a native run: 2 call(s), 52 of 52 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7640,7 +7711,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 67396 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 67396 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7669,7 +7740,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 17676 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 17676 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7698,7 +7769,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 4 call(s), 32 of 32908 bytes"
+        "answer bytes compared against a native run: 4 call(s), 256 of 32908 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7727,7 +7798,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 96 bytes"
+        "answer bytes compared against a native run: 1 call(s), 96 of 96 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7756,7 +7827,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 54352 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 54352 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7784,9 +7855,7 @@
       "flags": [
         "none"
       ],
-      "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 79936 bytes"
-      ],
+      "notes": [],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -7814,7 +7883,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 20000 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 20000 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7843,7 +7912,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 32 of 13840 bytes"
+        "answer bytes compared against a native run: 1 call(s), 256 of 13840 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7933,7 +8002,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 4 call(s), 12 of 12 bytes, masked {'gpuId': 4, 'mediated:bdf-address': 4}",
+        "answer bytes compared against a native run: 4 call(s), 12 of 12 bytes, masked {'not-written': 4, 'mediated:bdf-address': 4}",
         "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (GET_PCI_INFO (bdf-scalar) @0; domain (bdf-address) @4; bus (bdf-address) @8; slot (bdf-address) @10) and in no other byte. That is a different claim from byte equality"
       ],
       "fields": [
@@ -7989,7 +8058,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 12 of 12 bytes, masked {'gpuId': 1}"
+        "answer bytes compared against a native run: 1 call(s), 12 of 12 bytes, masked {'not-written': 1}"
       ],
       "fields": [
         {
@@ -8038,7 +8107,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes, masked {'gpuId': 1}"
+        "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes, masked {'not-written': 1}"
       ],
       "fields": [
         {
@@ -8074,7 +8143,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 12 of 12 bytes"
+      ],
       "fields": [
         {
           "name": "subDeviceInstance",
@@ -8121,7 +8192,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 12 of 12 bytes"
+      ],
       "fields": [
         {
           "name": "subDeviceInstance",
@@ -8168,7 +8241,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes"
+      ],
       "fields": [
         {
           "name": "subDeviceInstance",
@@ -8221,7 +8296,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes"
+      ],
       "fields": [
         {
           "name": "subDeviceInstance",
@@ -8274,7 +8351,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes"
+      ],
       "fields": [
         {
           "name": "swStatePersistence",
@@ -8309,7 +8388,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 1 of 1 bytes"
+      ],
       "fields": [
         {
           "name": "isVgx",
@@ -8344,7 +8425,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 4 of 4 bytes"
+      ],
       "fields": [
         {
           "name": "brands",
@@ -8379,7 +8462,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 20 of 20 bytes"
+      ],
       "fields": [
         {
           "name": "timeStart",
@@ -8438,7 +8523,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes"
+      ],
       "fields": [
         {
           "name": "timestamp",
@@ -8479,7 +8566,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 1 call(s), 12 of 12 bytes, masked {'not-written': 1}"
+      ],
       "fields": [
         {
           "name": "gpuId",
@@ -8694,84 +8783,6 @@
     {
       "device": "ctl",
       "nr": "0x2a",
-      "sub": "0x101",
-      "kind": "ctrl",
-      "name": "NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION",
-      "description": "This command returns the current driver information.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000system.h:108",
-      "params_struct": "NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS",
-      "params_size": 40,
-      "observed_params_size": [
-        "0x28"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 11,
-      "rm_status": {
-        "0x0": 11
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24"
-      ],
-      "fields": [
-        {
-          "name": "sizeOfStrings",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "pDriverVersionBuffer",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        },
-        {
-          "name": "pVersionBuffer",
-          "type": "NvP64",
-          "offset": 16,
-          "size": 8
-        },
-        {
-          "name": "pTitleBuffer",
-          "type": "NvP64",
-          "offset": 24,
-          "size": 8
-        },
-        {
-          "name": "changelistNumber",
-          "type": "NvU32",
-          "offset": 32,
-          "size": 4
-        },
-        {
-          "name": "officialChangelistNumber",
-          "type": "NvU32",
-          "offset": 36,
-          "size": 4
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
       "sub": "0x20801303",
       "kind": "ctrl",
       "name": "NV2080_CTRL_CMD_FB_GET_INFO_V2",
@@ -8817,64 +8828,6 @@
           "type": "NV2080_CTRL_FB_INFO[NV2080_CTRL_FB_INFO_MAX_LIST_SIZE]",
           "offset": 4,
           "size": 1024
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x80170d",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
-      "description": "Takes a list of hChannels as input and returns the corresponding Channel IDs that they corresponding to on hw.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:178",
-      "params_struct": "NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS",
-      "params_size": 24,
-      "observed_params_size": [
-        "0x18"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls": 180,
-      "rm_status": {
-        "0x0": 180
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16"
-      ],
-      "fields": [
-        {
-          "name": "numChannels",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "pChannelHandleList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        },
-        {
-          "name": "pChannelList",
-          "type": "NvP64",
-          "offset": 16,
-          "size": 8
         }
       ],
       "status": "implemented-unverified",
@@ -10452,274 +10405,6 @@
     },
     {
       "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x3d05",
-      "kind": "ctrl",
-      "name": "NV0000_CTRL_CMD_OS_UNIX_EXPORT_OBJECT_TO_FD",
-      "description": "This command may be used to export NV0000_CTRL_OS_UNIX_EXPORT_OBJECT_TYPE object to file descriptor.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000unix.h:147",
-      "params_struct": "NV0000_CTRL_OS_UNIX_EXPORT_OBJECT_TO_FD_PARAMS",
-      "params_size": 24,
-      "observed_params_size": [
-        "0x18"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 32,
-      "rm_status": {
-        "0x0": 32
-      },
-      "flags": [
-        "fd-field"
-      ],
-      "notes": [],
-      "fields": [
-        {
-          "name": "object",
-          "type": "NV0000_CTRL_OS_UNIX_EXPORT_OBJECT",
-          "offset": 0,
-          "size": 16
-        },
-        {
-          "name": "fd",
-          "type": "NvS32",
-          "offset": 16,
-          "size": 4
-        },
-        {
-          "name": "flags",
-          "type": "NvU32",
-          "offset": 20,
-          "size": 4
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x801102",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_GR_GET_CAPS",
-      "description": "This command returns the set of graphics capabilities for the device in the form of an array of unsigned bytes.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gr.h:60",
-      "params_struct": "NV0080_CTRL_GR_GET_CAPS_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 20,
-      "rm_status": {
-        "0x0": 20
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: capsTbl @8"
-      ],
-      "fields": [
-        {
-          "name": "capsTblSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "capsTbl",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x801104",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_GR_GET_INFO",
-      "description": "This command returns graphics engine information for the associate GPU.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gr.h:194",
-      "params_struct": "NV0080_CTRL_GR_GET_INFO_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 20,
-      "rm_status": {
-        "0x0": 20
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: grInfoList @8"
-      ],
-      "fields": [
-        {
-          "name": "grInfoListSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "grInfoList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x801301",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_FB_GET_CAPS",
-      "description": "This command returns the set of framebuffer capabilities for the device in the form of an array of unsigned bytes.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fb.h:60",
-      "params_struct": "NV0080_CTRL_FB_GET_CAPS_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 20,
-      "rm_status": {
-        "0x0": 20
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: capsTbl @8"
-      ],
-      "fields": [
-        {
-          "name": "capsTblSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "capsTbl",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x801701",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_FIFO_GET_CAPS",
-      "description": "This command returns the set of FIFO engine capabilities for the device in the form of an array of unsigned bytes.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:59",
-      "params_struct": "NV0080_CTRL_FIFO_GET_CAPS_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 20,
-      "rm_status": {
-        "0x0": 20
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: capsTbl @8"
-      ],
-      "fields": [
-        {
-          "name": "capsTblSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "capsTbl",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
       "nr": "0x2b",
       "sub": "0x70",
       "kind": "alloc",
@@ -11180,99 +10865,6 @@
     },
     {
       "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x800201",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_GPU_GET_CLASSLIST",
-      "description": "This command returns supported class information for the specified device.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gpu.h:70",
-      "params_struct": "NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "nvdec",
-        "nvenc"
-      ],
-      "calls": 6,
-      "rm_status": {
-        "0x0": 6
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: classList @8"
-      ],
-      "fields": [
-        {
-          "name": "numClasses",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "classList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x801b01",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_NVENC_GET_CAPS",
-      "description": "This command returns the set of NVENC capabilities for the device in the form of an array of unsigned bytes.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080nvenc.h:59",
-      "params_struct": "NV0080_CTRL_NVENC_GET_CAPS_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "nvdec",
-        "nvenc",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 6,
-      "rm_status": {
-        "0x0": 6
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: capsTbl @8"
-      ],
-      "fields": [
-        {
-          "name": "capsTblSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "capsTbl",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-unverified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
       "nr": "0x2b",
       "sub": "0x2",
       "kind": "alloc",
@@ -11639,6 +11231,85 @@
     {
       "device": "ctl",
       "nr": "0x2a",
+      "sub": "0x101",
+      "kind": "ctrl",
+      "name": "NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION",
+      "description": "This command returns the current driver information.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000system.h:108",
+      "params_struct": "NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS",
+      "params_size": 40,
+      "observed_params_size": [
+        "0x28"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 11,
+      "rm_status": {
+        "0x0": 11
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24",
+        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 51}"
+      ],
+      "fields": [
+        {
+          "name": "sizeOfStrings",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pDriverVersionBuffer",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "pVersionBuffer",
+          "type": "NvP64",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "pTitleBuffer",
+          "type": "NvP64",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "changelistNumber",
+          "type": "NvU32",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "officialChangelistNumber",
+          "type": "NvU32",
+          "offset": 36,
+          "size": 4
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
       "sub": "0x20801201",
       "kind": "ctrl",
       "name": "NV2080_CTRL_CMD_GR_GET_INFO",
@@ -11680,7 +11351,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'nested-ptr': 16}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 15}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11700,6 +11371,65 @@
           "type": "NV2080_CTRL_GR_ROUTE_INFO",
           "offset": 16,
           "size": 16
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x80170d",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
+      "description": "Takes a list of hChannels as input and returns the corresponding Channel IDs that they corresponding to on hw.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:178",
+      "params_struct": "NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS",
+      "params_size": 24,
+      "observed_params_size": [
+        "0x18"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "calls": 180,
+      "rm_status": {
+        "0x0": 180
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16",
+        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 580}"
+      ],
+      "fields": [
+        {
+          "name": "numChannels",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pChannelHandleList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "pChannelList",
+          "type": "NvP64",
+          "offset": 16,
+          "size": 8
         }
       ],
       "status": "implemented-verified",
@@ -11741,7 +11471,7 @@
       "notes": [
         "answered by the backend itself: fbInfoList[].data @4 (backend-answered, mediation.txt)",
         "pointer field(s), offsets compiled: fbInfoList @8",
-        "answer bytes compared against a native run: 5 call(s), 16 of 16 bytes, masked {'nested-ptr': 5}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 5 call(s), 16 of 16 bytes, masked {'not-written': 5}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11752,6 +11482,280 @@
         },
         {
           "name": "fbInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x3d05",
+      "kind": "ctrl",
+      "name": "NV0000_CTRL_CMD_OS_UNIX_EXPORT_OBJECT_TO_FD",
+      "description": "This command may be used to export NV0000_CTRL_OS_UNIX_EXPORT_OBJECT_TYPE object to file descriptor.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000unix.h:147",
+      "params_struct": "NV0000_CTRL_OS_UNIX_EXPORT_OBJECT_TO_FD_PARAMS",
+      "params_size": 24,
+      "observed_params_size": [
+        "0x18"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 32,
+      "rm_status": {
+        "0x0": 32
+      },
+      "flags": [
+        "fd-field"
+      ],
+      "notes": [
+        "answer bytes compared against a native run: 3 call(s), 24 of 24 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
+      "fields": [
+        {
+          "name": "object",
+          "type": "NV0000_CTRL_OS_UNIX_EXPORT_OBJECT",
+          "offset": 0,
+          "size": 16
+        },
+        {
+          "name": "fd",
+          "type": "NvS32",
+          "offset": 16,
+          "size": 4
+        },
+        {
+          "name": "flags",
+          "type": "NvU32",
+          "offset": 20,
+          "size": 4
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x801102",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_GR_GET_CAPS",
+      "description": "This command returns the set of graphics capabilities for the device in the form of an array of unsigned bytes.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gr.h:60",
+      "params_struct": "NV0080_CTRL_GR_GET_CAPS_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 20,
+      "rm_status": {
+        "0x0": 20
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8",
+        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x801104",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_GR_GET_INFO",
+      "description": "This command returns graphics engine information for the associate GPU.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gr.h:194",
+      "params_struct": "NV0080_CTRL_GR_GET_INFO_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 20,
+      "rm_status": {
+        "0x0": 20
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: grInfoList @8",
+        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 2}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
+      "fields": [
+        {
+          "name": "grInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "grInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x801301",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_FB_GET_CAPS",
+      "description": "This command returns the set of framebuffer capabilities for the device in the form of an array of unsigned bytes.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fb.h:60",
+      "params_struct": "NV0080_CTRL_FB_GET_CAPS_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 20,
+      "rm_status": {
+        "0x0": 20
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8",
+        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x801701",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_FIFO_GET_CAPS",
+      "description": "This command returns the set of FIFO engine capabilities for the device in the form of an array of unsigned bytes.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:59",
+      "params_struct": "NV0080_CTRL_FIFO_GET_CAPS_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 20,
+      "rm_status": {
+        "0x0": 20
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8",
+        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
           "type": "NvP64",
           "offset": 8,
           "size": 8
@@ -11788,7 +11792,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: busInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 16 of 16 bytes, masked {'nested-ptr': 20}"
+        "answer bytes compared against a native run: 10 call(s), 16 of 16 bytes, masked {'not-written': 20}"
       ],
       "fields": [
         {
@@ -11799,6 +11803,101 @@
         },
         {
           "name": "busInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x800201",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_GPU_GET_CLASSLIST",
+      "description": "This command returns supported class information for the specified device.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gpu.h:70",
+      "params_struct": "NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "nvdec",
+        "nvenc"
+      ],
+      "calls": 6,
+      "rm_status": {
+        "0x0": 6
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: classList @8",
+        "answer bytes compared against a native run: 6 call(s), 16 of 16 bytes, masked {'not-written': 6}"
+      ],
+      "fields": [
+        {
+          "name": "numClasses",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "classList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-verified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x801b01",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_NVENC_GET_CAPS",
+      "description": "This command returns the set of NVENC capabilities for the device in the form of an array of unsigned bytes.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080nvenc.h:59",
+      "params_struct": "NV0080_CTRL_NVENC_GET_CAPS_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "nvdec",
+        "nvenc",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 6,
+      "rm_status": {
+        "0x0": 6
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8",
+        "answer bytes compared against a native run: 6 call(s), 16 of 16 bytes, masked {'not-written': 12}"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
           "type": "NvP64",
           "offset": 8,
           "size": 8
@@ -11834,7 +11933,7 @@
       "notes": [
         "params struct name not in the finn: comment; convention (_CMD_ dropped, _PARAMS appended), typedef present and sizeof compiled",
         "pointer field(s), offsets compiled: biosInfoList @8",
-        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes, masked {'nested-ptr': 2}"
+        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes, masked {'not-written': 2}"
       ],
       "fields": [
         {
@@ -11881,7 +11980,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: engineList @8",
-        "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'nested-ptr': 4}"
+        "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'not-written': 6}"
       ],
       "fields": [
         {
@@ -11944,7 +12043,7 @@
       ],
       "notes": [
         "answered by the backend itself: gpuNameString @4 (identity-string, mediation.txt)",
-        "answer bytes compared against a native run: 20 call(s), 32 of 68 bytes, masked {'mediated:identity-string': 120}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way",
+        "answer bytes compared against a native run: 20 call(s), 68 of 68 bytes, masked {'mediated:identity-string': 120}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way",
         "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (gpuNameString (identity-string) @4) and in no other byte. That is a different claim from byte equality"
       ],
       "fields": [
@@ -12877,11 +12976,11 @@
     {
       "probe": "cuda-gdb",
       "result": "ungated: none -- strace cannot follow a process that is itself ptracing. Measured: under `strace -f` cuda-gdb records zero ioctls, because its own ptrace of the inferior is the one strace has already taken. There is no second instrument here that could count the same calls, so this probe's CRITERION stands and its signatures do NOT enter the catalogue. The instrument that would gate it is the same kernel-side trace point the 32-bit set needs.",
-      "tracer": "642",
+      "tracer": "743",
       "strace": "-",
       "delta": "-",
-      "ioctls": "642",
-      "sigs": "141",
+      "ioctls": "743",
+      "sigs": "143",
       "modeset": "0",
       "drm": "0",
       "group": "compute",
@@ -13067,7 +13166,7 @@
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 28826"
+      "criterion": "glmark2 --off-screen rendered the build scene, score 29877"
     },
     {
       "probe": "gles",
@@ -13101,7 +13200,7 @@
     },
     {
       "probe": "nvdec",
-      "result": "PASS (matched on attempt 5)",
+      "result": "PASS",
       "tracer": "996",
       "strace": "996",
       "delta": "0",

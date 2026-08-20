@@ -279,12 +279,18 @@ lea_matrix_serial() {
 # A probe runs its ONE workload through lea_matrix_workload. The runner puts
 # the tracer (or strace) around exactly that call and around nothing else.
 #
-# WHY THE WRAPPER IS HERE AND NOT AROUND THE SCRIPT: the tracer opens
-# LEA_TRACE_FILE with O_TRUNC in its constructor. Preloaded into the probe
-# script itself, every `mkdir`, every `awk` and every forked child of the
-# workload would truncate the trace of the run in progress -- and the loss
-# is silent, because a truncated file is still a valid file. So the shell
-# stays outside the wrapper and only the workload goes in.
+# WHY THE WRAPPER IS HERE AND NOT AROUND THE SCRIPT: what goes inside it is
+# what gets MEASURED. Preloaded into the probe script itself, the trace would
+# carry every `mkdir` and every `awk` the script runs, and the counter-check
+# against strace would be comparing two instruments over two different sets
+# of processes. So the shell stays outside the wrapper and only the workload
+# goes in.
+#
+# This used to be a much sharper rule, because the tracer opened
+# LEA_TRACE_FILE with O_TRUNC and any preloaded child WIPED the run in
+# progress -- silently, because a truncated file is a valid file. It appends
+# now (log.rs open_out) and the owner of the path truncates, so a stray child
+# costs precision rather than the whole measurement.
 #
 # Run without the runner (probe/matrix/<name>.sh on its own) the wrapper is
 # empty and the probe is just a PASS/FAIL check of the feature path.

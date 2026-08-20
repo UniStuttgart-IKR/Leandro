@@ -62,7 +62,7 @@
 use crate::NvDev;
 use nvrm_abi::sys;
 use std::os::raw::c_void;
-use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU64, AtomicUsize, Ordering};
 
 /// The TSV sink. 2 (stderr) until `init` says otherwise, so a tracer with
 /// no `LEA_TRACE_FILE` still says what it saw; -1 disables it.
@@ -83,15 +83,34 @@ fn jsonl_path(tsv: &str) -> String {
     }
 }
 
-/// O_TRUNC, like the TSV sink and for the same reason (see
-/// `lea_matrix_workload`: the shell stays outside the wrapper because
-/// every forked child would otherwise truncate the run in progress).
+/// O_APPEND, and this used to be O_TRUNC.
+///
+/// WHY IT CHANGED. `LEA_TRACE_FILE` is inherited by every child of the
+/// traced process, and each child's constructor opens it again. Under
+/// O_TRUNC that is a SECOND file description with its own offset, writing
+/// over the first from byte zero -- and the damage is silent, because a
+/// half-overwritten file is still a valid file. Measured 2026-08-20 on
+/// `cuda-gdb`, which launches an inferior: a complete second ioctl record
+/// written over the middle of the first, with a different fd, in both
+/// formats.
+///
+/// O_APPEND fixes it at the source. Every writer's `write(2)` on a regular
+/// file positions at the end and writes under the inode lock, so a record
+/// from another process lands after the previous one instead of on top of
+/// it. Multi-process workloads produce an interleaving of whole records --
+/// which is what a multi-threaded workload has always produced within one
+/// process, and what `strace -f` counts on the other side.
+///
+/// WHAT NOW TRUNCATES. Whoever owns the path, before the run: the matrix
+/// runner hands the tracer a fresh `mktemp` file per attempt, and
+/// `probe/run/trace.sh` truncates its per-stage files in `lea_trace_stage`.
+/// A tracer that truncated could not be told "append to this" by anyone.
 fn open_out(path: &str) -> i32 {
     let Ok(c) = std::ffi::CString::new(path) else { return -1 };
     unsafe {
         libc::open(
             c.as_ptr(),
-            libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC | libc::O_CLOEXEC,
+            libc::O_WRONLY | libc::O_CREAT | libc::O_APPEND | libc::O_CLOEXEC,
             0o644,
         )
     }
@@ -212,6 +231,33 @@ const fn pos<'a>(name: &'a str, v: V<'a>) -> F<'a> {
 /// A `name=value` TSV field.
 const fn key<'a>(name: &'a str, v: V<'a>) -> F<'a> {
     F { name, keyed: true, v }
+}
+
+/// How many bytes of a params buffer a dump carries, at most.
+///
+/// It was a hard-coded 32, which is two words past the first field of most
+/// controls -- enough to tell an enumeration answer apart and not enough to
+/// verify a struct. `answerdiff` compares the words both sides dumped, so
+/// this is directly how much of each answer is under test. 256 covers every
+/// control in the current trace set whose params are a fixed struct; the
+/// handful that are page-sized lists (FB_GET_INFO_V2 declares 83972 bytes)
+/// are truncated, and truncation is safe in the direction that matters --
+/// fewer bytes compared, never bytes invented.
+///
+/// `LEA_TRACE_DUMP` overrides it. 0 disables dumping entirely, which is the
+/// way to take a cheap trace when only the call COUNTS are wanted.
+fn dump_cap() -> usize {
+    static CAP: AtomicUsize = AtomicUsize::new(usize::MAX);
+    let c = CAP.load(Ordering::Relaxed);
+    if c != usize::MAX {
+        return c;
+    }
+    let v = std::env::var("LEA_TRACE_DUMP")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(256);
+    CAP.store(v, Ordering::Relaxed);
+    v
 }
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -583,24 +629,37 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 ]);
             }
         }
-        // Root-client controls (0x2xx): the first 32 params bytes after the
-        // call, so an enumeration answer (GET_PROBED_IDS, GET_DEVICE_IDS,
-        // GET_ID_INFO) can be diffed native vs guest without a struct per
-        // control. NVOS54: params P64 @16, paramsSize @24.
-        sys::NV_ESC_RM_CONTROL
-            if tag.is_empty() && size as usize >= size_of::<sys::NVOS54_PARAMETERS>() =>
-        {
+        // The params buffer of EVERY control, on both sides of the call, so
+        // that what a forwarded control ANSWERED can be diffed native
+        // against guest without a struct per control. NVOS54: params P64
+        // @16, paramsSize @24.
+        //
+        // EVERY control, and it used to be `(cmd >> 8) == 0x2 ||
+        // (cmd >> 16) == 0x2080`. That covered the root-client and
+        // subdevice namespaces and silently covered nothing else -- no
+        // NV0073 display control, no NV0080 device control, and none of the
+        // class-specific ones the graphics stack actually calls (0x906f,
+        // 0xc36f, 0xa06c). Measured 2026-08-21: those are about half the
+        // distinct controls in a trace, and every one of them had no answer
+        // evidence at all, so no amount of sweeping could ever verify them.
+        // The length is NVOS54's own `paramsSize`, which is the caller's
+        // declared size of its own buffer -- self-describing, and therefore
+        // safe to read at any width.
+        //
+        // BOTH PHASES, and the `in` one is the point of number 60. A dump
+        // taken only after the call cannot tell an OUT pointer the boundary
+        // dropped from an IN pointer the guest's caller never supplied:
+        // both read as zero afterwards. With the before-call sample the two
+        // are different rows.
+        sys::NV_ESC_RM_CONTROL if size as usize >= size_of::<sys::NVOS54_PARAMETERS>() => {
             let p = &*(arg as *const sys::NVOS54_PARAMETERS);
             let cmd = p.cmd as u32;
             let pp = p.params as usize as *const u8;
             let plen = p.paramsSize as usize;
-            // Root-client (0x2xx) AND subdevice (0x2080xxxx) controls: the
-            // latter carry the GPU-feature answers (GSP, ECC, ...) the RT
-            // init branches on.
-            if ((cmd >> 8) == 0x2 || (cmd >> 16) == 0x2080) && !pp.is_null() && plen > 0 {
-                let n = plen.min(32);
+            if !pp.is_null() && plen > 0 {
+                let n = plen.min(dump_cap());
                 let bytes = core::slice::from_raw_parts(pp, n);
-                rec1("ctrlout", &[
+                rec("ctrlout", phase_of(tag), &[
                     pos("cmd", V::H32(cmd)),
                     key("len", V::I(plen as i64)),
                     key("status", V::H32(p.status as u32)),
