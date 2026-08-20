@@ -252,6 +252,38 @@ allocation stops below it, and -- the question a VRAM cap actually lives or
 dies on -- the counter comes back DOWN after a free, so the same guest can
 allocate again.
 
+### The pin caps have a window, and both walls are quiet
+
+The two pin caps are the part to get right before running a game, and
+neither wall announces itself in the guest.
+
+**Too low.** A single pinned region above `LEA_MAX_PIN_MIB` is refused, and
+`pinwin.py` simply prints no line for that size: no traceback, no kernel
+message, nothing in the guest at all. Only the backend log counts it.
+Measured 2026-08-20 with the defaults: a 512 MiB pin fails; with
+`LEA_MAX_PIN_MIB=1024` the same pin reports "512 MiB pinned ok
+roundtrip=correct". Raising the guest module's `max_pin_mib` alone changes
+nothing -- it was 3072 in the failing runs. This restates a measurement
+from 2026-08-16 in [`llm.md`](llm.md), which is where the error code lives
+(`cudaHostRegister` returns 304, `cudaErrorOperatingSystem`).
+
+**Too high.** Pinned pages cannot be swapped, so the guest's RAM becomes
+the real limit. With both caps raised and a workload that holds every pin,
+the guest's OOM killer took the workload: "Out of memory: Killed process
+(python) shmem-rss:2846592kB" in a guest with 4 GB. Nothing crashed -- no
+oops, no BUG, SSH still answering, 3.5 GB free afterwards -- the kernel did
+exactly what it should. But the process died, and a game dying that way
+looks like a game bug.
+
+So the caps have to be set together with `--mem`. The desktop guest gets
+16 GB by default (`LEA_DESKTOP_MEM`) and a compute guest 4 GB, which is why
+a pin cap that is fine on one is not automatically fine on the other:
+
+```
+LEA_MAX_PIN_MIB=2048 ./scripts/showcase.sh up --name desktop --index 5 \
+    --session gnome --games --max-pin-mib 4096
+```
+
 ## 7. When it does not work
 
 **Black stream, everything else green.** Sunshine chose NvFBC. It is

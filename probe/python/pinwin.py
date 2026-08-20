@@ -36,7 +36,7 @@ for mib in sizes:
         back = d.cpu()           # blocking D2H copy, compare only after it
         ok = bool(torch.equal(h, back))
         print(f"pinwin: {mib:5d} MiB pinned ok roundtrip={'correct' if ok else 'WRONG'}"
-              f"{' (gehalten)' if hold else ''}", flush=True)
+              f"{' (held)' if hold else ''}", flush=True)
         del d, back
         if hold:
             kept.append(h)
@@ -58,4 +58,4 @@ try:
 except (RuntimeError, MemoryError) as e:
     print(f"pinwin: recovery 16 MiB ERROR {type(e).__name__}: {e}")
 
-print(f"pinwin: fertig, gehalten={sum(t.numel() * 4 for t in kept) // (1 << 20)} MiB")
+print(f"pinwin: done, held={sum(t.numel() * 4 for t in kept) // (1 << 20)} MiB")
