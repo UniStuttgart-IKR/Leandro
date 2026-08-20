@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T15:58:54Z
-commit:  9fb7da8 (working tree modified)
+date:    2026-08-20T23:32:45Z
+commit:  07a5950 (working tree modified)
 ```
 
 Regenerate with `scripts/ioctl-matrix.sh discover`. Every number below was
@@ -36,10 +36,10 @@ RM_ALLOC, `-` otherwise. The signature this catalogue is keyed on is
 Confirmed by running one, not by reading log.rs:
 
 ```
-ioctl\tctl\t0xd6\t-\t8\t-\t0\t-\t9
-ioctl\tctl\t0xc8\t-\t2304\t-\t0\t-\t9
-ioctl\tctl\t0x2b\t0x41\t48\t0x0\t0\t0x0\t9
-ioctl\tctl\t0x2a\t0x101\t32\t0x28\t0\t0x0\t9
+ioctl\tctl\t0xd6\t-\t8\t-\t0\t-\t10
+ioctl\tctl\t0xc8\t-\t2304\t-\t0\t-\t10
+ioctl\tctl\t0x2b\t0x41\t48\t0x0\t0\t0x0\t10
+ioctl\tctl\t0x2a\t0x101\t32\t0x28\t0\t0x0\t10
 ```
 
 There is no kernel-side trace point on the host. `guest-module/` holds
@@ -62,8 +62,8 @@ Rows in that dump today:
 |---|---:|---|
 | `ioctl <dev> <nr> ...` | 66 | escapes that can be carried at all; a call with no row cannot cross |
 | `class <hclass> <size> ...` | 128 | RM_ALLOC classes; alloc params are not self-describing, so no row means no size |
-| `ctrl <cmd> ...` | 17 | RM_CONTROL commands that are MEDIATED (nested pointers, fd fields) or BLOCKED |
-| `nested ...` | 16 | second-level pointers inside control params |
+| `ctrl <cmd> ...` | 18 | RM_CONTROL commands that are MEDIATED (nested pointers, fd fields) or BLOCKED |
+| `nested ...` | 17 | second-level pointers inside control params |
 
 The asymmetry between the three matters for how a signature is classified.
 RM_CONTROL is **self-describing** -- the params pointer and its length are
@@ -160,24 +160,4 @@ package manager.
 
 ## 6. Answer-verification evidence
 
-**Absent.** Searched for a generated file mapping signature ->
-verified-against-native under `matrix/` and in the gate output paths; there
-is none, and nothing in the tree produces one. The gpu gate compares
-STATUS codes and workload results between a guest run and a native run; no
-tool anywhere compares the answer BYTES of a forwarded control against the
-bytes the same call returns natively.
-
-That is a real gap and not a missing file: the failure class it would catch
-is "an answer that looks valid and is wrong", which is exactly what numbers
-32 and 44 turned out to be -- a status comparison cannot see it, and only
-the bytes can.
-
-The consequence for this catalogue is deliberate and stated plainly: the
-`implemented-verified` class is **empty**, and every governed signature
-lands in `implemented-unverified`. That emptiness is a correct output, not
-a defect of the pipeline. TASKS carries the standing task that would fill
-it.
-
-This file is never written by hand. When a differential harness exists and
-emits `matrix/verified-<driver>.json`, this pipeline reads it and the class
-fills itself.
+FOUND: `matrix/verified-610.57.04.json`.

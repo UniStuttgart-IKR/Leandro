@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T23:30:07Z",
-    "commit:  1e453ae (working tree modified)"
+    "date:    2026-08-20T23:36:29Z",
+    "commit:  07a5950 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -3587,7 +3587,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1038}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1033}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5982,7 +5982,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 3 call(s), 2192 of 2192 bytes, masked {'not-written': 521}"
+        "answer bytes compared against a native run: 3 call(s), 2192 of 2192 bytes, masked {'not-written': 538}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -8846,9 +8846,9 @@
         "nvenc",
         "opencl"
       ],
-      "calls": 173,
+      "calls": 174,
       "rm_status": {
-        "0x0": 173
+        "0x0": 174
       },
       "flags": [
         "none"
@@ -9391,7 +9391,7 @@
         "vk-offscreen",
         "vk-rt"
       ],
-      "calls": 2749,
+      "calls": 2750,
       "rm_status": {},
       "flags": [
         "none"
@@ -9438,7 +9438,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24",
-        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 51}"
+        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 54}"
       ],
       "fields": [
         {
@@ -9525,7 +9525,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 17}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 18}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -9584,7 +9584,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16",
-        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 580}"
+        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 600}"
       ],
       "fields": [
         {
@@ -10228,7 +10228,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 70 call(s), 16 of 16 bytes, masked {'not-written': 110}; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 70 call(s), 16 of 16 bytes, masked {'not-written': 118}; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": 16
@@ -10547,7 +10547,7 @@
         "nvenc",
         "opencl"
       ],
-      "calls": 275,
+      "calls": 276,
       "rm_status": {},
       "flags": [
         "fd-field"
@@ -10825,7 +10825,7 @@
         "nvenc",
         "opencl"
       ],
-      "calls": 275,
+      "calls": 276,
       "rm_status": {},
       "flags": [
         "none"
@@ -10996,7 +10996,7 @@
         "nvenc",
         "opencl"
       ],
-      "calls": 199,
+      "calls": 200,
       "rm_status": {},
       "flags": [
         "none"
@@ -11853,7 +11853,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 6 call(s), 16 of 16 bytes, masked {'not-written': 11}"
+        "answer bytes compared against a native run: 6 call(s), 16 of 16 bytes, masked {'not-written': 12}"
       ],
       "fields": [
         {
@@ -12097,7 +12097,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: engineList @8",
-        "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'not-written': 5}"
+        "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'not-written': 6}"
       ],
       "fields": [
         {
@@ -13283,7 +13283,7 @@
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 29222"
+      "criterion": "glmark2 --off-screen rendered the build scene, score 27270"
     },
     {
       "probe": "gles",
@@ -13317,11 +13317,11 @@
     },
     {
       "probe": "nvdec",
-      "result": "PASS",
-      "tracer": "996",
-      "strace": "996",
+      "result": "PASS (matched on attempt 3)",
+      "tracer": "1001",
+      "strace": "1001",
       "delta": "0",
-      "ioctls": "996",
+      "ioctls": "1001",
       "sigs": "170",
       "modeset": "0",
       "drm": "0",

@@ -831,7 +831,43 @@ and for nothing to do with this entry — which is exactly the separation the
 two columns exist for.
 
 ### 55. The answer bytes are compared now, and the class that can be promoted is not the class that can be reached
-**Criterion half answered 2026-08-20; reach half still open.** `scripts/ioctl-matrix.sh verify` compares the
+**Both halves answered; the reach half closed 2026-08-21.** What the reach
+half asked for was answer evidence for the classes `ctrlout` could not see --
+allocations, UVM, and the controls outside the two namespaces it happened to
+cover. All of them have it now, and the numbers moved accordingly:
+`implemented-verified` went from 5 signatures to 60, `implemented-unverified`
+from 70 to 15.
+
+Where the reach ends is measured rather than asserted. Of the 258 comparable
+signatures **249 have answer evidence, at 99.5% of their answer bytes**. The
+nine without are not gaps in the instrument: five controls whose `paramsSize`
+is 0 on every observed call and which therefore carry no answer buffer at
+all, two that only `cuda-torch` calls and cuda-torch is blocked in the guest
+for want of PyTorch, and `UVM_DEINITIALIZE`, which takes no parameter struct.
+
+Four things got it there, and each is worth naming because each was a
+different kind of missing:
+
+  * **the length, four times over.** A control's is `paramsSize`, an
+    escape's is `_IOC_SIZE`, and both are the caller's own declared size --
+    self-describing, safe at any width, needing no table. An allocation's and
+    a UVM command's are not: they come from the CLASS and from the command,
+    which is what `xlate::alloc_param_size` and `xlate::uvm_param_size` are
+    for. Those are the tables under test, so the tracer uses `size_of` of the
+    bindgen struct instead and a test requires the two to agree. Sixty-odd
+    hand-computed sizes are checked by the compiler now and all of them were
+    right -- which does not make them right by luck any more, it makes them
+    checked;
+  * **the cap.** 32 bytes, then 256, and 256 was 4.3% of the answer bytes in
+    a sweep. 65536 is 99.5% and costs 110 MB of trace;
+  * **the before-call sample**, which resolved number 60 and became the fifth
+    mask;
+  * **one record per allocation** even when the class passes no parameters,
+    because then the escape's own struct is the whole answer.
+
+The original entry follows.
+
+**Criterion half answered 2026-08-20.** `scripts/ioctl-matrix.sh verify` compares the
 ANSWER of a forwarded control, native run against guest run, call by call
 and word by word. It logs nothing new: the tracer has dumped the first 32
 bytes of the params buffer after the call since the enumeration work
