@@ -682,6 +682,20 @@ lea_vm_start() {
     local was=$INST_GUEST
     [[ -n $guest ]] && INST_GUEST=$guest
     [[ -n $transport ]] && INST_TRANSPORT=$transport
+    # The games disk belongs in this same early block, and for the very
+    # reason the paragraph above gives: lea_vm_start refuses a conflicting
+    # writer with `die`, and by then the backends are running -- which is
+    # how a refused `--games` left an nvrm backend up with no VM under it
+    # (measured 2026-08-20, and it is what `showcase.sh status` then shows
+    # as "NVRM up, VM down").
+    if [[ ${#gameopt[@]} -gt 0 ]]; then
+        local gbusy
+        if gbusy=$(lea_games_writer_other_than "$name"); then
+            die "$gbusy is filling the games base right now (--games-init).
+       Only one guest may write the base, and an overlay taken while it
+       moves underneath reads garbage later. Let that one finish first."
+        fi
+    fi
     case $INST_GUEST in ubuntu|nixos) ;; *) die "--guest wants ubuntu or nixos, not '$INST_GUEST'" ;; esac
     case $INST_TRANSPORT in ip|vsock) ;; *) die "--transport wants ip or vsock, not '$INST_TRANSPORT'" ;; esac
     # VSOCK IS FOR THE NIXOS GUEST ONLY, and the refusal names why rather than
