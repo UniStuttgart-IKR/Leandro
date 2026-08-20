@@ -104,6 +104,55 @@ def read_declared_pointers(tables):
     return out
 
 
+def read_stability(paths):
+    """THE CONTROL TEST, within-trace variant: which words of which command
+    are not constant across the calls ONE NATIVE RUN made.
+
+    A word that differs native-against-native can be evidence for nothing.
+    Without this, a timer, a counter or a free-memory figure is reported as
+    a native/guest MISMATCH -- a potential defect -- and the real findings
+    sit in a list beside them where nobody can see them.
+
+    Returns cmd -> {"repeats": most calls seen in one trace,
+                    "unstable": {word offsets that moved}}.
+
+    WHAT THIS VARIANT CANNOT TELL APART, and it is the honest limit of doing
+    it without a second run: two calls of the same command inside one trace
+    are not necessarily the same QUESTION. `GPU_GET_INFO_V2`, `GR_GET_INFO`
+    and `FB_GET_INFO` are index lists -- successive calls ask for different
+    indices, so their answers differ because the question differed and not
+    because anything moved. Measured 2026-08-20: of 19 verified signatures
+    with a word flagged here, most are of that shape.
+
+    That is why the flag is used in ONE DIRECTION ONLY. It can stop a
+    difference from being called a defect; it can never turn one into a
+    pass, and it never promotes anything. The variant that does not have
+    this weakness is the second native trace of the same probe, where call i
+    of one run is the same question as call i of the other -- and it costs a
+    run, which is why it is not this.
+    """
+    rep = collections.defaultdict(int)
+    unstable = collections.defaultdict(set)
+    for path in paths:
+        if not path.is_file():
+            continue
+        calls = collections.defaultdict(list)
+        for ln in path.read_text(errors="replace").splitlines():
+            m = CTRLOUT.match(ln)
+            if m:
+                calls[m.group(1)].append([int(x, 16) for x in m.group(4).split()])
+        for cmd, cs in calls.items():
+            rep[cmd] = max(rep[cmd], len(cs))
+            if len(cs) < 2:
+                continue
+            n = min(len(c) for c in cs)
+            for i in range(0, n - n % 4, 4):
+                if any(c[i:i + 4] != cs[0][i:i + 4] for c in cs[1:]):
+                    unstable[cmd].add(i)
+    return {c: {"repeats": rep[c], "unstable": sorted(unstable.get(c, ()))}
+            for c in rep}
+
+
 def read_mediation(path):
     """cmd -> [ {off, len, stride, count, kind, field}, ... ] out of the
     manifest the trace phase wrote beside ``tables.txt``.
@@ -252,7 +301,8 @@ def explain(nw, gw, off, ptrs, native, guest):
     return None
 
 
-def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None):
+def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
+                stab=None):
     """One signature's verdict: verified, or the reason it is not.
 
     Returns `(ok, why, masked)`. With a mediation manifest for this command
@@ -298,6 +348,27 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None):
             if nw == gw:
                 continue
             why = explain(nw, gw, j * 4, ptrs, native, guest)
+            # PRECEDENCE, and it is the whole logic of this function.
+            #
+            #   1. the three DERIVED masks -- each is a positive
+            #      identification ("this word IS this side's gpu_id"), and a
+            #      fact is not weakened by the value being volatile;
+            #   2. UNSTABLE -- the word moved between two calls of one native
+            #      run, so it is evidence for nothing. Not a pass and not a
+            #      defect: a third answer;
+            #   3. MEDIATED -- the manifest says this field may be rewritten.
+            #
+            # 2 before 3 deliberately. A word that is not stable cannot be
+            # evidence that the mediation worked either, and the alternative
+            # order would let an unstable value be reported as mediation
+            # doing its job. FB_GET_INFO_V2 on an uncapped rig is exactly
+            # that case: the byte that moves is HEAP_FREE.
+            if why is None and stab and (j * 4) in stab["unstable"]:
+                return "unstable", (
+                    f"call {i}, {name_at(fm, j * 4)}: {nw:#010x} natively, "
+                    f"{gw:#010x} in the guest -- and this word is NOT STABLE "
+                    f"between two calls of the native run itself, so it is "
+                    f"evidence for nothing"), {}
             if why is None and med:
                 # The inverted test. Inside a manifest field this word is
                 # SUPPOSED to differ, and that it does is the evidence.
@@ -344,6 +415,11 @@ def main():
     declared = read_declared_pointers(ndir / "tables.txt")
     fields = read_fieldmap(ndir / "fields.json")
     mediation = read_mediation(ndir / "mediation.txt")
+    # Every native trace, not just the probes named on the command line: a
+    # command's stability is a property of the command, and the more calls
+    # the evidence rests on the fewer values are wrongly called stable.
+    stability = read_stability(sorted(
+        f for f in ndir.glob("*.tsv") if f.name != "probes.tsv"))
     cat = {}
     catf = outdir / f"catalog-{a.driver}.json"
     if catf.is_file():
@@ -356,7 +432,7 @@ def main():
     # version of this file appended to a list as it went and would have kept
     # the good half of exactly that case.
     ok_by_sig, bad_by_sig, evidence, sides, skipped = {}, {}, {}, {}, []
-    abstained = {}
+    abstained, unstable_by_sig = {}, {}
     for p in a.probes:
         n = read_side(ndir / f"{p}.tsv")
         g = read_side(gdir / f"{p}.tsv")
@@ -383,12 +459,25 @@ def main():
             key = f"ctl 0x2a {cmd}"
             fm = fields.get(cmd)
             med = mediation.get(cmd)
+            st = stability.get(cmd)
             ok, why, masked = compare_cmd(cmd, n["calls"].get(cmd, []),
                                           g["calls"].get(cmd, []), n, g,
-                                          declared.get(cmd, ()), fm, med)
+                                          declared.get(cmd, ()), fm, med, st)
             row = cat.get(("ctl", "0x2a", cmd), {})
             if ok == "abstain":
                 abstained.setdefault(key, []).append({"probe": p, "reason": why})
+                continue
+            if ok == "unstable":
+                # Not a pass and not a defect. It joins neither verified class
+                # and it does NOT disqualify the signature the way a mismatch
+                # does -- a word that can be evidence for nothing is also not
+                # evidence against.
+                unstable_by_sig.setdefault(key, {
+                    "signature": key, "name": row.get("name", ""),
+                    "probes": [], "reason": why,
+                    "unstable_words": (st or {}).get("unstable", []),
+                    "native_calls_compared": (st or {}).get("repeats", 0),
+                })["probes"].append(p)
                 continue
             if ok:
                 nb = len(n["calls"][cmd][0]["bytes"])
@@ -446,10 +535,23 @@ def main():
         e["probes_not_comparable"] = [x["probe"] for x in abstained.get(k, [])]
         e["fully_paired"] = not e["probes_not_comparable"]
 
-    ok_all = sorted(k for k in ok_by_sig if k not in bad_by_sig)
+    # DISQUALIFICATION IS THE SAME FOR BOTH KINDS OF NEGATIVE OUTCOME, and
+    # getting this wrong is how a stability classification PROMOTES.
+    #
+    # A signature that mismatches under one probe is not verified, however
+    # well it matched under another -- the claim is about the command. The
+    # same has to hold for `unstable`: if one probe's comparison landed on a
+    # word that moves within a native run, that probe learned nothing, and a
+    # signature cannot be verified on the strength of the probes that were
+    # luckier. Leaving `unstable` out of this test raised the verified count
+    # by two the first time it ran, which is the gate this package is
+    # measured against catching its own logic inverted.
+    ok_all = sorted(k for k in ok_by_sig
+                    if k not in bad_by_sig and k not in unstable_by_sig)
     evidence = {k: ok_by_sig[k] for k in ok_all}
     disputed = sorted(set(ok_by_sig) & set(bad_by_sig))
     notv = [bad_by_sig[k] for k in sorted(bad_by_sig)]
+
 
     # TWO CLASSES, AND THEY MUST NEVER SHARE AN UNLABELLED ROW.
     #
@@ -469,6 +571,53 @@ def main():
 
     verified = [k for k in ok_all if not moved(k)]
     verified_mediated = [k for k in ok_all if moved(k)]
+
+    # `verified` rows KEEP their status whatever the control test says, and
+    # that is deliberate rather than lenient. Their claim is "these bytes
+    # were the same in every call compared", which is true whether or not the
+    # value is volatile. What the control test adds to such a row is a
+    # CAVEAT, not a demotion: a match on a word that moves within a native
+    # run is luck, and a reader deciding what to trust should be told.
+    for k in ok_all:
+        cmd = k.split()[-1]
+        st = stability.get(cmd, {})
+        nb = evidence[k]["bytes_compared"]
+        evidence[k]["native_calls_seen"] = st.get("repeats", 0)
+        evidence[k]["unstable_words_in_extent"] = [
+            o for o in st.get("unstable", ()) if o < nb]
+        evidence[k]["stability"] = (
+            "unknown -- no native trace called it twice, so nothing here says "
+            "whether these bytes are stable at all"
+            if st.get("repeats", 0) < 2 else
+            "some compared words are not constant across the calls one native "
+            "run made; a match on those is not proof they are stable"
+            if evidence[k]["unstable_words_in_extent"] else
+            "every compared word was constant across the calls one native run "
+            "made")
+
+    # not_verified splits three ways, and only ONE of them is a defect
+    # candidate. Before this, a timer and a genuinely wrong answer sat in the
+    # same list and the list was read as "45 things that do not match".
+    notv_all = [bad_by_sig[k] for k in sorted(bad_by_sig)]
+    mismatch, stability_unknown = [], []
+    for x in notv_all:
+        cmd = x["signature"].split()[-1]
+        if stability.get(cmd, {}).get("repeats", 0) < 2:
+            x["stability"] = ("unknown -- no native trace called this command "
+                              "twice, so the control test cannot say whether "
+                              "the differing word is stable. NOT the same as "
+                              "stable")
+            stability_unknown.append(x)
+        else:
+            x["stability"] = ("every word that differs was constant across the "
+                              "calls one native run made, so the difference is "
+                              "not volatility")
+            mismatch.append(x)
+    # A signature that BOTH mismatches somewhere and is unstable somewhere is
+    # reported as the mismatch: that is the outcome that could be a defect,
+    # and the one a reader has to look at.
+    unstable = [unstable_by_sig[k] for k in sorted(unstable_by_sig)
+                if k not in bad_by_sig]
 
     js = {
         "provenance": [x for x in a.provenance.split("|") if x],
@@ -532,10 +681,36 @@ def main():
             "absent -- messages fall back to byte offsets. "
             "scripts/ioctl-matrix.sh trace writes it"),
         "probes": sides,
+        "control_test": (
+            "within-trace variant: for every command a native trace called "
+            "more than once, the answer words are compared across those "
+            "calls. A word that differs native-against-native is not stable "
+            "and can be evidence for nothing. It is used in ONE DIRECTION -- "
+            "it moves a difference out of `mismatch`, and never into a "
+            "verified class. LIMIT: two calls of one command in one trace are "
+            "not always the same QUESTION (index-list commands such as "
+            "GPU_GET_INFO_V2 and GR_GET_INFO ask for a different index each "
+            "call), so this flags more words than are genuinely volatile. The "
+            "variant without that weakness is a second native trace of the "
+            "same probe, where call i is the same question on both sides"),
         "verified": verified,
         "verified_mediated": verified_mediated,
         "evidence": evidence,
         "not_verified": notv,
+        "mismatch": mismatch,
+        "unstable": unstable,
+        "stability_unknown": stability_unknown,
+        "verdicts": {
+            "mismatch": "the bytes differ, at a word that was constant across "
+                        "the calls one native run made. THE ONLY POTENTIAL "
+                        "DEFECT in this file",
+            "unstable": "the bytes differ, at a word that moves between two "
+                        "calls of the native run itself -- evidence for "
+                        "nothing, in either direction",
+            "stability-unknown": "the bytes differ, and no native trace called "
+                                 "the command twice, so the control test has "
+                                 "nothing to say. Never to be read as stable",
+        },
         "matched_under_one_probe_and_not_another": disputed,
         "probes_skipped": skipped,
         "not_comparable": {
@@ -565,19 +740,32 @@ def main():
         print(f"  MEDIATED {k:<22} {e['name'][:44]:<44} "
               f"{e['calls_compared']} call(s), {e['bytes_compared']}/{e['answer_size']} "
               f"bytes, differs only in {', '.join(moved_in)}")
-    for x in notv[:14]:
-        print(f"  NOT      {x['signature'] or x['probe']:<22} {x['reason']}")
-    if len(notv) > 14:
-        print(f"  ... and {len(notv) - 14} more not verified")
+    for x in mismatch[:14]:
+        print(f"  MISMATCH {x['signature']:<22} {x['reason']}")
+    if len(mismatch) > 14:
+        print(f"  ... and {len(mismatch) - 14} more mismatching")
+    for x in stability_unknown[:8]:
+        print(f"  UNKNOWN? {x['signature']:<22} {x['reason'][:96]}")
+    if len(stability_unknown) > 8:
+        print(f"  ... and {len(stability_unknown) - 8} more of unknown stability")
+    for x in unstable[:8]:
+        print(f"  UNSTABLE {x['signature']:<22} {x['name'][:44]:<44} "
+              f"word(s) {x['unstable_words']} move within one native run")
+    if len(unstable) > 8:
+        print(f"  ... and {len(unstable) - 8} more unstable")
     for x in skipped:
         print(f"  skipped  {x['probe']:<22} {x['reason']}")
     full = sum(1 for k in verified + verified_mediated if evidence[k]["fully_paired"])
     part = len(verified) + len(verified_mediated) - full
     print(f"\n{len(verified)} signature(s) verified against a native run, "
           f"{len(verified_mediated)} verified-mediated (differ in exactly the "
-          f"fields the mediation declares), {len(notv)} not"
-          + (f", {len(disputed)} of them matched under another probe"
+          f"fields the mediation declares)"
+          + (f", {len(disputed)} matched under one probe and not another"
              if disputed else ""))
+    print(f"not verified splits three ways: {len(mismatch)} MISMATCH (the only "
+          f"potential defects), {len(unstable)} unstable (differ at a word that "
+          f"moves within one native run), {len(stability_unknown)} of unknown "
+          f"stability (no native trace called them twice)")
     print(f"of the {full + part} verified: {full} paired call for call in every "
           f"probe, {part} had at least one probe whose two runs made different "
           f"numbers of calls and which therefore judged nothing "

@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T19:19:31Z",
-    "commit:  e9131da (working tree modified)"
+    "date:    2026-08-20T19:23:35Z",
+    "commit:  f917ed6 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -8776,6 +8776,59 @@
     {
       "device": "ctl",
       "nr": "0x2a",
+      "sub": "0x20801303",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_FB_GET_INFO_V2",
+      "description": "",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:489",
+      "params_struct": "NV2080_CTRL_FB_GET_INFO_V2_PARAMS",
+      "params_size": 1028,
+      "observed_params_size": [
+        "0x404"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 56,
+      "rm_status": {
+        "0x0": 56
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answered by the backend itself: fbInfoList[].data @8 (backend-answered, mediation.txt)"
+      ],
+      "fields": [
+        {
+          "name": "fbInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "fbInfoList",
+          "type": "NV2080_CTRL_FB_INFO[NV2080_CTRL_FB_INFO_MAX_LIST_SIZE]",
+          "offset": 4,
+          "size": 1024
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
       "sub": "0x80170d",
       "kind": "ctrl",
       "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
@@ -11368,6 +11421,61 @@
     {
       "device": "ctl",
       "nr": "0x2a",
+      "sub": "0x2080018d",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_GPU_GET_PIDS",
+      "description": "Given a resource identifier and its type, this command returns a set of process identifiers (PIDs) of processes that have instantiated this resource. For exampl",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3501",
+      "params_struct": "NV2080_CTRL_GPU_GET_PIDS_PARAMS",
+      "params_size": 3812,
+      "observed_params_size": [
+        "0xee4"
+      ],
+      "seen_in": [
+        "nvml"
+      ],
+      "calls": 3,
+      "rm_status": {
+        "0x0": 3
+      },
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "answered by the backend itself: pidTblCount @8 (backend-answered, mediation.txt); pidTbl @12 (backend-answered, mediation.txt)"
+      ],
+      "fields": [
+        {
+          "name": "idType",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "id",
+          "type": "NvU32",
+          "offset": 4,
+          "size": 4
+        },
+        {
+          "name": "pidTblCount",
+          "type": "NvU32",
+          "offset": 8,
+          "size": 4
+        },
+        {
+          "name": "pidTbl",
+          "type": "NvU32[NV2080_CTRL_GPU_GET_PIDS_MAX_COUNT]",
+          "offset": 12,
+          "size": 3800
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
       "sub": "0x2080018e",
       "kind": "ctrl",
       "name": "NV2080_CTRL_CMD_GPU_GET_PID_INFO",
@@ -11855,118 +11963,6 @@
           "type": "struct",
           "offset": 4,
           "size": 64
-        }
-      ],
-      "status": "implemented-verified-mediated",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x20801303",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_FB_GET_INFO_V2",
-      "description": "",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:489",
-      "params_struct": "NV2080_CTRL_FB_GET_INFO_V2_PARAMS",
-      "params_size": 1028,
-      "observed_params_size": [
-        "0x404"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 56,
-      "rm_status": {
-        "0x0": 56
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [
-        "answered by the backend itself: fbInfoList[].data @8 (backend-answered, mediation.txt)",
-        "answer bytes compared against a native run: 51 call(s), 32 of 1028 bytes, masked {'mediated:backend-answered': 11}",
-        "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (fbInfoList[].data (backend-answered) @8 x128 stride 8) and in no other byte. That is a different claim from byte equality"
-      ],
-      "fields": [
-        {
-          "name": "fbInfoListSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "fbInfoList",
-          "type": "NV2080_CTRL_FB_INFO[NV2080_CTRL_FB_INFO_MAX_LIST_SIZE]",
-          "offset": 4,
-          "size": 1024
-        }
-      ],
-      "status": "implemented-verified-mediated",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x2080018d",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_GPU_GET_PIDS",
-      "description": "Given a resource identifier and its type, this command returns a set of process identifiers (PIDs) of processes that have instantiated this resource. For exampl",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3501",
-      "params_struct": "NV2080_CTRL_GPU_GET_PIDS_PARAMS",
-      "params_size": 3812,
-      "observed_params_size": [
-        "0xee4"
-      ],
-      "seen_in": [
-        "nvml"
-      ],
-      "calls": 3,
-      "rm_status": {
-        "0x0": 3
-      },
-      "flags": [
-        "none"
-      ],
-      "notes": [
-        "answered by the backend itself: pidTblCount @8 (backend-answered, mediation.txt); pidTbl @12 (backend-answered, mediation.txt)",
-        "answer bytes compared against a native run: 3 call(s), 32 of 3812 bytes, masked {'mediated:backend-answered': 11}",
-        "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (pidTblCount (backend-answered) @8; pidTbl (backend-answered) @12 x950 stride 4) and in no other byte. That is a different claim from byte equality"
-      ],
-      "fields": [
-        {
-          "name": "idType",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "id",
-          "type": "NvU32",
-          "offset": 4,
-          "size": 4
-        },
-        {
-          "name": "pidTblCount",
-          "type": "NvU32",
-          "offset": 8,
-          "size": 4
-        },
-        {
-          "name": "pidTbl",
-          "type": "NvU32[NV2080_CTRL_GPU_GET_PIDS_MAX_COUNT]",
-          "offset": 12,
-          "size": 3800
         }
       ],
       "status": "implemented-verified-mediated",

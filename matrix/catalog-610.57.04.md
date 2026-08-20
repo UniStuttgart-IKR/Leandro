@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T19:19:31Z
-commit:  e9131da (working tree modified)
+date:    2026-08-20T19:23:35Z
+commit:  f917ed6 (working tree modified)
 ```
 
 One row per signature `(device, ioctl nr, sub)`. Names, descriptions,
@@ -74,9 +74,9 @@ the two places a size is not self-describing -- they agree.
 | status | signatures |
 |---|---:|
 | `passthrough` | 182 |
-| `implemented-unverified` | 68 |
+| `implemented-unverified` | 70 |
 | `implemented-verified` | 5 |
-| `implemented-verified-mediated` | 3 |
+| `implemented-verified-mediated` | 1 |
 | `not-governed` | 32 |
 | **total** | **290** |
 
@@ -395,6 +395,8 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x29` | `-` | `NV_ESC_RM_FREE` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:33` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x101` | `NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION` | This command returns the current driver information. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000system.h:108` | `NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS` | 40 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
 | | | | | *pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24* | | | | | |
+| ctl | `0x2a` | `0x20801303` | `NV2080_CTRL_CMD_FB_GET_INFO_V2` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:489` | `NV2080_CTRL_FB_GET_INFO_V2_PARAMS` | 1028 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
+| | | | | *answered by the backend itself: fbInfoList[].data @8 (backend-answered, mediation.txt)* | | | | | |
 | ctl | `0x2a` | `0x80170d` | `NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST` | Takes a list of hChannels as input and returns the corresponding Channel IDs that they corresponding to on hw. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:178` | `NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS` | 24 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
 | | | | | *pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16* | | | | | |
 | ctl | `0x2b` | `0x2080` | `NV20_SUBDEVICE_0` | &mdash; | `src/nvidia/generated/g_allclasses.h:305` | `NV2080_ALLOC_PARAMETERS` | 4 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
@@ -470,6 +472,8 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2b` | `0xc4b0` | `NVC4B0_VIDEO_DECODER` | &mdash; | `src/nvidia/generated/g_allclasses.h:911` | `&mdash;` | 12 (table) | none | nvdec, vk-offscreen |
 | ctl | `0x2b` | `0xa0bc` | `NVENC_SW_SESSION` | &mdash; | `src/nvidia/generated/g_allclasses.h:1219` | `NVA0BC_ALLOC_PARAMETERS` | 20 | size-table | nvenc |
 | ctl | `0x2b` | `0xc4b7` | `NVC4B7_VIDEO_ENCODER` | &mdash; | `src/nvidia/generated/g_allclasses.h:947` | `&mdash;` | 12 (table) | none | nvenc, vk-offscreen |
+| ctl | `0x2a` | `0x2080018d` | `NV2080_CTRL_CMD_GPU_GET_PIDS` | Given a resource identifier and its type, this command returns a set of process identifiers (PIDs) of processes that have instantiated this resource. For exampl | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3501` | `NV2080_CTRL_GPU_GET_PIDS_PARAMS` | 3812 | none | nvml |
+| | | | | *answered by the backend itself: pidTblCount @8 (backend-answered, mediation.txt); pidTbl @12 (backend-answered, mediation.txt)* | | | | | |
 | ctl | `0x2a` | `0x2080018e` | `NV2080_CTRL_CMD_GPU_GET_PID_INFO` | This command allows querying per-process information from the RM. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3643` | `NV2080_CTRL_GPU_GET_PID_INFO_PARAMS` | 14408 | none | nvml |
 | | | | | *answered by the backend itself: pidInfoListCount @0 (backend-answered, mediation.txt); pidInfoList @8 (backend-answered, mediation.txt)* | | | | | |
 | ctl | `0x2b` | `0xc640` | `AMPERE_SMC_MONITOR_SESSION` | &mdash; | `src/nvidia/generated/g_allclasses.h:1147` | `NVC640_ALLOCATION_PARAMETERS` | 8 | size-table | nvml |
@@ -508,14 +512,6 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answered by the backend itself: gpuNameString @4 (identity-string, mediation.txt)* | | | | | |
 | | | | | *answer bytes compared against a native run: 20 call(s), 32 of 68 bytes, masked {'mediated:identity-string': 120}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | | | | | *MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (gpuNameString (identity-string) @4) and in no other byte. That is a different claim from byte equality* | | | | | |
-| ctl | `0x2a` | `0x20801303` | `NV2080_CTRL_CMD_FB_GET_INFO_V2` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:489` | `NV2080_CTRL_FB_GET_INFO_V2_PARAMS` | 1028 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
-| | | | | *answered by the backend itself: fbInfoList[].data @8 (backend-answered, mediation.txt)* | | | | | |
-| | | | | *answer bytes compared against a native run: 51 call(s), 32 of 1028 bytes, masked {'mediated:backend-answered': 11}* | | | | | |
-| | | | | *MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (fbInfoList[].data (backend-answered) @8 x128 stride 8) and in no other byte. That is a different claim from byte equality* | | | | | |
-| ctl | `0x2a` | `0x2080018d` | `NV2080_CTRL_CMD_GPU_GET_PIDS` | Given a resource identifier and its type, this command returns a set of process identifiers (PIDs) of processes that have instantiated this resource. For exampl | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3501` | `NV2080_CTRL_GPU_GET_PIDS_PARAMS` | 3812 | none | nvml |
-| | | | | *answered by the backend itself: pidTblCount @8 (backend-answered, mediation.txt); pidTbl @12 (backend-answered, mediation.txt)* | | | | | |
-| | | | | *answer bytes compared against a native run: 3 call(s), 32 of 3812 bytes, masked {'mediated:backend-answered': 11}* | | | | | |
-| | | | | *MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (pidTblCount (backend-answered) @8; pidTbl (backend-answered) @12 x950 stride 4) and in no other byte. That is a different claim from byte equality* | | | | | |
 
 ## not-governed
 
