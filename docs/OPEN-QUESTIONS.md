@@ -135,6 +135,28 @@ propagating up through glamor. Numbers 22-C, 23, 26, 32 and 33 all pointed
 at this without naming it. Fixing the import is expected to resolve the
 rest; nothing above it needs its own fix.
 
+### 42. Is `capDescriptor` on 0xc640 really an fd that needs no translation?
+**Open, and deliberately left as it is.** `NV0080_CTRL_CMD_FIFO_...` class
+0xc640 carries a `capDescriptor` in its alloc parameters, which is an fd in
+the guest's numbering, and `alloc_fd_field` in
+[`crates/nvrm-abi/src/xlate.rs`](../crates/nvrm-abi/src/xlate.rs) has no
+entry for it -- so it is forwarded untranslated. Nothing has been observed
+to break, because the field is MIG-only and no measured workload allocates
+that class. Two answers are possible and only one is right: either the
+field is never a real fd on this path, or the entry is missing and a MIG
+guest would hand the host a number from its own table. Deciding it needs a
+workload that allocates the class, not more reading.
+
+### 43. Which FD does the driver require the mapping ioctl on?
+**Open; the code works and the documentation used to disagree with it.**
+[`crates/nvrm-client/src/mem.rs`](../crates/nvrm-client/src/mem.rs) issues
+the map ioctl on `rm.ctl()`, and that path is measured and works. The
+prose in this repository claimed for a while that it must go to the
+freshly opened fd instead. The doubt is written down rather than resolved:
+the two arrangements have never been compared against a real libcuda
+trace, which is what would settle it. Until then the code is the
+statement, not the prose.
+
 ---
 
 ## Resolved and decided

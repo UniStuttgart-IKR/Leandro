@@ -497,6 +497,38 @@ Where the documentation still describes those paths, it is reporting
 what was **measured** on them. None of it is runnable here, and the S0–S2
 stage labels name arguments, not commands.
 
+### Known small gaps
+
+Things that are true of the tree as it stands, small enough that none of
+them stops anything and large enough that finding them twice would be a
+waste. Written down here rather than in a private list, so that the next
+person meets them as facts instead of surprises.
+
+- **`probe/run/*.sh` are outside both syntax nets.** `test.sh check`'s
+  `bash -n` step and the CI ShellCheck invocation both glob `scripts/`
+  only. The five runners under `probe/run/` are checked by nothing; they
+  are also the scripts a reader is most likely to copy from.
+- **Three display probes are staged but never built or run.**
+  `lea_guest_setup` copies `eglprobe.c`, `fbprobe.c` and `atomicflip.c`
+  into every display guest, and the block above them describes them as
+  readers of the display path. Nothing compiles or runs them today; they
+  were the instruments of the EGLImage hunt (numbers 32-35) and are kept
+  for the next one.
+- **`Rsp.scm_fd_count` names a transport that is gone.** The field counted
+  the FDs passed back with `SCM_RIGHTS` on the retired Unix-socket
+  transport; across a VM boundary there is no FD to pass and it is always
+  0. The word stays because the layout is the wire contract, and renaming a
+  field of it is a protocol change for a cosmetic reason.
+- **The measurement CSVs carry German tokens.** `nativ` and `modul` as
+  variant names, and `messungen.csv` as a file name. Renaming them touches
+  the aggregator, the plotting scripts and archived data that cannot be
+  regenerated, so the tokens stay until something else has to change there
+  anyway.
+- **`nvrm-sys` sets `doctest = false`.** Possibly redundant since the
+  bindgen builder runs with `generate_comments(false)`, which is what used
+  to produce doc comments that rustdoc tried to compile. Not verified
+  either way; removing it costs a full `cargo test --doc` run to find out.
+
 ---
 
 ## 6. Branch policy
