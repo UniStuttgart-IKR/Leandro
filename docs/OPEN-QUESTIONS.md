@@ -651,6 +651,26 @@ INVALID_ARGUMENT for the guest's id — and the pointer one is task 1 of
 `nvidia-smi -q` itself succeeded in the guest and printed a plausible
 report. That is the point of comparing fingerprints rather than exit codes.
 
+**The flag-scan undercount noted with this entry is closed (2026-08-20).**
+`BIOS_GET_INFO` carries a `finn:` comment that evaluates a bare number
+instead of naming its params struct, so the catalogue had no struct for the
+very control this entry had just fixed. The name is not invented: it is
+PROPOSED by the naming convention and accepted only when the typedef is in
+the command's own header AND `sizeof` compiles for it. Two conventions turned
+out to be real (`_CMD` dropped, and `_CMD` kept), and a command whose header
+holds both is left alone. 35 params structs recovered header-wide, and of the
+135 named control rows the six without a struct became **four** — all four of
+which take no arguments at all: no typedef in the header, and `paramsSize 0`
+in every one of the 27 observed calls. That is a closed answer, not a gap.
+
+**The identity mediation is tested for the first time.** The remaining
+hypothesis for the `AMPERE_SMC_MONITOR_SESSION` leftover below was the
+mediated identity itself. `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` is now
+`verified-mediated` over 32 of its 68 bytes: it differs from the native
+answer in `gpuNameString` and in NO OTHER BYTE. That does not explain the
+missing allocation, but it does remove "the mediation writes somewhere it
+should not" from the list of candidates for it.
+
 **Both are fixed and the fix is measured (2026-08-20).** Each was one table
 row, because the mechanism for each already existed and only this command
 was missing from it:
@@ -705,6 +725,19 @@ issues **405 NVKMS ioctls natively and 4 in the guest** — none of the eight
 commands that make up the native enumeration, and two the host never
 issues. The GL and EGL probes go the other way: 6 natively, 14 in the
 guest.
+
+**Still open on 2026-08-20 after a second full sweep, which reproduced it
+exactly** — 9 FAIL, 3 blocked, 8 guest-validated, and six of those nine FAIL
+are this entry and nothing else. It is now the largest single cause of FAIL
+rows in the sweep, and it is not a defect: `egl-xlib`, `gl-enum`, `gles`,
+`vk-enum`, `vk-offscreen` and `vk-rt` all meet their own criteria in the
+guest and fail only on this signature-set difference.
+
+The direct probe that would settle it (issue the six commands in a guest and
+compare each status fingerprint against the native one) was scoped for this
+session and NOT built, because it was gated on every earlier package's gate
+being met and two were only partly met. It remains the next concrete step
+for this entry.
 
 Unverified, and the two candidate explanations are testable: either the
 guest's userspace takes a different discovery branch (the guest module
@@ -798,7 +831,7 @@ and for nothing to do with this entry — which is exactly the separation the
 two columns exist for.
 
 ### 55. The answer bytes are compared now, and the class that can be promoted is not the class that can be reached
-**Open, measured 2026-08-20.** `scripts/ioctl-matrix.sh verify` compares the
+**Criterion half answered 2026-08-20; reach half still open.** `scripts/ioctl-matrix.sh verify` compares the
 ANSWER of a forwarded control, native run against guest run, call by call
 and word by word. It logs nothing new: the tracer has dumped the first 32
 bytes of the params buffer after the call since the enumeration work
@@ -848,6 +881,88 @@ So the pipeline is real and its coverage is honest, and the two things it
 would take to make `implemented-verified` more than a handful are now
 specific rather than a standing wish: an answer dump for allocations and
 UVM, and a per-command field mask that the mediation itself declares.
+
+**The second of those exists now (2026-08-20).** The mediation names its own
+fields: `crates/nvrm-abi/src/mediate.rs` carries one record per
+`(command, field offset, field length, kind)` over six kinds, and
+`nvrm-genhdr --mediation-dump` writes it beside `tables.txt`. It is derived
+rather than written next to the code — the BDF tables and the PCI address
+offsets moved out of the generator into it, so the C header the guest module
+is built from and the mask `verify` uses come from ONE table. Proof the move
+was safe: the regenerated `nvrm_wire.h` is byte for byte the committed one.
+
+The fourth mask is **inverted** against the other three. They say "this word
+may differ, here is the proof"; this one says "this command is mediated, so
+it must differ inside these fields AND NOWHERE ELSE". It works at BYTE
+granularity, because `GET_PCI_INFO` packs `bus` and `slot` into one word as
+two `NvU16` and a mediated field must never shield the neighbour it shares a
+word with.
+
+**It found a missing record on its first run, before any deliberate test.**
+`GET_PCI_INFO` differed at `bus` — `0x2d` natively, the guest's own `0x05` —
+with *"this command IS mediated, and this byte is in none of the fields the
+mediation declares"*. The manifest was incomplete and the code was right:
+the guest module writes domain, bus and slot beside the id, because gpuId is
+DERIVED from the address and the two must not contradict each other. Those
+three are records now and `GET_PCI_INFO` is verified over its whole 12 bytes.
+
+The negative test was run twice on a copy and discarded: moving `bus` to a
+wrong offset makes the diff report the REAL field as a violation by name,
+and removing the identity-string record makes `GPU_GET_NAME_STRING` a
+mismatch again.
+
+**`verified-mediated` is its own class and must never share a row with
+`implemented-verified`.** Membership is decided on what MOVED in this run,
+not on the manifest alone. And it does NOT prove that the mediation is what
+moved those bytes — the manifest declares what MAY be rewritten, and a
+declared field can also be a value that is simply not stable. That is what
+the control test is for, and it took two commands straight back out again
+(see below).
+
+**The reach half is untouched and is now the whole of what is left.**
+`ctrlout` still covers root-client and subdevice controls only. The two
+semaphore-surface controls the backend answers (`0xda0003`, `0xda0005`) are
+out of its reach entirely, so no amount of masking can judge them, and
+allocations and UVM — where most of the governed class lives — still have no
+answer dump at all. That is the tracer work, and it is the designated next
+step.
+
+**The control test exists, in its cheap variant.** For every command a native
+trace called more than once, the answer words are compared across those
+calls; a word that differs native-against-native is not stable and can be
+evidence for nothing. `not_verified` splits into `mismatch` / `unstable` /
+`stability-unknown`, and only `mismatch` is a potential defect: on this
+baseline 11 rows became **1 mismatch, 10 unstable and 2 of unknown
+stability**. Nothing lists the unstable rows — TIMER_GET_TIME, the timer
+correlation, the PEX counters, BUS_GET_INFO_V2, GR_CTXSW_ZCULL_BIND and the
+counter-shaped rows that resolve to no public header classify themselves out
+of their own native traces.
+
+It is used in ONE DIRECTION. It can move a difference out of `mismatch`; it
+can never move one into a verified class. The first version left `unstable`
+out of the disqualification test and the verified count rose from 100 to
+102 — a stability classification that promotes has its logic inverted.
+
+Two things it cannot do, both structural and both fixed by the same missing
+instrument:
+
+  * **Two calls of one command in one trace are not always the same
+    QUESTION.** Index-list commands (`GPU_GET_INFO_V2`, `GR_GET_INFO`,
+    `FB_GET_INFO`) ask for a different index each call, so their answers
+    differ because the question differed. Of 19 verified signatures with a
+    word flagged here, most are of that shape.
+  * **A command called once per trace is invisible to it.**
+    `PERF_GET_CURRENT_PSTATE` is one, and it is the row that entered
+    `verified` on a single lucky call. It stays `verified` with
+    `stability: unknown` recorded on the row rather than being silently
+    treated as stable.
+
+The variant without either weakness is **a second native trace of the same
+probe**, where call i of one run is the same question as call i of the
+other. It costs one run per probe. There is already accidental evidence for
+how much it would buy: `0x2080a097` answered `0x00000007` in one guest sweep
+and `0x00000023` in the next, from the same tree — a row the within-trace
+variant calls `stability-unknown` and two runs would settle immediately.
 
 The three masks are worth noting as a pattern, because all three are of one
 kind: each is DERIVED from something the run already produced — the card's
@@ -965,6 +1080,65 @@ whatever that library probes.
 
 No probe failed for it in a way that hides anything: `egl-xcb` is FAIL in
 the guest column with its reason on the row.
+
+### 59. The probes are entry paths, and the class that can be missing is the one they do not reach
+**Raised 2026-08-20**, out of a design conversation rather than a run, and
+recorded because it is the direction with the largest measurable target in
+this tree.
+
+The 27 matrix probes are entry paths — an enumeration, a vector add, two
+seconds of video. That is a deliberate property (they are cheap, they gate,
+they are deterministic) and it has an exact consequence, which number 55's
+section on "0 missing" already states: of 290 signatures only **58** can EVER
+be reported `missing` — 39 allocation classes and 19 UVM commands, the two
+places a length is not self-describing. Everything else is forwarded whether
+or not any table names it.
+
+And the descriptor table holds **128 classes while the probes touch 39**. So
+the yield of any new-workload effort is not a matter of taste: it is *which
+of the untouched classes did we reach*, and that is a diff that can be
+computed BEFORE choosing a workload rather than discovered afterwards.
+
+**The gates and the matrix are not substitutes for each other**, and the
+question was asked directly, so the answer belongs here. A gate produces a
+VERDICT — pass/fail, bisectable, "is the tree still good". The matrix
+produces a DIFFERENTIAL — what surface did this workload touch and did the
+boundary carry it identically. The matrix's verdicts are deliberately not
+binary (`predicted-green` / `guest-validated` / `FAIL` / `blocked` are four
+claims), so gating on them would fail the tree for things like number 52
+which are not defects, and replacing the probes with gate workloads would
+lose the native reference run the comparison rests on.
+
+What DOES compose, cheapest first:
+
+  1. **Feed the gates' existing workloads through the matrix.** The tracer is
+     an `LD_PRELOAD` interposer; any binary goes under it, and traces from
+     the bench work already exist and have never been through this pipeline.
+     No new probe code.
+  2. **Let a gate stage emit a trace as a by-product** — one guest run, a
+     verdict for the gate and a signature set for the catalogue.
+  3. Only then new probes, aimed by the coverage diff.
+
+High-value targets, by what they allocate rather than by what they are:
+`libnvoptix` (OptiX allocates classes of its own) and `libnvidia-ngx`
+(DLSS) — both are staging decisions first (`TASKS-<drv>.md` task 3); CUDA
+IPC, whose `DUP_OBJECT` is one of number 52's six commands; CUDA dynamic
+parallelism, whose `MAP_DYNAMIC_PARALLELISM_REGION` (UVM 65) is in `xlate`
+and reached by nothing; fine-grained SVM in OpenCL, now that number 53's ICD
+makes that library reachable at all; Vulkan sparse residency and external
+memory; EGLStreams.
+
+Two constraints this tree already imposes and which a workload day must
+keep. **Every probe verifies a RESULT, never the absence of a crash** — the
+pixel-readback and element-compare rule; `oclprobe.c` says why, and number 53
+is what happens when it is ignored. And **the strace counter-check is the
+trust anchor**, which does not survive every workload: `cuda-gdb` is already
+ungated because strace cannot follow a process that is itself ptracing, and
+the tracer sits on a per-frame path measured at 86 645 lines in one session.
+
+Score such a day by class-coverage delta, not by probes added. That is the
+number that makes "did we find non-carryable ioctls" answerable instead of
+hopeful.
 
 ---
 
