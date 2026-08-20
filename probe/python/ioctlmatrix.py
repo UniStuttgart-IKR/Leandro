@@ -421,12 +421,24 @@ def manifest_answered(path):
         return out
     for ln in p.read_text(errors="replace").splitlines():
         f = ln.split()
-        if f[:1] != ["mediated"] or len(f) < 8:
+        # `mediated <device> <nr> <sub> <off> <len> <stride> <count> <kind>
+        # <field>`. A manifest written before the escape namespace existed
+        # has `<cmd>` where the signature is now and four columns fewer; it
+        # is skipped rather than misread, so an old trace directory produces
+        # weaker wording and never a wrong verdict.
+        if f[:1] != ["mediated"] or len(f) < 10:
             continue
-        if f[6] not in ("backend-answered", "identity-string"):
+        if f[8] not in ("backend-answered", "identity-string"):
             continue
-        cmd = int(f[1], 16)
-        what = f"{' '.join(f[7:])} @{f[2]} ({f[6]}, mediation.txt)"
+        # This map is keyed by CONTROL COMMAND, because that is what the row
+        # it annotates is keyed by. An escape carries its mediation under
+        # `sub` of "-" and is classified from the descriptor table like any
+        # other escape -- NV_ESC_CARD_INFO is passthrough and mediated at
+        # once, which is exactly what the evidence file says about it.
+        if f[1] != "ctl" or f[2] != "0x2a" or f[3] == "-":
+            continue
+        cmd = int(f[3], 16)
+        what = f"{' '.join(f[9:])} @{f[4]} ({f[8]}, mediation.txt)"
         out[cmd] = f"{out[cmd]}; {what}" if cmd in out else what
     return out
 

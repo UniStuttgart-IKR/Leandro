@@ -620,6 +620,37 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
     if matches!(dev, NvDev::UvmTools | NvDev::Drm(_) | NvDev::Event | NvDev::Modeset) {
         return;
     }
+    // THE ESCAPE'S OWN PARAMETER BLOCK, for every escape that does not
+    // already have a dump of its own.
+    //
+    // This needs no table at all, and that is the point: the length is
+    // `_IOC_SIZE` of the request, which is the caller's declared size of the
+    // struct it is passing, encoded in the ioctl number by the caller
+    // itself. Self-describing, so it is safe to read at any width and there
+    // is nothing here that could disagree with the descriptor table.
+    //
+    // It covers what nothing else did: RM_FREE, REGISTER_FD, the OS_EVENT
+    // pair, DUP_OBJECT, IDLE_CHANNELS, VID_HEAP_CONTROL, both MAP_MEMORY
+    // escapes and ALLOC_MEMORY -- every one of which had a signature in the
+    // catalogue and no answer evidence of any kind.
+    //
+    // RM_CONTROL and RM_ALLOC are excluded deliberately. Their answer is not
+    // in the ioctl struct but in the buffer it POINTS at, `ctrlout` and
+    // `allocout` dump that, and emitting a second stream under the same
+    // signature would interleave two different things in one list.
+    if !matches!(nr, sys::NV_ESC_RM_CONTROL | sys::NV_ESC_RM_ALLOC) && size > 0 {
+        let (sub, _, _) = subcode(dev, nr, size, arg);
+        let n = (size as usize).min(dump_cap());
+        let bytes = core::slice::from_raw_parts(arg as *const u8, n);
+        rec("escout", phase_of(tag), &[
+            pos("dev", V::S(dev_tag(dev))),
+            pos("nr", V::H32(nr)),
+            pos("sub", sub.map(V::H32).unwrap_or(V::Nil)),
+            key("len", V::I(size as i64)),
+            pos("dump", V::Dump(bytes)),
+        ]);
+    }
+
     match nr {
         // The ANSWERS the RT userspace branches on (OPEN-QUESTIONS nr 11):
         // one line per valid card, all the fields the BDF mediation

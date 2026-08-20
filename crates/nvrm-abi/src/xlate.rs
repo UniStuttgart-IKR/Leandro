@@ -258,6 +258,20 @@ pub fn alloc_param_size_compiled(hclass: u32) -> Option<usize> {
         0x2080 => size_of::<sys::NV2080_ALLOC_PARAMETERS>(),
         0xc661 | 0xc761 => size_of::<sys::NV_HOPPER_USERMODE_A_PARAMS>(),
         0xc763 | 0xc863 => size_of::<sys::NV_VIDMEM_ACCESS_BIT_ALLOCATION_PARAMS>(),
+        0xb0b5 | 0xc0b5 | 0xc5b5 | 0xc6b5 | 0xc7b5 | 0xc8b5 | 0xc9b5 | 0xcab5
+            => size_of::<sys::NVB0B5_ALLOCATION_PARAMETERS>(),
+        0x0070 => size_of::<sys::NV_MEMORY_VIRTUAL_ALLOCATION_PARAMS>(),
+        0x9072 => size_of::<sys::NV9072_ALLOCATION_PARAMETERS>(),
+        0x2081 => size_of::<sys::NV2081_ALLOC_PARAMETERS>(),
+        0x00fe => size_of::<sys::NV_MEMORY_MAPPER_ALLOCATION_PARAMS>(),
+        0x00de => size_of::<sys::NV00DE_ALLOC_PARAMETERS>(),
+        0xcb33 => size_of::<sys::NV_CONFIDENTIAL_COMPUTE_ALLOC_PARAMS>(),
+        0x83de => size_of::<sys::NV83DE_ALLOC_PARAMETERS>(),
+        0x00da => size_of::<sys::NV_SEMAPHORE_SURFACE_ALLOC_PARAMETERS>(),
+        0xc640 => size_of::<sys::NVC640_ALLOCATION_PARAMETERS>(),
+        0xa0bc => size_of::<sys::NVA0BC_ALLOC_PARAMETERS>(),
+        0x00c2 => size_of::<sys::NV_PHYSICAL_MEMORY_ALLOCATION_PARAMS>(),
+        0x00c3 => size_of::<sys::NV_MEMORY_SYNCPOINT_ALLOCATION_PARAMS>(),
         _ => return None,
     })
 }
@@ -316,6 +330,21 @@ mod uvm_size_tests {
         check!(sys::NV0005_ALLOC_PARAMETERS, 0x0079u32, 0x0005, 0x0078, 0x007e);
         // NV20_SUBDEVICE_0 (cl2080.h).
         check!(sys::NV2080_ALLOC_PARAMETERS, 0x2080u32);
+        // The classes whose params live in their own class header.
+        check!(sys::NVB0B5_ALLOCATION_PARAMETERS,
+               0xc5b5u32, 0xb0b5, 0xc0b5, 0xc6b5, 0xc7b5, 0xc8b5, 0xc9b5, 0xcab5);
+        check!(sys::NV_MEMORY_VIRTUAL_ALLOCATION_PARAMS, 0x0070u32);
+        check!(sys::NV9072_ALLOCATION_PARAMETERS, 0x9072u32);
+        check!(sys::NV2081_ALLOC_PARAMETERS, 0x2081u32);
+        check!(sys::NV_MEMORY_MAPPER_ALLOCATION_PARAMS, 0x00feu32);
+        check!(sys::NV00DE_ALLOC_PARAMETERS, 0x00deu32);
+        check!(sys::NV_CONFIDENTIAL_COMPUTE_ALLOC_PARAMS, 0xcb33u32);
+        check!(sys::NV83DE_ALLOC_PARAMETERS, 0x83deu32);
+        check!(sys::NV_SEMAPHORE_SURFACE_ALLOC_PARAMETERS, 0x00dau32);
+        check!(sys::NVC640_ALLOCATION_PARAMETERS, 0xc640u32);
+        check!(sys::NVA0BC_ALLOC_PARAMETERS, 0xa0bcu32);
+        check!(sys::NV_PHYSICAL_MEMORY_ALLOCATION_PARAMS, 0x00c2u32);
+        check!(sys::NV_MEMORY_SYNCPOINT_ALLOCATION_PARAMS, 0x00c3u32);
     }
 
     /// The hand-computed UVM sizes against the compiler's.

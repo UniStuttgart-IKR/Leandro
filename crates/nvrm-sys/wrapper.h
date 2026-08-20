@@ -49,6 +49,27 @@
 /* Alloc parameters for channel, channel group and context share */
 #include <alloc/alloc_channel.h>
 
+/* The remaining allocation parameter blocks that a trace on this card
+ * actually exercises. Each one is here so that `size_of` can answer for its
+ * class instead of `xlate::alloc_param_size` carrying the number as
+ * arithmetic done by hand -- see the tests in nvrm-abi/src/xlate.rs. The
+ * copy_from_user on the host side is that many bytes, so a wrong one is an
+ * out-of-bounds read that no sweep can see: guest and host agree perfectly
+ * about a truncated struct. */
+#include <class/clb0b5sw.h>  /* TURING_DMA_COPY_A and every copy engine   */
+#include <class/cl0070.h>    /* NV01_MEMORY_VIRTUAL                       */
+#include <class/cl9072.h>    /* GF100_DISP_SW                             */
+#include <class/cl2081.h>    /* NV2081_BINAPI                             */
+#include <class/cl00fe.h>    /* NV_MEMORY_MAPPER                          */
+#include <class/cl00de.h>    /* RM_USER_SHARED_DATA                       */
+#include <class/clcb33.h>    /* NV_CONFIDENTIAL_COMPUTE                   */
+#include <class/cl83de.h>    /* GT200_DEBUGGER                            */
+#include <class/cl00da.h>    /* NV_SEMAPHORE_SURFACE                      */
+#include <class/clc640.h>    /* AMPERE_SMC_MONITOR_SESSION                */
+#include <class/cla0bc.h>    /* NVENC_SW_SESSION                          */
+#include <class/cl00c2.h>    /* NV01_MEMORY_LOCAL_PHYSICAL                */
+#include <class/cl00c3.h>    /* NV01_MEMORY_SYNCPOINT                     */
+
 /* Controls */
 #include <class/cl0073.h>   /* NV04_DISPLAY_COMMON -- the class whose PRESENCE
                              keeps NVKMS out of the displayless path      */

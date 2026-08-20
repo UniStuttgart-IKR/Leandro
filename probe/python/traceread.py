@@ -60,7 +60,7 @@ MEASUREMENT = frozenset(POSITIONAL)
 # as a field. `size` and `attr` of an NVOS32 are IN/OUT -- the caller asks
 # and RM writes back what it really did -- so both samples are the point.
 PHASED = frozenset({"nvos02", "nvos33", "nvos32", "nvos46", "nvos64",
-                    "memparams", "ctrlout", "uvmout", "allocout"})
+                    "memparams", "ctrlout", "uvmout", "allocout", "escout"})
 
 # Three kinds mix positional and keyed fields, and this is the whole of that
 # irregularity:
@@ -69,7 +69,8 @@ PHASED = frozenset({"nvos02", "nvos33", "nvos32", "nvos46", "nvos64",
 #   uvmout    0x25    len=32   <dump>             -- `nr` and `dump` are
 MIXED = {"cardinfo": ("i",), "ctrlout": ("cmd", "dump"),
          "uvmout": ("nr", "dump"),
-         "allocout": ("dev", "class", "dump")}
+         "allocout": ("dev", "class", "dump"),
+         "escout": ("dev", "nr", "sub", "dump")}
 
 
 def _split_phase(kind):
@@ -254,7 +255,10 @@ def project(rec):
         elif k == "dump":
             out.append(_spaced(v))
         elif k in mixed:
-            out.append(v)
+            # A positional field that is absent is `-` in the old format,
+            # the same as in the measurement lines. `escout.sub` is the
+            # common case: most escapes have no second dispatch level.
+            out.append("-" if v is None else v)
         else:
             out.append(f"{k}={'-' if v is None else v}")
     return "\t".join(out)

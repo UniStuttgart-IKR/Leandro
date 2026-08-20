@@ -72,6 +72,10 @@ import sys
 
 # The one reader of a trace, whatever format it is in.
 import traceread
+# The key normalisation lives in ONE place, for the reason guestdiff imports
+# it too: a second copy that drifted would key the evidence differently from
+# the catalogue it is judged against.
+from ioctlmatrix import MAP_MEMORY_NR
 
 # The three things this file reads out of a trace -- the answer dumps, the
 # card's gpuId and the handles this side allocated -- used to be three
@@ -161,6 +165,12 @@ def read_stability(paths):
             elif r["t"] == "allocout":
                 calls[f"{r['dev']} 0x2b {r['class']}"].append(
                     list(bytes.fromhex(r["dump"])))
+            elif r["t"] == "escout":
+                sub = r.get("sub")
+                if sub is None or r["nr"] == MAP_MEMORY_NR:
+                    sub = "-"
+                calls[f"{r['dev']} {r['nr']} {sub}"].append(
+                    list(bytes.fromhex(r["dump"])))
         for cmd, cs in calls.items():
             rep[cmd] = max(rep[cmd], len(cs))
             if len(cs) < 2:
@@ -174,7 +184,7 @@ def read_stability(paths):
 
 
 def read_mediation(path):
-    """cmd -> [ {off, len, stride, count, kind, field}, ... ] out of the
+    """signature -> [ {off, len, stride, count, kind, field}, ... ] out of the
     manifest the trace phase wrote beside ``tables.txt``.
 
     THE FOURTH MASK, and its semantics are INVERTED against the other three.
@@ -197,11 +207,20 @@ def read_mediation(path):
         return {}
     for ln in path.read_text(errors="replace").splitlines():
         f = ln.split()
-        if f[:1] != ["mediated"] or len(f) < 8:
+        if f[:1] != ["mediated"]:
             continue
-        out[f[1]].append({
-            "off": int(f[2]), "len": int(f[3]), "stride": int(f[4]),
-            "count": int(f[5]), "kind": f[6], "field": " ".join(f[7:]),
+        # `mediated <device> <nr> <sub> <off> <len> <stride> <count> <kind>
+        # <field>`: the first three columns are the catalogue's own signature
+        # key, so this joins against the evidence without either side
+        # knowing anything about the other's namespace. A manifest written
+        # before the escape namespace existed had `<cmd>` where the
+        # signature is now, and is skipped rather than misread -- an old
+        # trace directory produces weaker wording and never a wrong verdict.
+        if len(f) < 10:
+            continue
+        out[" ".join(f[1:4])].append({
+            "off": int(f[4]), "len": int(f[5]), "stride": int(f[6]),
+            "count": int(f[7]), "kind": f[8], "field": " ".join(f[9:]),
         })
     return dict(out)
 
@@ -295,6 +314,21 @@ def read_side(path):
             # its rmStatus INSIDE the parameter block, so it is compared as
             # part of the answer rather than beside it.
             sig, status = f"uvm {r['nr']} -", "-"
+        elif r["t"] == "escout":
+            # The escape's own parameter block. `sub` is None for the escapes
+            # that have no second dispatch level, and the catalogue spells
+            # that "-".
+            #
+            # NORMALISE THE KEY THE WAY THE CATALOGUE DOES, by importing the
+            # rule rather than repeating it. For NV_ESC_RM_MAP_MEMORY the
+            # tracer's `sub` is hMemory -- a runtime HANDLE, put there so
+            # mappings can be matched to their allocations. Keyed on it, one
+            # escape becomes hundreds of rows that are all the same call, and
+            # none of them would match anything in the catalogue.
+            sub = r.get("sub")
+            if sub is None or r["nr"] == MAP_MEMORY_NR:
+                sub = "-"
+            sig, status = f"{r['dev']} {r['nr']} {sub}", "-"
         elif r["t"] == "allocout":
             # RM_ALLOC. The sub-dispatch is the CLASS, and the device
             # matters: the same class allocated through the control node and
@@ -568,7 +602,10 @@ def main():
             # masks existed.
             cmd = key.split()[-1] if key.startswith("ctl 0x2a ") else None
             fm = fields.get(cmd)
-            med = mediation.get(cmd)
+            # Keyed by the signature, so an escape that is mediated -- and
+            # NV_ESC_CARD_INFO is -- gets its manifest the same way a control
+            # does.
+            med = mediation.get(key)
             st = stability.get(key)
             ok, why, masked = compare_cmd(key, n["calls"].get(key, []),
                                           g["calls"].get(key, []), n, g,

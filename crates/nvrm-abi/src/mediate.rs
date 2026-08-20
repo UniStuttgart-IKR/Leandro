@@ -37,6 +37,10 @@ use nvrm_sys as sys;
 
 use crate::xlate;
 
+/// `NV_ESC_RM_CONTROL`. Spelled here rather than reached for through `sys`
+/// so that the manifest's own notion of "this is a control" is one name.
+const NR_RM_CONTROL: u32 = 0x2a;
+
 /// What kind of rewriting happens in a field.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -77,6 +81,15 @@ impl Kind {
 /// One rewritten field of one command.
 #[derive(Copy, Clone, Debug)]
 pub struct Mediated {
+    /// The ESCAPE this field belongs to. Almost everything mediated is a
+    /// RM_CONTROL, but not everything: `NV_ESC_CARD_INFO` carries the BDF
+    /// and the gpuId in its own inline block, with no control involved, and
+    /// a manifest that only had a `cmd` column could not name it. NVML reads
+    /// that escape, which is why nvidia-smi kept printing the host address
+    /// after every control had been mediated.
+    pub nr: u32,
+    /// The control command, when `nr` is RM_CONTROL. Meaningless otherwise,
+    /// and `sig()` is what a caller should use.
     pub cmd: u32,
     /// Offset of the field IN THE PARAMS BUFFER.
     pub off: u32,
@@ -94,6 +107,20 @@ pub struct Mediated {
 }
 
 impl Mediated {
+    /// The catalogue signature this field belongs to.
+    ///
+    /// Everything mediated is on the control node: mediation happens where
+    /// the boundary answers, and that is `/dev/nvidiactl`. A field on
+    /// another node would need a `dev` column here, and would be a finding
+    /// in its own right.
+    pub fn sig(&self) -> String {
+        if self.nr == NR_RM_CONTROL {
+            format!("ctl {:#x} {:#x}", self.nr, self.cmd)
+        } else {
+            format!("ctl {:#x} -", self.nr)
+        }
+    }
+
     /// The byte range this field covers, array included.
     pub fn end(&self) -> u32 {
         if self.count > 1 && self.stride > 0 {
@@ -327,14 +354,14 @@ pub fn manifest() -> Vec<Mediated> {
 
     for (name, cmd, off) in bdf_scalars() {
         out.push(Mediated {
-            cmd: *cmd, off: *off as u32, len: 4, stride: 0, count: 0,
+            nr: NR_RM_CONTROL, cmd: *cmd, off: *off as u32, len: 4, stride: 0, count: 0,
             kind: Kind::BdfScalar, field: name,
             why: "a gpuId: the host's card id in, this guest's id out",
         });
     }
     for (name, cmd, off, count, stride) in bdf_arrays() {
         out.push(Mediated {
-            cmd: *cmd, off: *off as u32, len: 4,
+            nr: NR_RM_CONTROL, cmd: *cmd, off: *off as u32, len: 4,
             stride: *stride as u32, count: *count,
             kind: Kind::BdfArray, field: name,
             why: "an array of gpuIds, translated element by element",
@@ -347,7 +374,7 @@ pub fn manifest() -> Vec<Mediated> {
             continue;
         }
         out.push(Mediated {
-            cmd: sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO,
+            nr: NR_RM_CONTROL, cmd: sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO,
             off: *off as u32, len: *len, stride: 0, count: 0,
             kind: Kind::BdfAddress, field: member,
             why: "the guest's own PCI address, so the address and the gpuId \
@@ -357,7 +384,7 @@ pub fn manifest() -> Vec<Mediated> {
     for cmd in xlate::nested_cmds() {
         for p in xlate::nested_ptrs(*cmd) {
             out.push(Mediated {
-                cmd: *cmd, off: p.ptr_off, len: 8, stride: 0, count: 0,
+                nr: NR_RM_CONTROL, cmd: *cmd, off: p.ptr_off, len: 8, stride: 0, count: 0,
                 kind: Kind::NestedPtr, field: "NvP64",
                 why: "a pointer into the caller's address space -- a different \
                       number on the two sides by construction",
@@ -367,7 +394,7 @@ pub fn manifest() -> Vec<Mediated> {
     for cmd in xlate::ctrl_fd_cmds() {
         if let Some(off) = xlate::ctrl_fd_offset(*cmd) {
             out.push(Mediated {
-                cmd: *cmd, off, len: 4, stride: 0, count: 0,
+                nr: NR_RM_CONTROL, cmd: *cmd, off, len: 4, stride: 0, count: 0,
                 kind: Kind::CtrlFd, field: "fd",
                 why: "a process-local file descriptor; the same number names \
                       a different file on the two sides",
@@ -377,24 +404,24 @@ pub fn manifest() -> Vec<Mediated> {
 
     // The backend's own answers.
     out.push(Mediated {
-        cmd: CMD_GPU_GET_PIDS, off: PIDS_COUNT_OFF as u32, len: 4,
+        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_PIDS, off: PIDS_COUNT_OFF as u32, len: 4,
         stride: 0, count: 0, kind: Kind::BackendAnswered, field: "pidTblCount",
         why: "how many of this VM's processes were written, not the host's count",
     });
     out.push(Mediated {
-        cmd: CMD_GPU_GET_PIDS, off: PIDS_TBL_OFF as u32, len: 4,
+        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_PIDS, off: PIDS_TBL_OFF as u32, len: 4,
         stride: 4, count: PIDS_MAX as u32,
         kind: Kind::BackendAnswered, field: "pidTbl",
         why: "this VM's guest PIDs replace the host's, which are not \
               resolvable in a guest",
     });
     out.push(Mediated {
-        cmd: CMD_GPU_GET_PID_INFO, off: PIDINFO_COUNT_OFF as u32, len: 4,
+        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_PID_INFO, off: PIDINFO_COUNT_OFF as u32, len: 4,
         stride: 0, count: 0, kind: Kind::BackendAnswered, field: "pidInfoListCount",
         why: "how many entries the backend wrote",
     });
     out.push(Mediated {
-        cmd: CMD_GPU_GET_PID_INFO, off: PIDINFO_LIST_OFF as u32,
+        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_PID_INFO, off: PIDINFO_LIST_OFF as u32,
         len: PIDINFO_ENTRY as u32, stride: PIDINFO_ENTRY as u32,
         count: PIDINFO_MAX as u32,
         kind: Kind::BackendAnswered, field: "pidInfoList",
@@ -402,7 +429,7 @@ pub fn manifest() -> Vec<Mediated> {
     });
     for (cmd, base) in [(CMD_FB_GET_INFO_V2, FBINFO_LIST_OFF), (CMD_FB_GET_INFO, 0)] {
         out.push(Mediated {
-            cmd, off: (base + FBINFO_DATA_OFF) as u32, len: 4,
+            nr: NR_RM_CONTROL, cmd, off: (base + FBINFO_DATA_OFF) as u32, len: 4,
             stride: FBINFO_ENTRY as u32, count: FBINFO_MAX as u32,
             kind: Kind::BackendAnswered, field: "fbInfoList[].data",
             why: "the VRAM ledger's capped sizes. Only `data` -- `index` is \
@@ -411,12 +438,55 @@ pub fn manifest() -> Vec<Mediated> {
         });
     }
     out.push(Mediated {
-        cmd: CMD_GPU_GET_NAME_STRING, off: NAME_OFF as u32, len: NAME_MAX as u32,
+        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_NAME_STRING, off: NAME_OFF as u32, len: NAME_MAX as u32,
         stride: 0, count: 0, kind: Kind::IdentityString, field: "gpuNameString",
         why: "the mediated card name (`Leandro ...`), whose content depends on \
               the VRAM cap and is therefore not a constant",
     });
-    out.sort_by_key(|m| (m.cmd, m.off, m.len));
+    // NV_ESC_CARD_INFO, the mediated field that is not a control at all.
+    //
+    // The guest module rewrites the BDF and the gpuId of every valid entry
+    // of the inline block (`virtio_nvrm.c`, at NVRM_CARD_INFO_PCI_OFF and
+    // NVRM_CARD_INFO_GPUID_OFF -- offsets this file generates). Nothing said
+    // so, so `verify` reported the rewrite as a MISMATCH the moment escape
+    // payloads were dumped at all: 0x2d natively, 0x05 in the guest, which
+    // is this rig's bus number against the guest's slot number and the
+    // mediation working exactly as designed.
+    //
+    // ONE ENTRY, not the whole array. The block holds NV_MAX_DEVICES of
+    // them, but only the first is filled on a single-GPU rig and a count
+    // here would be a promise about the others that nothing has measured.
+    // The comparison covers what the dump covers.
+    for (member, off, len) in [
+        ("pci_info.domain",
+         offset_of!(sys::nv_ioctl_card_info_t, pci_info)
+             + offset_of!(sys::nv_pci_info_t, domain), 4u32),
+        ("pci_info.bus",
+         offset_of!(sys::nv_ioctl_card_info_t, pci_info)
+             + offset_of!(sys::nv_pci_info_t, bus), 1),
+        ("pci_info.slot",
+         offset_of!(sys::nv_ioctl_card_info_t, pci_info)
+             + offset_of!(sys::nv_pci_info_t, slot), 1),
+        ("pci_info.function",
+         offset_of!(sys::nv_ioctl_card_info_t, pci_info)
+             + offset_of!(sys::nv_pci_info_t, function), 1),
+    ] {
+        out.push(Mediated {
+            nr: crate::nvgpu::NV_ESC_CARD_INFO, cmd: 0,
+            off: off as u32, len, stride: 0, count: 0,
+            kind: Kind::BdfAddress, field: member,
+            why: "the guest's own PCI address, in the escape NVML reads it                   from -- the same rewrite as on GET_PCI_INFO, one namespace                   further down",
+        });
+    }
+    out.push(Mediated {
+        nr: crate::nvgpu::NV_ESC_CARD_INFO, cmd: 0,
+        off: offset_of!(sys::nv_ioctl_card_info_t, gpu_id) as u32,
+        len: 4, stride: 0, count: 0,
+        kind: Kind::BdfScalar, field: "gpu_id",
+        why: "a gpuId: the host's card id in, this guest's id out. Already               covered by the derived gpuId mask, and declared here anyway --               the manifest describes what the code REWRITES, not what some               other mask happens to catch",
+    });
+
+    out.sort_by_key(|m| (m.nr, m.cmd, m.off, m.len));
     out
 }
 
@@ -435,12 +505,17 @@ pub fn dump() -> String {
          # is the opposite of the other three masks and is the point: this\n\
          # makes the comparison sharper, not looser.\n\
          #\n\
-         # mediated <cmd> <off> <len> <stride> <count> <kind> <field>\n",
+         # mediated <device> <nr> <sub> <off> <len> <stride> <count> <kind> <field>\n\
+         #\n\
+         # The first three columns are the catalogue's own signature key, so\n\
+         # a reader can join this against catalog-<drv>.json without knowing\n\
+         # anything. A control is `ctl 0x2a <cmd>`; an escape that carries\n\
+         # its answer inline, like NV_ESC_CARD_INFO, is `ctl <nr> -`.\n",
     );
     for m in manifest() {
         o.push_str(&format!(
-            "mediated {:#x} {} {} {} {} {} {}\n",
-            m.cmd, m.off, m.len, m.stride, m.count, m.kind.as_str(), m.field
+            "mediated {} {} {} {} {} {} {}\n",
+            m.sig(), m.off, m.len, m.stride, m.count, m.kind.as_str(), m.field
         ));
     }
     o

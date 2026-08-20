@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T22:41:22Z
-commit:  d741f87 (working tree modified)
+date:    2026-08-20T23:03:28Z
+commit:  c706aea (working tree modified)
 ```
 
 One row per signature `(device, ioctl nr, sub)`. Names, descriptions,
@@ -29,15 +29,15 @@ sizes are compiled, not parsed. Where a header says nothing the row says
 | `implemented-verified-mediated` | as above, but the answer DIFFERS -- in exactly the fields the mediation manifest declares and in no other byte. A different claim, and deliberately not the same row |
 | `not-governed` | a different namespace (DRM, NVKMS), carried here for completeness |
 
-**Answer evidence exists** (`matrix/verified-610.57.04.json`): 177 signature(s) had the
+**Answer evidence exists** (`matrix/verified-610.57.04.json`): 207 signature(s) had the
 first bytes of their answer compared, call by call, against the same
 call in a native run, and matched. Rows that carry it say so in a
 note, with how many bytes of how large an answer -- 32 bytes of a
 384-byte answer is 32 bytes, and the note is there so that
 `verified` cannot be read as more than what was compared.
 
-Of those, **40 are `implemented-verified`**, i.e. governed by the
-descriptor tables AND matched. They are: `FERMI_CONTEXT_SHARE_A`, `FERMI_VASPACE_A`, `KEPLER_CHANNEL_GROUP_A`, `NV0000_CTRL_CMD_OS_UNIX_EXPORT_OBJECT_TO_FD`, `NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION`, `NV0080_CTRL_CMD_FB_GET_CAPS`, `NV0080_CTRL_CMD_FIFO_GET_CAPS`, `NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST`, `NV0080_CTRL_CMD_GPU_GET_CLASSLIST`, `NV0080_CTRL_CMD_GR_GET_CAPS`, `NV0080_CTRL_CMD_GR_GET_INFO`, `NV0080_CTRL_CMD_NVENC_GET_CAPS`, `NV01_CONTEXT_DMA`, `NV01_DEVICE_0`, `NV01_MEMORY_SYSTEM`, `NV2080_CTRL_CMD_BIOS_GET_INFO`, `NV2080_CTRL_CMD_BUS_GET_INFO`, `NV2080_CTRL_CMD_FB_GET_INFO`, `NV2080_CTRL_CMD_GPU_GET_ENGINES`, `NV2080_CTRL_CMD_GR_GET_INFO`, `NV20_SUBDEVICE_0`, `NV50_MEMORY_VIRTUAL`, `NVC4B0_VIDEO_DECODER`, `NVC4B7_VIDEO_ENCODER`, `TURING_COMPUTE_A`, `UVM_ALLOC_SEMAPHORE_POOL`, `UVM_CREATE_EXTERNAL_RANGE`, `UVM_FREE`, `UVM_INITIALIZE`, `UVM_MAP_DYNAMIC_PARALLELISM_REGION`, `UVM_MAP_EXTERNAL_ALLOCATION`, `UVM_MM_INITIALIZE`, `UVM_PAGEABLE_MEM_ACCESS`, `UVM_PAGEABLE_MEM_ACCESS_ON_GPU`, `UVM_REGISTER_CHANNEL`, `UVM_REGISTER_GPU`, `UVM_REGISTER_GPU_VASPACE`, `UVM_UNREGISTER_CHANNEL`, `UVM_UNREGISTER_GPU_VASPACE`, `UVM_VALIDATE_VA_RANGE`.
+Of those, **56 are `implemented-verified`**, i.e. governed by the
+descriptor tables AND matched. They are: `FERMI_CONTEXT_SHARE_A`, `FERMI_VASPACE_A`, `GF100_DISP_SW`, `GT200_DEBUGGER`, `KEPLER_CHANNEL_GROUP_A`, `NV0000_CTRL_CMD_OS_UNIX_EXPORT_OBJECT_TO_FD`, `NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION`, `NV0080_CTRL_CMD_FB_GET_CAPS`, `NV0080_CTRL_CMD_FIFO_GET_CAPS`, `NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST`, `NV0080_CTRL_CMD_GPU_GET_CLASSLIST`, `NV0080_CTRL_CMD_GR_GET_CAPS`, `NV0080_CTRL_CMD_GR_GET_INFO`, `NV0080_CTRL_CMD_NVENC_GET_CAPS`, `NV01_CONTEXT_DMA`, `NV01_DEVICE_0`, `NV01_MEMORY_LOCAL_USER`, `NV01_MEMORY_SYSTEM`, `NV01_MEMORY_SYSTEM_OS_DESCRIPTOR`, `NV01_MEMORY_VIRTUAL`, `NV2080_CTRL_CMD_BIOS_GET_INFO`, `NV2080_CTRL_CMD_BUS_GET_INFO`, `NV2080_CTRL_CMD_FB_GET_INFO`, `NV2080_CTRL_CMD_GPU_GET_ENGINES`, `NV2080_CTRL_CMD_GR_GET_INFO`, `NV2081_BINAPI`, `NV20_SUBDEVICE_0`, `NV50_MEMORY_VIRTUAL`, `NVC4B0_VIDEO_DECODER`, `NVC4B7_VIDEO_ENCODER`, `NVENC_SW_SESSION`, `NV_CONFIDENTIAL_COMPUTE`, `NV_ESC_ALLOC_OS_EVENT`, `NV_ESC_FREE_OS_EVENT`, `NV_ESC_REGISTER_FD`, `NV_ESC_RM_FREE`, `NV_MEMORY_MAPPER`, `NV_SEMAPHORE_SURFACE`, `RM_USER_SHARED_DATA`, `TURING_COMPUTE_A`, `TURING_DMA_COPY_A`, `UVM_ALLOC_SEMAPHORE_POOL`, `UVM_CREATE_EXTERNAL_RANGE`, `UVM_FREE`, `UVM_INITIALIZE`, `UVM_MAP_DYNAMIC_PARALLELISM_REGION`, `UVM_MAP_EXTERNAL_ALLOCATION`, `UVM_MM_INITIALIZE`, `UVM_PAGEABLE_MEM_ACCESS`, `UVM_PAGEABLE_MEM_ACCESS_ON_GPU`, `UVM_REGISTER_CHANNEL`, `UVM_REGISTER_GPU`, `UVM_REGISTER_GPU_VASPACE`, `UVM_UNREGISTER_CHANNEL`, `UVM_UNREGISTER_GPU_VASPACE`, `UVM_VALIDATE_VA_RANGE`.
 
 That the number is small has two causes, and neither is an
 omission.
@@ -74,8 +74,8 @@ the two places a size is not self-describing -- they agree.
 | status | signatures |
 |---|---:|
 | `passthrough` | 182 |
-| `implemented-unverified` | 35 |
-| `implemented-verified` | 40 |
+| `implemented-unverified` | 19 |
+| `implemented-verified` | 56 |
 | `implemented-verified-mediated` | 1 |
 | `not-governed` | 32 |
 | **total** | **290** |
@@ -210,19 +210,25 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2b` | `0xc461` | `TURING_USERMODE_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:587` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *class allocates with a NULL params pointer -- no size needed* | | | | | |
 | ctl | `0x5e` | `-` | `NV_ESC_RM_UPDATE_DEVICE_MAPPING_INFO` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:52` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 27 call(s), 40 of 40 bytes, masked {'not-written': 96}; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0xc8` | `-` | `NV_ESC_CARD_INFO` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:35` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 26 call(s), 256 of 2304 bytes, masked {'mediated:bdf-address': 26, 'gpuId': 26}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
+| | | | | *MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (pci_info.domain (bdf-address) @4; pci_info.bus (bdf-address) @8; pci_info.slot (bdf-address) @9; pci_info.function (bdf-address) @10; gpu_id (bdf-scalar) @16) and in no other byte. That is a different claim from byte equality* | | | | | |
 | ctl | `0xd6` | `-` | `NV_ESC_SYS_PARAMS` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:44` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 26 call(s), 8 of 8 bytes; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | gpu | `0xd7` | `-` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 18 call(s), 256 of 560 bytes; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20800146` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-hostreg, cuda-jit, cuda-launch, nvdec, nvenc, opencl, vk-rt |
 | ctl | `0x2a` | `0xa06c0105` | `NVA06C_CTRL_CMD_PREEMPT` | This command preempts a channel group. | `src/common/sdk/nvidia/inc/ctrl/ctrla06c.h:203` | `NVA06C_CTRL_PREEMPT_PARAMS` | 8 | none | cuda-hostreg, cuda-jit, cuda-launch, nvdec, nvenc, opencl |
 | | | | | *answer bytes compared against a native run: 11 call(s), 8 of 8 bytes* | | | | | |
 | ctl | `0x4f` | `-` | `NV_ESC_RM_UNMAP_MEMORY` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:43` | `&mdash;` | &mdash; | none | cuda-hostreg, cuda-jit, cuda-launch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1031}; NOT paired in egl-xlib, gl-enum, gles, vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x20809001` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-torch, nvdec, nvenc |
 | | | | | *answer bytes compared against a native run: 3 call(s), 8 of 8 bytes* | | | | | |
 | ctl | `0x2a` | `0x20809009` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-torch, nvdec, nvenc, nvml |
 | | | | | *answer bytes compared against a native run: 4 call(s), 8 of 8 bytes* | | | | | |
 | ctl | `0x2a` | `0x20809064` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-torch, nvdec, nvenc, nvml |
-| | | | | *answer bytes compared against a native run: 7 call(s), 256 of 520 bytes, masked {'not-written': 58}* | | | | | |
+| | | | | *answer bytes compared against a native run: 7 call(s), 256 of 520 bytes, masked {'not-written': 174}* | | | | | |
 | ctl | `0x2a` | `0x2080a026` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-torch |
 | ctl | `0x2a` | `0x2080a084` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-torch |
 | ctl | `0x2a` | `0x102` | `NV0000_CTRL_CMD_SYSTEM_GET_CPU_INFO` | This command returns system CPU information. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000system.h:215` | `NV0000_CTRL_SYSTEM_GET_CPU_INFO_PARAMS` | 108 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
@@ -287,20 +293,28 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2b` | `0xc361` | `VOLTA_USERMODE_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:583` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
 | | | | | *class allocates with a NULL params pointer -- no size needed* | | | | | |
 | ctl | `0x34` | `-` | `NV_ESC_RM_DUP_OBJECT` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:36` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 32 call(s), 28 of 28 bytes, masked {'not-written': 67}; NOT paired in egl-xlib, gl-enum, gles, nvdec, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x41` | `-` | `NV_ESC_RM_IDLE_CHANNELS` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:39` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 3 call(s), 56 of 56 bytes, masked {'not-written': 15, 'handle': 2}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x4a` | `-` | `NV_ESC_RM_VID_HEAP_CONTROL` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:40` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x54` | `-` | `NV_ESC_RM_ALLOC_CONTEXT_DMA2` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:45` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 10 call(s), 56 of 56 bytes, masked {'not-written': 12}; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x57` | `-` | `NV_ESC_RM_MAP_MEMORY_DMA` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:47` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 259 call(s), 64 of 64 bytes, masked {'not-written': 259}; NOT paired in egl-xlib, gl-enum, gles, nvdec, vk-enum, vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x58` | `-` | `NV_ESC_RM_UNMAP_MEMORY_DMA` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:48` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 277 call(s), 48 of 48 bytes, masked {'not-written': 323}; NOT paired in egl-xlib, gl-enum, gles, nvdec, vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0xd2` | `-` | `NV_ESC_CHECK_VERSION_STR` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:40` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 10 call(s), 72 of 72 bytes; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0xd4` | `-` | `NV_ESC_ATTACH_GPUS_TO_FD` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:42` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 3 call(s), 128 of 128 bytes, masked {'not-written': 3}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | gpu | `0x27` | `0x3f` | `NV01_MEMORY_LOCAL_PRIVILEGED` | &mdash; | `src/nvidia/generated/g_allclasses.h:332` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | | | | | *class allocates with a NULL params pointer -- no size needed* | | | | | |
+| | | | | *answer bytes compared against a native run: 7 call(s), 56 of 56 bytes, masked {'not-written': 7}* | | | | | |
 | ctl | `0x2a` | `0x20800406` | `NV2080_CTRL_CMD_TIMER_GET_GPU_CPU_TIME_CORRELATION_INFO` | This command returns correlation information between GPU time and CPU time for a given CPU clock type. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080tmr.h:195` | `NV2080_CTRL_TIMER_GET_GPU_CPU_TIME_CORRELATION_INFO_PARAMS` | 264 | none | nvdec, nvenc, nvml |
 | ctl | `0x2a` | `0x20808165` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | nvdec, nvenc |
 | | | | | *answer bytes compared against a native run: 4 call(s), 1 of 1 bytes* | | | | | |
 | ctl | `0x2a` | `0x2080a028` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | nvdec, nvenc |
-| | | | | *answer bytes compared against a native run: 3 call(s), 256 of 2192 bytes, masked {'not-written': 53}* | | | | | |
+| | | | | *answer bytes compared against a native run: 3 call(s), 256 of 2192 bytes, masked {'not-written': 141}* | | | | | |
 | ctl | `0x2a` | `0x801109` | `NV0080_CTRL_CMD_GR_GET_CAPS_V2` | This command returns the same set of graphics capabilities for the device as @ref NV0080_CTRL_CMD_GR_GET_CAPS. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gr.h:279` | `NV0080_CTRL_GR_GET_CAPS_V2_PARAMS` | 48 | none | nvdec, nvenc |
 | ctl | `0x2a` | `0x801c02` | `NV0080_CTRL_CMD_NVDEC_GET_CAPS_V2` | This command returns the set of NVDEC capabilities for the device in the form of an array of unsigned bytes. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080nvdec.h:106` | `NV0080_CTRL_NVDEC_GET_CAPS_PARAMS_V2` | 12 | none | nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 6 call(s), 12 of 12 bytes* | | | | | |
@@ -343,6 +357,7 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answer bytes compared against a native run: 1 call(s), 4 of 4 bytes* | | | | | |
 | ctl | `0x2a` | `0x20802068` | `NV2080_CTRL_CMD_PERF_GET_CURRENT_PSTATE` | This command returns the current performance state of the GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080perf.h:889` | `NV2080_CTRL_PERF_GET_CURRENT_PSTATE_PARAMS` | 4 | none | nvml |
 | ctl | `0x2a` | `0x20802087` | `NV2080_CTRL_CMD_PERF_GET_VID_ENG_PERFMON_SAMPLE` | This command can be used to obtain video decoder utilization of the associated subdevice. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080perf.h:720` | `NV2080_CTRL_PERF_GET_VID_ENG_PERFMON_SAMPLE_PARAMS` | 12 | none | nvml |
+| | | | | *answer bytes compared against a native run: 4 call(s), 12 of 12 bytes* | | | | | |
 | ctl | `0x2a` | `0x20803083` | `NV2080_CTRL_CMD_NVLINK_GET_PLATFORM_INFO` | This command returns platform-specific information related to the GPU's NVLink setup. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080nvlink.h:2672` | `NV2080_CTRL_NVLINK_GET_PLATFORM_INFO_PARAMS` | 39 | none | nvml |
 | | | | | *answer bytes compared against a native run: 1 call(s), 39 of 39 bytes* | | | | | |
 | ctl | `0x2a` | `0x2080852a` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | nvml |
@@ -425,6 +440,7 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2b` | `0x90e7` | `GF100_SUBDEVICE_INFOROM` | &mdash; | `src/nvidia/generated/g_allclasses.h:859` | `&mdash;` | &mdash; | none | nvml |
 | | | | | *class allocates with a NULL params pointer -- no size needed* | | | | | |
 | gpu | `0xda` | `-` | `NV_ESC_WAIT_OPEN_COMPLETE` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:46` | `&mdash;` | &mdash; | none | nvml |
+| | | | | *answer bytes compared against a native run: 1 call(s), 8 of 8 bytes* | | | | | |
 | ctl | `0x2a` | `0x20800301` | `NV2080_CTRL_CMD_EVENT_SET_NOTIFICATION` | This command sets event notification state for the associated subdevice. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080event.h:79` | `NV2080_CTRL_EVENT_SET_NOTIFICATION_PARAMS` | 20 | none | vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 6 call(s), 20 of 20 bytes* | | | | | |
 | ctl | `0x2a` | `0x2080220b` | `NV2080_CTRL_CMD_RC_ENABLE_WATCHDOG` | This command enables the RC watchdog, if possible. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080rc.h:220` | `&mdash;` | &mdash; | none | vk-enum, vk-offscreen, vk-rt |
@@ -434,43 +450,24 @@ the two places a size is not self-describing -- they agree.
 
 | device | nr | sub | name | description | header | params | size | flags | seen in |
 |---|---|---|---|---|---|---|---:|---|---|
-| ctl | `0x29` | `-` | `NV_ESC_RM_FREE` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:33` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x20801303` | `NV2080_CTRL_CMD_FB_GET_INFO_V2` | &mdash; | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:489` | `NV2080_CTRL_FB_GET_INFO_V2_PARAMS` | 1028 | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
 | | | | | *answered by the backend itself: fbInfoList[].data @8 (backend-answered, mediation.txt)* | | | | | |
-| ctl | `0x2b` | `0x2081` | `NV2081_BINAPI` | &mdash; | `src/nvidia/generated/g_allclasses.h:309` | `NV2081_ALLOC_PARAMETERS` | 4 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2b` | `0x40` | `NV01_MEMORY_LOCAL_USER` | &mdash; | `src/nvidia/generated/g_allclasses.h:345` | `&mdash;` | 128 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
 | ctl | `0x2b` | `0x41` | `NV01_ROOT_CLIENT` | &mdash; | `src/nvidia/generated/g_allclasses.h:289` | `&mdash;` | 4 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
-| ctl | `0x2b` | `0x83de` | `GT200_DEBUGGER` | &mdash; | `src/nvidia/generated/g_allclasses.h:1187` | `NV83DE_ALLOC_PARAMETERS` | 12 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
 | ctl | `0x2b` | `0xc46f` | `TURING_CHANNEL_GPFIFO_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:552` | `&mdash;` | 376 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
-| ctl | `0x2b` | `0xc5b5` | `TURING_DMA_COPY_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:1055` | `&mdash;` | 8 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
-| ctl | `0x2b` | `0xcb33` | `NV_CONFIDENTIAL_COMPUTE` | &mdash; | `src/nvidia/generated/g_allclasses.h:1231` | `NV_CONFIDENTIAL_COMPUTE_ALLOC_PARAMS` | 4 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
-| ctl | `0x2b` | `0xde` | `RM_USER_SHARED_DATA` | &mdash; | `src/nvidia/generated/g_allclasses.h:1183` | `NV00DE_ALLOC_PARAMETERS` | 8 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x4e` | `-` | `NV_ESC_RM_MAP_MEMORY` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:42` | `&mdash;` | &mdash; | fd-field | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
-| gpu | `0x27` | `0x71` | `NV01_MEMORY_SYSTEM_OS_DESCRIPTOR` | &mdash; | `src/nvidia/generated/g_allclasses.h:380` | `&mdash;` | 40 (table) | process-local-va | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
 | gpu | `0x2b` | `0x79` | `NV01_EVENT_OS_EVENT` | &mdash; | `src/nvidia/generated/g_allclasses.h:477` | `&mdash;` | 24 (table) | fd-field | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl |
-| gpu | `0xc9` | `-` | `NV_ESC_REGISTER_FD` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:36` | `&mdash;` | &mdash; | fd-field | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
-| gpu | `0xce` | `-` | `NV_ESC_ALLOC_OS_EVENT` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:37` | `&mdash;` | &mdash; | fd-field | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
-| gpu | `0xcf` | `-` | `NV_ESC_FREE_OS_EVENT` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:38` | `&mdash;` | &mdash; | fd-field | cuda-hostreg, cuda-jit, cuda-launch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
 | uvm | `0x2c` | `-` | `UVM_ENABLE_READ_DUPLICATION` | &mdash; | `kernel-open/nvidia-uvm/uvm_ioctl.h:466` | `UVM_ENABLE_READ_DUPLICATION_PARAMS` | 24 | none | cuda-managed |
 | uvm | `0x2d` | `-` | `UVM_DISABLE_READ_DUPLICATION` | &mdash; | `kernel-open/nvidia-uvm/uvm_ioctl.h:478` | `UVM_DISABLE_READ_DUPLICATION_PARAMS` | 24 | none | cuda-managed |
 | uvm | `0x33` | `-` | `UVM_MIGRATE` | &mdash; | `kernel-open/nvidia-uvm/uvm_ioctl.h:602` | `UVM_MIGRATE_PARAMS` | 80 | none | cuda-managed |
-| ctl | `0x2b` | `0x70` | `NV01_MEMORY_VIRTUAL` | &mdash; | `src/nvidia/generated/g_allclasses.h:358` | `NV_MEMORY_VIRTUAL_ALLOCATION_PARAMS` | 24 | size-table | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2b` | `0x902d` | `FERMI_TWOD_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:891` | `&mdash;` | 16 (table) | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
-| | | | | *class carries KF_UNVERIFIED: never allocated on real silicon* | | | | | |
-| ctl | `0x2b` | `0x9072` | `GF100_DISP_SW` | &mdash; | `src/nvidia/generated/g_allclasses.h:867` | `NV9072_ALLOCATION_PARAMETERS` | 12 | size-table | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
 | | | | | *class carries KF_UNVERIFIED: never allocated on real silicon* | | | | | |
 | ctl | `0x2b` | `0xa140` | `KEPLER_INLINE_TO_MEMORY_B` | &mdash; | `src/nvidia/generated/g_allclasses.h:1039` | `&mdash;` | 16 (table) | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | | | | | *class carries KF_UNVERIFIED: never allocated on real silicon* | | | | | |
 | ctl | `0x2b` | `0xc597` | `TURING_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:1099` | `&mdash;` | 16 (table) | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | | | | | *class carries KF_UNVERIFIED: never allocated on real silicon* | | | | | |
-| ctl | `0x2b` | `0xda` | `NV_SEMAPHORE_SURFACE` | &mdash; | `src/nvidia/generated/g_allclasses.h:1239` | `NV_SEMAPHORE_SURFACE_ALLOC_PARAMETERS` | 16 | size-table | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
-| | | | | *class carries KF_UNVERIFIED: never allocated on real silicon* | | | | | |
-| ctl | `0x2b` | `0xfe` | `NV_MEMORY_MAPPER` | &mdash; | `src/nvidia/generated/g_allclasses.h:368` | `NV_MEMORY_MAPPER_ALLOCATION_PARAMS` | 24 | size-table | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
-| | | | | *class carries KF_UNVERIFIED: never allocated on real silicon* | | | | | |
 | gpu | `0x27` | `0x3e` | `NV01_MEMORY_SYSTEM` | &mdash; | `src/nvidia/generated/g_allclasses.h:325` | `&mdash;` | 128 (table) | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
-| gpu | `0x27` | `0x40` | `NV01_MEMORY_LOCAL_USER` | &mdash; | `src/nvidia/generated/g_allclasses.h:345` | `&mdash;` | 128 (table) | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | ctl | `0x2a` | `0x3d06` | `NV0000_CTRL_CMD_OS_UNIX_IMPORT_OBJECT_FROM_FD` | This command may be used to import back NV0000_CTRL_OS_UNIX_EXPORT_OBJECT_TYPE object from file descriptor. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000unix.h:181` | `NV0000_CTRL_OS_UNIX_IMPORT_OBJECT_FROM_FD_PARAMS` | 20 | fd-field | gles |
-| ctl | `0x2b` | `0xa0bc` | `NVENC_SW_SESSION` | &mdash; | `src/nvidia/generated/g_allclasses.h:1219` | `NVA0BC_ALLOC_PARAMETERS` | 20 | size-table | nvenc |
 | ctl | `0x2a` | `0x2080018d` | `NV2080_CTRL_CMD_GPU_GET_PIDS` | Given a resource identifier and its type, this command returns a set of process identifiers (PIDs) of processes that have instantiated this resource. For exampl | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3501` | `NV2080_CTRL_GPU_GET_PIDS_PARAMS` | 3812 | none | nvml |
 | | | | | *answered by the backend itself: pidTblCount @8 (backend-answered, mediation.txt); pidTbl @12 (backend-answered, mediation.txt)* | | | | | |
 | ctl | `0x2a` | `0x2080018e` | `NV2080_CTRL_CMD_GPU_GET_PID_INFO` | This command allows querying per-process information from the RM. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:3643` | `NV2080_CTRL_GPU_GET_PID_INFO_PARAMS` | 14408 | none | nvml |
@@ -485,31 +482,49 @@ the two places a size is not self-describing -- they agree.
 
 | device | nr | sub | name | description | header | params | size | flags | seen in |
 |---|---|---|---|---|---|---|---:|---|---|
+| ctl | `0x29` | `-` | `NV_ESC_RM_FREE` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:33` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 801 call(s), 16 of 16 bytes, masked {'not-written': 847}; NOT paired in egl-xlib, gl-enum, gles, nvdec, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x101` | `NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION` | This command returns the current driver information. | `src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000system.h:108` | `NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS` | 40 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
 | | | | | *pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24* | | | | | |
-| | | | | *answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 51}* | | | | | |
+| | | | | *answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 48}* | | | | | |
 | ctl | `0x2a` | `0x20801201` | `NV2080_CTRL_CMD_GR_GET_INFO` | This command returns gr engine information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:408` | `NV2080_CTRL_GR_GET_INFO_PARAMS` | 32 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *pointer field(s), offsets compiled: grInfoList @8* | | | | | |
-| | | | | *answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 18}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
+| | | | | *answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 17}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2a` | `0x80170d` | `NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST` | Takes a list of hChannels as input and returns the corresponding Channel IDs that they corresponding to on hw. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:178` | `NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS` | 24 | embedded-ptr, embedded-ptr(second-level) | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
 | | | | | *pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16* | | | | | |
 | | | | | *answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 580}* | | | | | |
 | ctl | `0x2b` | `0x2080` | `NV20_SUBDEVICE_0` | &mdash; | `src/nvidia/generated/g_allclasses.h:305` | `NV2080_ALLOC_PARAMETERS` | 4 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 15 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
+| ctl | `0x2b` | `0x2081` | `NV2081_BINAPI` | &mdash; | `src/nvidia/generated/g_allclasses.h:309` | `NV2081_ALLOC_PARAMETERS` | 4 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 10 call(s), 4 of 4 bytes* | | | | | |
 | ctl | `0x2b` | `0x3e` | `NV01_MEMORY_SYSTEM` | &mdash; | `src/nvidia/generated/g_allclasses.h:325` | `&mdash;` | 128 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
 | | | | | *answer bytes compared against a native run: 302 call(s), 128 of 128 bytes, masked {'not-written': 48}* | | | | | |
 | ctl | `0x2b` | `0x50a0` | `NV50_MEMORY_VIRTUAL` | &mdash; | `src/nvidia/generated/g_allclasses.h:879` | `&mdash;` | 128 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 12 call(s), 128 of 128 bytes, masked {'not-written': 9}* | | | | | |
 | ctl | `0x2b` | `0x80` | `NV01_DEVICE_0` | &mdash; | `src/nvidia/generated/g_allclasses.h:301` | `NV0080_ALLOC_PARAMETERS` | 56 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 15 call(s), 56 of 56 bytes, masked {'not-written': 14}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
+| ctl | `0x2b` | `0x83de` | `GT200_DEBUGGER` | &mdash; | `src/nvidia/generated/g_allclasses.h:1187` | `NV83DE_ALLOC_PARAMETERS` | 12 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
+| | | | | *answer bytes compared against a native run: 8 call(s), 12 of 12 bytes, masked {'not-written': 8}* | | | | | |
 | ctl | `0x2b` | `0x9067` | `FERMI_CONTEXT_SHARE_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:1043` | `&mdash;` | 12 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 18 call(s), 12 of 12 bytes; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x2b` | `0x90f1` | `FERMI_VASPACE_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:895` | `&mdash;` | 56 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 19 call(s), 56 of 56 bytes; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | ctl | `0x2b` | `0xa06c` | `KEPLER_CHANNEL_GROUP_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:1047` | `&mdash;` | 20 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 44 call(s), 20 of 20 bytes; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
+| ctl | `0x2b` | `0xc5b5` | `TURING_DMA_COPY_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:1055` | `&mdash;` | 8 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 185 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | ctl | `0x2b` | `0xc5c0` | `TURING_COMPUTE_A` | &mdash; | `src/nvidia/generated/g_allclasses.h:1103` | `&mdash;` | 16 (table) | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
-| | | | | *answer bytes compared against a native run: 64 call(s), 16 of 16 bytes, masked {'not-written': 112}* | | | | | |
+| | | | | *answer bytes compared against a native run: 64 call(s), 16 of 16 bytes, masked {'not-written': 104}* | | | | | |
+| ctl | `0x2b` | `0xcb33` | `NV_CONFIDENTIAL_COMPUTE` | &mdash; | `src/nvidia/generated/g_allclasses.h:1231` | `NV_CONFIDENTIAL_COMPUTE_ALLOC_PARAMS` | 4 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
+| | | | | *answer bytes compared against a native run: 9 call(s), 4 of 4 bytes, masked {'not-written': 9}* | | | | | |
+| ctl | `0x2b` | `0xde` | `RM_USER_SHARED_DATA` | &mdash; | `src/nvidia/generated/g_allclasses.h:1183` | `NV00DE_ALLOC_PARAMETERS` | 8 | size-table | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 16 call(s), 8 of 8 bytes* | | | | | |
+| gpu | `0x27` | `0x71` | `NV01_MEMORY_SYSTEM_OS_DESCRIPTOR` | &mdash; | `src/nvidia/generated/g_allclasses.h:380` | `&mdash;` | 40 (table) | process-local-va | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
+| | | | | *answer bytes compared against a native run: 50 call(s), 56 of 56 bytes, masked {'not-written': 70}* | | | | | |
+| gpu | `0xc9` | `-` | `NV_ESC_REGISTER_FD` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:36` | `&mdash;` | &mdash; | fd-field | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 102 call(s), 4 of 4 bytes, masked {'not-written': 10}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
+| gpu | `0xce` | `-` | `NV_ESC_ALLOC_OS_EVENT` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:37` | `&mdash;` | &mdash; | fd-field | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 105 call(s), 16 of 16 bytes, masked {'not-written': 129}; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | uvm | `0x19` | `-` | `UVM_REGISTER_GPU_VASPACE` | &mdash; | `kernel-open/nvidia-uvm/uvm_ioctl.h:288` | `UVM_REGISTER_GPU_VASPACE_PARAMS` | 32 | fd-field | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 9 call(s), 32 of 32 bytes, masked {'not-written': 11}* | | | | | |
 | uvm | `0x1b` | `-` | `UVM_REGISTER_CHANNEL` | &mdash; | `kernel-open/nvidia-uvm/uvm_ioctl.h:313` | `UVM_REGISTER_CHANNEL_PARAMS` | 56 | fd-field | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, opencl |
@@ -534,6 +549,8 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answer bytes compared against a native run: 202 call(s), 24 of 24 bytes, masked {'not-written': 4}; NOT paired in nvdec, which judged nothing either way* | | | | | |
 | uvm | `0x4b` | `-` | `UVM_MM_INITIALIZE` | &mdash; | `kernel-open/nvidia-uvm/uvm_ioctl.h:887` | `UVM_MM_INITIALIZE_PARAMS` | 8 | fd-field | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, nvdec, nvenc, nvml, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 10 call(s), 8 of 8 bytes, masked {'not-written': 2}* | | | | | |
+| gpu | `0xcf` | `-` | `NV_ESC_FREE_OS_EVENT` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:38` | `&mdash;` | &mdash; | fd-field | cuda-hostreg, cuda-jit, cuda-launch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 89 call(s), 16 of 16 bytes, masked {'not-written': 113}; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
 | uvm | `0x1a` | `-` | `UVM_UNREGISTER_GPU_VASPACE` | &mdash; | `kernel-open/nvidia-uvm/uvm_ioctl.h:302` | `UVM_UNREGISTER_GPU_VASPACE_PARAMS` | 20 | none | cuda-hostreg, cuda-jit, cuda-launch, nvdec, nvenc, opencl, vk-rt |
 | | | | | *answer bytes compared against a native run: 7 call(s), 20 of 20 bytes* | | | | | |
 | uvm | `0x1c` | `-` | `UVM_UNREGISTER_CHANNEL` | &mdash; | `kernel-open/nvidia-uvm/uvm_ioctl.h:329` | `UVM_UNREGISTER_CHANNEL_PARAMS` | 12 | none | cuda-hostreg, cuda-jit, cuda-launch, nvdec, nvenc, opencl |
@@ -558,6 +575,19 @@ the two places a size is not self-describing -- they agree.
 | ctl | `0x2a` | `0x801701` | `NV0080_CTRL_CMD_FIFO_GET_CAPS` | This command returns the set of FIFO engine capabilities for the device in the form of an array of unsigned bytes. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:59` | `NV0080_CTRL_FIFO_GET_CAPS_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | | | | | *pointer field(s), offsets compiled: capsTbl @8* | | | | | |
 | | | | | *answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
+| ctl | `0x2b` | `0x70` | `NV01_MEMORY_VIRTUAL` | &mdash; | `src/nvidia/generated/g_allclasses.h:358` | `NV_MEMORY_VIRTUAL_ALLOCATION_PARAMS` | 24 | size-table | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 6 call(s), 24 of 24 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
+| ctl | `0x2b` | `0x9072` | `GF100_DISP_SW` | &mdash; | `src/nvidia/generated/g_allclasses.h:867` | `NV9072_ALLOCATION_PARAMETERS` | 12 | size-table | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
+| | | | | *class carries KF_UNVERIFIED: never allocated on real silicon* | | | | | |
+| | | | | *answer bytes compared against a native run: 16 call(s), 12 of 12 bytes* | | | | | |
+| ctl | `0x2b` | `0xda` | `NV_SEMAPHORE_SURFACE` | &mdash; | `src/nvidia/generated/g_allclasses.h:1239` | `NV_SEMAPHORE_SURFACE_ALLOC_PARAMETERS` | 16 | size-table | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *class carries KF_UNVERIFIED: never allocated on real silicon* | | | | | |
+| | | | | *answer bytes compared against a native run: 7 call(s), 16 of 16 bytes, masked {'not-written': 4}* | | | | | |
+| ctl | `0x2b` | `0xfe` | `NV_MEMORY_MAPPER` | &mdash; | `src/nvidia/generated/g_allclasses.h:368` | `NV_MEMORY_MAPPER_ALLOCATION_PARAMS` | 24 | size-table | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *class carries KF_UNVERIFIED: never allocated on real silicon* | | | | | |
+| | | | | *answer bytes compared against a native run: 6 call(s), 24 of 24 bytes, masked {'not-written': 4}; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
+| gpu | `0x27` | `0x40` | `NV01_MEMORY_LOCAL_USER` | &mdash; | `src/nvidia/generated/g_allclasses.h:345` | `&mdash;` | 128 (table) | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *answer bytes compared against a native run: 7 call(s), 56 of 56 bytes, masked {'not-written': 7}* | | | | | |
 | ctl | `0x2a` | `0x20801802` | `NV2080_CTRL_CMD_BUS_GET_INFO` | This command returns bus engine information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:579` | `NV2080_CTRL_BUS_GET_INFO_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | nvdec, nvenc, nvml |
 | | | | | *pointer field(s), offsets compiled: busInfoList @8* | | | | | |
 | | | | | *answer bytes compared against a native run: 10 call(s), 16 of 16 bytes, masked {'not-written': 20}* | | | | | |
@@ -566,11 +596,13 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answer bytes compared against a native run: 6 call(s), 16 of 16 bytes, masked {'not-written': 6}* | | | | | |
 | ctl | `0x2a` | `0x801b01` | `NV0080_CTRL_CMD_NVENC_GET_CAPS` | This command returns the set of NVENC capabilities for the device in the form of an array of unsigned bytes. | `src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080nvenc.h:59` | `NV0080_CTRL_NVENC_GET_CAPS_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | nvdec, nvenc, vk-enum, vk-offscreen, vk-rt |
 | | | | | *pointer field(s), offsets compiled: capsTbl @8* | | | | | |
-| | | | | *answer bytes compared against a native run: 6 call(s), 16 of 16 bytes, masked {'not-written': 10}* | | | | | |
+| | | | | *answer bytes compared against a native run: 6 call(s), 16 of 16 bytes, masked {'not-written': 11}* | | | | | |
 | ctl | `0x2b` | `0x2` | `NV01_CONTEXT_DMA` | &mdash; | `src/nvidia/generated/g_allclasses.h:321` | `&mdash;` | 32 (table) | none | nvdec, nvenc |
 | | | | | *answer bytes compared against a native run: 3 call(s), 32 of 32 bytes* | | | | | |
 | ctl | `0x2b` | `0xc4b0` | `NVC4B0_VIDEO_DECODER` | &mdash; | `src/nvidia/generated/g_allclasses.h:911` | `&mdash;` | 12 (table) | none | nvdec, vk-offscreen |
 | | | | | *answer bytes compared against a native run: 1 call(s), 12 of 12 bytes* | | | | | |
+| ctl | `0x2b` | `0xa0bc` | `NVENC_SW_SESSION` | &mdash; | `src/nvidia/generated/g_allclasses.h:1219` | `NVA0BC_ALLOC_PARAMETERS` | 20 | size-table | nvenc |
+| | | | | *answer bytes compared against a native run: 1 call(s), 20 of 20 bytes* | | | | | |
 | ctl | `0x2b` | `0xc4b7` | `NVC4B7_VIDEO_ENCODER` | &mdash; | `src/nvidia/generated/g_allclasses.h:947` | `&mdash;` | 12 (table) | none | nvenc, vk-offscreen |
 | | | | | *answer bytes compared against a native run: 1 call(s), 12 of 12 bytes* | | | | | |
 | ctl | `0x2a` | `0x20800802` | `NV2080_CTRL_CMD_BIOS_GET_INFO` | This command returns bios information for the associated GPU. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bios.h:71` | `NV2080_CTRL_BIOS_GET_INFO_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | nvml |
@@ -579,7 +611,7 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answer bytes compared against a native run: 1 call(s), 16 of 16 bytes, masked {'not-written': 2}* | | | | | |
 | ctl | `0x2a` | `0x20800123` | `NV2080_CTRL_CMD_GPU_GET_ENGINES` | Returns a list of supported engine types along with the number of instances of each type. | `src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:769` | `NV2080_CTRL_GPU_GET_ENGINES_PARAMS` | 16 | embedded-ptr, embedded-ptr(second-level) | vk-enum, vk-offscreen, vk-rt |
 | | | | | *pointer field(s), offsets compiled: engineList @8* | | | | | |
-| | | | | *answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'not-written': 4}* | | | | | |
+| | | | | *answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'not-written': 5}* | | | | | |
 
 ## implemented-verified-mediated
 
