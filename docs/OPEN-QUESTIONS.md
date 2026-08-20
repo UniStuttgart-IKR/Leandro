@@ -468,6 +468,36 @@ so nothing yet shows this fixes it. What it does remove is a real
 confound, and it makes the next attempt at reproducing 44 one variable
 simpler.
 
+### 46. Sound continues while the picture hangs, and it is the CPU
+**Open, but named, and it is NOT a GPU question.** Under a real game the
+stream stalls: audio keeps playing, video stops. Measured 2026-08-20 while
+Shadow of the Tomb Raider ran in a `--session gnome --wayland` guest with
+Sunshine on `capture=kms encoder=nvenc`:
+
+- `fbprobe` says **READER GREEN** -- all three readers (mmap, GL, CUDA)
+  see moving, nonzero content, frame changed in 9 of 9 polls, peak
+  997-1024/1024. So the guest IS drawing and the scanout IS advancing.
+  This is the opposite of the reading number 44 records for the crash
+  session (`STATIC, 0/9 polls`), and it is why that reader exists.
+- The game holds **438 %** CPU of **8** vCPUs, load average **10.97**, and
+  `sunshine` gets **11.5 %**.
+- Sunshine cannot raise its own threads: `setpriority failed for nice -15:
+  Permission denied` and `RTKit: Could not set priority ... AccessDenied`,
+  repeatedly, in `/tmp/lea-sunshine.out`. NVENC itself initialises cleanly
+  (`Nvenc version 13.1, Nvenc initialized successfully`) and logs no
+  encoder error at all.
+
+So the encode path is starved by the workload it is supposed to capture,
+and audio survives because it is cheap. Two levers, neither tried yet:
+give the guest more of the host's 16 cores (`--cpus`, the default is 4 and
+this guest had 8), and let Sunshine have the priority it asks for
+(`cap_sys_nice` on the binary, or a limits drop-in). Which of the two
+carries it is a measurement, not a guess.
+
+Recorded because nothing in this tree mentioned `setpriority` or RTKit
+before, and because a stall with sound is exactly the shape a reader would
+otherwise file against numbers 10, 20 or 44.
+
 ---
 
 ## Resolved and decided
