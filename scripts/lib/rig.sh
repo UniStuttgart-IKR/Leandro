@@ -1035,7 +1035,7 @@ lea_vm_ssh() {
 lea_rig_up() {
     local name=$1; shift
     local idx="" fresh=0 mem="" cpus="" compute=1 input=0 display=0 session=""
-    local steam=0 torch=0 provision=1 load=1 cap="" pin="" console=0 base="" guest="" transport=""
+    local steam=0 torch=0 provision=1 load=1 cap="" pin="" console=0 base="" guest="" transport="" wayland=0
     local -a gameopt=()
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -1056,6 +1056,7 @@ lea_rig_up() {
             --no-load)      load=0; shift ;;
             --vram-limit)   cap=$2; shift 2 ;;
             --max-pin-mib)  pin=$2; shift 2 ;;
+            --wayland)      wayland=1; shift ;;
             --games)        gameopt=(--games); shift ;;
             --games-init)   gameopt=(--games-init); shift ;;
             --console)      console=1; shift ;;
@@ -1176,6 +1177,7 @@ lea_rig_up() {
         info "== $name: virtual display =="
         if [[ -n $session ]]; then
             local -a dopt=(); [[ $steam -eq 1 ]] && dopt+=(--with-steam)
+        [[ $wayland -eq 1 ]] && dopt+=(--wayland)
             lea_desktop_up "$name" --session "$session" "${dopt[@]}" || return 1
         else
             lea_display_up "$name" || return 1

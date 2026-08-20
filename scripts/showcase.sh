@@ -10,7 +10,7 @@
 #   scripts/showcase.sh net down [--uplink IFACE] | net status
 #   scripts/showcase.sh up   [--name NAME] [--index N] [--count N]
 #                            [--guest ubuntu|nixos] [--transport ip|vsock]
-#                            [--display] [--session gnome|openbox] [--with-steam] [--input]
+#                            [--display] [--session gnome|openbox] [--wayland] [--with-steam] [--input]
 #                            [--fresh] [--mem MiB] [--cpus N] [--vram-limit MiB]
 #                            [--max-pin-mib N] [--with-torch] [--with-gl]
 #                            [--no-provision] [--no-load] [--no-compute]
@@ -161,6 +161,7 @@ do_up() {
             --fresh|--no-load) rig+=("$1"); fleet+=("$1"); shift ;;
             --mem) rig+=(--mem "$2"); fleet+=(--mem "$2"); shift 2 ;;
             --games|--games-init) rig+=("$1"); shift ;;
+            --wayland) rig+=(--wayland); shift ;;
             --display|--input|--with-steam|--with-torch|--no-provision|--no-compute)
                 rig+=("$1"); shift ;;
             --session|--cpus|--vram-limit|--max-pin-mib|--base) rig+=("$1" "$2"); shift 2 ;;
@@ -181,12 +182,13 @@ do_up() {
         # go, virtio_nvrm is rebuilt and reloaded, the display comes back.
         lea_vm_running "$name" || die "--keep-vm, but $name is not running"
         [[ $console -eq 0 ]] || die "--keep-vm and --console do not combine"
-        local session="" steam=0 disp=0 a
+        local session="" steam=0 disp=0 wl=0 a
         for ((a = 0; a < ${#rig[@]}; a++)); do
             case ${rig[a]} in
                 --session) session=${rig[a+1]}; disp=1 ;;
                 --display) disp=1 ;;
                 --with-steam) steam=1 ;;
+                --wayland) wl=1 ;;
             esac
         done
         lea_desktop_recycle "$name" || exit 1
@@ -194,6 +196,7 @@ do_up() {
             || { tail -5 "$(lea_inst_dir "$name")/load.log" >&2; die "$name: module reload failed"; }
         if [[ -n $session ]]; then
             local -a dopt=(); [[ $steam -eq 1 ]] && dopt+=(--with-steam)
+            [[ $wl -eq 1 ]] && dopt+=(--wayland)
             lea_desktop_up "$name" --session "$session" "${dopt[@]}" || exit 1
         elif [[ $disp -eq 1 ]]; then
             lea_display_up "$name" || exit 1

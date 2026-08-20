@@ -1467,7 +1467,7 @@ lea_display_up() {
 # mmap itself since 2026-08-16, and the order stays because it costs nothing.
 lea_desktop_up() {
     local name=$1; shift
-    local session=gnome disp=:7 res=$LEA_VDISPLAY_SIZE hz=$LEA_VDISPLAY_HZ steam=0 ip
+    local session=gnome disp=:7 res=$LEA_VDISPLAY_SIZE hz=$LEA_VDISPLAY_HZ steam=0 wayland=0 ip
     while [[ $# -gt 0 ]]; do
         case $1 in
             --session)    session=$2; shift 2 ;;
@@ -1475,10 +1475,12 @@ lea_desktop_up() {
             --res)        res=$2; shift 2 ;;
             --hz)         hz=$2; shift 2 ;;
             --with-steam) steam=1; shift ;;
+            --wayland)    wayland=1; shift ;;
             *) die "lea_desktop_up: unknown option $1" ;;
         esac
     done
     case $session in gnome|openbox) ;; *) die "--session wants gnome or openbox" ;; esac
+    [[ $wayland -eq 1 && $session != gnome ]] && die "--wayland is for --session gnome"
     ip=$(_lea_ip "$name") || return 1
 
     lea_head "$name: display rig: stage, modules, X on $disp"
@@ -1496,7 +1498,24 @@ lea_desktop_up() {
 [daemon]
 AutomaticLoginEnable=true
 AutomaticLogin='"$LEA_GUEST_USER"'
-WaylandEnable=false
+WaylandEnable='"$( [[ $wayland -eq 1 ]] && echo true || echo false )"'
+EOC
+        # Which session gdm starts for the autologin user. NOT "ubuntu":
+        # that name exists in BOTH /usr/share/xsessions and
+        # /usr/share/wayland-sessions on Ubuntu 24.04, and gdm resolved it to
+        # the X11 one -- WaylandEnable=true, a Wayland session file present,
+        # and the session still came up as Type=x11 (measured 2026-08-20).
+        # `ubuntu-wayland` and `ubuntu-xorg` are unambiguous. AccountsService
+        # keeps it per user and it OUTLIVES the custom.conf setting: a guest
+        # that once logged into ubuntu-xorg keeps doing so even with
+        # WaylandEnable=true, which is the failure that looks like "the flag
+        # does nothing".
+        sudo mkdir -p /var/lib/AccountsService/users
+        sudo tee /var/lib/AccountsService/users/'"$LEA_GUEST_USER"' >/dev/null <<EOC
+[User]
+Session='"$( [[ $wayland -eq 1 ]] && echo ubuntu-wayland || echo ubuntu-xorg )"'
+XSession='"$( [[ $wayland -eq 1 ]] && echo ubuntu-wayland || echo ubuntu-xorg )"'
+SystemAccount=false
 EOC
         # gdm3 inside the mediated PCI identity namespace: nvidia_drv.so
         # probes libpciaccess for a 10de device; our DRM node hangs off a
@@ -1675,15 +1694,41 @@ lea_sunshine_restart() {
     lea_ssh "$ip" 'pkill -x sunshine 2>/dev/null || true
         sleep 2
         GS=$(pgrep -x gnome-shell | head -1)
-        D=""; XA=""
+        D=""; XA=""; WD=""; XRD=""; XCD=""
         if [ -n "$GS" ]; then
-            D=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^DISPLAY=//p")
-            XA=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^XAUTHORITY=//p")
+            e() { tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^$1=//p" | head -1; }
+            D=$(e DISPLAY); XA=$(e XAUTHORITY)
+            WD=$(e WAYLAND_DISPLAY); XRD=$(e XDG_RUNTIME_DIR); XCD=$(e XDG_CURRENT_DESKTOP)
         fi
         [ -n "$D" ] || D='"'$disp'"'
-        [ -n "$D" ] || { echo "no DISPLAY to start sunshine on"; exit 1; }
-        sh -c "setsid nohup env DISPLAY=$D ${XA:+XAUTHORITY=$XA} sunshine \
-            >/tmp/lea-sunshine.out 2>&1 </dev/null &"
+        # gnome-shell IS the compositor under Wayland, so its own environment
+        # carries no WAYLAND_DISPLAY -- it creates the socket rather than
+        # using one. Look for the socket instead, and take Xwayland\047s
+        # DISPLAY from the socket directory the same way.
+        XRD=${XRD:-/run/user/$(id -u)}
+        if [ -z "$WD" ]; then
+            for c in "$XRD"/wayland-*; do
+                case $c in *.lock) continue ;; esac
+                [ -S "$c" ] && { WD=${c##*/}; break; }
+            done
+        fi
+        if [ -z "$D" ] && [ -S /tmp/.X11-unix/X0 ]; then D=:0; fi
+        # A Wayland session has no DISPLAY of its own, and Sunshine reaching
+        # the desktop portal needs XDG_CURRENT_DESKTOP to pick GNOME\047s
+        # backend -- so the environment is assembled from what the session
+        # actually has rather than from one assumed variable.
+        if [ -n "$WD" ]; then
+            set -- XDG_RUNTIME_DIR="${XRD:-/run/user/$(id -u)}" WAYLAND_DISPLAY="$WD" \
+                   XDG_CURRENT_DESKTOP="${XCD:-GNOME}"
+            [ -n "$D" ] && set -- "$@" DISPLAY="$D"
+        elif [ -n "$D" ]; then
+            set -- DISPLAY="$D"
+            [ -n "$XA" ] && set -- "$@" XAUTHORITY="$XA"
+        else
+            echo "no session environment to start sunshine in (no WAYLAND_DISPLAY, no DISPLAY)"
+            exit 1
+        fi
+        setsid nohup env "$@" sunshine >/tmp/lea-sunshine.out 2>&1 </dev/null &
         for i in $(seq 1 30); do
             (exec 3<>/dev/tcp/127.0.0.1/47990) 2>/dev/null && break
             sleep 1
