@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T23:11:21Z",
-    "commit:  bb0dd8e (working tree modified)"
+    "date:    2026-08-20T23:13:26Z",
+    "commit:  a14bedf (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh verify",
   "method": "the tracer's ctrlout lines -- the params buffer sampled BEFORE and AFTER each call -- from the native trace against the guest trace, call by call, word by word",
@@ -7051,7 +7051,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, offset 8: RM wrote 0x00000003 natively and the guest left the caller's own 0x00000000 in place -- the call returned NV_OK and answered nothing",
+      "reason": "call 0, offset 8: RM wrote 0x00000003 natively and the guest left the caller's own 0x00000000 in place -- the call returned NV_OK and answered nothing. Over the 1 paired call(s) of this probe, this word was written natively on 1 and in the guest on 0",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     },
@@ -7061,7 +7061,7 @@
       "probes": [
         "nvdec"
       ],
-      "reason": "call 0, capsTbl (NvU8[NV0080_CTRL_GR_CAPS_TBL_SIZE]) at offset 0: RM wrote 0x000062b0 natively and the guest left the caller's own 0x7120302e in place -- the call returned NV_OK and answered nothing",
+      "reason": "call 0, capsTbl (NvU8[NV0080_CTRL_GR_CAPS_TBL_SIZE]) at offset 0: RM wrote 0x000062b0 natively and the guest left the caller's own 0x7120302e in place -- the call returned NV_OK and answered nothing. Over the 2 paired call(s) of this probe, this word was written natively on 2 and in the guest on 1",
       "catalogue_status": "passthrough",
       "catalogue_notes": []
     }

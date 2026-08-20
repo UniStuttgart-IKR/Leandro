@@ -1140,66 +1140,73 @@ Score such a day by class-coverage delta, not by probes added. That is the
 number that makes "did we find non-carryable ioctls" answerable instead of
 hopeful.
 
-### 60. One answer survived every mask, and it looks like an address that did not travel
-**Open, measured 2026-08-20.** The only `mismatch` left in the byte
-comparison after the fourth mask and the control test, and therefore the
-only potential defect in `matrix/verified-<driver>.json`. Before this run it
-was the twelfth line of a list of forty-five and nobody could have seen it.
+### 61. Two controls answer `NV_OK` in a guest and write nothing
+**Open, measured 2026-08-21.** The whole of the potential-defect class in
+`matrix/verified-<driver>.json` after the fifth mask, and a class no gate
+before this one could see: **both sides return `NV_OK`**, so the status
+fingerprint matches perfectly, the probe passes its criterion, and the guest
+receives no answer.
 
-`ctl nr=0x2a sub=0x20809064`, 13 calls across `nvml`, `nvdec`, `nvenc` and
-`cuda-torch`, `paramsSize 0x208` (520 bytes), **`NV_OK` on both sides**. The
-command resolves to no public header, so the catalogue row is
-`unknown -- not in public headers` and the field map cannot name its members
-— which is why the finding reads as an offset.
+The instrument is the before-call sample. A word whose after sample equals
+its before sample was not written on that call; where RM wrote one natively
+and the guest did not, the guest was told the call succeeded and answered
+nothing. That is a sharper statement than "the bytes differ" and it has its
+own class, `answer_not_written`.
 
-Bytes 24..31, little-endian, in the `nvenc` probe:
+**`NV0080_CTRL_CMD_GR_GET_CAPS_V2`** (`ctl nr=0x2a sub=0x801109`), in
+`nvdec`, `paramsSize 48`. Natively the buffer goes from the caller's garbage
+to a capability table (`b0 62 00 00 ... 04 a0 0f`, then `bCapsPopulated = 1`
+at offset 40) on **both** of the two calls. In the guest the **first** call
+leaves all 48 bytes exactly as the caller had them and the **second** writes
+the capability table **byte-identical to the native one**. So it is not "the
+guest cannot answer this": it is answered correctly one call later.
 
-| | offset 24 |
-|---|---|
-| native | `30 14 03 80 84 7f 00 00` = **`0x00007f8480031430`** |
-| guest | `00 00 00 00 00 00 00 00` = **0** |
+That is the interesting shape and the reason the finding reports counts
+rather than a verdict. A first call that is not answered and a second that is
+suggests state that is not ready yet at the boundary rather than a missing
+translation. `V2` carries `capsTbl` INLINE -- that is what V2 means -- so
+unlike `GR_GET_CAPS` (`0x801102`) it needs no `nested_ptrs` entry and should
+forward verbatim on a self-describing `paramsSize`.
 
-In `nvml` and `nvdec` the same eight bytes are zero on BOTH sides, so the
-difference appears only where the value is non-zero natively.
+Two honest edges. Call i of one side is call i of the other only because both
+runs made the same number of calls, which is all that has been checked --
+`nvenc` calls it once and **neither** side answers there, so RM itself
+returns `NV_OK` without populating in some contexts. And what a caps table
+that never arrives costs is unmeasured: `nvdec` is `guest-validated` and
+decoded video.
 
-`0x00007f84_8003_1430` is a canonical x86-64 user-space address. An
-eight-byte field holding one, in a control whose parameter block is 520
-bytes, is the shape of an `NvP64` — and this command is in no header, so
-`xlate::nested_ptrs` has no entry for it, the descriptor table declares
-nothing, and the catalogue calls it `passthrough` because RM_CONTROL is
-self-describing. That is precisely the class numbers 32 and 44 are about:
-**a forwarded, wrongly-answered call fails quietly three steps later
-somewhere else, while a non-carryable one fails loudly and immediately.**
+**`0x2080a079`** (`ctl nr=0x2a sub=0x2080a079`), in `nvml`, no public header.
+One call, written natively, not written in the guest, offset 8, `0x3` against
+the caller's `0x0`. One call is thin evidence and it is stated as one call.
 
-**Not yet a defect, and here is the honest reason.** `ctrlout` dumps the
-params buffer AFTER the call, so this cannot presently distinguish:
+The next step for both is the same and is not a sweep: find where the
+write-back is decided for a control whose params are inline, and whether the
+first call differs from the second in what the backend has set up by then.
 
-  a. an OUT pointer field the mediation does not know about, which the
-     boundary therefore dropped — a real hole; from
-  b. an IN pointer the CALLER supplied, where the guest's
-     `libnvidia-encode` simply took a branch that passes NULL — a userspace
-     difference and nobody's bug.
+### 62. An escape the guest module rewrites is not in the descriptor table
+**Open, measured 2026-08-21.** `NV_ESC_CARD_INFO` carries the BDF and the
+gpuId in its own inline block, and the guest module rewrites both of them by
+hand (`virtio_nvrm.c`, at offsets this tree generates). It has no descriptor-
+table row, so `catalog-<driver>.json` calls it **`passthrough`** while
+`verified-<driver>.json` calls it **mediated** -- "26 calls, differs only in
+bdf-address". Both files are right as each defines its words, and a reader
+who takes `passthrough` to mean "carried unchanged" is misled by an artefact
+of which table was asked.
 
-Both are testable and the test is cheap: dump the params buffer BEFORE the
-call as well and compare. If the field is non-zero on entry natively and
-zero on entry in the guest, it is (b); if it is zero on entry on both sides
-and non-zero on return natively, it is (a) and it is a hole. That dump is
-part of the tracer work the reach half of number 55 needs anyway, so this
-entry is one more reason to do it and not a separate project.
+It surfaced the moment escape payloads were dumped at all: a `MISMATCH` of
+`0x2d` natively against `0x05` in the guest, which is this rig's PCI bus
+number against the guest's slot number, and the mediation working exactly as
+designed while nothing declared it. The mediation manifest is keyed by the
+catalogue's signature now and names the five fields, so the comparison is
+correct; what is open is the CLASSIFICATION.
 
-Worth stating plainly: **`nvenc` is `guest-validated`** — it met its own
-criterion in the guest, its signature set and status fingerprint matched
-call for call, and it encoded video. Whatever this field is, it did not
-break encoding. That is the whole argument for comparing answer bytes: a
-gate that asks "did anything fail" cannot see this, and did not.
-
-Two neighbours in the same class, both `stability-unknown` rather than
-mismatches because no native trace called them twice:
-`0x2080852f` (offset 0: `0xf7403501` natively, `0x00000001` in the guest)
-and `0x2080a097` (offset 8: `0x00000014` natively, `0x00000007` in one guest
-sweep and `0x00000023` in the next — which is two-run evidence that it is
-volatile, obtained by accident, and exactly what the second-native-trace
-variant would establish on purpose).
+The question is whether an escape the module rewrites by hand should be
+`implemented` rather than `passthrough`, and it is not cosmetic: the
+catalogue's headline counts are what a reader takes away, and reporting a
+mediated call as passthrough understates what has been built -- the same
+direction of error that `manifest_answered` exists to prevent for controls.
+Moving it changes what the catalogue counts, which is why it is a question
+here and not a commit.
 
 ---
 
@@ -1451,3 +1458,91 @@ a device object built for an id it believes invalid, and `0xffffffff` is
 what both the hollow libGLX nodes and eglcore's live `rax` carry. But the
 client crash of 23/33/44 was never reproduced on a fresh guest, so nothing
 here has been shown to fix it.
+
+### 60. One answer survived every mask, and it was memory nobody wrote
+**Resolved 2026-08-21, and it is not a defect.** The entry below predicted
+its own test: *"if it is zero on entry on both sides and non-zero on return
+natively, it is (a) and it is a hole."* The tracer samples the params buffer
+BEFORE the call as well as after now, and the answer is neither (a) nor (b).
+
+At offset 24 the eight bytes are **identical in the before and the after
+sample, on BOTH sides**. Nothing wrote them. Natively they hold whatever the
+caller's own stack held -- which happened to be a canonical user-space
+address, because the caller is a program full of pointers -- and in the guest
+they hold that caller's leftovers, `out","cm` in ASCII. The two words the
+command does answer, at offsets 16 and 20, are `0x1` and `0x64` and they
+**match exactly on both sides**.
+
+So `ctrlout` was never dumping an answer there. It was dumping a buffer, and
+comparing the part past the end of what the control fills compared two
+programs' stack garbage. That generalises into the fifth derived mask -- a
+word whose after sample equals its before sample was not written on that
+call -- and with it the `mismatch` class is empty for the first time.
+
+The neighbours named at the end of this entry went the same way.
+`0x2080a097`, whose two-run difference was obtained by accident, is settled
+on purpose now: the second-native-trace control test exists and it is
+`unstable`.
+
+What follows is the original entry, unchanged, because the reasoning that
+framed the test is the reason the test was built.
+
+**Measured 2026-08-20.** The only `mismatch` left in the byte
+comparison after the fourth mask and the control test, and therefore the
+only potential defect in `matrix/verified-<driver>.json`. Before this run it
+was the twelfth line of a list of forty-five and nobody could have seen it.
+
+`ctl nr=0x2a sub=0x20809064`, 13 calls across `nvml`, `nvdec`, `nvenc` and
+`cuda-torch`, `paramsSize 0x208` (520 bytes), **`NV_OK` on both sides**. The
+command resolves to no public header, so the catalogue row is
+`unknown -- not in public headers` and the field map cannot name its members
+— which is why the finding reads as an offset.
+
+Bytes 24..31, little-endian, in the `nvenc` probe:
+
+| | offset 24 |
+|---|---|
+| native | `30 14 03 80 84 7f 00 00` = **`0x00007f8480031430`** |
+| guest | `00 00 00 00 00 00 00 00` = **0** |
+
+In `nvml` and `nvdec` the same eight bytes are zero on BOTH sides, so the
+difference appears only where the value is non-zero natively.
+
+`0x00007f84_8003_1430` is a canonical x86-64 user-space address. An
+eight-byte field holding one, in a control whose parameter block is 520
+bytes, is the shape of an `NvP64` — and this command is in no header, so
+`xlate::nested_ptrs` has no entry for it, the descriptor table declares
+nothing, and the catalogue calls it `passthrough` because RM_CONTROL is
+self-describing. That is precisely the class numbers 32 and 44 are about:
+**a forwarded, wrongly-answered call fails quietly three steps later
+somewhere else, while a non-carryable one fails loudly and immediately.**
+
+**Not yet a defect, and here is the honest reason.** `ctrlout` dumps the
+params buffer AFTER the call, so this cannot presently distinguish:
+
+  a. an OUT pointer field the mediation does not know about, which the
+     boundary therefore dropped — a real hole; from
+  b. an IN pointer the CALLER supplied, where the guest's
+     `libnvidia-encode` simply took a branch that passes NULL — a userspace
+     difference and nobody's bug.
+
+Both are testable and the test is cheap: dump the params buffer BEFORE the
+call as well and compare. If the field is non-zero on entry natively and
+zero on entry in the guest, it is (b); if it is zero on entry on both sides
+and non-zero on return natively, it is (a) and it is a hole. That dump is
+part of the tracer work the reach half of number 55 needs anyway, so this
+entry is one more reason to do it and not a separate project.
+
+Worth stating plainly: **`nvenc` is `guest-validated`** — it met its own
+criterion in the guest, its signature set and status fingerprint matched
+call for call, and it encoded video. Whatever this field is, it did not
+break encoding. That is the whole argument for comparing answer bytes: a
+gate that asks "did anything fail" cannot see this, and did not.
+
+Two neighbours in the same class, both `stability-unknown` rather than
+mismatches because no native trace called them twice:
+`0x2080852f` (offset 0: `0xf7403501` natively, `0x00000001` in the guest)
+and `0x2080a097` (offset 8: `0x00000014` natively, `0x00000007` in one guest
+sweep and `0x00000023` in the next — which is two-run evidence that it is
+volatile, obtained by accident, and exactly what the second-native-trace
+variant would establish on purpose).

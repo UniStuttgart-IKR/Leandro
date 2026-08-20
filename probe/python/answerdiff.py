@@ -589,11 +589,29 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
                 # nothing explains, and the only question left is whether the
                 # guest wrote anything at all.
                 if gwrote is not None and off not in gwrote[i]:
+                    # HOW OFTEN, not just this once. A word the guest never
+                    # writes and a word it writes on the second call but not
+                    # the first are different findings, and the second is
+                    # what GR_GET_CAPS_V2 turned out to be: natively answered
+                    # on both calls, in the guest on the second only, with
+                    # the answer byte-identical when it does come. Reporting
+                    # one call index would have read as "never answered".
+                    #
+                    # The usual caveat on pairing applies and is why the
+                    # counts are given rather than a verdict: call i of one
+                    # side is call i of the other only because both runs made
+                    # the same number of calls, which is all that has been
+                    # checked.
+                    tot = len(ncalls)
+                    nn = sum(1 for c in range(tot) if off in nwrote[c])
+                    gg = sum(1 for c in range(tot) if off in gwrote[c])
                     return "unwritten", (
                         f"call {i}, {name_at(fm, off)}: RM wrote {nw:#010x} "
                         f"natively and the guest left the caller's own "
                         f"{gw:#010x} in place -- the call returned NV_OK and "
-                        f"answered nothing"), {}
+                        f"answered nothing. Over the {tot} paired call(s) of "
+                        f"this probe, this word was written natively on {nn} "
+                        f"and in the guest on {gg}"), {}
                 extra = (" -- this command IS mediated, and this byte is in "
                          "none of the fields the mediation declares"
                          if med else "")
