@@ -26,10 +26,31 @@
 //
 // Deterministic: fixed 64x64 pbuffer, one glClear with a fixed colour, one
 // glReadPixels of the centre pixel, exact comparison. No timing, no files.
+//
+// EXIT CODES, and the distinction is the whole point of number 54:
+//
+//   0  the platform resolved to NVIDIA and the pixel came back
+//   1  it ran and something is wrong -- wrong vendor, no display for the
+//      platform, a pixel that did not come back
+//   2  THERE IS NOTHING HERE TO ASK. Built without this platform's headers,
+//      or the native display this platform needs is not present at all:
+//      no WAYLAND_DISPLAY, no DISPLAY, no /dev/dri/renderD128.
+//
+// 2 is a DECLARED REASON and never a failure -- the runner turns it into a
+// row that says why it measured nothing. All four platforms answer the same
+// absence the same way, which they did not: a guest with X and no Wayland
+// compositor made egl-wayland exit 1 and read as a graphics defect, while
+// the identical absence of DISPLAY would have been a declared reason. The
+// same absence has to be reported the same way or the matrix counts moods.
+//
+// Note what is NOT absence: a native display that EXISTS and refuses the
+// connection is a failure (1). Absence is measured on the thing itself --
+// no variable set, no device node -- not on the error the connect returned.
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef LEA_HAVE_GBM
@@ -85,6 +106,14 @@ int main(int argc, char **argv)
 #ifdef LEA_HAVE_GBM
         // A render node, not a card node: this asks about the EGL platform,
         // not about modesetting, and a render node needs no DRM master.
+        //
+        // ABSENT (2) versus REFUSED (1): the node not being there at all is
+        // an environment without a render node, which is a reason and not a
+        // finding. A node that exists and will not open is a finding.
+        if (access("/dev/dri/renderD128", F_OK) != 0) {
+            fprintf(stderr, "eglplat: no DRM render node (/dev/dri/renderD128)\n");
+            return 2;
+        }
         drmfd = open("/dev/dri/renderD128", O_RDWR | O_CLOEXEC);
         if (drmfd < 0) {
             fprintf(stderr, "eglplat: cannot open /dev/dri/renderD128\n");
@@ -103,9 +132,16 @@ int main(int argc, char **argv)
 #endif
     } else if (!strcmp(want, "wayland")) {
 #ifdef LEA_HAVE_WAYLAND
+        // Absent (2) versus refused (1), the same distinction as gbm above:
+        // WAYLAND_DISPLAY unset is an environment with no compositor, which
+        // is a reason. Set and unreachable is a finding.
+        if (!getenv("WAYLAND_DISPLAY")) {
+            fprintf(stderr, "eglplat: no Wayland display (WAYLAND_DISPLAY)\n");
+            return 2;
+        }
         struct wl_display *wl = wl_display_connect(NULL);
         if (!wl) {
-            fprintf(stderr, "eglplat: no Wayland display (WAYLAND_DISPLAY)\n");
+            fprintf(stderr, "eglplat: WAYLAND_DISPLAY is set and the connection failed\n");
             return 1;
         }
         platform = EGL_PLATFORM_WAYLAND_KHR;
@@ -116,9 +152,13 @@ int main(int argc, char **argv)
 #endif
     } else if (!strcmp(want, "xlib")) {
 #ifdef LEA_HAVE_X11
+        if (!getenv("DISPLAY")) {
+            fprintf(stderr, "eglplat: no X display (DISPLAY)\n");
+            return 2;
+        }
         Display *dpy = XOpenDisplay(NULL);
         if (!dpy) {
-            fprintf(stderr, "eglplat: no X display (DISPLAY)\n");
+            fprintf(stderr, "eglplat: DISPLAY is set and XOpenDisplay failed\n");
             return 1;
         }
         platform = EGL_PLATFORM_X11_KHR;
@@ -129,9 +169,13 @@ int main(int argc, char **argv)
 #endif
     } else if (!strcmp(want, "xcb")) {
 #ifdef LEA_HAVE_XCB
+        if (!getenv("DISPLAY")) {
+            fprintf(stderr, "eglplat: no X display (DISPLAY)\n");
+            return 2;
+        }
         xcb_connection_t *c = xcb_connect(NULL, NULL);
         if (!c || xcb_connection_has_error(c)) {
-            fprintf(stderr, "eglplat: no xcb connection (DISPLAY)\n");
+            fprintf(stderr, "eglplat: DISPLAY is set and xcb_connect failed\n");
             return 1;
         }
         platform = EGL_PLATFORM_XCB_EXT;

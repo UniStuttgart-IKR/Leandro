@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T17:47:15Z",
-    "commit:  91bb590 (working tree modified)"
+    "date:    2026-08-20T18:39:12Z",
+    "commit:  f08ef32 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -10030,7 +10030,7 @@
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glxinfo resolved to 'NVIDIA GeForce RTX 2070/PCIe/SSE2' with direct rendering"
+      "criterion": "glxinfo resolved to '4.6.0 NVIDIA 610.57.04' with direct rendering (renderer 'NVIDIA GeForce RTX 2070/PCIe/SSE2')"
     },
     {
       "probe": "gl-render",
@@ -10060,7 +10060,7 @@
       "group": "gl",
       "libs": "libEGL_nvidia libnvidia-eglcore libnvidia-glsi",
       "libs_seen": "libEGL_nvidia libnvidia-egl-gbm libnvidia-egl-wayland libnvidia-egl-wayland2 libnvidia-egl-xcb libnvidia-egl-xlib libnvidia-eglcore libnvidia-glsi libnvidia-gpucomp",
-      "criterion": "GLES2 enumeration resolved to 'NVIDIA GeForce RTX 2070/PCIe/SSE2'"
+      "criterion": "GLES2 enumeration resolved to 'OpenGL ES 3.2 NVIDIA 610.57.04' (renderer 'NVIDIA GeForce RTX 2070/PCIe/SSE2')"
     },
     {
       "probe": "kms-nvkms",

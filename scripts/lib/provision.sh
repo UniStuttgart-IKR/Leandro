@@ -804,6 +804,78 @@ lea_guest_setup() {
             ;;
     esac
 
+    # ---- the manifests the compute payload needs ---------------------------
+    # A STAGED LIBRARY THAT NO MANIFEST NAMES IS AN ABSENT LIBRARY THAT COSTS
+    # DISK (number 53). The EGL and Vulkan halves of that rule have been in
+    # lea_gl_stage since the vendor JSONs -- "without 10_nvidia.json, libEGL
+    # picks Mesa, silently". It generalises to every loader that finds its
+    # vendor through a FILE rather than through a SONAME, and it had not been
+    # generalised: libnvidia-opencl has been in `optional` above since the
+    # payload existed, and `oclprobe` in a guest reported "no OpenCL platform
+    # (loader found no vendor library)" -- clean status codes, zero ioctls,
+    # and a trace that looks like a feature nobody used.
+    #
+    # The set is not a list somebody maintains. It is what a HOST with the
+    # driver installed has: every file under the loader directories that
+    # names an NVIDIA library, minus the six lea_gl_stage already writes.
+    # Measured 2026-08-20 --
+    #     grep -rl libnvidia /etc/OpenCL /usr/share/glvnd /usr/share/egl \
+    #                        /usr/share/vulkan /usr/share/vulkansc
+    # -- ten files, six of them lea_gl_stage's. Two of the remaining four are
+    # written here; the third and fourth are the two halves of
+    # /usr/share/vulkan/implicit_layer.d/nvidia_layers.json, deliberately not
+    # written, and number 57 says why.
+    #
+    # DERIVED, not declared: each manifest is written only when the library it
+    # names actually resolves under /opt/nvrm/lib, and removed when it does
+    # not, so a payload staged without an optional library leaves no manifest
+    # pointing at nothing. The path inside is the BARE SONAME, the way the
+    # host's own manifest has it: /opt/nvrm/lib is on the guest's loader path
+    # on both guests, and an absolute path would go stale the moment the
+    # payload moves.
+    local vksc_api
+    vksc_api=$(python3 -c "
+import json
+try:
+    print(json.load(open('/usr/share/vulkansc/icd.d/nvidia_icd_vksc.json'))['ICD']['api_version'])
+except Exception:
+    print('1.0.12')" 2>/dev/null || echo 1.0.12)
+    # Over stdin rather than as an argument: the bodies are JSON, and a JSON
+    # document through two levels of shell quoting is a trap with no upside.
+    lea_ssh "$ip" 'bash -s' <<REG || return 1
+set -e
+# reg SONAME DIR FILE -- write the manifest on stdin, but only if the library
+# it names is staged; otherwise take a stale one away.
+reg() {
+    if [ -e /opt/nvrm/lib/"\$1" ]; then
+        sudo install -d "\$2"
+        sudo tee "\$2/\$3" >/dev/null
+        echo "  manifest \$2/\$3 -> \$1"
+    else
+        cat >/dev/null
+        sudo rm -f "\$2/\$3"
+        echo "  not staged, so no manifest: \$1"
+    fi
+}
+# OpenCL: the ICD loader reads /etc/OpenCL/vendors/*.icd, and the file is one
+# line holding the vendor library's SONAME. Same shape as the host's.
+reg libnvidia-opencl.so.1 /etc/OpenCL/vendors nvidia.icd <<'ICD'
+libnvidia-opencl.so.1
+ICD
+# Vulkan SC: the same registration one loader further on. NOTHING IN THIS TREE
+# EXERCISES IT -- probe vk-sc is declared-unsupported, no workload exists -- so
+# this is the rule applied, not a measurement, and it is labelled as such.
+reg libnvidia-vksc-core.so.1 /usr/share/vulkansc/icd.d nvidia_icd_vksc.json <<'VKSC'
+{
+    "file_format_version" : "1.0.1",
+    "ICD": {
+        "library_path": "libnvidia-vksc-core.so.1",
+        "api_version" : "$vksc_api"
+    }
+}
+VKSC
+REG
+
     case $os in
         ubuntu)
             # The guest helper module: device nodes, /proc/devices, params --

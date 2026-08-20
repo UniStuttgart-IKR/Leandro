@@ -11,8 +11,9 @@
 # matrix-group:     gl
 # matrix-libs:      libGLX_nvidia libnvidia-glcore
 # matrix-entry:     glXQueryServerString / glXChooseFBConfig (glxinfo -B)
-# matrix-criterion: the OpenGL renderer string names NVIDIA and direct
-#                   rendering is on -- llvmpipe answers this call too
+# matrix-criterion: the OpenGL version string names NVIDIA and the driver
+#                   version this tree targets, and direct rendering is on --
+#                   llvmpipe answers this call too
 # matrix-status:    ready
 set -uo pipefail
 _LEA_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib" && pwd) || exit 1
@@ -30,5 +31,20 @@ echo "$out"
 [[ $rc -eq 0 ]] || { error "glxinfo exited $rc"; exit 1; }
 grep -q 'direct rendering: Yes' <<<"$out" || { error "direct rendering is not on"; exit 1; }
 r=$(sed -n 's/^OpenGL renderer string: *//p' <<<"$out" | head -1)
-grep -q NVIDIA <<<"$r" || { error "renderer is '$r', not NVIDIA"; exit 1; }
-lea_matrix_criterion "glxinfo resolved to '$r' with direct rendering"
+v=$(sed -n 's/^OpenGL version string: *//p' <<<"$out" | head -1)
+# THE VERSION STRING, NOT THE RENDERER STRING, and that is number 54. The
+# renderer string carries the card's PRODUCT NAME, which the identity
+# mediation rewrites on purpose -- a guest reads 'Leandro RTX 2070/PCIe/SSE2'
+# where the host reads 'NVIDIA GeForce RTX 2070/PCIe/SSE2', so this probe
+# failed in a guest for the mediation working. The version string is
+# untouched by it and identical on both sides (measured 2026-08-20:
+# '4.6.0 NVIDIA 610.57.04' natively and in the guest), and it is the
+# stronger claim anyway: it names the driver, and llvmpipe's says Mesa.
+# Checked against DRIVER_VERSION rather than against the word NVIDIA, so a
+# guest answered by a userspace of the wrong version is a failure and not a
+# pass. The renderer string is still REPORTED -- it is the mediated identity,
+# which is worth having in the record and is not a pass criterion.
+want=$(lea_want_driver)
+grep -q "NVIDIA $want" <<<"$v" \
+    || { error "OpenGL version is '$v', not NVIDIA $want"; exit 1; }
+lea_matrix_criterion "glxinfo resolved to '$v' with direct rendering (renderer '$r')"

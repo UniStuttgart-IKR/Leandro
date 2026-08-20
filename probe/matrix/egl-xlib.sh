@@ -29,8 +29,11 @@ source "$_LEA_LIB/matrix.sh"
 
 out=$(lea_matrix_workload "$LEA_PROBE_BIN/eglplat" xlib 2>&1); rc=$?
 echo "$out"
-# Exit 2 from eglplat means it was built without this platform's headers, or
-# there is no an X display (DISPLAY) here. That is a declared reason, not a failure.
+# Exit 2 from eglplat means there is nothing here to ask: built without this
+# platform's headers, or an X display (DISPLAY) is not present at
+# all. That is a declared reason and never a failure, and all four platforms
+# report the same absence the same way (number 54, and probe/c/eglplat.c
+# carries the exit-code contract).
 [[ $rc -ne 2 ]] || { echo "declared-unsupported: workload not procurable in this environment -- an X display (DISPLAY) is not available"; exit 2; }
 [[ $rc -eq 0 ]] || { error "eglplat xlib exited $rc"; exit 1; }
 px=$(sed -n 's/^PIXEL=//p' <<<"$out" | tail -1)

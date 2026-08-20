@@ -717,7 +717,7 @@ guest**, so for them `predicted-green` remains untested no matter how many
 guest runs pass.
 
 ### 53. Two libraries are staged into the guest and registered with nobody
-**Open, measured 2026-08-20.** `oclprobe` in the guest: *"no OpenCL platform
+**Half fixed, half falsified 2026-08-20.** `oclprobe` in the guest: *"no OpenCL platform
 (loader found no vendor library)"*. `libnvidia-opencl` IS staged — it is in
 the `optional` array — but nothing writes `/etc/OpenCL/vendors/nvidia.icd`,
 and an ICD loader with no vendor file finds no platform. `eglplat xcb` in
@@ -731,19 +731,71 @@ was not generalised: **a staged library that no manifest names is an absent
 library that costs disk.** The staging inventory in `DISCOVERY.md` cannot
 see it, because it compares file sets and this is a registration.
 
+**The OpenCL half is fixed, and the rule was generalised rather than the
+case patched.** The set of manifests is not a list somebody maintains: it is
+what a host with the driver installed HAS, derived on 2026-08-20 by
+
+    grep -rl libnvidia /etc/OpenCL /usr/share/glvnd /usr/share/egl \
+                       /usr/share/vulkan /usr/share/vulkansc
+
+— **ten files**, of which `lea_gl_stage` already wrote six (the EGL vendor
+JSON, four external-platform JSONs, the Vulkan ICD). `lea_guest_setup` now
+writes two more, each only when the library it names actually resolves under
+`/opt/nvrm/lib` and removed again when it does not: `nvidia.icd` for
+`libnvidia-opencl` and `nvidia_icd_vksc.json` for `libnvidia-vksc-core`.
+The remaining two are the halves of `nvidia_layers.json` — number 57.
+
+Measured the same day, and it is the whole of the fix: the `opencl` probe
+went from FAIL to **guest-validated**, 107 signatures against 107, criterion
+*"OpenCL vector add on NVIDIA's platform: 4096/4096 elements verified"*.
+Nothing else changed. Note what that says about the class: `libnvidia-opencl`
+is a separate userspace on the same driver, and its whole escape surface was
+untested for want of a one-line text file.
+
+**The `eglplat xcb` half is FALSIFIED, and it was not the same shape at
+all.** Measured 2026-08-20 out of the guest run's own strace: the guest
+DOES read `/usr/share/egl/egl_external_platform.d/20_nvidia_xcb.json`, it
+DOES read `10_nvidia.json` beside Mesa's `50_mesa.json`, and it DOES
+`dlopen` `libnvidia-egl-xcb.so.1` successfully — and `eglQueryString`
+still answers `Mesa Project`. The registration chain is complete and the
+divergence is one level below it, which is a different question and has its
+own entry: number 58.
+
 ### 54. Two probe criteria cannot pass in a guest, because the guest renames the card
-**Open, measured 2026-08-20.** `gl-enum` and `gles` fail in the guest with
+**Fixed 2026-08-20.** `gl-enum` and `gles` fail in the guest with
 *"renderer is 'Leandro RTX 2070/PCIe/SSE2', not NVIDIA"* — and the same
 run's version string reads `OpenGL ES 3.2 NVIDIA 610.57.04`. The renderer
 IS NVIDIA's; the criterion greps for a product name that the identity
 mediation deliberately rewrites. The probes were written against a host and
 the criterion inherited that.
 
-Proposed, not done: the criterion should accept the mediated name the same
-way the rest of the tree does, rather than the guest run being read as a
-graphics failure. Beside it, `egl-wayland` exits 1 for a missing
-`WAYLAND_DISPLAY` where `egl-xlib` exits 2 for a missing `DISPLAY` — the
-same absence, reported once as a failure and once as a declared reason.
+**Both criteria now gate on the VERSION string, and it is the sharper test
+rather than the looser one.** The renderer string carries the card's product
+name, which the mediation rewrites on purpose; the version string is
+untouched by it and identical on both sides — measured 2026-08-20:
+`4.6.0 NVIDIA 610.57.04` and `OpenGL ES 3.2 NVIDIA 610.57.04`, natively and
+in the guest. And it is checked against `DRIVER_VERSION` rather than against
+the word `NVIDIA`, so a guest answered by a userspace of the WRONG version
+is now a failure where before it was a pass. The renderer string is still
+reported beside the criterion: it is the mediated identity, which belongs in
+the record and is not a pass criterion.
+
+**The absence half was not where this entry said it was.** It is not a
+difference between the two shell probes — those already agreed. All four
+platforms in `probe/c/eglplat.c` returned **1** for a missing native
+display, and the shell comments claimed 2, so the contract was written down
+in one place and implemented in another. Absence is now measured on the
+thing itself (`WAYLAND_DISPLAY` unset, `DISPLAY` unset, no
+`/dev/dri/renderD128`) and answers **2**; a display that EXISTS and refuses
+the connection stays **1**. The exit-code contract sits in the probe's own
+header, which is the one place all four platforms read from.
+
+Measured after: `gl-enum` and `gles` meet their criterion in the guest, and
+`egl-wayland` reports *"declared-unsupported — a Wayland display
+(WAYLAND_DISPLAY) is not available"* instead of failing. Both still appear
+as FAIL in the guest column, for the signature-set divergence of number 52
+and for nothing to do with this entry — which is exactly the separation the
+two columns exist for.
 
 ### 55. The answer bytes are compared now, and the class that can be promoted is not the class that can be reached
 **Open, measured 2026-08-20.** `scripts/ioctl-matrix.sh verify` compares the
@@ -846,6 +898,73 @@ and one card the index has one column, and its value is entirely in what it
 does when the second arrives. The cost of waiting is that an old catalogue
 may lack a field the merge wants, which argues for making the provenance
 structured now and merging later.
+
+### 57. A vendor manifest is registered nowhere, and a knob depends on it
+**Open, measured 2026-08-20.** Found while generalising number 53's rule.
+Of the ten host files that name an NVIDIA library, eight are written into
+the guest now. The ninth and tenth are the two halves of
+`/usr/share/vulkan/implicit_layer.d/nvidia_layers.json`, and neither is
+written:
+
+  * `VK_LAYER_NV_optimus` names `libGLX_nvidia.so.0`, which IS staged. The
+    library is reachable anyway — the Vulkan ICD manifest names it — so
+    this is not the "absent library that costs disk" shape. What is absent
+    is the LAYER.
+  * `VK_LAYER_NV_present` names `libnvidia-present.so.610.57.04`, which is
+    NOT staged and is one of the seven libraries whose staging is a
+    person's decision (`TASKS-<drv>.md`, task 3). Writing the file whole
+    would point the loader at a library that is not there, which is the
+    failure mode number 53 is about, in the other direction.
+
+The consequence is small and exact, and it is why this is written down
+rather than fixed: `/usr/local/bin/nvidia-run`, which `lea_gl_stage
+--system` installs, runs its program with `__NV_PRIME_RENDER_OFFLOAD=1` and
+`__VK_LAYER_NV_optimus=NVIDIA_only`. The first of those is precisely the
+`enable_environment` of a layer that is registered nowhere in the guest, so
+**the variable is inert** — the wrapper does on a guest a strictly smaller
+thing than its name and its comment claim.
+
+Not fixed, and the reason is that it cannot be fixed by half without a
+measurement: registering the optimus half alone changes ICD selection on a
+guest that has exactly one GPU, and nothing in this tree exercises a layer
+today. Unverified, and testable: register the optimus half only, run
+`vk-enum` in a guest, and compare the signature set against this baseline.
+If it does not move, the layer is inert in both directions and the honest
+fix is to drop the two variables from `nvidia-run` instead.
+
+### 58. NVIDIA's xcb EGL platform declines in a guest, and its xlib platform does not
+**Open, measured 2026-08-20.** Split out of number 53, whose hypothesis for
+this half — a missing registration, "the same shape one platform further
+on" — is FALSIFIED.
+
+`eglplat xcb` in the guest resolves to vendor `Mesa Project`; natively it
+resolves to `NVIDIA`. Read out of the guest run's own strace, every step of
+the registration chain is intact: `/usr/share/glvnd/egl_vendor.d/10_nvidia.
+json` is read, `/usr/share/egl/egl_external_platform.d/20_nvidia_xcb.json`
+is read, and `libnvidia-egl-xcb.so.1` is `dlopen`ed and returns a
+descriptor. The vendor library is found, loaded, and declines.
+
+What makes it sharp is the neighbour: `eglplat xlib` in the SAME guest, in
+the same sweep, against the same X server, resolves to `NVIDIA` and reads
+its pixel back correctly (`3377bbff`). Two external-platform libraries over
+one X connection, and only one of them accepts. So this is not "EGL is
+broken in a guest" and not a staging question; it is one platform module's
+own acceptance test.
+
+The environment difference is known and is the obvious suspect: the guest's
+X server runs on the virtio-gpu (Mesa's own diagnostic in the same trace
+reads `pci id for fd 6: 1af4:107c`), while the host's runs on the NVIDIA
+card. Unverified, and the counter-test is cheap and does not need a guest:
+run `eglplat xcb` and `eglplat xlib` on the HOST against an X server that
+is NOT on the NVIDIA card. If xcb answers Mesa there too, this is a
+property of `libnvidia-egl-xcb` and the X server's device, the boundary is
+not involved, and the honest row for `egl-xcb` in a guest is an environment
+row like `cuda-managed`. If xcb answers NVIDIA there, the boundary IS
+involved and this becomes a real finding about what the guest answers to
+whatever that library probes.
+
+No probe failed for it in a way that hides anything: `egl-xcb` is FAIL in
+the guest column with its reason on the row.
 
 ---
 

@@ -24,7 +24,8 @@
 # matrix-group:     gl
 # matrix-libs:      libEGL_nvidia libnvidia-eglcore libnvidia-glsi
 # matrix-entry:     eglBindAPI(EGL_OPENGL_ES_API) + GLES2 enumeration
-# matrix-criterion: the GLES renderer string names NVIDIA
+# matrix-criterion: the GLES version string names NVIDIA and the driver
+#                   version this tree targets
 # matrix-status:    ready
 set -uo pipefail
 _LEA_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib" && pwd) || exit 1
@@ -41,5 +42,12 @@ out=$(lea_matrix_workload es2_info 2>&1); rc=$?
 echo "$out"
 [[ $rc -eq 0 ]] || { error "es2_info exited $rc"; exit 1; }
 r=$(sed -n 's/^GL_RENDERER: *//p' <<<"$out" | head -1)
-grep -q NVIDIA <<<"$r" || { error "GLES renderer is '$r', not NVIDIA"; exit 1; }
-lea_matrix_criterion "GLES2 enumeration resolved to '$r'"
+v=$(sed -n 's/^GL_VERSION: *//p' <<<"$out" | head -1)
+# The version string and not the renderer string, for the reason gl-enum.sh
+# states at length (number 54): the renderer string is the card's product
+# name, which the identity mediation rewrites, and GL_VERSION is not.
+# Measured 2026-08-20: 'OpenGL ES 3.2 NVIDIA 610.57.04' on both sides.
+want=$(lea_want_driver)
+grep -q "NVIDIA $want" <<<"$v" \
+    || { error "GLES version is '$v', not NVIDIA $want"; exit 1; }
+lea_matrix_criterion "GLES2 enumeration resolved to '$v' (renderer '$r')"

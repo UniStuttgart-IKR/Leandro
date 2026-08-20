@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T17:25:22Z",
-    "commit:  d6144d1 (working tree modified)"
+    "date:    2026-08-20T18:39:12Z",
+    "commit:  f08ef32 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh guest",
   "compared": "the signature set and the rm_status fingerprint per signature, native against guest, both traced by the same interposer",
@@ -16,9 +16,9 @@
     "answer bytes -- that is the differential harness, OPEN-QUESTIONS 50"
   ],
   "summary": {
-    "guest-validated": 7,
-    "FAIL": 11,
-    "blocked": 2
+    "guest-validated": 8,
+    "FAIL": 9,
+    "blocked": 3
   },
   "passed_natively_but_not_run_here": [],
   "probes": [
@@ -176,8 +176,8 @@
     },
     {
       "probe": "egl-wayland",
-      "verdict": "FAIL",
-      "guest_result": "FAIL: probe exited 1 -- eglplat wayland exited 1",
+      "verdict": "blocked",
+      "guest_result": "declared-unsupported: workload not procurable in this environment -- a Wayland display (WAYLAND_DISPLAY) is not available",
       "criterion": "",
       "native_result": "PASS",
       "native_signatures": 114,
@@ -193,7 +193,7 @@
       "findings": [
         {
           "kind": "guest-run",
-          "detail": "FAIL: probe exited 1 -- eglplat wayland exited 1"
+          "detail": "declared-unsupported: workload not procurable in this environment -- a Wayland display (WAYLAND_DISPLAY) is not available"
         }
       ]
     },
@@ -298,8 +298,8 @@
     {
       "probe": "gl-enum",
       "verdict": "FAIL",
-      "guest_result": "FAIL: probe exited 1 -- renderer is 'Leandro RTX 2070/PCIe/SSE2', not NVIDIA",
-      "criterion": "",
+      "guest_result": "PASS",
+      "criterion": "glxinfo resolved to '4.6.0 NVIDIA 610.57.04' with direct rendering (renderer 'Leandro RTX 2070/PCIe/SSE2')",
       "native_result": "PASS",
       "native_signatures": 121,
       "guest_signatures": 111,
@@ -312,10 +312,6 @@
         "guest": 13
       },
       "findings": [
-        {
-          "kind": "guest-run",
-          "detail": "FAIL: probe exited 1 -- renderer is 'Leandro RTX 2070/PCIe/SSE2', not NVIDIA"
-        },
         {
           "kind": "signature-absent-in-guest",
           "device": "ctl",
@@ -424,8 +420,8 @@
     {
       "probe": "gles",
       "verdict": "FAIL",
-      "guest_result": "FAIL: probe exited 1 -- GLES renderer is 'Leandro RTX 2070/PCIe/SSE2', not NVIDIA",
-      "criterion": "",
+      "guest_result": "PASS",
+      "criterion": "GLES2 enumeration resolved to 'OpenGL ES 3.2 NVIDIA 610.57.04' (renderer 'Leandro RTX 2070/PCIe/SSE2')",
       "native_result": "PASS",
       "native_signatures": 117,
       "guest_signatures": 114,
@@ -438,10 +434,6 @@
         "guest": 15
       },
       "findings": [
-        {
-          "kind": "guest-run",
-          "detail": "FAIL: probe exited 1 -- GLES renderer is 'Leandro RTX 2070/PCIe/SSE2', not NVIDIA"
-        },
         {
           "kind": "signature-absent-in-guest",
           "device": "ctl",
@@ -573,26 +565,21 @@
     },
     {
       "probe": "opencl",
-      "verdict": "FAIL",
-      "guest_result": "FAIL: probe exited 1 -- oclprobe exited 1",
-      "criterion": "",
+      "verdict": "guest-validated",
+      "guest_result": "PASS",
+      "criterion": "OpenCL vector add on NVIDIA's platform: 4096/4096 elements verified",
       "native_result": "PASS",
       "native_signatures": 107,
-      "guest_signatures": 0,
+      "guest_signatures": 107,
       "native_ioctls": "620",
-      "guest_ioctls": "0",
+      "guest_ioctls": "620",
       "native_modeset": "0",
       "guest_modeset": "0",
       "drm_calls_not_compared": {
         "native": 0,
         "guest": 0
       },
-      "findings": [
-        {
-          "kind": "guest-run",
-          "detail": "FAIL: probe exited 1 -- oclprobe exited 1"
-        }
-      ]
+      "findings": []
     },
     {
       "probe": "vk-enum",
