@@ -223,6 +223,107 @@ a status comparison cannot see and only the bytes can.
 Under X11 the same guest runs the same game; the `display` gate is 12/12
 green on that path (2026-08-20).
 
+**The crash site is read out of the core, and the bad value is a RETURN
+value.** Measured 2026-08-20 from `vm/out-eglcrash/winmain.core` -- which
+is the only core still kept in that directory -- against the host's
+libraries:
+
+- The two addresses are **not in one function**. `.eh_frame` FDEs put
+  `0xd0a989` at +0x139 of `[0xd0a850..0xd0aada)` and `0xf985b0` at +0x1e0
+  of `[0xf983d0..0xf98763)`. The second is the return address of
+  `call *0x110(%rax)`, so frame #1 calls frame #0 as a virtual method,
+  slot `0x110` of the vtable at `glcore+0x26fd1d0` -- confirmed in the
+  core, where `vtable[0x110]` is `glcore+0xd0a850` exactly.
+- The faulting instruction is `mov 0x8(%rdx),%rdx` with `rdx == 0`, so the
+  fault address is exactly **8**: the signature number 33 describes.
+- `rsi` is **not an argument**. It is the return value of the indirect
+  call at `glcore+0xd0a925`, and glcore checks it (`test %rax,%rax; je`)
+  and accepts it. The object is non-NULL and hollow: `+0x00..+0x27` are
+  all zero, including the `+8` pointer that faults, while `+0x28 = 9`,
+  `+0x30 = 0xffffffff`, `+0x50`, `+0x58 = 0x1d5`, `+0xa0` and
+  `+0xa8 = 0x20164010` are populated. A constructed object whose leading
+  fields were never filled -- not a fresh allocation, not a wild pointer.
+- The producer is **`libGLX_nvidia.so.610.57.04 + 0x83240`**, a function
+  entry (FDE `[0x83240..0x83449)`), reached through the dispatch table
+  `[[[this+0x5c8]+0x58]+0xba0] + 0x28da0`. It is called with the keys of
+  the enabled entries of `this+0x270` (4 of 4, stride 0x58), the count,
+  and a selector of **-1** -- and the object it hands back carries `-1`
+  at `+0x30`.
+- The loop then compares `key->+8` against `returned->+8->+8` and dies on
+  the **first** of the four entries.
+
+So the failure class is the one number 32 named and a status comparison
+cannot see: **an answer that looks valid and is wrong.** What is new is
+that the answer has an author -- `libGLX_nvidia`, the library numbers 23
+and 33 also end in -- and that glcore's own NULL check waves it through.
+
+The libraries are the host's bytes by construction: `lea_gl_stage` copies
+them out of `lea_nvidia_libdir` (here `/usr/lib`), pinned to
+`DRIVER_VERSION`. Recorded so a later run can check it directly rather
+than trusting that: `libnvidia-glcore.so.610.57.04` sha256
+`3a43bc796820f6ef4c102587db14284d90e9292a2b47d03ad4c1343cc8b3305a`,
+`libGLX_nvidia.so.610.57.04` sha256
+`7ef1112f99de62db27670075e2dd1318235bbb3fe769850bf714b0c7e657784c`.
+
+**The `0x73xxxx` group is ruled out, not assumed.** All of them -- 32 of
+them, not the 30 written above -- come from `nvidia-modeset`, and all fall
+in lines 9..66 of a 1410-line log, i.e. session startup. No process on the
+crash path (the game, `steamwebhelper`, `Xwayland`, `gnome-shell`) issues
+a single one.
+
+**The failure list above is incomplete.** That session records 263
+failures in 36 distinct (cmd, status, proc) combinations. Two of them come
+from crash-path processes and are NOT in probe/README.md section 6:
+
+- `NV_ESC_ATTACH_GPUS_TO_FD` (`nr 0xd4`, `NV_IOCTL_BASE + 12`) answering
+  **`ret -1`** to **Xwayland**, four times, during the game session (log
+  lines 321, 436, 463, 962).
+- `0x90960101` answering `0x80` to `steamwebhelper`, once.
+
+The first matters because the comment on `bdf_rewrite_attach_gpus()`
+([`guest-module/virtio_nvrm/virtio_nvrm.c`](../guest-module/virtio_nvrm/virtio_nvrm.c))
+describes exactly this `-1` as a bug found on 2026-08-15 and fixed there.
+Its guard needs `dev_tag == NVRM_DEV_CTL` and `bdf_on(dev)`; the log says
+`dev 0`, `NVRM_DEV_CTL` is `0`, and `provision.sh` turns `bdf_mediation`
+on for the display path this session used. The guard is therefore
+satisfied, the rewrite ran, and the call still fails. Unexplained -- and
+it is the only failure in the crash path that names the binding between a
+GPU and an fd.
+
+**A near miss, written down so it is not walked into twice: the
+cross-session fd tokens are NOT the cause.** The log shows 20
+`fd_field_token ... CROSS-SESSION` lines and zero `STALE` ones, which
+reads exactly like the chain the diagnostic in
+[`crates/vhost-user-nvrm/src/nvrm.rs`](../crates/vhost-user-nvrm/src/nvrm.rs)
+was added to prove. It is not: that diagnostic resolves against the
+CALLER's mirror, while the real translation uses `req.fd_field_proc`
+(protocol v6). The whole log contains **no refusal line at all**
+(`session N: ...`), so no `EBADF` on `fd_field_token` was ever returned.
+The diagnostic fires on the healthy v6 path too, and as written it invites
+the wrong conclusion.
+
+**Why this is still not the last call.** The `nvrm.log` kept beside the
+cores is not a `LEA_DEBUG=2` trace -- it holds failures, the fd census and
+events, 263 failure lines out of 1410. The last forwarded call before the
+SIGSEGV is therefore not in the evidence and cannot be recovered from it;
+it needs a re-run. What that re-run now has that the last one did not: a
+named producer (`libGLX_nvidia+0x83240`), a named suspect call
+(`NV_ESC_ATTACH_GPUS_TO_FD` on Xwayland), and two processes to filter to
+instead of a whole desktop session.
+
+*Unverified:* that the hollow object and the four failed
+`NV_ESC_ATTACH_GPUS_TO_FD` calls are one defect. Both sit on the
+Xwayland/GLX path and both concern which GPU an fd is bound to, but
+nothing measured so far links the crashing lookup to an fd whose attach
+failed. `LEA_DEBUG=2` together with `LEA_OBJLOG=1`, filtered to
+`Xwayland` and `steamwebhelper`, is the measurement that would decide it.
+
+Two side findings, not pursued here: the fd census ends the session at 799
+of 1021 process fds on `nvidiactl` with `unaccounted -201`, a negative
+number that should not be possible; and `Failed to acquire the EGL Image`
+stands at 744 occurrences after number 40 measured it down to zero, on a
+different session type (GNOME Wayland rather than the CS2/X11 run).
+
 ---
 
 ## Resolved and decided
