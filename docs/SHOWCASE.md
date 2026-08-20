@@ -166,10 +166,18 @@ from the same library AT THE SAME TIME because neither writes to the base:
 ./scripts/showcase.sh games status
 ```
 
-It is mounted at `~/.local/share/Steam/steamapps`, so Steam finds one
-library where it already looks. Measured: 196 G in the guest, 186 G free
-with an empty library, and the base stays untouched while overlays are in
-use.
+It is mounted at `/games`, and every Steam root in the guest gets its
+`steamapps` symlinked there -- including roots that do not exist yet, so the
+first start of Steam already lands on the disk. That indirection is not
+decoration: Ubuntu's Steam package keeps its root at
+`~/.steam/debian-installation` and never looks at `~/.local/share/Steam`, so
+a disk mounted at the latter stays empty at 186 GiB free while the guest's
+38 GiB root disk fills up with Proton, the Steam runtime and a game
+(measured 2026-08-20, and it is why the mount is where it is).
+
+A `steamapps` that already has content is never touched -- moving a live
+library is the operator's call, and the provisioning output prints the three
+commands for it.
 
 `scripts/guest/cs2-settings.sh` in the guest writes CS2's settings at their
 lowest and caps `fps_max` at the display rate -- the frame cap is the one

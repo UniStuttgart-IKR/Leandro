@@ -481,28 +481,33 @@ lea_libcuda_check() {
 
 # ---- the dev guest ----------------------------------------------------------
 # lea_games_mount NAME IP -- mount the Steam library disk, if this instance
-# was given one.
+# was given one, and point every Steam root at it.
 #
 # Only when `vm/<name>/games` says so. A guest that was started without
 # --games is not touched at all, and that guard is the important one: this
 # function FORMATS a disk, and "find the empty one" is a rule that a root
 # disk with a partition table also satisfies (`lsblk` reports no FSTYPE for
-# it, because the filesystems are on its partitions).
+# it, because the filesystems are on its partitions). The candidate must
+# have no partitions, no filesystem AND no mountpoint, all three.
 #
-# So the candidate must have no partitions, no filesystem and no mountpoint,
-# all three. BY LABEL afterwards, never by device: the games disk is vdc on
-# Ubuntu (root, seed, games) and vdb on NixOS, and a mount that depends on
-# that ordering breaks the day a disk is added.
+# WHERE IT GOES, and this is the part that was wrong first: NOT at one
+# hard-coded Steam path. Ubuntu's Steam package keeps its root at
+# ~/.steam/debian-installation (with ~/.steam/steam a symlink to it) and
+# never looks at ~/.local/share/Steam, so a disk mounted there stayed empty
+# at 186 GiB free while the guest's 38 GiB root disk filled up with
+# Proton, the Steam runtime and a game (measured 2026-08-20). The disk is
+# therefore mounted at a neutral /games and every Steam root gets its
+# `steamapps` pointed there by symlink -- including roots that do not exist
+# yet, so the first start of Steam already lands on the disk.
 #
-# Mounted AT the Steam library path rather than beside it, so Steam finds one
-# library where it already looks. `nofail`, so a guest that boots without the
-# disk still boots.
+# A steamapps directory that already HAS something in it is never touched.
+# Moving a live library is the operator's call, and the message says so.
 lea_games_mount() {
     local name=$1 ip=$2
     [[ -f $(lea_inst_dir "$name")/games ]] || return 0
     lea_ssh "$ip" "LABEL='$LEA_GAMES_LABEL' bash -s" <<'REMOTE'
 set -u
-target=$HOME/.local/share/Steam/steamapps
+mnt=/games
 
 dev=$(lsblk -ndo NAME,LABEL,TYPE | awk -v l="$LABEL" '$3=="disk" && $2==l {print $1; exit}')
 if [ -z "$dev" ]; then
@@ -517,13 +522,50 @@ if [ -z "$dev" ]; then
     sudo mkfs.ext4 -q -L "$LABEL" "/dev/$dev" || exit 1
 fi
 
-mkdir -p "$target"
-grep -q "LABEL=$LABEL " /etc/fstab 2>/dev/null || \
-    echo "LABEL=$LABEL $target ext4 defaults,nofail,x-systemd.device-timeout=10 0 2" \
+sudo mkdir -p "$mnt"
+# REPLACE any earlier entry for this label rather than adding a second one:
+# an older line may name a different mountpoint, and then `mount $mnt` finds
+# nothing in fstab while the disk sits mounted somewhere nobody looks.
+# "Empty" ignores lost+found: mkfs.ext4 makes it, and a freshly formatted
+# disk would otherwise count as carrying a library.
+has_content() { [ -n "$(ls -A "$1" 2>/dev/null | grep -v '^lost+found$')" ]; }
+
+old_mnt=$(awk -v l="LABEL=$LABEL" '$1==l {print $2}' /etc/fstab 2>/dev/null | head -1)
+if [ -n "$old_mnt" ] && [ "$old_mnt" != "$mnt" ]; then
+    if has_content "$old_mnt"; then
+        echo "NOTE: the library is mounted at $old_mnt and is not empty."
+        echo "      Leaving it there; move it by hand if you want it at $mnt."
+        mnt=$old_mnt
+    else
+        mountpoint -q "$old_mnt" && sudo umount "$old_mnt"
+        sudo sed -i "\|^LABEL=$LABEL |d" /etc/fstab
+        old_mnt=""
+    fi
+fi
+grep -q "^LABEL=$LABEL $mnt " /etc/fstab 2>/dev/null || \
+    echo "LABEL=$LABEL $mnt ext4 defaults,nofail,x-systemd.device-timeout=10 0 2" \
     | sudo tee -a /etc/fstab >/dev/null
-mountpoint -q "$target" || sudo mount "$target" || exit 1
-sudo chown "$(id -u):$(id -g)" "$target"
-echo "games library: $(df -h "$target" | awk 'NR==2 {print $2" total, "$4" free"}') on /dev/$dev"
+mountpoint -q "$mnt" || sudo mount "$mnt" || exit 1
+sudo chown "$(id -u):$(id -g)" "$mnt"
+
+# Every Steam root this guest might use, existing or not.
+for root in "$HOME/.steam/debian-installation" "$HOME/.local/share/Steam" \
+            "$HOME/.steam/root" "$HOME/.var/app/com.valvesoftware.Steam/data/Steam"; do
+    sa=$root/steamapps
+    [ "$sa" = "$mnt" ] && continue                  # the mount itself
+    if [ -L "$sa" ]; then
+        continue                                    # already pointed somewhere
+    elif [ -d "$sa" ] && has_content "$sa"; then
+        echo "NOTE: $sa has content and was left alone."
+        echo "      To move it onto the library disk, with Steam CLOSED:"
+        echo "        mv $sa/* $mnt/ && rmdir $sa && ln -s $mnt $sa"
+        continue
+    fi
+    rmdir "$sa" 2>/dev/null
+    mkdir -p "$root"
+    ln -s "$mnt" "$sa" 2>/dev/null && echo "steamapps -> $mnt  ($root)"
+done
+echo "games library: $(df -h "$mnt" | awk 'NR==2 {print $2" total, "$4" free"}') on /dev/$dev"
 REMOTE
 }
 
