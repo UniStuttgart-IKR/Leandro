@@ -119,6 +119,41 @@ lea_matrix_probe_list() {
     for f in "$d"/*.sh; do [[ -e $f ]] || continue; basename "$f" .sh; done
 }
 
+# ---- the counting rule ------------------------------------------------------
+# What "how many ioctls did this workload make" means, in one place. It is
+# the rule OPEN-QUESTIONS number 47 is about: both instruments were counted
+# wrongly once, in opposite directions, and each wrong count looked like a
+# finding about the other instrument. Anything that compares the two -- the
+# native run, the guest run -- asks these five functions and never writes an
+# awk line of its own.
+#
+# Three namespaces, never added together: the RM nodes, the NVKMS node, DRM.
+# The strace patterns are disjoint by construction -- `/dev/nvidia-modeset`
+# does not match the RM alternation, which is `ctl`, `-uvm` or a digit.
+
+# lea_matrix_n_tracer TSV -- ioctls the tracer recorded on the RM nodes.
+lea_matrix_n_tracer() {
+    awk -F'\t' '$1=="ioctl" && $2!="drm" && $2!="render" && $2!="modeset"' "$1" | wc -l
+}
+# lea_matrix_n_tracer_kms TSV -- ... on /dev/nvidia-modeset.
+lea_matrix_n_tracer_kms() { awk -F'\t' '$1=="ioctl" && $2=="modeset"' "$1" | wc -l; }
+# lea_matrix_n_tracer_drm TSV -- ... on the DRM nodes. Counted, never gated.
+lea_matrix_n_tracer_drm() {
+    awk -F'\t' '$1=="ioctl" && ($2=="drm" || $2=="render")' "$1" | wc -l
+}
+# lea_matrix_n_strace STRACE -- the same count from strace -y.
+#
+# `_IOC(` and not the substring `_IOC`: strace prints a NAMED request for
+# every ioctl it knows, and under an interpreter every isatty is a TCGETS2 --
+# counting those made a tracer that missed nothing look 1062 calls short.
+lea_matrix_n_strace() {
+    grep '_IOC(' "$1" 2>/dev/null | grep -cE '/dev/nvidia(ctl|-uvm|[0-9])' || true
+}
+# lea_matrix_n_strace_kms STRACE -- ... on /dev/nvidia-modeset.
+lea_matrix_n_strace_kms() {
+    grep '_IOC(' "$1" 2>/dev/null | grep -c '/dev/nvidia-modeset' || true
+}
+
 # ---- the serial queue -------------------------------------------------------
 # The GPU is a serial resource and these probes measure it. Two at once do not
 # corrupt anything, they corrupt the MEASUREMENT -- a trace taken while
@@ -128,15 +163,45 @@ lea_matrix_probe_list() {
 #
 # WARNING: `flock` on a file descriptor, never a pidfile check. A pidfile
 # race has a window; flock does not.
+#
+# WARNING, and this one cost a run: the lock is held by a CHILD PROCESS and
+# not by a descriptor of this shell. A descriptor this shell holds is
+# INHERITED by everything it starts, and the guest phase starts three
+# daemons that outlive it deliberately -- the two backends and
+# cloud-hypervisor. Measured 2026-08-20: a guest run that had exited half an
+# hour earlier still held this lock through its VM, and the next run sat in
+# `flock` waiting for a lock whose owner was a virtual machine. Nothing in
+# the trace phase could have shown it, because that phase starts no daemons.
+#
+# The holder takes the lock, says so through a file, and then waits for THIS
+# shell to disappear. It watches with `kill -0` rather than through a pipe,
+# because a pipe would be a descriptor again -- inherited by every daemon,
+# which is the bug.
 lea_matrix_serial() {
-    local lock="$LEA_VM_DIR/ioctl-matrix.lock"
+    local lock="$LEA_VM_DIR/ioctl-matrix.lock" ready i
     mkdir -p "$LEA_VM_DIR" || return 1
-    exec {_LEA_MATRIX_FD}>"$lock" || return 1
-    if ! flock -n "$_LEA_MATRIX_FD"; then
-        info "another ioctl-matrix run holds $lock -- waiting for it"
-        flock "$_LEA_MATRIX_FD" || return 1
-    fi
-    return 0
+    ready=$(mktemp) || return 1
+    (
+        exec {f}>"$lock" || exit 1
+        if ! flock -n "$f"; then
+            echo waiting > "$ready"
+            flock "$f" || exit 1
+        fi
+        echo held > "$ready"
+        while kill -0 "$$" 2>/dev/null; do sleep 2; done
+    ) &
+    _LEA_MATRIX_LOCK_PID=$!
+    lea_on_exit "kill $_LEA_MATRIX_LOCK_PID 2>/dev/null; rm -f $(printf '%q' "$ready"); true"
+    for ((i = 0; i < 3600; i++)); do
+        grep -q held "$ready" 2>/dev/null && return 0
+        if [[ $i -eq 0 ]] && grep -q waiting "$ready" 2>/dev/null; then
+            info "another ioctl-matrix run holds $lock -- waiting for it"
+        fi
+        kill -0 "$_LEA_MATRIX_LOCK_PID" 2>/dev/null || { error "the lock holder died"; return 1; }
+        sleep 1
+    done
+    error "waited an hour for $lock"
+    return 1
 }
 
 # ---- the probe contract -----------------------------------------------------

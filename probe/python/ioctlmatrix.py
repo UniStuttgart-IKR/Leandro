@@ -853,6 +853,24 @@ def verified_evidence(outdir, driver):
         return None, f"{shown} (unreadable: {e})"
 
 
+def guest_evidence(outdir, driver):
+    """What `scripts/ioctl-matrix.sh guest` found, if it has ever run.
+
+    Read, never written here, for the same reason as the file above: this
+    generator describes the HOST and predicts the guest. Only a run inside a
+    guest may write down what a guest did.
+    """
+    p = pathlib.Path(outdir) / f"guest-{driver}.json"
+    shown = f"matrix/guest-{driver}.json"
+    if not p.is_file():
+        return None, shown
+    try:
+        js = json.loads(p.read_text())
+        return {e["probe"]: e for e in js.get("probes", [])}, shown
+    except Exception as e:                                  # noqa: BLE001
+        return None, f"{shown} (unreadable: {e})"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--traces", required=True)
@@ -921,8 +939,12 @@ def main():
           f"{len(hdr.uvm)} UVM commands, {len(hdr.klass)} classes parsed, "
           f"{len(checks)}/{len(checks)} self-checks pass")
 
+    guest, guestpath = guest_evidence(outdir, a.driver)
+    if guest:
+        print(f"  guest evidence: {len(guest)} probe(s) from {guestpath}")
+
     write_catalog(outdir, a.driver, prov, rows, probes, inv, gov, sizes, ev, evpath)
-    write_matrix(outdir, a.driver, prov, rows, probes, inv)
+    write_matrix(outdir, a.driver, prov, rows, probes, inv, guest, guestpath)
     write_tasks(outdir, a.driver, prov, rows, probes, inv, evpath)
 
 
@@ -1102,7 +1124,7 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
                 fh.write(f"- `{k}`: {v}\n")
 
 
-def write_matrix(outdir, driver, prov, rows, probes, inv):
+def write_matrix(outdir, driver, prov, rows, probes, inv, guest, guestpath):
     by_probe = collections.defaultdict(collections.Counter)
     for r in rows:
         for p in r["seen_in"]:
@@ -1113,10 +1135,22 @@ def write_matrix(outdir, driver, prov, rows, probes, inv):
                 "scripts/ioctl-matrix.sh catalog")
         fh.write("Probes against status. This is the compatibility statement: a probe\n"
                  "with no `missing` commands is one whose feature path the backend can\n"
-                 "carry today -- **predicted** green, because nothing here ran in a\n"
-                 "guest. A probe with `missing` commands names the work.\n\n")
-        fh.write("| probe | group | result | ioctls | catalogued | missing | passthrough | governed | NVKMS | libraries seen |\n")
-        fh.write("|---|---|---|---:|---:|---:|---:|---:|---:|---|\n")
+                 "carry today. Whether it DID is a second column, and the two are not\n"
+                 "the same claim -- `predicted-green` is read off the descriptor table,\n"
+                 "`guest-validated` is a run inside a VM whose signature set and status\n"
+                 "fingerprint matched the native trace. A probe with `missing` commands\n"
+                 "names the work.\n\n")
+        if guest:
+            fh.write(f"Guest evidence: `{guestpath}`, "
+                     + ", ".join(f"{v} {k}" for k, v in sorted(
+                         collections.Counter(g["verdict"] for g in guest.values()).items()))
+                     + ".\n\n")
+        else:
+            fh.write(f"**No guest evidence exists** (`{guestpath}`), so every verdict\n"
+                     "below is a prediction and says so. `scripts/ioctl-matrix.sh guest`\n"
+                     "is what turns one into the other.\n\n")
+        fh.write("| probe | group | result | guest | ioctls | catalogued | missing | passthrough | governed | NVKMS | libraries seen |\n")
+        fh.write("|---|---|---|---|---:|---:|---:|---:|---:|---:|---|\n")
         notes = []
         for pr in probes:
             c = by_probe.get(pr["probe"], collections.Counter())
@@ -1136,8 +1170,21 @@ def write_matrix(outdir, driver, prov, rows, probes, inv):
                 if verdict != pr["result"].rstrip("."):
                     verdict += " *"
                     notes.append(f"`{pr['probe']}`: {pr['result']}")
-            fh.write("| `{p}` | {g} | {v} | {i} | {s} | {m} | {pt} | {gv} | {ms} | {libs} |\n".format(
-                p=pr["probe"], g=pr["group"], v=verdict,
+            # The guest column. A probe with no guest row is not "green in
+            # the guest" and not "broken in the guest" -- it is unmeasured
+            # there, and the cell says so.
+            ge = (guest or {}).get(pr["probe"])
+            if ge is None:
+                gcell = "not run"
+            elif ge["verdict"] == "guest-validated":
+                gcell = "**guest-validated**"
+            else:
+                gcell = f"{ge['verdict']} *"
+                notes.append(f"`{pr['probe']}` in the guest: "
+                             + "; ".join(f["detail"] for f in ge["findings"][:4])
+                             + (" ..." if len(ge["findings"]) > 4 else ""))
+            fh.write("| `{p}` | {g} | {v} | {gc} | {i} | {s} | {m} | {pt} | {gv} | {ms} | {libs} |\n".format(
+                p=pr["probe"], g=pr["group"], v=verdict, gc=gcell,
                 i=pr["ioctls"] or "&mdash;", s=cat or "&mdash;",
                 m=miss, pt=c.get("passthrough", 0), gv=gv,
                 ms=pr["modeset"] or "&mdash;",
@@ -1154,7 +1201,11 @@ def write_matrix(outdir, driver, prov, rows, probes, inv):
 
         fh.write("\n## What each verdict means\n\n"
                  "| verdict | meaning |\n|---|---|\n"
-                 "| `predicted-green` | every signature this probe emitted is governed or passthrough. Nothing ran in a guest; this is a prediction from the descriptor table, not a gate result. |\n"
+                 "| `predicted-green` | every signature this probe emitted is governed or passthrough. A prediction from the descriptor table, not a gate result. |\n"
+                 "| `guest-validated` (guest column) | the same probe ran in a guest, met its own criterion there, its trace passed the same counter-check, and every signature and every rm_status the native run produced came back identical. Answer BYTES are still uncompared -- that is `implemented-verified`, and it is a different claim. |\n"
+                 "| `FAIL` (guest column) | it ran in a guest and something moved. The findings are under the table and in the evidence file. |\n"
+                 "| `blocked` (guest column) | the guest run could not be gated or left no trace -- an unmeasured row, not a passing one. |\n"
+                 "| `not run` (guest column) | this sweep did not run it in a guest. |\n"
                  "| `N missing` | N signatures have no entry that could carry them. TASKS groups them. |\n"
                  "| `declared-unsupported: no workload exists` | a standing decision -- there is nothing to run, and there will not be |\n"
                  "| `declared-unsupported: workload not procurable in this environment` | an invitation: a human with the SDK or the right host can turn this row green |\n"

@@ -9,6 +9,8 @@
 #   scripts/ioctl-matrix.sh trace [name] run the probes, natively, one at a time
 #   scripts/ioctl-matrix.sh catalog      the catalogue, the matrix, the tasks
 #   scripts/ioctl-matrix.sh all          all four, in that order
+#   scripts/ioctl-matrix.sh guest [name] the same probes in a GUEST, against
+#                                        the native traces the four produced
 #
 # WHAT THIS IS FOR. "The guest can run CUDA" is a claim about one library.
 # The guest is handed thirty, and for most of them nobody has ever looked at
@@ -17,9 +19,14 @@
 # workload, records what it actually calls, resolves each call against the
 # vendor headers, and says which of them the backend governs today.
 #
-# WHAT IT IS NOT. It implements nothing. It changes no mediation, edits no
-# supported-command list, runs nothing in a guest. Its output is the input
-# to that work.
+# WHAT IT IS NOT. It implements nothing: it changes no mediation and edits
+# no supported-command list. Its output is the input to that work.
+#
+# `discover`, `probes`, `trace` and `catalog` measure the HOST and predict
+# what a guest would do. `guest` is the separate step that goes and looks --
+# same probes, same tracer, inside a VM -- and turns each prediction into
+# `guest-validated` or into a finding. It is not part of `all`, because it
+# needs a rig and the other four do not.
 #
 # EVERYTHING HERE IS REGENERATED. There is no table in this repository that
 # a human has to edit after a driver update: the probes are the files in
@@ -42,6 +49,8 @@
 #   catalog-<driver>.md/.json one row per (device, nr, sub) signature
 #   MATRIX-<driver>.md        probes x status -- the compatibility statement
 #   TASKS-<driver>.md         the implementation task list for follow-up
+#   traces/<driver>/guest/    the guest's own traces, taken by the same tracer
+#   guest-<driver>.json       per probe: guest-validated, or the findings
 #
 # Never overwrites another driver version's trace directory: the driver is
 # part of the path, and every artefact carries the driver in its header.
@@ -570,20 +579,18 @@ do_trace() {
             # Like for like: the tracer's NVIDIA-node lines against strace's
             # unnamed requests on those same nodes. DRM is excluded on both
             # sides -- it is a different namespace and a different report.
-            a=$(awk -F'\t' '$1=="ioctl" && $2!="drm" && $2!="render" && $2!="modeset"' "$tsv" | wc -l)
-            b=$(grep '_IOC(' "$strc" 2>/dev/null \
-                | grep -cE '/dev/nvidia(ctl|-uvm|[0-9])') || b=0
-            # The same check on the NVKMS node, against its own pair of
-            # counters. `/dev/nvidia-modeset` does not match the pattern
-            # above -- the alternation is `ctl`, `-uvm` or a digit -- so the
-            # two counts stay disjoint, which is the point.
-            am=$(awk -F'\t' '$1=="ioctl" && $2=="modeset"' "$tsv" | wc -l)
-            mset=$(grep '_IOC(' "$strc" 2>/dev/null | grep -c '/dev/nvidia-modeset') || mset=0
+            # The counting rule lives in matrix.sh and nowhere else, so the
+            # guest phase counts exactly what this one counts. Two pairs,
+            # never added together: the RM nodes, and the NVKMS node.
+            a=$(lea_matrix_n_tracer "$tsv")
+            b=$(lea_matrix_n_strace "$strc")
+            am=$(lea_matrix_n_tracer_kms "$tsv")
+            mset=$(lea_matrix_n_strace_kms "$strc")
             [[ -n $gate ]] && break
             [[ $rc -ne 0 ]] && break
             [[ $((b - a)) -eq 0 && $((mset - am)) -eq 0 ]] && break
         done
-        drm=$(awk -F'\t' '$1=="ioctl" && ($2=="drm" || $2=="render")' "$tsv" | wc -l)
+        drm=$(lea_matrix_n_tracer_drm "$tsv")
         nsig=$(awk -F'\t' '$1=="ioctl"{print $2"\t"$3"\t"$4}' "$tsv" | sort -u | wc -l)
         crit=$(sed -n 's/^CRITERION: //p' "$outf" | tail -1)
         seen=$(_lea_matrix_libs_seen "$strc")
@@ -692,6 +699,252 @@ _lea_matrix_libs_seen() {
 }
 
 # ===========================================================================
+# guest -- the same probes, in a guest, against the native reference
+# ===========================================================================
+# Everything before this phase is a PREDICTION. The catalogue says a probe's
+# every signature is governed or passthrough, and therefore that a guest
+# could carry it; nothing had run in a guest. This is where a prediction
+# becomes evidence, and the only interesting outcome is a deviation.
+#
+# THE INSTRUMENT IS THE SAME INSTRUMENT. The guest runs the same NVIDIA
+# libraries over nodes with the same ABI, so the tracer is preloaded there
+# exactly as it is here and writes the same nine columns. That is what makes
+# the two traces comparable: not two instruments that agree about what they
+# mean, but one instrument on both sides of the boundary. The guest half is
+# `probe/run/matrix-guest.sh`, called once per probe over ssh; the
+# comparison is `probe/python/guestdiff.py` and runs HERE, because only this
+# side has both traces.
+#
+# WHAT IS COMPARED, and the second one is the point:
+#   * the SIGNATURE SET -- a call the guest never makes is as much a finding
+#     as one it makes and the host does not.
+#   * the rm_status FINGERPRINT per signature -- including the deliberate
+#     non-zero ones. A guest that answers 0x0 where the host answers 0x56
+#     (NOT_SUPPORTED, on the ECC and InfoROM paths) has not carried the
+#     call, it has invented an answer, and a status-code gate that only
+#     asks "did anything fail" cannot see it.
+# Call COUNTS are not compared: a workload may allocate one surface more in
+# one run than in another, which the native phase already has to retry
+# around. What must not move is WHICH statuses a signature can return.
+do_guest() {
+    local vm=${LEA_MATRIX_VM:-vdisplay} display=1 keep=0
+    local -a only=()
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --vm)         vm=$2; shift 2 ;;
+            --no-display) display=0; shift ;;
+            --keep)       keep=1; shift ;;
+            -*) error "unknown option: $1"; usage 2 ;;
+            *)  only+=("$1"); shift ;;
+        esac
+    done
+
+    local index=$TDIR/probes.tsv
+    [[ -f $index ]] || die "no native reference in $TDIR -- scripts/ioctl-matrix.sh trace"
+    lea_matrix_check_driver || return 1
+    lea_require_tools python3 tar
+    # rig.sh is sourced HERE and not at the top: every other subcommand runs
+    # without a VM, and pulling the whole rig library into them would make a
+    # catalogue run depend on a cloud-hypervisor binary it never calls.
+    # shellcheck source=scripts/lib/rig.sh
+    source "$_LEA_LIB/rig.sh"
+
+    lea_matrix_serial || die "cannot take the serial lock"
+    # HOW TO WAIT FOR IT: wait on the FILE, never on `pgrep -f` -- that
+    # pattern stands in the waiting shell's own command line:
+    #   until ! lea_running vm/ioctl-matrix-guest.pid; do sleep 15; done
+    lea_hold_pidfile "$LEA_VM_DIR/ioctl-matrix-guest.pid"
+
+    # ---- the rig ---------------------------------------------------------
+    # REUSED if it is already up. A guest that is running is a guest whose
+    # modules are loaded and whose display is already built, and rebuilding
+    # it would cost minutes and change nothing that is measured here.
+    local ip
+    if lea_vm_running "$vm"; then
+        info "== reusing the running rig $vm =="
+        warn "a reused guest keeps the kernel command line it booted with --
+      the allocator debugging below applies to guests this run starts"
+    else
+        info "== bringing up $vm ${display:+(with display)} =="
+        # ALLOCATOR DEBUGGING ON, for a sweep and not for a measurement. The
+        # sweep runs twenty workloads through a boundary one after another,
+        # and if one of them corrupts guest memory the symptom without this
+        # is a hang somewhere later with no attribution at all -- which is
+        # what number 38's double free looked like for a session.
+        # `slub_debug=FZPU page_poison=1` turns that into a splat naming the
+        # allocation and the free.
+        #
+        # `panic_on_warn` is deliberately NOT set. It would abort the sweep
+        # on the first warning and take the remaining probes with it; a
+        # sweep exists to produce twenty rows, and a warning that stops it
+        # produces one. That trade belongs to the concurrency work, where a
+        # single reproducer IS the deliverable.
+        export LEA_GUEST_CMDLINE_EXTRA=${LEA_GUEST_CMDLINE_EXTRA:-"slub_debug=FZPU page_poison=1"}
+        # The COMPUTE rig only. The display half is brought up separately
+        # below, because it must not be able to fail the whole sweep: X is
+        # needed by seven of these probes and by none of the other thirteen,
+        # and a rig that refuses to come up because Xorg did not start would
+        # take the thirteen down with it.
+        lea_rig_up "$vm" || { error "$vm did not come up"; return 1; }
+        [[ $keep -eq 1 ]] || lea_rig_down_on_exit "$vm"
+    fi
+    lea_inst "$vm"; ip=$INST_IP
+    lea_ssh "$ip" true || { error "$vm ($ip) does not answer over ssh"; return 1; }
+
+    # ---- what the guest is given -----------------------------------------
+    # The GL/EGL/Vulkan userspace, staged by the SAME function whose arrays
+    # the inventory reads (lea_gl_stage in scripts/lib/provision.sh). That is
+    # what makes this sweep a test of the staging decision and not of a
+    # second, hand-made payload: what the guest gets here is by construction
+    # what DISCOVERY.md calls the staged set. Skipped when it is already
+    # there -- a baked image stages it once.
+    if ! lea_ssh "$ip" 'test -f /opt/nvrm-gl/env.sh'; then
+        info "== staging the GL/EGL/Vulkan userspace into $vm =="
+        lea_gl_stage "$vm" --system >/dev/null || { error "GL staging failed"; return 1; }
+    fi
+
+    # The WORKLOADS. A probe whose workload is absent declares itself
+    # unsupported and measures nothing, so the packages that carry them are
+    # installed once, here, the way the encode gate installs ffmpeg. This
+    # adds no NVIDIA userspace: mesa-utils brings glxinfo and es2_info,
+    # vulkan-tools brings vulkaninfo, xserver-xorg-core brings the X server
+    # the seven display probes need -- all of them clients, and which
+    # DRIVER answers them is the thing being measured.
+    local need=""
+    lea_ssh "$ip" 'command -v glxinfo   >/dev/null' || need+=" mesa-utils"
+    lea_ssh "$ip" 'command -v vulkaninfo >/dev/null' || need+=" vulkan-tools"
+    lea_ssh "$ip" 'command -v ffmpeg    >/dev/null' || need+=" ffmpeg"
+    lea_ssh "$ip" 'command -v strace    >/dev/null' || need+=" strace"
+    [[ $display -eq 1 ]] && { lea_ssh "$ip" 'command -v Xorg >/dev/null'         || need+=" xserver-xorg-core xauth"; }
+    if [[ -n $need ]]; then
+        info "installing the guest's workload tools:$need"
+        lea_ssh "$ip" "sudo apt-get install -y -q $need >/dev/null 2>&1"             || warn "apt-get failed -- the probes whose workload is missing will
+      declare themselves unsupported, which is a row with a reason and not a pass"
+    fi
+
+    # ---- the display half, allowed to fail --------------------------------
+    local dispopt=""
+    if [[ $display -eq 1 ]]; then
+        if lea_ssh "$ip" 'pgrep -x Xorg >/dev/null'; then
+            info "== X is already up in $vm =="
+            dispopt="--display :7"
+        elif lea_display_up "$vm" >/dev/null 2>&1 && lea_ssh "$ip" 'pgrep -x Xorg >/dev/null'; then
+            info "== virtual display up in $vm (X on :7) =="
+            dispopt="--display :7"
+        else
+            warn "no X in $vm -- the GL and EGL probes will declare themselves
+      unsupported for want of a display. That is a row with a reason; the
+      thirteen probes that need no display are unaffected."
+        fi
+    fi
+
+    # ---- the payload -----------------------------------------------------
+    # A MINIATURE OF THIS TREE, not a copy of it: the probes address each
+    # other by relative path (probe/matrix/x.sh reaches ../../scripts/lib),
+    # so the guest gets that shape and nothing else. Nothing is rewritten on
+    # the way in -- a probe that ran differently in the guest because it was
+    # edited on the way there would measure the edit.
+    local stage; stage=$(mktemp -d) || die "mktemp"
+    lea_on_exit "rm -rf $(printf '%q' "$stage")"
+    mkdir -p "$stage/scripts/lib" "$stage/probe/matrix" "$stage/probe/run" \
+             "$stage/probe/bin" "$stage/probe/kernels" "$stage/lib"
+    cp "$LEA_ROOT"/scripts/lib/{config.sh,common.sh,matrix.sh} "$stage/scripts/lib/"
+    cp "$LEA_ROOT"/probe/matrix/*.sh "$stage/probe/matrix/"
+    cp "$LEA_ROOT"/probe/run/matrix-guest.sh "$stage/probe/run/"
+    cp "$LEA_ROOT"/probe/kernels/*.ptx "$stage/probe/kernels/" 2>/dev/null
+    cp "$LEA_PROBE_BIN"/* "$stage/probe/bin/" 2>/dev/null
+    cp "$LEA_TRACE_LIB" "$stage/lib/" || die "no tracer at $LEA_TRACE_LIB"
+    cp "$LEA_ROOT/DRIVER_VERSION" "$stage/"
+    info "staging $(du -sh "$stage" | cut -f1) into $vm:~/matrix"
+    lea_guest_tar "$vm" "$stage" '$HOME/matrix' || { error "staging failed"; return 1; }
+    lea_ssh "$ip" 'chmod +x ~/matrix/probe/matrix/*.sh ~/matrix/probe/run/*.sh ~/matrix/probe/bin/* 2>/dev/null; true'
+
+    # strace is the counter-check, and without it a guest trace cannot be
+    # gated -- so its absence is a BLOCKED row per probe, never a silent
+    # pass. Installed if the guest can, reported if it cannot.
+    if ! lea_ssh "$ip" 'command -v strace >/dev/null'; then
+        info "installing strace in the guest (the counter-check needs it)"
+        lea_ssh "$ip" 'sudo apt-get install -y -q strace >/dev/null 2>&1' \
+            || warn "no strace in the guest -- every probe will be blocked, not passed"
+    fi
+
+    # ---- the sweep -------------------------------------------------------
+    # CHEAPEST FIRST, read from the native reference rather than ordered by
+    # hand: the `ioctls` column is what each probe cost there, so nvml (179)
+    # runs first and vk-offscreen (5568) last. A failure early is then a
+    # failure that cost a minute.
+    #
+    # Which probes: the ones that PASSED natively. A probe whose native trace
+    # did not pass has no reference to compare against, and one that is
+    # declared-unsupported has nothing to run.
+    local -a list=()
+    mapfile -t list < <(awk -F'\t' '!/^#/ && $2 ~ /^PASS/ { print $6"\t"$1 }' "$index" \
+                        | sort -n | cut -f2)
+    if [[ ${#only[@]} -gt 0 ]]; then
+        local -a want=() p o
+        for p in "${list[@]}"; do
+            for o in "${only[@]}"; do [[ $o == "$p" ]] && want+=("$p"); done
+        done
+        [[ ${#want[@]} -gt 0 ]] || die "none of the named probes passed natively: ${only[*]}"
+        list=("${want[@]}")
+    fi
+
+    local gdir=$TDIR/guest
+    rm -rf "$gdir"; mkdir -p "$gdir" || die "cannot write $gdir"
+    local rows; rows=$(mktemp) || die "mktemp"
+    lea_on_exit "rm -f $(printf '%q' "$rows")"
+
+    printf '%-16s %8s %8s %7s %7s  %s\n' probe tracer strace nvkms nvkmsd result
+    local p line
+    for p in "${list[@]}"; do
+        # One probe at a time through the serial queue, and a FAIL does not
+        # stop the sweep: a run that stops at the first deviation reports one
+        # finding and hides the rest.
+        # stderr is KEPT, per probe. A runner that dies before it can print
+        # a result line is the case that most needs a reason, and sending it
+        # to /dev/null leaves "no result line" as the whole diagnosis.
+        line=$(lea_ssh "$ip" "cd ~/matrix && ./probe/run/matrix-guest.sh $p --out ~/matrix/out $dispopt" \
+               2>"$gdir/$p.runner.err" | grep -m1 '^GUESTRESULT') || true
+        if [[ -z $line ]]; then
+            local why
+            why=$(grep -m1 . "$gdir/$p.runner.err" 2>/dev/null)
+            line=$(printf 'GUESTRESULT\t%s\t%s\t-\t-\t-\t-\t' \
+                   "$p" "FAIL: the guest runner said nothing: ${why:-no output at all}")
+        else
+            rm -f "$gdir/$p.runner.err"
+        fi
+        local gp gres ga gb gam gmset gcrit
+        IFS=$'\t' read -r _ gp gres ga gb gam gmset gcrit <<<"$line"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$gp" "$gres" "$ga" "$gb" "$gam" "$gmset" "$gcrit" >> "$rows"
+        printf '%-16s %8s %8s %7s %7s  %s\n' "$gp" "$ga" "$gb" "$gam" \
+            "$([[ ${gmset:--} =~ ^-?[0-9]+$ && ${gam:--} =~ ^-?[0-9]+$ ]] \
+               && echo $((gmset - gam)) || echo -)" "$gres"
+    done
+
+    # The guest's traces come back whole. They are artefacts in their own
+    # right: the comparison below is derived from them, and a derived answer
+    # nobody can re-derive is an assertion.
+    lea_ssh "$ip" 'cd ~/matrix/out 2>/dev/null && tar -cf - .' | tar -C "$gdir" -xf - \
+        || warn "could not fetch the guest traces from $vm"
+    {
+        lea_matrix_provenance '#'
+        printf '#vm: %s (%s)\n' "$vm" "$ip"
+        printf '#\n#probe\tresult\ttracer\tstrace\tmodeset\tmodeset_strace\tcriterion\n'
+        sort -t$'\t' -k1,1 "$rows"
+    } > "$gdir/probes.tsv"
+
+    # ---- the comparison --------------------------------------------------
+    python3 "$LEA_ROOT/probe/python/guestdiff.py" \
+        --native "$TDIR" --guest "$gdir" --out "$MDIR" --driver "$DRV" \
+        --vendor "$LEA_ROOT/vendor/open-gpu-kernel-modules" \
+        --provenance "$(lea_matrix_provenance | tr '\n' '|')" \
+        || die "the guest comparison failed"
+    info "re-generating the catalogue so MATRIX carries the guest verdicts"
+    do_catalog
+}
+
+# ===========================================================================
 # catalog -- Phases 4, 5 and 6
 # ===========================================================================
 do_catalog() {
@@ -711,6 +964,7 @@ case $CMD in
     probes)   do_probes ;;
     trace)    do_trace "$@" ;;
     catalog)  do_catalog ;;
+    guest)    do_guest "$@" ;;
     all)
         lea_matrix_sample_trace
         do_discover && do_probes && do_trace && do_catalog

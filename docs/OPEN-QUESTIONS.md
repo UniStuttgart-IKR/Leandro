@@ -597,7 +597,7 @@ workload results and a whole PyTorch run bit for bit. Nothing anywhere
 compares the **response bytes of a forwarded RM control** against the bytes
 the same call returns natively.
 
-The consequence is now a number rather than a worry. Of 276 catalogued
+The consequence is now a number rather than a worry. Of 290 catalogued
 signatures, **75 are governed by the descriptor tables or answered by the
 backend, and all 75 are `implemented-unverified`** — the class
 `implemented-verified` is empty and stays empty until a differential
@@ -614,6 +614,105 @@ were never filled. A status comparison cannot see either one.
 The hard part is not the comparison, it is the mask: handles, gpuIds and
 addresses are translated on purpose, so a harness that flagged them would
 cry wolf on every call.
+
+Since 2026-08-20 there is a step between prediction and that harness:
+`scripts/ioctl-matrix.sh guest` runs the same probes inside a VM and
+compares the signature set and the rm_status fingerprint. A probe that
+survives it is `guest-validated`, which is more than `predicted-green` and
+strictly less than `implemented-verified` — it says the guest asked the
+same questions and got the same KIND of answers, not that the answers
+carried the same bytes. Number 51 is what it found on its first run.
+
+### 51. A guest answers two nvml controls differently, and both shapes were predicted
+**Open, measured 2026-08-20.** First run of the guest sweep, twenty probes,
+seven of them identical to the native trace signature for signature. `nvml`
+was not: two controls answer in the guest what they never answer natively,
+and both are the failure shape this catalogue already predicted in the
+abstract.
+
+| control | native | guest | what its params carry |
+|---|---|---|---|
+| `NV2080_CTRL_CMD_BIOS_GET_INFO` (0x20800802) | `NV_OK` | `0x1e NV_ERR_INVALID_ADDRESS` | `NvP64 biosInfoList` — a pointer into the caller's address space |
+| `NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE` (0xb02) | `NV_OK` | `0x1f NV_ERR_INVALID_ARGUMENT` | `NvU32 gpuId` as its first field |
+
+Both are `passthrough` in the catalogue, i.e. forwarded verbatim. An
+INVALID_ADDRESS for a struct whose only interesting field is a guest
+pointer, and an INVALID_ARGUMENT for a struct whose first field is a gpuId,
+are not mysteries: they are the two mediation classes this project already
+has names for. The gpuId one is the same failure as
+`GET_P2P_CAPS_MATRIX` in the raytracing work — the host answered
+INVALID_ARGUMENT for the guest's id — and the pointer one is task 1 of
+`matrix/TASKS-<driver>.md` caught in the act rather than reasoned about.
+
+Two things follow from it beyond the two rows.
+
+**The mediation-flag scan undercounts.** `BIOS_GET_INFO` carries flags
+`none` in the catalogue and an empty `params_struct`: the resolver never
+found its struct, so it never scanned it for an `NvP64`, so the row that
+should have carried `embedded-ptr` carried nothing. Task 1's list is a
+lower bound, and this is the first proof of that.
+
+**`AMPERE_SMC_MONITOR_SESSION` (class 0xc640) is allocated natively and
+never in the guest.** Unverified: most likely `nvidia-smi` branching away
+after one of the two answers above, rather than a third defect.
+
+`nvidia-smi -q` itself succeeded in the guest and printed a plausible
+report. That is the point of comparing fingerprints rather than exit codes.
+
+### 52. The guest's graphics stack asks a different set of questions
+**Open, measured 2026-08-20.** Every graphics probe in the guest sweep skips
+the SAME six commands, natively issued by all of them and by none of them
+in a guest:
+
+`NV0000_CTRL_CMD_GPU_GET_PROBED_IDS`, `..._ATTACH_IDS`, `..._DETACH_IDS`,
+`NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2`, `NV2080_CTRL_CMD_TIMER_GET_TIME`,
+`NV_ESC_RM_IDLE_CHANNELS` (and `NV_ESC_RM_DUP_OBJECT` in the two Vulkan
+probes).
+
+The same statement in the other namespace, and much larger: `vulkaninfo`
+issues **405 NVKMS ioctls natively and 4 in the guest** — none of the eight
+commands that make up the native enumeration, and two the host never
+issues. The GL and EGL probes go the other way: 6 natively, 14 in the
+guest.
+
+Unverified, and the two candidate explanations are testable: either the
+guest's userspace takes a different discovery branch (the guest module
+enumerates GPUs in-kernel, so a probe may find the device already
+attached), or the mediated identity answers something that ends the
+enumeration early. Neither is a defect on its face — every probe still met
+its criterion — but it has a consequence that is exact: **those six
+signatures are predicted to be carried and are exercised by nothing in a
+guest**, so for them `predicted-green` remains untested no matter how many
+guest runs pass.
+
+### 53. Two libraries are staged into the guest and registered with nobody
+**Open, measured 2026-08-20.** `oclprobe` in the guest: *"no OpenCL platform
+(loader found no vendor library)"*. `libnvidia-opencl` IS staged — it is in
+the `optional` array — but nothing writes `/etc/OpenCL/vendors/nvidia.icd`,
+and an ICD loader with no vendor file finds no platform. `eglplat xcb` in
+the guest resolves to vendor `Mesa Project` rather than NVIDIA, which is
+the same shape one platform further on.
+
+This is a class this project already wrote down for EGL — *without
+`10_nvidia.json`, libEGL picks Mesa, silently* — and `lea_gl_stage`
+rewrites those manifests for exactly that reason. The rule generalises and
+was not generalised: **a staged library that no manifest names is an absent
+library that costs disk.** The staging inventory in `DISCOVERY.md` cannot
+see it, because it compares file sets and this is a registration.
+
+### 54. Two probe criteria cannot pass in a guest, because the guest renames the card
+**Open, measured 2026-08-20.** `gl-enum` and `gles` fail in the guest with
+*"renderer is 'Leandro RTX 2070/PCIe/SSE2', not NVIDIA"* — and the same
+run's version string reads `OpenGL ES 3.2 NVIDIA 610.57.04`. The renderer
+IS NVIDIA's; the criterion greps for a product name that the identity
+mediation deliberately rewrites. The probes were written against a host and
+the criterion inherited that.
+
+Proposed, not done: the criterion should accept the mediated name the same
+way the rest of the tree does, rather than the guest run being read as a
+graphics failure. Beside it, `egl-wayland` exits 1 for a missing
+`WAYLAND_DISPLAY` where `egl-xlib` exits 2 for a missing `DISPLAY` — the
+same absence, reported once as a failure and once as a declared reason.
 
 ---
 

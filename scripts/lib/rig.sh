@@ -848,6 +848,24 @@ lea_vm_start() {
             ;;
     esac
 
+    # LEA_GUEST_CMDLINE_EXTRA -- appended verbatim, for the runs that want a
+    # guest kernel in a different mood than the default one. It exists for
+    # debug knobs that have to be set at boot and cannot be set later:
+    # `slub_debug=FZPU page_poison=1` turns a use-after-free in the guest
+    # module from a hang three seconds later into a splat with the
+    # allocating and freeing stacks in it (the ioctl-matrix guest sweep sets
+    # exactly that). Kept out of the default because those knobs cost real
+    # time on every allocation, and every measurement taken with them on is
+    # a measurement of them too.
+    #
+    # NOT a place for identity or paths: it is appended after everything the
+    # cases above decided, so a value here wins by position and would
+    # silently override them.
+    if [[ -n ${LEA_GUEST_CMDLINE_EXTRA:-} ]]; then
+        cmdline+=" $LEA_GUEST_CMDLINE_EXTRA"
+        info "  $name: extra kernel cmdline: $LEA_GUEST_CMDLINE_EXTRA"
+    fi
+
     # The Steam library, when asked for. --games-init hands the guest the
     # BASE itself, to fill it once; --games gives it a thin overlay, which
     # is what lets two guests run from the same library at the same time.

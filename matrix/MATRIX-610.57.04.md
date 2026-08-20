@@ -7,47 +7,65 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T16:08:46Z
-commit:  9fb7da8 (working tree modified)
+date:    2026-08-20T16:48:51Z
+commit:  4b0e898 (working tree modified)
 ```
 
 Probes against status. This is the compatibility statement: a probe
 with no `missing` commands is one whose feature path the backend can
-carry today -- **predicted** green, because nothing here ran in a
-guest. A probe with `missing` commands names the work.
+carry today. Whether it DID is a second column, and the two are not
+the same claim -- `predicted-green` is read off the descriptor table,
+`guest-validated` is a run inside a VM whose signature set and status
+fingerprint matched the native trace. A probe with `missing` commands
+names the work.
 
-| probe | group | result | ioctls | catalogued | missing | passthrough | governed | NVKMS | libraries seen |
-|---|---|---|---:|---:|---:|---:|---:|---:|---|
-| `cuda-core` | compute | predicted-green | 433 | 100 | 0 | 61 | 39 | 0 | libcuda |
-| `cuda-gdb` | compute | ungated: none -- strace cannot follow a process that is itself ptracing * | 643 | &mdash; | 0 | 0 | 0 | 0 | &mdash; |
-| `cuda-hostreg` | compute | predicted-green | 650 | 107 | 0 | 64 | 43 | 0 | libcuda |
-| `cuda-jit` | compute | predicted-green | 630 | 107 | 0 | 64 | 43 | 0 | libcuda |
-| `cuda-launch` | compute | predicted-green | 630 | 107 | 0 | 64 | 43 | 0 | libcuda |
-| `cuda-managed` | compute | predicted-green | 439 | 103 | 0 | 61 | 42 | 0 | libcuda |
-| `cuda-torch` | compute | predicted-green | 517 | 106 | 0 | 66 | 40 | 0 | libcuda |
-| `egl-gbm` | egl | predicted-green | 564 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
-| `egl-wayland` | egl | predicted-green | 566 | 114 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
-| `egl-xcb` | egl | predicted-green | 566 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
-| `egl-xlib` | egl | predicted-green | 566 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
-| `gl-32bit` | compat | blocked: needs kernel-side trace point | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `gl-enum` | gl | predicted-green | 531 | 121 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
-| `gl-render` | gl | predicted-green | 522 | 119 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
-| `gles` | gl | predicted-green | 568 | 117 | 0 | 68 | 34 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
-| `kms-nvkms` | kms | blocked: needs kernel-side trace point | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `nvdec` | video | predicted-green * | 996 | 131 | 0 | 81 | 50 | 0 | libcuda<br>libnvcuvid |
-| `nvenc` | video | predicted-green | 1600 | 135 | 0 | 84 | 51 | 0 | libcuda<br>libnvcuvid<br>libnvidia-encode |
-| `nvfbc` | video | declared-unsupported: workload not procurable in this environment | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `nvml` | nvml | predicted-green | 179 | 105 | 0 | 88 | 17 | 0 | libcuda<br>libnvidia-ml |
-| `nvofa` | video | declared-unsupported: workload not procurable in this environment | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `opencl` | compute | predicted-green | 620 | 107 | 0 | 64 | 43 | 0 | libcuda<br>libnvidia-nvvm<br>libnvidia-opencl |
-| `pkcs11` | compat | declared-unsupported: no workload exists | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `vk-enum` | vulkan | predicted-green | 961 | 123 | 0 | 73 | 35 | 405 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
-| `vk-offscreen` | vulkan | predicted-green | 5568 | 117 | 0 | 73 | 37 | 2 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-tls |
-| `vk-rt` | vulkan | predicted-green | 1289 | 155 | 0 | 102 | 46 | 2 | libGLX_nvidia<br>libcuda<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
-| `vk-sc` | vulkan | declared-unsupported: no workload exists | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
+Guest evidence: `matrix/guest-610.57.04.json`, 11 FAIL, 2 blocked, 7 guest-validated.
+
+| probe | group | result | guest | ioctls | catalogued | missing | passthrough | governed | NVKMS | libraries seen |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---|
+| `cuda-core` | compute | predicted-green | **guest-validated** | 433 | 100 | 0 | 61 | 39 | 0 | libcuda |
+| `cuda-gdb` | compute | ungated: none -- strace cannot follow a process that is itself ptracing * | not run | 643 | &mdash; | 0 | 0 | 0 | 0 | &mdash; |
+| `cuda-hostreg` | compute | predicted-green | **guest-validated** | 650 | 107 | 0 | 64 | 43 | 0 | libcuda |
+| `cuda-jit` | compute | predicted-green | **guest-validated** | 630 | 107 | 0 | 64 | 43 | 0 | libcuda |
+| `cuda-launch` | compute | predicted-green | **guest-validated** | 630 | 107 | 0 | 64 | 43 | 0 | libcuda |
+| `cuda-managed` | compute | predicted-green | FAIL * | 439 | 103 | 0 | 61 | 42 | 0 | libcuda |
+| `cuda-torch` | compute | predicted-green | blocked * | 517 | 106 | 0 | 66 | 40 | 0 | libcuda |
+| `egl-gbm` | egl | predicted-green | **guest-validated** | 564 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `egl-wayland` | egl | predicted-green | FAIL * | 566 | 114 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `egl-xcb` | egl | predicted-green | FAIL * | 566 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `egl-xlib` | egl | predicted-green | FAIL * | 566 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `gl-32bit` | compat | blocked: needs kernel-side trace point | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
+| `gl-enum` | gl | predicted-green | FAIL * | 531 | 121 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
+| `gl-render` | gl | predicted-green | blocked * | 522 | 119 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
+| `gles` | gl | predicted-green | FAIL * | 568 | 117 | 0 | 68 | 34 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `kms-nvkms` | kms | blocked: needs kernel-side trace point | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
+| `nvdec` | video | predicted-green * | **guest-validated** | 996 | 131 | 0 | 81 | 50 | 0 | libcuda<br>libnvcuvid |
+| `nvenc` | video | predicted-green | **guest-validated** | 1600 | 135 | 0 | 84 | 51 | 0 | libcuda<br>libnvcuvid<br>libnvidia-encode |
+| `nvfbc` | video | declared-unsupported: workload not procurable in this environment | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
+| `nvml` | nvml | predicted-green | FAIL * | 179 | 105 | 0 | 88 | 17 | 0 | libcuda<br>libnvidia-ml |
+| `nvofa` | video | declared-unsupported: workload not procurable in this environment | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
+| `opencl` | compute | predicted-green | FAIL * | 620 | 107 | 0 | 64 | 43 | 0 | libcuda<br>libnvidia-nvvm<br>libnvidia-opencl |
+| `pkcs11` | compat | declared-unsupported: no workload exists | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
+| `vk-enum` | vulkan | predicted-green | FAIL * | 961 | 123 | 0 | 73 | 35 | 405 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
+| `vk-offscreen` | vulkan | predicted-green | FAIL * | 5568 | 117 | 0 | 73 | 37 | 2 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-tls |
+| `vk-rt` | vulkan | predicted-green | FAIL * | 1289 | 155 | 0 | 102 | 46 | 2 | libGLX_nvidia<br>libcuda<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
+| `vk-sc` | vulkan | declared-unsupported: no workload exists | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
 
 - \* `cuda-gdb`: ungated: none -- strace cannot follow a process that is itself ptracing. Measured: under `strace -f` cuda-gdb records zero ioctls, because its own ptrace of the inferior is the one strace has already taken. There is no second instrument here that could count the same calls, so this probe's CRITERION stands and its signatures do NOT enter the catalogue. The instrument that would gate it is the same kernel-side trace point the 32-bit set needs.
+- \* `cuda-managed` in the guest: FAIL: probe exited 1 -- managedprobe exited 1; UVM_ENABLE_READ_DUPLICATION (uvm nr=0x2c sub=-): 1 call(s) natively, none in the guest; UVM_MIGRATE (uvm nr=0x33 sub=-): 2 call(s) natively, none in the guest
+- \* `cuda-torch` in the guest: declared-unsupported: workload not procurable in this environment -- no PyTorch in '/usr/bin/python3' (NVTORCH_PY)
+- \* `egl-wayland` in the guest: FAIL: probe exited 1 -- eglplat wayland exited 1
+- \* `egl-xcb` in the guest: FAIL: probe exited 1 -- eglplat xcb exited 1
+- \* `egl-xlib` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2 (ctl nr=0x2a sub=0x730101): 2 call(s) natively, none in the guest; NV_ESC_RM_IDLE_CHANNELS (ctl nr=0x41 sub=-): 3 call(s) natively, none in the guest; modeset nr=0x0 sub=0x14: 2 call(s) in the guest, none natively ...
+- \* `gl-enum` in the guest: FAIL: probe exited 1 -- renderer is 'Leandro RTX 2070/PCIe/SSE2', not NVIDIA; NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest ...
+- \* `gl-render` in the guest: declared-unsupported: workload not procurable in this environment -- no glmark2
+- \* `gles` in the guest: FAIL: probe exited 1 -- GLES renderer is 'Leandro RTX 2070/PCIe/SSE2', not NVIDIA; NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_OS_UNIX_IMPORT_OBJECT_FROM_FD (ctl nr=0x2a sub=0x3d06): 2 call(s) natively, none in the guest; NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2 (ctl nr=0x2a sub=0x730101): 2 call(s) natively, none in the guest ...
 - \* `nvdec`: PASS (matched on attempt 2)
+- \* `nvml` in the guest: AMPERE_SMC_MONITOR_SESSION (ctl nr=0x2b sub=0xc640): 1 call(s) natively, none in the guest; NV2080_CTRL_CMD_BIOS_GET_INFO (ctl nr=0x2a sub=0x20800802): native answers [0x0 NV_OK], guest answers [0x1e NV_ERR_INVALID_ADDRESS]; NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE (ctl nr=0x2a sub=0xb02): native answers [0x0 NV_OK], guest answers [0x1f NV_ERR_INVALID_ARGUMENT]
+- \* `opencl` in the guest: FAIL: probe exited 1 -- oclprobe exited 1
+- \* `vk-enum` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_DETACH_IDS (ctl nr=0x2a sub=0x216): 1 call(s) natively, none in the guest ...
+- \* `vk-offscreen` in the guest: FAIL: probe exited 1 -- ffmpeg vulkan filter exited 244; NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest ...
+- \* `vk-rt` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_DETACH_IDS (ctl nr=0x2a sub=0x216): 1 call(s) natively, none in the guest; NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2 (ctl nr=0x2a sub=0x730101): 2 call(s) natively, none in the guest; NV_ESC_RM_DUP_OBJECT (ctl nr=0x34 sub=-): 1 call(s) natively, none in the guest ...
 
 `catalogued` is the number of signatures from this probe that reached
 the catalogue, which is smaller than the raw count in its trace: the
@@ -58,7 +76,11 @@ and those collapse to one row.
 
 | verdict | meaning |
 |---|---|
-| `predicted-green` | every signature this probe emitted is governed or passthrough. Nothing ran in a guest; this is a prediction from the descriptor table, not a gate result. |
+| `predicted-green` | every signature this probe emitted is governed or passthrough. A prediction from the descriptor table, not a gate result. |
+| `guest-validated` (guest column) | the same probe ran in a guest, met its own criterion there, its trace passed the same counter-check, and every signature and every rm_status the native run produced came back identical. Answer BYTES are still uncompared -- that is `implemented-verified`, and it is a different claim. |
+| `FAIL` (guest column) | it ran in a guest and something moved. The findings are under the table and in the evidence file. |
+| `blocked` (guest column) | the guest run could not be gated or left no trace -- an unmeasured row, not a passing one. |
+| `not run` (guest column) | this sweep did not run it in a guest. |
 | `N missing` | N signatures have no entry that could carry them. TASKS groups them. |
 | `declared-unsupported: no workload exists` | a standing decision -- there is nothing to run, and there will not be |
 | `declared-unsupported: workload not procurable in this environment` | an invitation: a human with the SDK or the right host can turn this row green |
