@@ -13,6 +13,7 @@
 #                            [--display] [--session gnome|openbox] [--wayland] [--with-steam] [--input]
 #                            [--fresh] [--mem MiB] [--cpus N] [--vram-limit MiB]
 #                            [--max-pin-mib N] [--with-torch] [--with-gl]
+#                            [--games | --games-init]
 #                            [--no-provision] [--no-load] [--no-compute]
 #                            [--keep-vm] [--console] [--base IMAGE]
 #   scripts/showcase.sh down [--name NAME | --all] [--force]
