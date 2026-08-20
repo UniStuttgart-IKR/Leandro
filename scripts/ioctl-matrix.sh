@@ -943,6 +943,12 @@ do_guest() {
     lea_ssh "$ip" 'command -v glxinfo   >/dev/null' || need+=" mesa-utils"
     lea_ssh "$ip" 'command -v vulkaninfo >/dev/null' || need+=" vulkan-tools"
     lea_ssh "$ip" 'command -v ffmpeg    >/dev/null' || need+=" ffmpeg"
+    # glmark2 brings the one workload in this set that RENDERS repeatedly
+    # rather than enumerating once. Without it `gl-render` declares itself
+    # unsupported in the guest and a whole submission path -- channels,
+    # pushbuffers, the per-frame wait -- is exercised natively and by nothing
+    # on the other side of the boundary.
+    lea_ssh "$ip" 'command -v glmark2   >/dev/null' || need+=" glmark2"
     lea_ssh "$ip" 'command -v strace    >/dev/null' || need+=" strace"
     [[ $display -eq 1 ]] && { lea_ssh "$ip" 'command -v Xorg >/dev/null'         || need+=" xserver-xorg-core xauth"; }
     if [[ -n $need ]]; then

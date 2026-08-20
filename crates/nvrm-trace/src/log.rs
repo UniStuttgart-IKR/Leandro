@@ -238,11 +238,21 @@ const fn key<'a>(name: &'a str, v: V<'a>) -> F<'a> {
 /// It was a hard-coded 32, which is two words past the first field of most
 /// controls -- enough to tell an enumeration answer apart and not enough to
 /// verify a struct. `answerdiff` compares the words both sides dumped, so
-/// this is directly how much of each answer is under test. 256 covers every
-/// control in the current trace set whose params are a fixed struct; the
-/// handful that are page-sized lists (FB_GET_INFO_V2 declares 83972 bytes)
-/// are truncated, and truncation is safe in the direction that matters --
-/// fewer bytes compared, never bytes invented.
+/// this is directly how much of each answer is under test.
+///
+/// It was 32, then 256, and 256 turned out to be 4.3% of the answer bytes in
+/// a sweep: 38 signatures were truncated, some of them badly -- one control
+/// declares 67396 bytes and 256 of them were being compared. 65536 covers
+/// every answer in the current trace set whole, and costs about 36 MB of
+/// dump text across a sweep against 4 MB, which is nothing against a 120 GB
+/// disk. Truncation is safe in the direction that matters -- fewer bytes
+/// compared, never bytes invented -- but it is still a claim about 4% of a
+/// struct being read as a claim about the struct.
+///
+/// The length read is always the CALLER'S declared size (`paramsSize` for a
+/// control, `_IOC_SIZE` for an escape, `size_of` of the compiled struct for
+/// an allocation or a UVM command), so raising the cap never reads a byte
+/// that the caller did not say was there.
 ///
 /// `LEA_TRACE_DUMP` overrides it. 0 disables dumping entirely, which is the
 /// way to take a cheap trace when only the call COUNTS are wanted.
@@ -255,7 +265,7 @@ fn dump_cap() -> usize {
     let v = std::env::var("LEA_TRACE_DUMP")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(256);
+        .unwrap_or(65536);
     CAP.store(v, Ordering::Relaxed);
     v
 }

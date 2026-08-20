@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-20T23:13:30Z",
-    "commit:  a14bedf (working tree modified)"
+    "date:    2026-08-20T23:24:23Z",
+    "commit:  8218463 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -90,7 +90,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 256 of 1352 bytes, masked {'not-written': 9}"
+        "answer bytes compared against a native run: 9 call(s), 1352 of 1352 bytes, masked {'not-written': 9}"
       ],
       "fields": [
         {
@@ -240,7 +240,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 38 call(s), 128 of 128 bytes, masked {'gpuId': 38}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 38 call(s), 128 of 128 bytes, masked {'gpuId': 38}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -297,7 +297,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: szName @16",
-        "answer bytes compared against a native run: 53 call(s), 40 of 40 bytes, masked {'not-written': 53, 'gpuId': 53}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 53 call(s), 40 of 40 bytes, masked {'not-written': 53, 'gpuId': 53}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -401,7 +401,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 42 call(s), 32 of 32 bytes, masked {'not-written': 42, 'gpuId': 42}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 42 call(s), 32 of 32 bytes, masked {'not-written': 42, 'gpuId': 42}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -499,7 +499,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 24 call(s), 256 of 580 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 24 call(s), 580 of 580 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -606,7 +606,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 14 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 14 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -662,7 +662,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 11 call(s), 256 of 1664 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 11 call(s), 1664 of 1664 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -816,7 +816,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 20 call(s), 256 of 268 bytes"
+        "answer bytes compared against a native run: 20 call(s), 268 of 268 bytes"
       ],
       "fields": [
         {
@@ -889,7 +889,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 34 call(s), 256 of 340 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 36 call(s), 340 of 340 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -941,7 +941,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 256 of 688 bytes"
+        "answer bytes compared against a native run: 9 call(s), 688 of 688 bytes"
       ],
       "fields": [
         {
@@ -1002,7 +1002,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 18 call(s), 32 of 32 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 19 call(s), 32 of 32 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -1132,7 +1132,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 10 call(s), 256 of 9240 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 9240 of 9240 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -1349,7 +1349,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 15 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 15 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -1423,7 +1423,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 14 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 14 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -1759,7 +1759,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 24 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 25 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -1941,7 +1941,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 256 of 13864 bytes"
+        "answer bytes compared against a native run: 9 call(s), 13864 of 13864 bytes"
       ],
       "fields": [
         {
@@ -2082,7 +2082,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 256 of 1928 bytes"
+        "answer bytes compared against a native run: 9 call(s), 1928 of 1928 bytes"
       ],
       "fields": [
         {
@@ -2149,7 +2149,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 16 call(s), 256 of 332 bytes"
+        "answer bytes compared against a native run: 17 call(s), 332 of 332 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -2226,7 +2226,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 11 call(s), 256 of 992 bytes"
+        "answer bytes compared against a native run: 11 call(s), 992 of 992 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -2274,7 +2274,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 13 call(s), 256 of 384 bytes, masked {'gpuId': 13}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 13 call(s), 384 of 384 bytes, masked {'gpuId': 13}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -2344,7 +2344,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 18 call(s), 132 of 132 bytes, masked {'not-written': 12}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 18 call(s), 132 of 132 bytes, masked {'not-written': 12}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -2451,7 +2451,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 14 call(s), 256 of 3076 bytes, masked {'gpuId': 14}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 14 call(s), 3076 of 3076 bytes, masked {'gpuId': 14}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -2512,7 +2512,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 10 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -2568,7 +2568,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 14 call(s), 8 of 8 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 14 call(s), 8 of 8 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -2630,7 +2630,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 14 call(s), 256 of 804 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 14 call(s), 804 of 804 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -2873,7 +2873,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 297 call(s), 16 of 16 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 307 call(s), 16 of 16 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -2911,7 +2911,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 256 of 2244 bytes"
+        "answer bytes compared against a native run: 9 call(s), 2244 of 2244 bytes"
       ],
       "fields": [
         {
@@ -3178,7 +3178,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 452 call(s), 12 of 12 bytes, masked {'not-written': 8}; NOT paired in egl-xlib, gl-enum, gles, vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 452 call(s), 12 of 12 bytes, masked {'not-written': 8}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -3325,7 +3325,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 27 call(s), 40 of 40 bytes, masked {'not-written': 96}; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 29 call(s), 40 of 40 bytes, masked {'not-written': 106}; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -3369,7 +3369,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 26 call(s), 256 of 2304 bytes, masked {'mediated:bdf-address': 26, 'gpuId': 26}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way",
+        "answer bytes compared against a native run: 26 call(s), 2304 of 2304 bytes, masked {'mediated:bdf-address': 26, 'gpuId': 26}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way",
         "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (pci_info.domain (bdf-address) @4; pci_info.bus (bdf-address) @8; pci_info.slot (bdf-address) @9; pci_info.function (bdf-address) @10; gpu_id (bdf-scalar) @16) and in no other byte. That is a different claim from byte equality"
       ],
       "status": "passthrough",
@@ -3414,7 +3414,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 26 call(s), 8 of 8 bytes; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 26 call(s), 8 of 8 bytes; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -3458,7 +3458,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 18 call(s), 256 of 560 bytes; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 18 call(s), 560 of 560 bytes; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -3586,7 +3586,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1028}; NOT paired in egl-xlib, gl-enum, gles, vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1035}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -3681,7 +3681,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 7 call(s), 256 of 520 bytes, masked {'not-written': 174}"
+        "answer bytes compared against a native run: 7 call(s), 520 of 520 bytes, masked {'not-written': 126}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -3773,7 +3773,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 7 call(s), 108 of 108 bytes"
+        "answer bytes compared against a native run: 8 call(s), 108 of 108 bytes"
       ],
       "fields": [
         {
@@ -3903,7 +3903,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 7 call(s), 4 of 4 bytes"
+        "answer bytes compared against a native run: 8 call(s), 4 of 4 bytes"
       ],
       "fields": [
         {
@@ -3949,7 +3949,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 4 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 4 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -3995,7 +3995,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 18 call(s), 144 of 144 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 20 call(s), 144 of 144 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4109,7 +4109,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 40 of 40 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 40 of 40 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4209,7 +4209,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 24 of 24 bytes, masked {'not-written': 9}; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 9 call(s), 24 of 24 bytes, masked {'not-written': 11}; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4273,7 +4273,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4337,7 +4337,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 256 of 904 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 904 of 904 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4389,7 +4389,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 32 of 32 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 32 of 32 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4453,7 +4453,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 42 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 48 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4505,7 +4505,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 110 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 120 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4557,7 +4557,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 7 call(s), 1 of 1 bytes"
+        "answer bytes compared against a native run: 8 call(s), 1 of 1 bytes"
       ],
       "fields": [
         {
@@ -4603,7 +4603,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 7 call(s), 2 of 2 bytes"
+        "answer bytes compared against a native run: 8 call(s), 2 of 2 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -4642,7 +4642,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 4 call(s), 128 of 128 bytes, masked {'not-written': 3}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 4 call(s), 128 of 128 bytes, masked {'not-written': 3}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4690,7 +4690,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 9 call(s), 256 of 268 bytes, masked {'not-written': 9}; NOT paired in egl-xlib, gles, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 268 of 268 bytes, masked {'not-written': 10}; NOT paired in egl-xlib, gles, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4754,7 +4754,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 7 call(s), 16 of 16 bytes"
+        "answer bytes compared against a native run: 8 call(s), 16 of 16 bytes"
       ],
       "fields": [
         {
@@ -4800,7 +4800,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 2 of 2 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 2 of 2 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4846,7 +4846,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 12 of 12 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 9 call(s), 12 of 12 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -4904,7 +4904,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 192 of 192 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 192 of 192 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -5022,7 +5022,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 12 of 12 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 12 of 12 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -5074,7 +5074,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 30 call(s), 12 of 12 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 33 call(s), 12 of 12 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -5132,7 +5132,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 450 call(s), 56 of 56 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 495 call(s), 56 of 56 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -5204,7 +5204,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 27 call(s), 3 of 3 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 30 call(s), 3 of 3 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -5264,7 +5264,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 27 call(s), 4 of 4 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 30 call(s), 4 of 4 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -5312,7 +5312,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 27 call(s), 4 of 4 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 30 call(s), 4 of 4 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -5358,7 +5358,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 24 call(s), 40 of 40 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 27 call(s), 40 of 40 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -5416,7 +5416,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 24 call(s), 40 of 40 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 27 call(s), 40 of 40 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -5589,7 +5589,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 32 call(s), 28 of 28 bytes, masked {'not-written': 67}; NOT paired in egl-xlib, gl-enum, gles, nvdec, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 32 call(s), 28 of 28 bytes, masked {'not-written': 67}; NOT paired in egl-xlib, gl-enum, gl-render, gles, nvdec, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5623,7 +5623,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 3 call(s), 56 of 56 bytes, masked {'not-written': 15, 'handle': 2}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 3 call(s), 56 of 56 bytes, masked {'not-written': 15, 'handle': 2}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5689,7 +5689,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 10 call(s), 56 of 56 bytes, masked {'not-written': 12}; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 11 call(s), 56 of 56 bytes, masked {'not-written': 14}; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5725,7 +5725,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 259 call(s), 64 of 64 bytes, masked {'not-written': 259}; NOT paired in egl-xlib, gl-enum, gles, nvdec, vk-enum, vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 259 call(s), 64 of 64 bytes, masked {'not-written': 259}; NOT paired in egl-xlib, gl-enum, gl-render, gles, nvdec, vk-enum, vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5761,7 +5761,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 277 call(s), 48 of 48 bytes, masked {'not-written': 323}; NOT paired in egl-xlib, gl-enum, gles, nvdec, vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 277 call(s), 48 of 48 bytes, masked {'not-written': 323}; NOT paired in egl-xlib, gl-enum, gl-render, gles, nvdec, vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5798,7 +5798,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 10 call(s), 72 of 72 bytes; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 72 of 72 bytes; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5832,7 +5832,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 3 call(s), 128 of 128 bytes, masked {'not-written': 3}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 3 call(s), 128 of 128 bytes, masked {'not-written': 3}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5869,7 +5869,7 @@
       ],
       "notes": [
         "class allocates with a NULL params pointer -- no size needed",
-        "answer bytes compared against a native run: 7 call(s), 56 of 56 bytes, masked {'not-written': 7}"
+        "answer bytes compared against a native run: 8 call(s), 56 of 56 bytes, masked {'not-written': 8}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5978,7 +5978,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 3 call(s), 256 of 2192 bytes, masked {'not-written': 141}"
+        "answer bytes compared against a native run: 3 call(s), 2192 of 2192 bytes, masked {'not-written': 521}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -6714,7 +6714,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 2056 bytes"
+        "answer bytes compared against a native run: 1 call(s), 2056 of 2056 bytes"
       ],
       "fields": [
         {
@@ -6769,7 +6769,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 6152 bytes"
+        "answer bytes compared against a native run: 1 call(s), 6152 of 6152 bytes"
       ],
       "fields": [
         {
@@ -7224,7 +7224,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 1784 bytes"
+        "answer bytes compared against a native run: 1 call(s), 1784 of 1784 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7253,7 +7253,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 2 call(s), 256 of 1440 bytes"
+        "answer bytes compared against a native run: 2 call(s), 1440 of 1440 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7282,7 +7282,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 1432 bytes"
+        "answer bytes compared against a native run: 1 call(s), 1432 of 1432 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7338,7 +7338,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 25552 bytes"
+        "answer bytes compared against a native run: 1 call(s), 25552 of 25552 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7367,7 +7367,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 15352 bytes"
+        "answer bytes compared against a native run: 1 call(s), 15352 of 15352 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7396,7 +7396,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 504 bytes"
+        "answer bytes compared against a native run: 1 call(s), 504 of 504 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7482,7 +7482,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 12336 bytes"
+        "answer bytes compared against a native run: 1 call(s), 12336 of 12336 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7737,7 +7737,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 67396 bytes"
+        "answer bytes compared against a native run: 1 call(s), 65536 of 67396 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7766,7 +7766,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 17676 bytes"
+        "answer bytes compared against a native run: 1 call(s), 17676 of 17676 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7795,7 +7795,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 4 call(s), 256 of 32908 bytes"
+        "answer bytes compared against a native run: 4 call(s), 32908 of 32908 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7853,7 +7853,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 54352 bytes"
+        "answer bytes compared against a native run: 1 call(s), 54352 of 54352 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7909,7 +7909,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 20000 bytes"
+        "answer bytes compared against a native run: 1 call(s), 20000 of 20000 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7938,7 +7938,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 1 call(s), 256 of 13840 bytes"
+        "answer bytes compared against a native run: 1 call(s), 13840 of 13840 bytes"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -9554,7 +9554,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 801 call(s), 16 of 16 bytes, masked {'not-written': 847}; NOT paired in egl-xlib, gl-enum, gles, nvdec, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 801 call(s), 16 of 16 bytes, masked {'not-written': 847}; NOT paired in egl-xlib, gl-enum, gl-render, gles, nvdec, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": null
@@ -9595,7 +9595,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24",
-        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 54}"
+        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 51}"
       ],
       "fields": [
         {
@@ -9682,7 +9682,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 19}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 17}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -9741,7 +9741,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16",
-        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 620}"
+        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 580}"
       ],
       "fields": [
         {
@@ -9809,7 +9809,7 @@
         "size-table"
       ],
       "notes": [
-        "answer bytes compared against a native run: 15 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 15 call(s), 4 of 4 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -9996,7 +9996,7 @@
         "size-table"
       ],
       "notes": [
-        "answer bytes compared against a native run: 15 call(s), 56 of 56 bytes, masked {'not-written': 14}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 15 call(s), 56 of 56 bytes, masked {'not-written': 14}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -10156,7 +10156,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 18 call(s), 12 of 12 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 19 call(s), 12 of 12 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": 12
@@ -10203,7 +10203,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 19 call(s), 56 of 56 bytes; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 19 call(s), 56 of 56 bytes; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": 56
@@ -10250,7 +10250,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 44 call(s), 20 of 20 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 46 call(s), 20 of 20 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": 20
@@ -10297,7 +10297,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 185 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 188 call(s), 8 of 8 bytes; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": 8
@@ -10337,7 +10337,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 64 call(s), 16 of 16 bytes, masked {'not-written': 120}"
+        "answer bytes compared against a native run: 64 call(s), 16 of 16 bytes, masked {'not-written': 104}"
       ],
       "status": "implemented-verified",
       "xlate_size": 16
@@ -10430,7 +10430,7 @@
         "size-table"
       ],
       "notes": [
-        "answer bytes compared against a native run: 16 call(s), 8 of 8 bytes"
+        "answer bytes compared against a native run: 17 call(s), 8 of 8 bytes"
       ],
       "fields": [
         {
@@ -10517,7 +10517,7 @@
         "fd-field"
       ],
       "notes": [
-        "answer bytes compared against a native run: 102 call(s), 4 of 4 bytes, masked {'not-written': 10}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 102 call(s), 4 of 4 bytes, masked {'not-written': 10}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": null
@@ -10560,7 +10560,7 @@
         "fd-field"
       ],
       "notes": [
-        "answer bytes compared against a native run: 105 call(s), 16 of 16 bytes, masked {'not-written': 129}; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 110 call(s), 16 of 16 bytes, masked {'not-written': 139}; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": null
@@ -10662,7 +10662,7 @@
         "fd-field"
       ],
       "notes": [
-        "answer bytes compared against a native run: 202 call(s), 256 of 9264 bytes, masked {'not-written': 4}; NOT paired in nvdec, which judged nothing either way"
+        "answer bytes compared against a native run: 202 call(s), 9264 of 9264 bytes, masked {'not-written': 230}; NOT paired in nvdec, which judged nothing either way"
       ],
       "fields": [],
       "status": "implemented-verified",
@@ -10837,7 +10837,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 8 call(s), 256 of 9248 bytes"
+        "answer bytes compared against a native run: 8 call(s), 9248 of 9248 bytes"
       ],
       "fields": [],
       "status": "implemented-verified",
@@ -11017,7 +11017,7 @@
         "fd-field"
       ],
       "notes": [
-        "answer bytes compared against a native run: 89 call(s), 16 of 16 bytes, masked {'not-written': 113}; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 94 call(s), 16 of 16 bytes, masked {'not-written': 123}; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "status": "implemented-verified",
       "xlate_size": null
@@ -11153,7 +11153,7 @@
       "notes": [
         "answered by the backend itself: fbInfoList[].data @4 (backend-answered, mediation.txt)",
         "pointer field(s), offsets compiled: fbInfoList @8",
-        "answer bytes compared against a native run: 5 call(s), 16 of 16 bytes, masked {'not-written': 10}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 5 call(s), 16 of 16 bytes, masked {'not-written': 10}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11205,7 +11205,7 @@
         "fd-field"
       ],
       "notes": [
-        "answer bytes compared against a native run: 3 call(s), 24 of 24 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 3 call(s), 24 of 24 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11265,7 +11265,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11319,7 +11319,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11373,7 +11373,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11427,7 +11427,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11481,7 +11481,7 @@
         "size-table"
       ],
       "notes": [
-        "answer bytes compared against a native run: 6 call(s), 24 of 24 bytes; NOT paired in egl-xlib, gl-enum, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 6 call(s), 24 of 24 bytes; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11537,7 +11537,7 @@
       ],
       "notes": [
         "class carries KF_UNVERIFIED: never allocated on real silicon",
-        "answer bytes compared against a native run: 16 call(s), 12 of 12 bytes"
+        "answer bytes compared against a native run: 20 call(s), 12 of 12 bytes"
       ],
       "fields": [
         {
@@ -11596,7 +11596,7 @@
       ],
       "notes": [
         "class carries KF_UNVERIFIED: never allocated on real silicon",
-        "answer bytes compared against a native run: 7 call(s), 16 of 16 bytes, masked {'not-written': 4}"
+        "answer bytes compared against a native run: 8 call(s), 16 of 16 bytes, masked {'not-written': 6}"
       ],
       "fields": [
         {
@@ -11655,7 +11655,7 @@
       ],
       "notes": [
         "class carries KF_UNVERIFIED: never allocated on real silicon",
-        "answer bytes compared against a native run: 6 call(s), 24 of 24 bytes, masked {'not-written': 4}; NOT paired in vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 7 call(s), 24 of 24 bytes, masked {'not-written': 6}; NOT paired in vk-offscreen, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11717,7 +11717,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 7 call(s), 56 of 56 bytes, masked {'not-written': 7}"
+        "answer bytes compared against a native run: 8 call(s), 56 of 56 bytes, masked {'not-written': 8}"
       ],
       "status": "implemented-verified",
       "xlate_size": 128
@@ -12152,7 +12152,7 @@
       ],
       "notes": [
         "answered by the backend itself: gpuNameString @4 (identity-string, mediation.txt)",
-        "answer bytes compared against a native run: 20 call(s), 68 of 68 bytes, masked {'mediated:identity-string': 120}; NOT paired in gl-enum, vk-enum, vk-offscreen, vk-rt, which judged nothing either way",
+        "answer bytes compared against a native run: 20 call(s), 68 of 68 bytes, masked {'mediated:identity-string': 120}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way",
         "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (gpuNameString (identity-string) @4) and in no other byte. That is a different claim from byte equality"
       ],
       "fields": [
@@ -13275,7 +13275,7 @@
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 39478"
+      "criterion": "glmark2 --off-screen rendered the build scene, score 30257"
     },
     {
       "probe": "gles",
@@ -13309,7 +13309,7 @@
     },
     {
       "probe": "nvdec",
-      "result": "PASS (matched on attempt 2)",
+      "result": "PASS (matched on attempt 5)",
       "tracer": "996",
       "strace": "996",
       "delta": "0",

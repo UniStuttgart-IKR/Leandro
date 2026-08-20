@@ -907,9 +907,11 @@ def main():
             "trace, call by call, word by word"),
         "extent": (
             "TWO extents, and both are per signature so that nothing "
-            "downstream can round either up. In BYTES: the first bytes of the "
-            "answer, not the whole answer -- bytes_compared against "
-            "answer_size. In CALLS: only the calls that could be paired -- "
+            "downstream can round either up. In BYTES: bytes_compared against "
+            "answer_size. The dump cap is 65536 (LEA_TRACE_DUMP), which is "
+            "the whole answer for every signature in the current trace set "
+            "but is still a cap -- a truncated row is a claim about the "
+            "bytes compared and never about the struct. In CALLS: only the calls that could be paired -- "
             "calls_compared, with probes_not_comparable naming any probe whose "
             "two runs made different numbers of calls and which therefore "
             "judged nothing. A signature with a non-empty "
