@@ -455,37 +455,18 @@ measured:
 None of the three is the crash. They are the reason the crash was hunted
 in the wrong place for a session, which is worth the diff on its own.
 
-### 45. `NV_ESC_ATTACH_GPUS_TO_FD` answers `-1` to Xwayland, rarely
-**Open; the host's rule is known, the client is cleared, the FD is not.**
-The escape is one-shot per file descriptor: the host refuses with `EINVAL`
-when `nvlfp->num_attached_gpus != 0`
-([`nv.c`](../vendor/open-gpu-kernel-modules/kernel-open/nvidia/nv.c)),
-before it looks at the ids at all. The only other `EINVAL` on that path is
-a `nvidia_dev_get()` that fails on one of them.
-
-The client is cleared. `strace` of the compositor's Xwayland (2026-08-20)
-shows an `openat("/dev/nvidiactl")` immediately before every attach and
-never two attaches on one FD -- seven attaches, seven fresh FDs, every one
-answering 0 to the guest. So a refusal for "already attached" cannot be
-the guest asking twice.
-
-Rates, all measured 2026-08-20: a desktop session traced at `LEA_DEBUG=2`
-carried 644 of these in 1_392_006 calls, 642 answering 0 and **2**
-answering `-1`, both to Xwayland; two further traced sessions carried
-none; the crash session in number 44 recorded four.
-
-What is missing is which host FD the failing ones rode on, and that is the
-whole question. `Session::on_open` opens a FRESH host FD for every guest
-open, so a "already attached" refusal would mean our routing put a fresh
-guest FD onto an FD that had been attached before -- a real defect -- while
-a `nvidia_dev_get()` failure would mean a bad id and point at BDF
-mediation instead. The failure log did not print the FD. It now does
-(`hard ioctl failure rode host fd N (token 0x..)`), so the next occurrence
-decides it without another round of guessing.
-
-It is NOT the cause of number 44. `glxgears` crashed in a session where
-this escape never fired, and ran to completion in a session where it fired
-twice.
+**And the second of those three immediately found a real defect: see 45,
+resolved the same day.** A signal arriving while the guest module waited
+for a reply it had ALREADY submitted made the kernel restart the whole
+ioctl, so a one-shot escape was issued twice and the second one refused.
+Xwayland was told an attach had failed that had succeeded. That is the
+right shape for what poisons a GL stack -- a device object built for an id
+its owner believes invalid, and `0xffffffff` is the value both the hollow
+libGLX nodes and eglcore's live `rax` carry at the fault. It is *not*
+proof: the crash of 23/33/44 has never been reproduced on a fresh guest,
+so nothing yet shows this fixes it. What it does remove is a real
+confound, and it makes the next attempt at reproducing 44 one variable
+simpler.
 
 ---
 
@@ -674,3 +655,51 @@ watching the screen, not by an FPS counter.
 instance per point: the limiter lands monotonically close to the target at
 all three. Number 37 had only the 60 Hz point and drew too much from it.
 X11 `vkcube` escapes only sometimes, not always.
+
+### 45. `NV_ESC_ATTACH_GPUS_TO_FD` answers `-1` to Xwayland
+**Resolved 2026-08-20, and the cause was ours rather than the ioctl's.** A
+signal interrupted the guest module's wait for the host's reply AFTER the
+request had been put on the virtqueue and kicked. The module abandoned the
+buffer and answered `-ERESTARTSYS`; the kernel restarted the whole ioctl
+under `SA_RESTART`; and the restart issued a SECOND attach on the same fd,
+which the host refuses with `EINVAL` once that fd carries GPUs
+([`nv.c`](../vendor/open-gpu-kernel-modules/kernel-open/nvidia/nv.c),
+`nvlfp->num_attached_gpus != 0`). The caller was told its attach had failed
+when it had in fact succeeded.
+
+Caught with `strace -f` on the compositor's Xwayland under 30 concurrent GL
+clients -- the same fd, twice, the second one the kernel's own restart:
+
+    ioctl(142, ...0x46, 0xd4...) = ? ERESTARTSYS
+    ioctl(142, ...0x46, 0xd4...) = -1 EINVAL
+
+The backend agreed from the other side, once its bookkeeping was keyed
+properly: **118 of 118** failures were one token, inside one generation of
+one session, attached twice. None was a fresh token, so `nvidia_dev_get()`
+never refused an id and BDF mediation was never in it. (Keyed globally
+instead of per session the same data looks identical but proves nothing --
+`Mirror::insert` numbers tokens per session, so a value legitimately
+recurs in another one. The first pass made that mistake.)
+
+Fixed by waiting KILLABLE instead of interruptible once the request is on
+the queue: an ordinary signal no longer restarts a call the host has
+already carried out, while a fatal one still returns -- and there is no
+restart to fear when the task is dying. The queue-full wait above it stays
+interruptible on purpose, because nothing has been submitted at that
+point.
+
+Measured after, same guest, same load: **2166 attaches over five rounds, 0
+failures**, and the compositor's own `strace` shows 90 attaches with 0
+`EINVAL` and 0 `ERESTARTSYS`. Before the fix the first round alone gave 30.
+
+Why it hid for so long: it needs signal pressure. Serial probing never
+produced one, and "2 in 1_392_006 calls" was a lightly loaded desktop.
+Thirty concurrent clients make it fire about twenty times a minute.
+
+*Unverified,* and it is the reason 44 stays open: that this is also what
+poisoned the compositor. The shape fits -- Xwayland was told an attach
+failed that had succeeded, which is exactly how a GL stack ends up holding
+a device object built for an id it believes invalid, and `0xffffffff` is
+what both the hollow libGLX nodes and eglcore's live `rax` carry. But the
+client crash of 23/33/44 was never reproduced on a fresh guest, so nothing
+here has been shown to fix it.

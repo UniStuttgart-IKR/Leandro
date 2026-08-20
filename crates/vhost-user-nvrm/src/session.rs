@@ -2757,6 +2757,25 @@ impl Session {
                         plan.target_fd, plan.target_token
                     );
                 }
+                // The failing attach alone cannot answer number 45: "already
+                // attached" is only distinguishable from "RM refused an id" by
+                // comparing the failing call's FD against the SUCCEEDING one
+                // just before it. Measured 2026-08-20, the two always arrive
+                // as a pair -- one `ret 0`, then one `ret -1` -- so the
+                // succeeding call has to name its FD too. Every attach, not
+                // every call: a desktop session issued 9834 of them beside
+                // 710_767 traced lines, so this is a rounding error on the
+                // firehose and silent without it.
+                if plan.ioctl_nr == nvrm_abi::nvgpu::NV_ESC_ATTACH_GPUS_TO_FD {
+                    eprintln!(
+                        "vhost-user-nvrm:   attach_gpus ret {ret} host fd {} token {:#x} \
+                         (proc {} {})",
+                        plan.target_fd,
+                        plan.target_token,
+                        self.sub_id,
+                        self.proc.comm_str(),
+                    );
+                }
             }
         }
 

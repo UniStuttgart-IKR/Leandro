@@ -788,7 +788,45 @@ static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x, bool interru
 		return err;
 
 	if (interruptible) {
-		if (wait_event_interruptible(x->wq, READ_ONCE(x->done))) {
+		/*
+		 * KILLABLE, not interruptible, and the difference is a bug.
+		 *
+		 * By this line the request is ALREADY on the virtqueue and
+		 * kicked, so the host may have carried it out. Waiting
+		 * interruptibly and answering -ERESTARTSYS hands the decision
+		 * to the kernel, which re-runs the WHOLE ioctl -- issuing a
+		 * second time an operation that has already taken effect on
+		 * the host. For a read that is merely wasteful. For a
+		 * one-shot escape it is wrong: NV_ESC_ATTACH_GPUS_TO_FD is
+		 * refused with EINVAL once the FD carries GPUs (nv.c,
+		 * `nvlfp->num_attached_gpus != 0`), so the restart is told
+		 * "invalid" for an attach that SUCCEEDED, and the caller
+		 * builds its GL state believing the FD has no GPU.
+		 *
+		 * Measured 2026-08-20 with `strace -f` on the compositor's
+		 * Xwayland under 30 concurrent GL clients:
+		 *
+		 *   ioctl(142, ...0x46,0xd4...) = ? ERESTARTSYS
+		 *   ioctl(142, ...0x46,0xd4...) = -1 EINVAL
+		 *
+		 * -- the same FD, twice, the second one the kernel's restart.
+		 * The backend saw the pair as one token attached twice: 118
+		 * of 118 failures in that session, none of them a fresh
+		 * token, so nothing was RM refusing an id. Under serial load
+		 * the signal pressure is absent and it never fires, which is
+		 * why this hid behind "2 in 1_392_006 calls" for so long.
+		 * See OPEN-QUESTIONS 45.
+		 *
+		 * Killable keeps the escape hatch that matters: a wedged host
+		 * must not leave an unkillable task. A fatal signal still
+		 * returns here, and there is no restart to fear then because
+		 * the task is dying. Ordinary signals no longer re-issue.
+		 *
+		 * The queue-full wait above stays interruptible on purpose:
+		 * nothing has been submitted at that point, so a restart
+		 * re-issues nothing.
+		 */
+		if (wait_event_killable(x->wq, READ_ONCE(x->done))) {
 			/* Signal. The buffer stays with the device -- it must
 			 * not be freed here, so ownership is handed over. */
 			spin_lock_irqsave(&dev->vq_lock, flags);

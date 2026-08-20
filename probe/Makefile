@@ -117,13 +117,42 @@ $(KDIR)/kernels.ptx: $(KDIR)/kernels.cu
 	cat $@.tmp >> $@
 	rm -f $@.tmp
 
+# --- the coverage-matrix probes (probe/matrix/, scripts/ioctl-matrix.sh) ---
+# Three feature paths that had no probe at all, and each of them is a
+# LIBRARY the guest is handed: OpenCL, the five EGL platform modules, and
+# the raytracing branch that dlopens libnvidia-rtcore.
+#
+# oclprobe needs the OpenCL headers, which ship with the CUDA toolkit here,
+# and links the ICD LOADER (-lOpenCL) rather than NVIDIA's implementation --
+# picking the vendor at runtime is exactly what is being measured.
+$(BIN)/oclprobe: $(SRC)/oclprobe.c | $(BIN)
+	$(CC) $(CFLAGS) -o $@ $< -lOpenCL
+
+# eglplat is compiled against whichever native platforms this host has
+# headers for, and says so in its own output. -DLEA_HAVE_* rather than a
+# hard dependency list: a host without wayland-client is a host where the
+# wayland row of the matrix is "not built here", which is a finding, not a
+# build failure.
+EGLPLAT_DEFS := $(shell pkg-config --exists gbm && echo -DLEA_HAVE_GBM)                 $(shell pkg-config --exists wayland-client && echo -DLEA_HAVE_WAYLAND)                 $(shell pkg-config --exists x11 && echo -DLEA_HAVE_X11)                 $(shell pkg-config --exists xcb && echo -DLEA_HAVE_XCB)
+EGLPLAT_LIBS := $(shell pkg-config --exists gbm && echo -lgbm)                 $(shell pkg-config --exists wayland-client && echo -lwayland-client)                 $(shell pkg-config --exists x11 && echo -lX11)                 $(shell pkg-config --exists xcb && echo -lxcb)
+$(BIN)/eglplat: $(SRC)/eglplat.c | $(BIN)
+	$(CC) -O1 -g -Wall -Wextra $(EGLPLAT_DEFS) -o $@ $< -lEGL -lGLESv2 $(EGLPLAT_LIBS)
+
+# vkrt needs only the Vulkan loader, like vkalloc: the ICD is picked at
+# runtime and that choice is part of the measurement.
+$(BIN)/vkrt: $(SRC)/vkrt.c | $(BIN)
+	$(CC) -O1 -g -Wall -Wextra -o $@ $< -lvulkan
+
+# One target for everything scripts/ioctl-matrix.sh needs to build itself.
+matrix-probes: $(BIN)/oclprobe $(BIN)/eglplat $(BIN)/vkrt
+
 probes: $(BIN)/ofdtest $(BIN)/granttest $(BIN)/forkprobe $(BIN)/ioctlping $(BIN)/ctrlping $(BIN)/primeimport $(BIN)/uvminit_shim.so host-tools
 
 # What CI can build: no CUDA, no NVIDIA headers, no hardware. Kept separate
 # from `probes` so the GPU-free workflow has exactly one target to name.
 host-tools: $(BIN)/edid-verify $(BIN)/vdisp-frame
 
-all-probes: all probes $(BIN)/hostregprobe $(BIN)/oomprobe $(BIN)/managedprobe $(BIN)/glinterop $(BIN)/vkalloc
+all-probes: all probes matrix-probes $(BIN)/hostregprobe $(BIN)/oomprobe $(BIN)/managedprobe $(BIN)/glinterop $(BIN)/vkalloc
 
 # The .ptx is versioned so that a checkout needs no nvcc -- but a checkout on
 # a card OLDER than the one it was generated for needs a new one, and nothing
@@ -153,4 +182,4 @@ clean:
 distclean: clean
 	rm -rf traces
 
-.PHONY: all probes host-tools all-probes clean distclean
+.PHONY: all probes host-tools matrix-probes all-probes clean distclean

@@ -132,6 +132,6 @@ int main(void)
     }
 
     cuCtxDestroy(ctx);
-    printf("FERTIG\n");
+    printf("DONE\n");
     return 0;
 }
