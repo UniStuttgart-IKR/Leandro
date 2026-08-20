@@ -482,7 +482,21 @@ lea_backend_start() {
             bin=$LEA_BIN_DIR/vhost-user-nvrm
             [[ -x $bin ]] || die "$bin missing -- run: scripts/build.sh cargo"
             [[ -n $cap ]] && info "  $name: VRAM cap ${cap} MiB"
-            ( LEA_MANAGED_COMPAT="${LEA_MANAGED_COMPAT:-}" \
+            # ONE FD PER GUEST CLIENT, and a desktop has hundreds. The backend
+            # opens a real /dev/nvidiactl or /dev/nvidia0 for every RM client
+            # the guest creates, which is the design -- the mirror hands the
+            # guest tokens and keeps the FDs. GNOME, Steam with its dozen
+            # helpers and Sunshine together reached 913 open FDs against the
+            # 1024 soft limit (measured 2026-08-20), and past that every new
+            # client got EMFILE: "open /dev/nvidia0: Too many open files".
+            # In the guest that arrives as a Vulkan swapchain that cannot be
+            # created, with nothing anywhere naming a file descriptor.
+            #
+            # The hard limit is 524288 here, so raising the soft limit needs
+            # no privilege. `|| true`: a system with a lower hard limit gets
+            # what it can and the daemon still starts.
+            ( ulimit -n "${LEA_NOFILE:-65536}" 2>/dev/null || true
+              LEA_MANAGED_COMPAT="${LEA_MANAGED_COMPAT:-}" \
               LEA_VRAM_LIMIT_MIB="$cap" \
               LEA_MAX_PIN_MIB="${LEA_MAX_PIN_MIB:-}" \
               LEA_OBJLOG="${LEA_OBJLOG:-}" \

@@ -314,6 +314,20 @@ with `--with-steam`.
 answers `307` to `/welcome` and the PIN can never arrive. `showcase.sh
 pair` detects exactly this, writes the login and restarts Sunshine once.
 
+**A Vulkan application in the guest cannot create a swapchain, or a game
+will not start, after the desktop has been up for a while.** The backend
+ran out of file descriptors. It opens a real `/dev/nvidiactl` or
+`/dev/nvidia0` for every RM client the guest creates -- that is the design,
+the mirror keeps the FDs and hands the guest tokens -- and a desktop
+session with Steam and its dozen helpers reaches hundreds. Measured
+2026-08-20: 913 open FDs against the 1024 soft limit, after which every new
+client got `EMFILE` and the guest saw
+`vkCreateSwapchainKHR VK_ERROR_INITIALIZATION_FAILED` with nothing anywhere
+naming a file descriptor. The backend now starts with a 65536 soft limit
+(`LEA_NOFILE` overrides it); before the fix one `vkprobe` in five
+succeeded, after it eight of eight. If you meet it anyway, the backend log
+says it plainly: "open /dev/nvidia0: Too many open files".
+
 **A backend refuses to start: `driver mismatch: running X, bindings for
 Y`.** The host driver changed and the binaries did not: `nvrm-sys` derives
 its bindings from the vendor headers and asserts the running version at
