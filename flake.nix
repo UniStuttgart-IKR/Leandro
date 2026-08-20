@@ -50,7 +50,7 @@
       system = "x86_64-linux";
       lib = nixpkgs.lib;
       pkgs = import nixpkgs { inherit system; overlays = [ self.overlays.default ]; };
-      driverVersion = lib.fileContents ./DRIVER_VERSION;   # "610.43.03"
+      driverVersion = lib.fileContents ./DRIVER_VERSION;   # "610.57.04"
       chVersion = lib.fileContents ./CH_VERSION;           # "v53.0"
 
       # The GUEST side, declared once and built two ways. Kept in the `let`

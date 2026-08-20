@@ -20,7 +20,7 @@ points at it rather than repeating it.
 |---|---|
 | OS | Linux with a recent kernel. Developed and measured on Arch (kernel 6.x). |
 | GPU | One NVIDIA card. Only **Turing** has ever been run on real silicon. |
-| Driver | Exactly the version in [`DRIVER_VERSION`](DRIVER_VERSION). Not "close enough" — see the Limitations section of the README. |
+| Driver | Exactly the version in [`DRIVER_VERSION`](DRIVER_VERSION), or retarget with `build.sh all --driver auto`. Not "close enough" — see the Limitations section of the README. The pin is 610.57.04; the gates were last run on real silicon at 610.43.03, and the two differ by nothing this tree reads (below). |
 | Userspace | The matching `nvidia-utils` (libcuda, libnvidia-ml, nvidia-smi) |
 | Tools | `rustup`, `cargo`, `cc`, `make`, `qemu-img`, `mkfs.vfat` (dosfstools), `mcopy` (mtools), `curl`, `git`, `iptables`, `ip`, `pkg-config` |
 | Rust | Pinned by [`rust-toolchain.toml`](rust-toolchain.toml) |
@@ -31,6 +31,31 @@ Check the version match before anything else — it is the failure that does
 ```sh
 ./scripts/build.sh check-driver
 ```
+
+### What a driver bump costs, measured
+
+Moving the pin from 610.43.03 to 610.57.04 on 2026-08-19 changed **one
+line** of `guest-module/virtio_nvrm/nvrm_wire.h`: `NVRM_DRIVER_VERSION`
+itself. No offset, no structure size and no class entry moved, and both
+mechanical checks stayed green — `class-sizes`, which compiles a
+`sizeof()` for every alloc-param size out of the vendor headers, and
+`kapi-abi`, which compares the guest module's kernel-side entry points
+against `nv-modeset-interface.h`.
+
+That is also the procedure for the next bump, and the order matters:
+
+```sh
+echo <version> > DRIVER_VERSION
+./scripts/build.sh vendor
+./scripts/test.sh check          # nvrm-genhdr goes red if anything moved
+cargo run --release --bin nvrm-genhdr -- guest-module/virtio_nvrm/nvrm_wire.h
+git diff guest-module/virtio_nvrm/nvrm_wire.h    # READ this diff
+```
+
+A diff that is only the version string means the ABI this tree reads did
+not move. A diff with offsets in it means it did — and then the GPU gates
+have to be run again on the new driver before anything is claimed about
+it.
 
 ### Persistence mode
 
