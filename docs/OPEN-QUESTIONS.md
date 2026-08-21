@@ -377,7 +377,9 @@ an imminent failure — the mappings are never reclaimed, so the headroom is
 consumed by how many GL clients a desktop has ever run rather than by how many
 are running.
 ### 46. Sound continues while the picture hangs, and it is the CPU
-**Open, but named, and it is NOT a GPU question.** Under a real game the
+**Open. And on 2026-08-21 the same symptom was reproduced from a COMPLETELY
+DIFFERENT cause, which makes the title half wrong: sometimes it IS a GPU
+question. `fbprobe` tells the two apart in one run.** Under a real game the
 stream stalls: audio keeps playing, video stops. Measured 2026-08-20 while
 Shadow of the Tomb Raider ran in a `--session gnome --wayland` guest with
 Sunshine on `capture=kms encoder=nvenc`:
@@ -406,6 +408,127 @@ Recorded because nothing in this tree mentioned `setpriority` or RTKit
 before, and because a stall with sound is exactly the shape a reader would
 otherwise file against numbers 10, 20 or 44.
 
+---
+
+## 2026-08-21: the same symptom, a different cause, and a discriminator that works
+
+Two guests, one RTX 2070, both streaming 1080p through Sunshine
+(`capture=kms encoder=nvenc`), each with `--vram-limit 3072 --cpus 6
+--mem 8192`, both running Shadow of the Tomb Raider. After ~4 minutes **both
+streams showed a stale picture with sound continuing** -- this entry's
+symptom exactly.
+
+**IT WAS NOT THE CPU, and that is the first thing this run settles.** Measured
+throughout:
+
+| | game CPU | `sunshine` | load1 | of |
+|---|---|---|---|---|
+| `desktop` | mean 291%, peak 304% | **13.0%** | 8.3 | 600% (6 vCPU) |
+| `desktop2` | mean 288%, peak 308% | **17.4%** | 7.4 | 600% (6 vCPU) |
+
+Sunshine was not starved and said so itself: frame processing latency
+**3.6 / 14.95 / 76.8 ms** (min/mean/max), network **0.22 ms**. Compare the
+2026-08-20 session recorded above -- 438% of 8 vCPUs with Sunshine at 11.5%
+and unable to raise its own priority. **Different regime, same symptom.**
+
+**IT WAS NOT THE ENCODER EITHER.** This is worth stating because it is the
+natural reading from the couch, and it is wrong. Across the whole stall the
+host reported `encoder.stats.sessionCount = 2` and **57.0 fps mean**; the
+encoder only dropped to 0 at 17:54:38, which is when Moonlight was killed by
+hand. The two `error`-matching lines in the Sunshine logs are its own benign
+probe line, *"Testing for available encoders, this may generate errors."*
+**NVENC never faltered -- it was faithfully encoding ~57 fps of a frame that
+had stopped changing.**
+
+**WHAT IT WAS.** `fbprobe`, run in both guests DURING the stall:
+
+    mmap  STATIC  reads 9/9  nonzero (peak 997/1024)   frame changed in 0/8 polls
+    gl    STATIC  reads 9/9  nonzero (peak 1024/1024)  frame changed in 0/8 polls
+    cuda  UNAVAILABLE  cuCtxCreate: out of memory
+    READER AMBER
+
+**The scanout was not advancing.** The reading this entry records for the
+2026-08-20 stall is the exact opposite -- `READER GREEN`, frame changed in
+**9 of 9** polls, the guest drawing and the scanout moving. So one instrument,
+run the same way, separates the two causes in a single pass. That is what
+that reader is for, and this is the first time it has answered the OTHER way.
+
+And the guest kernel says why, in both guests:
+
+    [drm:nv_drm_gem_alloc_nvkms_memory_ioctl [nvidia_drm]] *ERROR*
+    [nvidia-drm] Failed to allocate NVKMS memory for GEM object
+
+which is `nvKms->allocateMemory()` returning NULL
+(`nvidia-drm-gem-nvkms-memory.c:666`). No scanout buffer, no new frame.
+
+**TWO DIFFERENT EXHAUSTION EVENTS, WEARING THE SAME FACE.** They are not the
+same failure twice:
+
+  * **`desktop2` froze at 17:49:39, while the CARD still had ~950 MiB free.**
+    Its backend was pinned at 3231 MiB from the first sample -- **at its own
+    per-tenant cap** -- and the backend logged 29 `VRAM cap reached ...
+    NV_ERR_NO_MEMORY (LEA_VRAM_LIMIT_MIB)` refusals.
+  * **`desktop` froze at 17:50:59, after free VRAM fell under 200 MiB** and
+    went on to touch **1 MiB**. That one is the physical card.
+
+So a per-tenant cap and a full card produce an identical picture from the
+couch, and only the backend log distinguishes them.
+
+**A HOST-SIDE SIGNATURE, which is the reusable part.** The freeze is visible
+in the host's 1 Hz VRAM trace with nothing running inside the guest. Counting
+DISTINCT per-backend VRAM values over ~60 one-second samples:
+
+| window | `desktop` | `desktop2` |
+|---|---|---|
+| healthy (17:50:19-17:51:19) | **29** distinct | **37** distinct |
+| frozen (17:53:34-17:54:37) | **6** distinct | **3** distinct |
+
+A rendering guest churns allocations constantly; a frozen one does not. And
+during the frozen window the card was still at **93-95% utilisation** with the
+encoder at **59-60 fps** -- so neither GPU load nor encoder rate detects this,
+and the flat allocation trace does. **GPU busy + encoder running + VRAM trace
+flat = the guest has stopped producing frames.**
+
+**THE ARITHMETIC THAT MADE IT INEVITABLE.** The caps sum to less than the
+card, but the caps are not the whole demand:
+
+    card                            8192 MiB
+    two caps                        6144
+    backend overhead (measured)     ~350   (~175 per backend, see below)
+    moonlight, two decoders          595
+    host desktop                    ~830
+                                   ------
+                                    ~7920 against 8192, and free touched 1 MiB
+
+**The overhead is ~175 MiB per backend and roughly CONSTANT**, not
+proportional -- measured three ways: host charge minus guest-reported, at
+peak, `3101-2919 = 182` and `3242-3069 = 173`, and on a live mid-run sample
+`3016-2853 = 163`. It is charged host-side and does NOT come out of the
+guest's budget, so a cap of N costs the card about N+175.
+
+**WHAT THE CAP DID, and it is worth recording as a success rather than only
+as a limit.** Both games stayed alive and both streams kept flowing; the
+picture froze instead of a process dying. Without the cap, whichever guest
+allocated first would have taken the whole 8 GiB and the second would not have
+started. `--vram-limit 2304` each leaves ~1.8 GiB of real slack and is what a
+two-tenant 1080p run on this card should use.
+
+**THE CARD WAS NEVER AT RISK**, checked because it was asked: peak **88 C**
+against max-operating 89 / slowdown 91 / shutdown 94; peak **140.4 W** against
+a 175 W limit; **HW Thermal Slowdown and HW Power Brake both `Not Active`**;
+SW thermal slowdown 0.52 s total; **0 Xid or NVRM errors on the host**.
+
+**WHAT THIS DOES AND DOES NOT DO TO THIS ENTRY.** It does NOT close it: the
+2026-08-20 CPU-starvation case is untouched and its two levers are still
+unmeasured. What it adds is that **the symptom has at least two causes**, that
+`fbprobe` separates them in one run, and that there is now a host-side
+signature needing no guest access. One weak signal for the vCPU lever: at 6
+vCPUs with the game at ~290%, Sunshine held 13-17% and stayed healthy, where
+at 8 vCPUs with the game at 438% it was starved -- suggestive, confounded by
+the different stall, and recorded as suggestive only.
+
+Evidence bundle: 1 Hz host CSV (393 samples), 5 s guest samples, both backend
+logs, both guests' dmesg/journal/Sunshine tails, both `fbprobe` verdicts.
 ### 56. The surface is tracked per run, and the question is per ioctl
 **Open, raised 2026-08-20.** Everything the matrix writes is keyed by the
 run that produced it: `catalog-<driver>.json` is one file per driver
