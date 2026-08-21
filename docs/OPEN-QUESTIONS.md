@@ -652,6 +652,44 @@ whatever that library probes.
 No probe failed for it in a way that hides anything: `egl-xcb` is FAIL in
 the guest column with its reason on the row.
 
+**THE HOST ARM OF THE COUNTER-TEST IS IN, 2026-08-21.** This entry proposes
+running `eglplat xcb` and `eglplat xlib` on the HOST. Both were run, against
+the host's X on `:0`, which IS on the NVIDIA card:
+
+    xcb    EGLVENDOR=NVIDIA  GLRENDERER=NVIDIA GeForce RTX 2070/PCIe/SSE2  PIXEL=3377bbff
+    xlib   EGLVENDOR=NVIDIA  GLRENDERER=NVIDIA GeForce RTX 2070/PCIe/SSE2  PIXEL=3377bbff
+
+So the table is now:
+
+| | host X, NVIDIA-backed | guest X, virtio-gpu-backed |
+|---|---|---|
+| `eglplat xcb` | **NVIDIA**, pixel correct | **Mesa Project** |
+| `eglplat xlib` | **NVIDIA**, pixel correct | **NVIDIA**, pixel correct |
+
+**What that settles:** `libnvidia-egl-xcb` is not broken in general, and it is
+not broken by this driver or this card. It accepts an X server that is on the
+NVIDIA device and reads its pixel back correctly. So the guest result is about
+the guest's X server, not about the xcb platform module being unusable.
+
+**What it does NOT settle**, and this is the arm still missing: whether xcb
+would ALSO decline on a non-NVIDIA X server on the HOST -- which is the
+version of the test that would take the boundary out of the question
+entirely. This host cannot run it as it stands: `/dev/dri` has exactly one
+card and it is the NVIDIA one, so there is no second device to put an X
+server on, and no `Xvfb` or `Xephyr` installed to make a software one.
+
+**So the cheapest remaining step is one package**, `Xvfb`, and then
+`eglplat xcb` against `Xvfb :9`. If it answers Mesa there, this is a property
+of the platform module and the X server's device, the boundary is not
+involved, and `egl-xcb`'s guest FAIL becomes an environment row like
+`cuda-managed`. If it answers NVIDIA there, the guest's virtio-gpu X is the
+variable and the question is what that server answers to whatever the module
+probes.
+
+**And the asymmetry stays the sharp part**: xlib and xcb are two
+external-platform modules over ONE X connection, and only one of them
+declines. Whatever xcb tests for, xlib does not test for -- so the difference
+is in the module, whatever ultimately triggers it.
 ### 59. The probes are entry paths, and the class that can be missing is the one they do not reach
 **Raised 2026-08-20**, out of a design conversation rather than a run, and
 recorded because it is the direction with the largest measurable target in
