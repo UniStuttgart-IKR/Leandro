@@ -770,8 +770,8 @@ gate_gpu() {
         echo "### REFERENCE (native, host)"
         local HOSTPY=$LEA_HOSTVENV/bin/python
         [[ -x $HOSTPY ]] || echo "ERROR: $LEA_HOSTVENV missing -- the native reference cannot be run
-       (a checkout makes it by hand: uv venv --python 3.12 vendor/hostvenv;
-        a package carries its own -- build.sh package)"
+       (make it: scripts/build.sh hostvenv -- or build.sh all --full, which
+        makes it beside the guest's; a package carries its own)"
         NVPROBE_PTX=$LEA_ROOT/probe/kernels/kernels.ptx timeout 300 "$HOSTPY" probe/python/rlprobe.py 2>&1 | tail -2
         timeout 900 "$HOSTPY" probe/python/convburn.py 2>&1 | tail -1
     } >> "$OUT/s44.log" 2>&1

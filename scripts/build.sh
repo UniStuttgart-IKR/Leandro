@@ -13,6 +13,7 @@
 #   scripts/build.sh ch            cloud-hypervisor @ CH_VERSION + patches/, built
 #   scripts/build.sh cargo         this workspace, release
 #   scripts/build.sh probes        make -C probe all-probes
+#   scripts/build.sh hostvenv      vendor/hostvenv: the gate's native torch reference
 #   scripts/build.sh image         Ubuntu cloud image + kernel/initrd, checksummed
 #   scripts/build.sh bake [--out PATH] [--with-cuda-toolkit] [--with-torch]
 #                         [--with-desktop] [--desktop-session xorg|wayland]
@@ -100,7 +101,7 @@ usage() { lea_usage_from_header; exit "${1:-0}"; }
 
 CMD=${1:-all}
 case $CMD in
-    all|preflight|vendor|ch|cargo|probes|image|bake|check-driver|package) shift ;;
+    all|preflight|vendor|ch|cargo|probes|hostvenv|image|bake|check-driver|package) shift ;;
     -h|--help) usage 0 ;;
     --*) CMD=all ;;
     *) error "unknown subcommand: $CMD"; usage 2 ;;
@@ -276,6 +277,40 @@ do_cargo()  {
     return 0
 }
 do_probes() { make -C "$LEA_ROOT/probe" all-probes; }
+
+# do_hostvenv -- the NATIVE REFERENCE the gpu gate's torch stage measures
+# against (vendor/hostvenv, LEA_HOSTVENV).
+#
+# WHY IT IS PART OF A BUILD AT ALL. This script says it takes a fresh clone to
+# "a rig that can run showcase.sh AND THE GATES", and the torch stage compares
+# the guest against a native host run from this venv -- so without it that
+# stage cannot measure. It used to be "made by hand once" (config.sh), with
+# the recipe living in an error string inside test.sh, which is not a place
+# anybody looks before running a gate. Reported 2026-08-21 by someone who ran
+# `build.sh all` and correctly asked where the venv was.
+#
+# THE SAME WHEELS AS THE GUEST, which is the whole point: the gate compares
+# two TRANSPORT PATHS, and a host running nixpkgs' torch against a guest
+# running the pip wheel would be comparing two libraries instead. `uv` when
+# it is there because it is much faster, plain venv otherwise -- both end at
+# the same wheels from the same index.
+do_hostvenv() {
+    local v=$LEA_HOSTVENV
+    if [[ -x $v/bin/python ]] && "$v/bin/python" -c 'import torch, numpy' 2>/dev/null; then
+        echo "  reference venv present: $("$v/bin/python" -c 'import torch,numpy;print(torch.__version__, numpy.__version__)')"
+        return 0
+    fi
+    rm -rf "$v"
+    if command -v uv >/dev/null 2>&1; then
+        uv venv --python 3.12 "$v" || return 1
+        VIRTUAL_ENV=$v uv pip install --quiet torch numpy || return 1
+    else
+        python3 -m venv "$v" || return 1
+        "$v/bin/pip" install --quiet --upgrade pip >/dev/null 2>&1 || true
+        "$v/bin/pip" install --quiet torch numpy || return 1
+    fi
+    "$v/bin/python" -c 'import torch,numpy;print("  reference venv:", torch.__version__, numpy.__version__)'
+}
 
 # ---- image ----------------------------------------------------------------
 # Fetch the Ubuntu cloud image (the base of every guest) together with
@@ -1255,7 +1290,8 @@ do_all() {
 PLAN
     case $mode in
       minimal) echo "  6  (skipped: image bake -- --minimal)" ;;
-      full)    echo "  6  bake --with-torch   provisioned image + torch   ~2.8 GB" ;;
+      full)    echo "  6  bake --with-torch   provisioned image + torch   ~2.8 GB"
+               echo "  7  hostvenv  the gate's native torch reference    ~2.5 GB" ;;
       *)       echo "  6  bake                provisioned image           ~300 MB" ;;
     esac
     echo
@@ -1273,7 +1309,8 @@ PLAN
     step "5/6  guest image"                do_image  || exit 1
     case $mode in
       minimal) echo; dim "6/6  image bake skipped (--minimal)" ;;
-      full)    step "6/6  bake image (+torch)" do_bake --with-torch || exit 1 ;;
+      full)    step "6/7  bake image (+torch)" do_bake --with-torch || exit 1
+               step "7/7  native torch reference" do_hostvenv || exit 1 ;;
       *)       step "6/6  bake image"          do_bake              || exit 1 ;;
     esac
     # The baked image is only useful if the scripts actually pick it up. It
@@ -1322,6 +1359,7 @@ case $CMD in
     ch)           do_ch ;;
     cargo)        do_cargo ;;
     probes)       do_probes ;;
+    hostvenv)     do_hostvenv ;;
     image)        do_image ;;
     bake)         do_bake "$@" ;;
     package)      do_package "$@" ;;

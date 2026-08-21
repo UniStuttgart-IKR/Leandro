@@ -117,8 +117,11 @@ _lea_abs() {
 # The NATIVE REFERENCE the gpu gate's torch stage measures against: the same
 # pip wheels the guest runs, on the host, so that the comparison is two
 # transport paths and not two libraries (DEVELOPMENT.md section 3). In a
-# checkout that is vendor/hostvenv, made by hand once. A package carries its
-# own, because a cluster node has neither the checkout nor a way to build one.
+# checkout that is vendor/hostvenv, made by `build.sh hostvenv` (and by
+# `build.sh all --full`, beside the guest's). It used to say "made by hand
+# once", with the recipe in an error string inside test.sh -- which is not
+# where anybody looks before running a gate. A package carries its own,
+# because a cluster node has neither the checkout nor a way to build one.
 : "${LEA_HOSTVENV:=$LEA_ROOT/vendor/hostvenv}"; _lea_abs LEA_HOSTVENV
 : "${LEA_TRACE_LIB:=$LEA_BIN_DIR/libnvrm_trace.so}"; _lea_abs LEA_TRACE_LIB
 # The ssh ProxyCommand helper for the vsock transport. Its own variable for
