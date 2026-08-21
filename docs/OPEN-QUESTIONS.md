@@ -477,6 +477,55 @@ combination is the variable, or the poisoning was removed by number 45's fix
 which landed after both poisoned sessions and has never been tested against
 them. **Those two hypotheses are now the whole of this question**, and the
 first is one session with Steam away from being decided.
+
+**THE GAME WAS RUN, AND IT DID NOT CRASH.** The variable named above as the one
+this run could not reproduce was reproduced after all: the `desktop` rig was
+brought up with `--games --with-steam`, and **Shadow of the Tomb Raider — the
+exact title of number 44 — was launched under Steam** in the GNOME Wayland
+session.
+
+It rendered: **2100 MiB of device memory, 37 % GPU utilisation, 49 threads**,
+windows on the compositor's Xwayland, and `steamwebhelper` holding
+`/dev/nvidia0` beside it — so the Vulkan application and the OpenGL overlay
+were both live in one process tree, which is the configuration number 44
+describes. It ran for **minutes**, sampled every 20 seconds, where number 44
+records the crash arriving **15–20 seconds after launch**.
+
+Every detector stayed at zero throughout: `segfault at 8`, `Failed to acquire
+the EGL Image`, `GL_OUT_OF_MEMORY`, `ATTACH_GPUS_TO_FD` answering `-1`,
+`BDF mediation OFF`.
+
+**ONE DIFFERENCE REMAINS AND IT IS BLOCKED ON THE IMAGE, NOT ON THE
+QUESTION.** Number 44's session was being STREAMED — Sunshine on
+`capture=kms` with Moonlight connected. This rig's Sunshine came up
+`capture=portal`, and Moonlight is refused by it:
+
+    Launch response: status_code="503"
+    "Failed to initialize video capture/encoding. Is a display connected
+     and turned on?"
+
+which is the documented portal behaviour the rig warns about at boot
+(*"An unpatched Sunshine stops at the portal's permission dialog; bake with
+`--desktop-session xorg` for the path the numbers were taken on"*). So the
+streaming leg could not be added, and closing it needs a **rebake**, not
+another run of this one.
+
+**WHAT THIS LEAVES, and it is now two named things rather than a mystery:**
+
+1. **The stream is the last untested variable.** `--desktop-session xorg`,
+   `capture=kms`, Moonlight connected, then the game. That is one bake and one
+   run.
+2. **Or number 45 already fixed it.** The signal-restart double-submit that
+   made a one-shot escape fail spuriously landed AFTER both sessions that
+   poisoned, and has never been tested against them. Everything this run drove
+   at the defect — 750 GL client lifecycles, concurrent GL and Vulkan under the
+   compositor, 2010 open descriptors, and now the game itself — is consistent
+   with the defect no longer being there.
+
+**If the next run closes 1 and the game still does not crash, the honest
+reading is 2**, and 22-C, 23, 32, 33, 35 and 44 close together on that
+evidence. That is six entries on one measurement, which is why it is worth
+doing properly rather than quickly.
 ### 42. Is `capDescriptor` on 0xc640 really an fd that needs no translation?
 **Open, and deliberately left as it is.** `NV0080_CTRL_CMD_FIFO_...` class
 0xc640 carries a `capDescriptor` in its alloc parameters, which is an fd in
