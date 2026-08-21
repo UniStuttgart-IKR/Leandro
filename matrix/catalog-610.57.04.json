@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-21T00:26:31Z",
-    "commit:  565513f (working tree modified)"
+    "date:    2026-08-21T00:32:52Z",
+    "commit:  4a4ea07 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -3590,7 +3590,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1029}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1031}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5990,7 +5990,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 3 call(s), 2192 of 2192 bytes, masked {'not-written': 552}"
+        "answer bytes compared against a native run: 3 call(s), 2192 of 2192 bytes, masked {'not-written': 553}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -9551,7 +9551,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24",
-        "answer bytes compared against a native run: 10 call(s), 280 of 280 bytes, masked {'not-written': 51}"
+        "answer bytes compared against a native run: 10 call(s), 280 of 280 bytes, masked {'not-written': 54}"
       ],
       "fields": [
         {
@@ -9638,7 +9638,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 536 of 536 bytes, masked {'not-written': 16}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 10 call(s), 536 of 536 bytes, masked {'not-written': 18}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11101,7 +11101,7 @@
       "notes": [
         "answered by the backend itself: fbInfoList[].data @4 (backend-answered, mediation.txt)",
         "pointer field(s), offsets compiled: fbInfoList @8",
-        "answer bytes compared against a native run: 5 call(s), 64 of 64 bytes, masked {'not-written': 5}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 5 call(s), 64 of 64 bytes, masked {'not-written': 10}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11267,7 +11267,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 2 call(s), 24 of 24 bytes, masked {'not-written': 2}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
+        "answer bytes compared against a native run: 2 call(s), 24 of 24 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
       ],
       "fields": [
         {
@@ -11863,7 +11863,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 6 call(s), 22 of 22 bytes, masked {'not-written': 11}"
+        "answer bytes compared against a native run: 6 call(s), 22 of 22 bytes, masked {'not-written': 12}"
       ],
       "fields": [
         {
@@ -12107,7 +12107,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: engineList @8",
-        "answer bytes compared against a native run: 3 call(s), 52 of 52 bytes, masked {'nested-ptr': 5}"
+        "answer bytes compared against a native run: 3 call(s), 52 of 52 bytes, masked {'nested-ptr': 6}"
       ],
       "fields": [
         {
@@ -13293,7 +13293,7 @@
       "group": "gl",
       "libs": "libGLX_nvidia libnvidia-glcore libnvidia-glsi libnvidia-tls libnvidia-gpucomp libnvidia-allocator",
       "libs_seen": "libGLX_nvidia libnvidia-allocator libnvidia-glcore libnvidia-glsi libnvidia-gpucomp libnvidia-tls",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 30238"
+      "criterion": "glmark2 --off-screen rendered the build scene, score 35829"
     },
     {
       "probe": "gles",

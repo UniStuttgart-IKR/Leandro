@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-21T00:26:16Z",
-    "commit:  565513f (working tree modified)"
+    "date:    2026-08-21T00:32:37Z",
+    "commit:  4a4ea07 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh guest",
   "compared": "the signature set and the rm_status fingerprint per signature, native against guest, both traced by the same interposer",
@@ -398,7 +398,7 @@
       "probe": "gl-render",
       "verdict": "FAIL",
       "guest_result": "PASS",
-      "criterion": "glmark2 --off-screen rendered the build scene, score 22706",
+      "criterion": "glmark2 --off-screen rendered the build scene, score 20068",
       "native_result": "PASS",
       "native_signatures": 119,
       "guest_signatures": 111,

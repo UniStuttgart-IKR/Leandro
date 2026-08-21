@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T23:32:45Z
-commit:  07a5950 (working tree modified)
+date:    2026-08-21T00:29:18Z
+commit:  4a4ea07 (working tree modified)
 ```
 
 Regenerate with `scripts/ioctl-matrix.sh discover`. Every number below was

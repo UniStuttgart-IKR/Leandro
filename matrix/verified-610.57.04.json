@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-21T00:26:23Z",
-    "commit:  565513f (working tree modified)"
+    "date:    2026-08-21T00:32:44Z",
+    "commit:  4a4ea07 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh verify",
   "method": "the tracer's ctrlout lines -- the params buffer sampled BEFORE and AFTER each call -- from the native trace against the guest trace, call by call, word by word",
@@ -482,7 +482,7 @@
     },
     "ctl 0x2a 0x101": {
       "name": "NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "cuda-core",
         "cuda-hostreg",
@@ -509,7 +509,7 @@
       ],
       "fields_not_covered": [],
       "words_masked": {
-        "not-written": 51
+        "not-written": 54
       },
       "mediation": [
         "NvP64 (nested-ptr) @8",
@@ -1021,7 +1021,7 @@
     },
     "ctl 0x2a 0x20800123": {
       "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "vk-enum",
         "vk-offscreen",
@@ -1037,7 +1037,7 @@
       ],
       "fields_not_covered": [],
       "words_masked": {
-        "nested-ptr": 5
+        "nested-ptr": 6
       },
       "mediation": [
         "NvP64 (nested-ptr) @8"
@@ -1534,7 +1534,7 @@
     },
     "ctl 0x2a 0x20800802": {
       "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "nvml"
       ],
@@ -1561,7 +1561,7 @@
     },
     "ctl 0x2a 0x20801201": {
       "name": "NV2080_CTRL_CMD_GR_GET_INFO",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "cuda-core",
         "cuda-hostreg",
@@ -1584,7 +1584,7 @@
       ],
       "fields_not_covered": [],
       "words_masked": {
-        "not-written": 16
+        "not-written": 18
       },
       "mediation": [
         "NvP64 (nested-ptr) @8"
@@ -1894,7 +1894,7 @@
     },
     "ctl 0x2a 0x20801301": {
       "name": "NV2080_CTRL_CMD_FB_GET_INFO",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "egl-gbm"
       ],
@@ -1908,7 +1908,7 @@
       ],
       "fields_not_covered": [],
       "words_masked": {
-        "not-written": 5
+        "not-written": 10
       },
       "mediation": [
         "fbInfoList[].data (backend-answered) @4 x128 stride 8",
@@ -3077,7 +3077,7 @@
       "fields_covered": [],
       "fields_not_covered": [],
       "words_masked": {
-        "not-written": 552
+        "not-written": 553
       },
       "mediation": [],
       "probes_not_comparable": [],
@@ -3925,7 +3925,7 @@
     },
     "ctl 0x2a 0x800201": {
       "name": "NV0080_CTRL_CMD_GPU_GET_CLASSLIST",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "nvdec",
         "nvenc"
@@ -4140,7 +4140,7 @@
     },
     "ctl 0x2a 0x801102": {
       "name": "NV0080_CTRL_CMD_GR_GET_CAPS",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "egl-gbm"
       ],
@@ -4177,7 +4177,7 @@
     },
     "ctl 0x2a 0x801104": {
       "name": "NV0080_CTRL_CMD_GR_GET_INFO",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "egl-gbm"
       ],
@@ -4191,7 +4191,7 @@
       ],
       "fields_not_covered": [],
       "words_masked": {
-        "not-written": 2
+        "not-written": 4
       },
       "mediation": [
         "NvP64 (nested-ptr) @8"
@@ -4214,7 +4214,7 @@
     },
     "ctl 0x2a 0x801301": {
       "name": "NV0080_CTRL_CMD_FB_GET_CAPS",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "egl-gbm"
       ],
@@ -4311,7 +4311,7 @@
     },
     "ctl 0x2a 0x801701": {
       "name": "NV0080_CTRL_CMD_FIFO_GET_CAPS",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "egl-gbm"
       ],
@@ -4480,7 +4480,7 @@
     },
     "ctl 0x2a 0x801b01": {
       "name": "NV0080_CTRL_CMD_NVENC_GET_CAPS",
-      "status_before": "implemented-unverified",
+      "status_before": "implemented-verified",
       "probes": [
         "nvdec",
         "nvenc",
@@ -4498,7 +4498,7 @@
       ],
       "fields_not_covered": [],
       "words_masked": {
-        "not-written": 11
+        "not-written": 12
       },
       "mediation": [
         "NvP64 (nested-ptr) @8"
@@ -6266,7 +6266,7 @@
       "fields_covered": [],
       "fields_not_covered": [],
       "words_masked": {
-        "not-written": 1029
+        "not-written": 1031
       },
       "mediation": [],
       "probes_not_comparable": [
@@ -7319,30 +7319,6 @@
   },
   "not_verified": [
     {
-      "signature": "ctl 0x2a 0x20801802",
-      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
-      "probes": [
-        "nvml"
-      ],
-      "reason": "call 1, +4 in the buffer behind the NvP64: 0x00222000 natively, 0x00212000 in the guest -- this command IS mediated, and this byte is in none of the fields the mediation declares",
-      "catalogue_status": "implemented-unverified",
-      "catalogue_notes": [
-        "pointer field(s), offsets compiled: busInfoList @8"
-      ],
-      "stability": "every word that differs was constant across the calls one native run made, so the difference is not volatility"
-    },
-    {
-      "signature": "ctl 0x2a 0x2080a097",
-      "name": "unknown -- not in public headers",
-      "probes": [
-        "nvml"
-      ],
-      "reason": "call 0, offset 8: 0x00000007 natively, 0x00000024 in the guest",
-      "catalogue_status": "passthrough",
-      "catalogue_notes": [],
-      "stability": "unknown -- no native trace called this command twice, so the control test cannot say whether the differing word is stable. NOT the same as stable"
-    },
-    {
       "signature": "ctl 0x2a 0x80170d",
       "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
       "probes": [
@@ -7364,19 +7340,6 @@
     }
   ],
   "mismatch": [
-    {
-      "signature": "ctl 0x2a 0x20801802",
-      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
-      "probes": [
-        "nvml"
-      ],
-      "reason": "call 1, +4 in the buffer behind the NvP64: 0x00222000 natively, 0x00212000 in the guest -- this command IS mediated, and this byte is in none of the fields the mediation declares",
-      "catalogue_status": "implemented-unverified",
-      "catalogue_notes": [
-        "pointer field(s), offsets compiled: busInfoList @8"
-      ],
-      "stability": "every word that differs was constant across the calls one native run made, so the difference is not volatility"
-    },
     {
       "signature": "ctl 0x2a 0x80170d",
       "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
@@ -7418,7 +7381,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, pidTbl (NvU32[NV2080_CTRL_GPU_GET_PIDS_MAX_COUNT]) at offset 12: 0x00000536 natively, 0x00001237 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, pidTbl (NvU32[NV2080_CTRL_GPU_GET_PIDS_MAX_COUNT]) at offset 12: 0x00000536 natively, 0x00001235 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         4,
         8,
@@ -7444,7 +7407,7 @@
         "egl-gbm",
         "rm-direct"
       ],
-      "reason": "call 0, time_nsec (NvU64) at offset 0: 0x30535860 natively, 0x4eec97a0 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, time_nsec (NvU64) at offset 0: 0x9cf480c0 natively, 0x74f6f080 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         0,
         4
@@ -7459,7 +7422,7 @@
         "nvenc",
         "nvml"
       ],
-      "reason": "call 0, samples (NV2080_CTRL_TIMER_GPU_CPU_TIME_SAMPLE[NV2080_CTRL_TIMER_GPU_CPU_TIME_MAX_SAMPLES]) at offset 8: 0xa7a0b64f natively, 0xae2b50f3 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, samples (NV2080_CTRL_TIMER_GPU_CPU_TIME_SAMPLE[NV2080_CTRL_TIMER_GPU_CPU_TIME_MAX_SAMPLES]) at offset 8: 0xbe015573 natively, 0xc4b3a06d in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         8,
         16,
@@ -7485,7 +7448,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 2, instructionList (NV2080_CTRL_THERMAL_SYSTEM_INSTRUCTION[NV2080_CTRL_THERMAL_SYSTEM_INSTRUCTION_MAX_COUNT]) at offset 24, byte 16 of it: 0x00000039 natively, 0x00000037 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 2, instructionList (NV2080_CTRL_THERMAL_SYSTEM_INSTRUCTION[NV2080_CTRL_THERMAL_SYSTEM_INSTRUCTION_MAX_COUNT]) at offset 24, byte 16 of it: 0x0000003a natively, 0x00000037 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         32,
         36,
@@ -7508,7 +7471,7 @@
         "opencl",
         "vk-rt"
       ],
-      "reason": "call 2, fbInfoList (NV2080_CTRL_FB_INFO[NV2080_CTRL_FB_INFO_MAX_LIST_SIZE]) at offset 4, byte 4 of it: 0x006435c0 natively, 0x0063d940 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 2, fbInfoList (NV2080_CTRL_FB_INFO[NV2080_CTRL_FB_INFO_MAX_LIST_SIZE]) at offset 4, byte 4 of it: 0x00642380 natively, 0x0063d940 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         0,
         4,
@@ -7527,12 +7490,25 @@
       "native_calls_compared": 10
     },
     {
+      "signature": "ctl 0x2a 0x20801802",
+      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 1, +4 in the buffer behind the NvP64: 0x00222000 natively, 0x00202000 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "unstable_words": [
+        8,
+        20
+      ],
+      "native_calls_compared": 7
+    },
+    {
       "signature": "ctl 0x2a 0x20801819",
       "name": "NV2080_CTRL_CMD_BUS_GET_PEX_UTIL_COUNTERS",
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, pexCounters (NvU32[NV2080_CTRL_PEX_UTIL_MAX_COUNTER_TYPES]) at offset 4: 0xe4b62148 natively, 0x09114248 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, pexCounters (NvU32[NV2080_CTRL_PEX_UTIL_MAX_COUNTER_TYPES]) at offset 4: 0xbd76d2c0 natively, 0xe2f39060 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         0,
         4,
@@ -7577,7 +7553,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, currPstate (NvU32) at offset 0: 0x00000001 natively, 0x00000020 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, currPstate (NvU32) at offset 0: 0x00000001 natively, 0x00000100 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         0
       ],
@@ -7589,7 +7565,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, clkPercentBusy (NvU32) at offset 4: 0x00000002 natively, 0x00000000 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, clkPercentBusy (NvU32) at offset 4: 0x00000003 natively, 0x00000000 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         0,
         4
@@ -7602,9 +7578,13 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, offset 0: 0x20a03501 natively, 0x00000001 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, offset 0: 0x50603501 natively, 0x00000001 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         0,
+        20,
+        32,
+        40,
+        44,
         52
       ],
       "native_calls_compared": 1
@@ -7615,7 +7595,7 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, offset 16: 0x0017cdc0 natively, 0x0009d788 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, offset 16: 0x001583d0 natively, 0x000be6e0 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         12,
         16,
@@ -7630,17 +7610,24 @@
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, offset 16: 0x69076b80 natively, 0x5b303700 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, offset 16: 0xd0d2a340 natively, 0x73912cc0 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         16,
+        20,
         24,
         28,
         36,
+        40,
         44,
+        48,
         52,
+        56,
         68,
         88,
+        92,
+        96,
         200,
+        204,
         256,
         308,
         312,
@@ -7653,12 +7640,25 @@
       "native_calls_compared": 2
     },
     {
+      "signature": "ctl 0x2a 0x2080a097",
+      "name": "unknown -- not in public headers",
+      "probes": [
+        "nvml"
+      ],
+      "reason": "call 0, offset 8: 0x0000000a natively, 0x0000002a in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "unstable_words": [
+        8,
+        24
+      ],
+      "native_calls_compared": 1
+    },
+    {
       "signature": "ctl 0x2a 0x2080a613",
       "name": "unknown -- not in public headers",
       "probes": [
         "nvml"
       ],
-      "reason": "call 0, offset 36: 0x0000e0c0 natively, 0x00007a39 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, offset 36: 0x0000e097 natively, 0x000077a2 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         36,
         56,
@@ -7667,30 +7667,34 @@
         72,
         76,
         84,
+        88,
         656,
         664,
         668,
         672,
         676,
         684,
+        688,
         1256,
         1264,
         1268,
         1272,
         1276,
         1284,
+        1288,
         1300,
-        1304,
         1308,
         1316,
         1320,
         1328,
+        1332,
         1856,
         1864,
         1868,
         1872,
         1876,
         1884,
+        1888,
         1900,
         1904,
         1908,
@@ -7698,12 +7702,14 @@
         1916,
         1920,
         1928,
+        1932,
         2456,
         2464,
         2468,
         2472,
         2476,
         2484,
+        2488,
         2500,
         2504,
         2508,
@@ -7711,24 +7717,28 @@
         2516,
         2520,
         2528,
+        2532,
         4856,
         4864,
         4868,
         4872,
         4876,
         4884,
+        4888,
         5456,
         5464,
         5468,
         5472,
         5476,
         5484,
+        5488,
         6656,
         6664,
         6668,
         6672,
         6676,
         6684,
+        6688,
         11444,
         11448,
         11452,
@@ -7737,7 +7747,8 @@
         11468,
         11472,
         11476,
-        11484
+        11484,
+        11488
       ],
       "native_calls_compared": 1
     },
@@ -7802,7 +7813,7 @@
         "nvenc",
         "opencl"
       ],
-      "reason": "call 8, offset 80: 0x29000000 natively, 0x29400000 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 10, offset 80: 0x2aa00000 natively, 0x2b600000 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         0,
         4,
@@ -7823,7 +7834,7 @@
         "vk-enum",
         "vk-rt"
       ],
-      "reason": "call 0, offset 16: 0xff1271c8 natively, 0x00000014 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, offset 16: 0x939ffcc8 natively, 0x00000014 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         16,
         20
@@ -7850,7 +7861,7 @@
         "vk-enum",
         "vk-rt"
       ],
-      "reason": "call 0, offset 140: 0x00012af7 natively, 0x00013026 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, offset 140: 0x000133c7 natively, 0x000138f6 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         0,
         4,
@@ -7874,7 +7885,7 @@
         "egl-gbm",
         "gles"
       ],
-      "reason": "call 3, offset 104: 0x037a0000 natively, 0x0b060000 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 3, offset 104: 0x0acc0000 natively, 0x0b060000 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         0,
         4,
@@ -7940,7 +7951,7 @@
         "vk-offscreen",
         "vk-rt"
       ],
-      "reason": "call 0, offset 24: 0x58496000 natively, 0x2b07b000 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, offset 24: 0xc31b0000 natively, 0x204ed000 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         8,
         16,
@@ -7968,7 +7979,7 @@
         "nvenc",
         "opencl"
       ],
-      "reason": "call 0, offset 16: 0x430be748 natively, 0x00000012 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
+      "reason": "call 0, offset 16: 0x17172b48 natively, 0x00000012 in the guest -- and this word is NOT STABLE between two native runs, or between two calls of one native run, so it is evidence for nothing",
       "unstable_words": [
         0,
         4,
@@ -7979,19 +7990,7 @@
       "native_calls_compared": 10
     }
   ],
-  "stability_unknown": [
-    {
-      "signature": "ctl 0x2a 0x2080a097",
-      "name": "unknown -- not in public headers",
-      "probes": [
-        "nvml"
-      ],
-      "reason": "call 0, offset 8: 0x00000007 natively, 0x00000024 in the guest",
-      "catalogue_status": "passthrough",
-      "catalogue_notes": [],
-      "stability": "unknown -- no native trace called this command twice, so the control test cannot say whether the differing word is stable. NOT the same as stable"
-    }
-  ],
+  "stability_unknown": [],
   "verdicts": {
     "mismatch": "the bytes differ, at a word that was constant across the calls one native run made, and that BOTH sides wrote. A potential defect",
     "answer-behind-a-pointer": "the params buffer matched on both sides and the answer is not in it: the command declares an NvP64 and nothing dumps what it points at. NOT verified -- matching on the question is not the claim `verified` makes",
@@ -7999,9 +7998,7 @@
     "unstable": "the bytes differ, at a word that moves between two calls of one native run, or between two native runs of the same probe -- evidence for nothing, in either direction",
     "stability-unknown": "the bytes differ, and no native trace called the command twice, so the control test has nothing to say. Never to be read as stable"
   },
-  "matched_under_one_probe_and_not_another": [
-    "ctl 0x2a 0x20801802"
-  ],
+  "matched_under_one_probe_and_not_another": [],
   "probes_skipped": [
     {
       "probe": "cuda-torch",
