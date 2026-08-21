@@ -711,127 +711,6 @@ Score such a day by class-coverage delta, not by probes added. That is the
 number that makes "did we find non-carryable ioctls" answerable instead of
 hopeful.
 
-### 61. Two controls are answered on one side of the boundary and not the other
-**Open, measured 2026-08-21, and narrower than it first read.** The whole of
-the potential-defect class in `matrix/verified-<driver>.json` after the fifth
-mask, and a class no gate before this one could see: **both sides return
-`NV_OK`**, so the status fingerprint matches perfectly, the probe passes its
-criterion, and the answer bytes differ anyway.
-
-The instrument is the before-call sample. A word whose after sample equals
-its before sample was not written on that call; where RM wrote one natively
-and the guest did not, the two sides reached that call in different states.
-
-**`NV0080_CTRL_CMD_GR_GET_CAPS_V2`** (`ctl nr=0x2a sub=0x801109`), in
-`nvdec`, `paramsSize 48`, the same target object (`hObject 0x80000000`) and
-the same hierarchy on both sides. Natively the buffer goes from the caller's
-garbage to a capability table (`b0 62 00 00 ... 04 a0 0f`, `bCapsPopulated`
-at offset 40) on **both** of the two calls. In the guest the **first** call
-leaves all 48 bytes exactly as the caller had them and the **second** writes
-the capability table **byte-identical to the native one**. Reproduced on
-three consecutive guest runs.
-
-**THE FIRST READING OF THIS WAS WRONG AND THE CORRECTION IS THE USEFUL
-PART.** It read as "the guest was told the call succeeded and got no answer",
-which is a boundary defect. `probe/c/rmdirect.c` calls the command twice from
-a program with no driver userspace in it at all, with the buffer prefilled
-with `0xa5` so the program can answer "did RM write" for itself:
-
-| | call 0 | call 1 |
-|---|---|---|
-| native | did NOT write | did NOT write |
-| guest | did NOT write | did NOT write |
-
-**Identical.** RM itself returns `NV_OK` without populating `capsTbl`, and
-whether it populates depends on the caller's state -- plausibly on a
-graphics object having been allocated on the device, which `nvdec` does and
-this probe does not. The boundary carries the command faithfully, including
-its refusal to answer.
-
-So what is open is not "the guest lost an answer". It is narrower, and two
-further measurements narrow it again.
-
-**The two calls come from two different CLIENTS.** With `hclient` and
-`hobject` on the trace record:
-
-| | client of call 0 | client of call 1 | hObject |
-|---|---|---|---|
-| native | `0xc1d5034e` — answered | `0xc1d5034f` — answered | `0x80000000` both |
-| guest | `0xc1d504c9` — **not** answered | `0xc1d504cb` — answered | `0x80000000` both |
-
-So it is per-client, not per-call-order in any deeper sense, and both sides
-target the same device-instance handle.
-
-**And the object state at each call is IDENTICAL on the two sides.** Walking
-the traces in order, both sides have allocated exactly 120 objects of exactly
-the same classes in the same order before their first `GR_GET_CAPS_V2`, and
-exactly the same seven more (`0x41 0x80 0x2080 0x70 0xc361 0x3e 0x40` — a
-second client and its device) before the second. Whatever makes RM answer,
-the two sides had the same hierarchy in hand when they asked.
-
-That leaves: **the guest's FIRST client does not get the caps answer where
-the native first client does, with the same objects allocated and the same
-target handle.** It is a per-client state difference that the object graph
-does not capture. The next thing to look at is what else distinguishes a
-client -- the guest allocates one extra client between the two (the handles
-differ by 2 rather than by 1) -- and not another mask over bytes.
-
-**`0x2080a079`** (`ctl nr=0x2a sub=0x2080a079`), in `nvml`, no public header,
-one call, written natively and not in the guest at offset 8, `0x3` against
-`0x0`. One call is thin evidence and it is stated as one call; the same
-caveat applies to it as to the above, and more so, because nothing has
-reproduced it from a minimal program.
-
-WHAT THE CLASS MEANS NOW, in the evidence file's own words: a difference the
-status fingerprint cannot see, and a statement that the two sides reached the
-call in different states. Not by itself a defect. That is weaker than the
-class first claimed and it is what the measurement supports.
-
-**PULLED ON THE EXTRA CLIENT, 2026-08-21, AND IT IS NOT ONE.** This entry's
-last line points at the handle gap — *"the guest allocates one extra client
-between the two (the handles differ by 2 rather than by 1)"*. Read out of the
-traces, `nvdec` allocates **four** `hClass=0x41` clients on each side:
-
-| | clients allocated | the two that call `GR_GET_CAPS_V2` |
-|---|---|---|
-| native | `…d7 …d8 …dc …dd` | `…dc`, `…dd` (differ by 1) |
-| guest | `…d8 …d9 …df …e1` | `…df`, `…e1` (differ by 2) |
-
-**The same number of clients, four, on both sides.** The gap is not an extra
-client of `nvdec`'s. And the handle the gap implies, `0xc1d53ae0`, **appears
-nowhere in the guest trace at all** — not as an allocation, not as an
-`hclient`, not as an `hObject`.
-
-**Which means the handle gap is not evidence, and this entry should stop
-treating it as a lead.** RM hands these out from one sequence shared by every
-client on the machine, so a gap records what ELSE was allocating at that
-moment, not what the traced process did. The native side has a gap too, and a
-bigger one — `…d8` to `…dc` skips three — which nobody proposed as three extra
-clients. On the guest side the extra consumer is most likely the guest module
-itself, which allocates on its own behalf and is invisible to an LD_PRELOAD
-tracer by construction.
-
-**And the sharper question was asked and came back identical.** The object
-graph was compared per CALLING CLIENT rather than globally — what each of the
-four clients owned at the moment it issued the call:
-
-    native  call 0  client …dc  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
-    native  call 1  client …dd  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
-    guest   call 0  client …df  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
-    guest   call 1  client …e1  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
-
-Same count, same classes, same order, for the client that is answered and the
-client that is not. So the difference is not what the caller owns, and it is
-not what the process has allocated globally (already measured: 120 objects,
-identical). Two levels of the object graph have now been excluded.
-
-**What is left to look at**, and it is deliberately not another mask: the
-difference is per-client and is not in the object graph, so it is in something
-the graph does not record — the ORDER in which the four clients were created
-relative to each other and to their devices, the fd each client was opened on,
-or a property RM keeps per client that no traced call reads back. The first two
-are in the traces already. The third is not, and would need the kernel-side
-trace point (number 59's third lever) to see at all.
 ### 64. The NVKMS commands are recorded and none of them has a name
 **Open, split out of number 48 on 2026-08-21**, which is resolved: the node
 is traced, counted and gated, and this is the half that was never anything
@@ -3201,6 +3080,181 @@ and `0x2080a097` (offset 8: `0x00000014` natively, `0x00000007` in one guest
 sweep and `0x00000023` in the next — which is two-run evidence that it is
 volatile, obtained by accident, and exactly what the second-native-trace
 variant would establish on purpose).
+### 61. Two controls are answered on one side of the boundary and not the other
+**Resolved 2026-08-21.** Narrower than it first read, then narrower again,
+and then the instrument said the evidence was never sound. The original
+reasoning is kept below because the corrections in it are the useful part. The whole of
+the potential-defect class in `matrix/verified-<driver>.json` after the fifth
+mask, and a class no gate before this one could see: **both sides return
+`NV_OK`**, so the status fingerprint matches perfectly, the probe passes its
+criterion, and the answer bytes differ anyway.
+
+The instrument is the before-call sample. A word whose after sample equals
+its before sample was not written on that call; where RM wrote one natively
+and the guest did not, the two sides reached that call in different states.
+
+**`NV0080_CTRL_CMD_GR_GET_CAPS_V2`** (`ctl nr=0x2a sub=0x801109`), in
+`nvdec`, `paramsSize 48`, the same target object (`hObject 0x80000000`) and
+the same hierarchy on both sides. Natively the buffer goes from the caller's
+garbage to a capability table (`b0 62 00 00 ... 04 a0 0f`, `bCapsPopulated`
+at offset 40) on **both** of the two calls. In the guest the **first** call
+leaves all 48 bytes exactly as the caller had them and the **second** writes
+the capability table **byte-identical to the native one**. Reproduced on
+three consecutive guest runs.
+
+**THE FIRST READING OF THIS WAS WRONG AND THE CORRECTION IS THE USEFUL
+PART.** It read as "the guest was told the call succeeded and got no answer",
+which is a boundary defect. `probe/c/rmdirect.c` calls the command twice from
+a program with no driver userspace in it at all, with the buffer prefilled
+with `0xa5` so the program can answer "did RM write" for itself:
+
+| | call 0 | call 1 |
+|---|---|---|
+| native | did NOT write | did NOT write |
+| guest | did NOT write | did NOT write |
+
+**Identical.** RM itself returns `NV_OK` without populating `capsTbl`, and
+whether it populates depends on the caller's state -- plausibly on a
+graphics object having been allocated on the device, which `nvdec` does and
+this probe does not. The boundary carries the command faithfully, including
+its refusal to answer.
+
+So what is open is not "the guest lost an answer". It is narrower, and two
+further measurements narrow it again.
+
+**The two calls come from two different CLIENTS.** With `hclient` and
+`hobject` on the trace record:
+
+| | client of call 0 | client of call 1 | hObject |
+|---|---|---|---|
+| native | `0xc1d5034e` — answered | `0xc1d5034f` — answered | `0x80000000` both |
+| guest | `0xc1d504c9` — **not** answered | `0xc1d504cb` — answered | `0x80000000` both |
+
+So it is per-client, not per-call-order in any deeper sense, and both sides
+target the same device-instance handle.
+
+**And the object state at each call is IDENTICAL on the two sides.** Walking
+the traces in order, both sides have allocated exactly 120 objects of exactly
+the same classes in the same order before their first `GR_GET_CAPS_V2`, and
+exactly the same seven more (`0x41 0x80 0x2080 0x70 0xc361 0x3e 0x40` — a
+second client and its device) before the second. Whatever makes RM answer,
+the two sides had the same hierarchy in hand when they asked.
+
+That leaves: **the guest's FIRST client does not get the caps answer where
+the native first client does, with the same objects allocated and the same
+target handle.** It is a per-client state difference that the object graph
+does not capture. The next thing to look at is what else distinguishes a
+client -- the guest allocates one extra client between the two (the handles
+differ by 2 rather than by 1) -- and not another mask over bytes.
+
+**`0x2080a079`** (`ctl nr=0x2a sub=0x2080a079`), in `nvml`, no public header,
+one call, written natively and not in the guest at offset 8, `0x3` against
+`0x0`. One call is thin evidence and it is stated as one call; the same
+caveat applies to it as to the above, and more so, because nothing has
+reproduced it from a minimal program.
+
+WHAT THE CLASS MEANS NOW, in the evidence file's own words: a difference the
+status fingerprint cannot see, and a statement that the two sides reached the
+call in different states. Not by itself a defect. That is weaker than the
+class first claimed and it is what the measurement supports.
+
+**PULLED ON THE EXTRA CLIENT, 2026-08-21, AND IT IS NOT ONE.** This entry's
+last line points at the handle gap — *"the guest allocates one extra client
+between the two (the handles differ by 2 rather than by 1)"*. Read out of the
+traces, `nvdec` allocates **four** `hClass=0x41` clients on each side:
+
+| | clients allocated | the two that call `GR_GET_CAPS_V2` |
+|---|---|---|
+| native | `…d7 …d8 …dc …dd` | `…dc`, `…dd` (differ by 1) |
+| guest | `…d8 …d9 …df …e1` | `…df`, `…e1` (differ by 2) |
+
+**The same number of clients, four, on both sides.** The gap is not an extra
+client of `nvdec`'s. And the handle the gap implies, `0xc1d53ae0`, **appears
+nowhere in the guest trace at all** — not as an allocation, not as an
+`hclient`, not as an `hObject`.
+
+**Which means the handle gap is not evidence, and this entry should stop
+treating it as a lead.** RM hands these out from one sequence shared by every
+client on the machine, so a gap records what ELSE was allocating at that
+moment, not what the traced process did. The native side has a gap too, and a
+bigger one — `…d8` to `…dc` skips three — which nobody proposed as three extra
+clients. On the guest side the extra consumer is most likely the guest module
+itself, which allocates on its own behalf and is invisible to an LD_PRELOAD
+tracer by construction.
+
+**And the sharper question was asked and came back identical.** The object
+graph was compared per CALLING CLIENT rather than globally — what each of the
+four clients owned at the moment it issued the call:
+
+    native  call 0  client …dc  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
+    native  call 1  client …dd  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
+    guest   call 0  client …df  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
+    guest   call 1  client …e1  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
+
+Same count, same classes, same order, for the client that is answered and the
+client that is not. So the difference is not what the caller owns, and it is
+not what the process has allocated globally (already measured: 120 objects,
+identical). Two levels of the object graph have now been excluded.
+
+**What is left to look at**, and it is deliberately not another mask: the
+difference is per-client and is not in the object graph, so it is in something
+the graph does not record — the ORDER in which the four clients were created
+relative to each other and to their devices, the fd each client was opened on,
+or a property RM keeps per client that no traced call reads back. The first two
+are in the traces already. The third is not, and would need the kernel-side
+trace point (number 59's third lever) to see at all.
+
+---
+
+**CLOSED 2026-08-21, ON TWO MEASUREMENTS THAT BETWEEN THEM LEAVE NOTHING.**
+
+**1. The two leads this entry named as "already in the traces" are identical.**
+Its last paragraph says what to look at next: *"the order the four clients
+were created in relative to each other and their devices, and the fd each was
+opened on"*. Both, from the `nvdec` traces:
+
+| | native | guest |
+|---|---|---|
+| clients created | 4 | 4 |
+| the two that call `GR_GET_CAPS_V2` | #3 and #4 | #3 and #4 |
+| objects each owned at its call | 5: `0x80 0x2080 0x70 0xc361 0x3e` | 5: the same, same order |
+| fd the CAPS ioctl was issued on | 42 | 42 |
+
+So creation position, ownership and file descriptor all match. Together with
+what was already measured -- 120 objects allocated identically before the
+first call, the same `hObject 0x80000000`, the same 25 preceding controls --
+**every property the userspace traces can express is the same on both sides.**
+
+**2. And the symptom has been reclassified by the control test.** On the
+sweep of 2026-08-21, `NV0080_CTRL_CMD_GR_GET_CAPS_V2` is no longer in
+`answer_not_written`. It is in **`unstable`**, with twelve of its words
+flagged:
+
+    call 0, capsTbl (NvU8[NV0080_CTRL_GR_CAPS_TBL_SIZE]) at offset 0:
+    0x000062b0 natively, 0x7120302e in the guest -- and this word is NOT
+    STABLE between two native runs, or between two calls of one native run,
+    so it is evidence for nothing
+
+The second native run is what did it, which is the variant number 55 asked
+for and number 66 now asks for on the guest side. A buffer whose contents
+move native-against-native cannot carry a claim about the boundary, whichever
+side wrote it.
+
+**So this closes as a WITHDRAWN finding rather than an explained one**, and
+that is the honest shape. The entry already corrected itself twice -- from
+"the guest was told a call succeeded and got no answer" to "RM declines to
+populate `capsTbl` and does so identically on both sides" (measured with
+`rmdirect`, both sides refusing on both calls) to "a per-client state
+difference the object graph does not capture". The third reading is now
+withdrawn too: the object graph captures everything the traces can see, and
+what remains was never stable enough to be a difference.
+
+**What would revive it**, and it is number 59's third lever rather than
+anything here: the kernel-side trace point. A property RM keeps per client
+that no traced call reads back is invisible from userspace by construction,
+and that is the only place left for one to hide. If it is ever built, this
+number is worth re-asking -- it keeps its number, and the corrections above
+are the map.
 ### 62. An escape the guest module rewrites is not in the descriptor table
 **Resolved 2026-08-21: option 3, the classification follows from a table.**
 The original reasoning is kept below. `NV_ESC_CARD_INFO` carries the BDF and the
