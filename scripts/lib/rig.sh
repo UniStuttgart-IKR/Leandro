@@ -398,6 +398,25 @@ lea_net_status() {
     else
         info "nat: absent or not checkable without sudo"
     fi
+    # THE FORWARD RULES, which this used to leave out -- and a MASQUERADE with
+    # no FORWARD accept is precisely the state that looks configured and
+    # carries nothing. It is the normal state on a host running Docker, whose
+    # FORWARD policy is DROP. Both directions are reported because they are
+    # added as two rules and one of them can go missing on its own.
+    local d ok=0 miss=""
+    for d in "-s" "-d"; do
+        if sudo -n iptables -C FORWARD "$d" "$_LEA_SUBNET" -j ACCEPT 2>/dev/null; then
+            ok=$((ok + 1))
+        else
+            miss="$miss $d"
+        fi
+    done
+    if [[ $ok -eq 2 ]]; then
+        info "forward: both ACCEPT rules present"
+    else
+        info "forward: ${ok}/2 ACCEPT rules ($_LEA_SUBNET) --${miss:- } missing or not checkable without sudo"
+        info "         policy: $(sudo -n iptables -S FORWARD 2>/dev/null | head -1 || echo '(needs sudo)')"
+    fi
 }
 
 # lea_net_ready COUNT -- bring the network up quietly, as every rig start

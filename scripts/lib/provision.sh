@@ -68,6 +68,29 @@ lea_guest_apt() {
     local ip rc
     ip=$(_lea_ip "$name") || return 1
     [[ $# -gt 0 ]] || return 0
+    # PREFLIGHT: can the guest reach the archive AT ALL?
+    #
+    # Without this the answer to "no route out" is a 900-second timeout, or --
+    # worse -- apt's own "Temporary failure resolving" buried in a log, which
+    # names DNS and not the reason DNS cannot work. Reported 2026-08-21 by an
+    # operator whose guest had an address, answered ssh, and had no NAT in
+    # front of it. Two seconds here replaces minutes of waiting with the
+    # sentence that identifies the problem AND says where to fix it -- on the
+    # HOST, which is the part that is not obvious from inside the guest.
+    if ! lea_ssh "$ip" 'getent hosts archive.ubuntu.com >/dev/null 2>&1'; then
+        error "the guest cannot resolve archive.ubuntu.com, so apt cannot run.
+The guest has an address and answers ssh, so this is NOT the VM: it is
+routing on the HOST. Check, in this order:
+  scripts/showcase.sh net status        # uplink, NAT and the FORWARD rules
+  scripts/showcase.sh net up            # re-add them (needs sudo)
+  sysctl net.ipv4.ip_forward            # must be 1
+  sudo iptables -S FORWARD | head       # a DROP policy with no ACCEPT for
+                                        # 192.168.100.0/24 is the usual cause
+                                        # on a host that runs Docker
+If 'net up' printed a sudo prompt nobody answered, the rules were never
+added and every guest on this bridge is in the same state."
+        return 1
+    fi
     lea_ssh "$ip" "sudo cloud-init status --wait >/dev/null 2>&1 || true
         export DEBIAN_FRONTEND=noninteractive
         sudo -E timeout ${LEA_APT_TIMEOUT:-900} apt-get -q \
