@@ -297,197 +297,6 @@ Recorded because nothing in this tree mentioned `setpriority` or RTKit
 before, and because a stall with sound is exactly the shape a reader would
 otherwise file against numbers 10, 20 or 44.
 
-### 52. The guest's graphics stack asks a different set of questions
-**Half answered 2026-08-21: the boundary carries them; the userspace stopped
-asking.** The direct probe this entry called for exists --
-`probe/matrix/rm-direct.sh` over `probe/c/rmdirect.c`, raw RM ioctls with no
-driver userspace at all: it opens the control node, builds the object
-hierarchy by hand and issues each command once. In a guest it is
-**guest-validated, 11 signatures against 11** (re-read from
-`matrix/guest-610.57.04.json` on 2026-08-21; this entry said 10), and every
-command answers `NV_OK`:
-
-| command | in the guest |
-|---|---|
-| `NV0000_CTRL_CMD_GPU_GET_PROBED_IDS` | `NV_OK`, one probed GPU |
-| `NV0000_CTRL_CMD_GPU_ATTACH_IDS` | `NV_OK` |
-| `NV0000_CTRL_CMD_GPU_DETACH_IDS` | `NV_OK` |
-| `NV2080_CTRL_CMD_TIMER_GET_TIME` | `NV_OK` |
-| `NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2` | `NV_OK`, caps `81 2f` |
-
-So the first candidate explanation is the one that survives: **the guest's
-userspace takes a different discovery branch**, not "the mediated identity
-ends the enumeration early" and not "the boundary cannot carry these". The
-carrying is now measured rather than predicted -- four of the five are in
-`verified` or `verified-mediated` in the evidence file, and `TIMER_GET_TIME`
-is `unstable`, which is what a timer should be.
-
-`NV_ESC_RM_IDLE_CHANNELS`, the sixth command, is NOT in the direct probe: it
-needs a channel, which needs a GPFIFO allocation, a pushbuffer and a VA
-space, and building those by hand is a different program. It is verified
-anyway, through `egl-gbm`, which does issue it in a guest.
-
-WHICH PROBES STILL SKIP WHAT, re-measured on 2026-08-21 and narrower than
-this entry first stated. It is not "every graphics probe":
-
-  * `gl-enum`, `gl-render`, `vk-enum`, `vk-offscreen` skip the three GPU id
-    controls; `vk-rt` skips `DETACH_IDS` only;
-  * `TIMER_GET_TIME` and `SYSTEM_GET_CAPS_V2` are skipped more widely, by
-    those and by `egl-xlib` and `gles`;
-  * `egl-gbm`, and the whole CUDA and NVML set, ask them in a guest exactly
-    as they do natively.
-
-What is still open is WHY the branch differs, and that is now a question
-about NVIDIA's userspace rather than about this boundary. The probe that
-would narrow it further compares the guest's and the host's `openat`/`stat`
-sets around the discovery path, not their ioctls.
-
-**Original entry, measured 2026-08-20.** Every graphics probe in the guest sweep skips
-the SAME six commands, natively issued by all of them and by none of them
-in a guest:
-
-`NV0000_CTRL_CMD_GPU_GET_PROBED_IDS`, `..._ATTACH_IDS`, `..._DETACH_IDS`,
-`NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2`, `NV2080_CTRL_CMD_TIMER_GET_TIME`,
-`NV_ESC_RM_IDLE_CHANNELS` (and `NV_ESC_RM_DUP_OBJECT` in the two Vulkan
-probes).
-
-The same statement in the other namespace, and much larger: `vulkaninfo`
-issues **405 NVKMS ioctls natively and 4 in the guest** — none of the eight
-commands that make up the native enumeration, and two the host never
-issues. The GL and EGL probes go the other way: 6 natively, 14 in the
-guest.
-
-**Still open on 2026-08-20 after a second full sweep, which reproduced it
-exactly** — 9 FAIL, 3 blocked, 8 guest-validated, and six of those nine FAIL
-are this entry and nothing else. It is now the largest single cause of FAIL
-rows in the sweep, and it is not a defect: `egl-xlib`, `gl-enum`, `gles`,
-`vk-enum`, `vk-offscreen` and `vk-rt` all meet their own criteria in the
-guest and fail only on this signature-set difference.
-
-The direct probe that would settle it (issue the six commands in a guest and
-compare each status fingerprint against the native one) was scoped for this
-session and NOT built, because it was gated on every earlier package's gate
-being met and two were only partly met. It remains the next concrete step
-for this entry.
-
-Unverified, and the two candidate explanations are testable: either the
-guest's userspace takes a different discovery branch (the guest module
-enumerates GPUs in-kernel, so a probe may find the device already
-attached), or the mediated identity answers something that ends the
-enumeration early. Neither is a defect on its face — every probe still met
-its criterion — but it has a consequence that is exact: **those six
-signatures are predicted to be carried and are exercised by nothing in a
-guest**, so for them `predicted-green` remains untested no matter how many
-guest runs pass.
-
-**THE PROBE THIS ENTRY ASKED FOR WAS RUN, 2026-08-21, AND IT CAME BACK
-EMPTY -- WHICH IS THE RESULT.** The entry names it: *"The probe that would
-narrow it further compares the guest's and the host's `openat`/`stat` sets
-around the discovery path, not their ioctls."* The matrix straces already
-carry `openat` (`strace -f -y -e trace=ioctl,openat`), so it needed no new
-run.
-
-Filtered to what discovery actually reads -- the NVIDIA nodes, `/proc/driver`
-and `/sys` -- the two sides are IDENTICAL, in `gl-enum`, `vk-enum` and
-`egl-gbm` alike:
-
-    /dev/nvidia-modeset   /dev/nvidia0   /dev/nvidiactl   /proc/driver/nvidia/params
-
-Four paths on each side, no difference in the set, and every one of them opens
-SUCCESSFULLY on both. And `/proc/driver/nvidia/params` is byte-identical --
-45 parameters, `diff` empty -- so the one file whose CONTENT userspace could
-branch on says the same thing to both.
-
-**So the filesystem inputs to discovery are the same, and the branch is
-decided by an ioctl answer.** That eliminates a class rather than finding the
-cause, which is what this probe was for.
-
-**AND THE BRANCH POINT IS NOW NAMED, which is new.** Walking the two ioctl
-sequences from the first call, `vk-enum` diverges at step 4 and the three
-before it are identical:
-
-| # | native | guest |
-|---|---|---|
-| 0 | `NV_ESC_CHECK_VERSION_STR` | same |
-| 1 | `NV_ESC_SYS_PARAMS` | same |
-| 2 | **`NV_ESC_CARD_INFO`** | same |
-| 3 | alloc root client (`0x41`) | same |
-| 4 | **`GPU_GET_PROBED_IDS` (0x214)** | **`GPU_GET_DEVICE_IDS` (0x204)** |
-
-**It is not "a different question" -- it is ONE OF TWO OMITTED.** Counted
-across probes:
-
-| probe | native | guest |
-|---|---|---|
-| `vk-enum`, `gl-enum` | PROBED_IDS 1, DEVICE_IDS 1 | PROBED_IDS **0**, DEVICE_IDS 1 |
-| `egl-gbm` | PROBED_IDS 1, DEVICE_IDS 1 | PROBED_IDS 1, DEVICE_IDS 1 |
-| `nvml` | PROBED_IDS 2, DEVICE_IDS 0 | PROBED_IDS 2, DEVICE_IDS 0 |
-
-The native GL/Vulkan path asks BOTH; the guest asks only `GET_DEVICE_IDS`.
-`egl-gbm` asks both on both sides -- which is exactly why it never appeared in
-the skip list -- and `nvml` asks neither differently.
-
-**What that leaves, and it is a much smaller space.** The last thing both
-sides do identically before the branch is `NV_ESC_CARD_INFO`, and that is the
-one call in the sequence this project MEDIATES: the guest module rewrites its
-BDF and gpuId in place (number 62). So the leading candidate is now specific
-enough to test -- answer `CARD_INFO` unmediated to one run and see whether
-`GET_PROBED_IDS` comes back. That is the same experiment number 65 wants for
-the same reason, and one run could answer both.
-
-**THE LEADING CANDIDATE IS FALSIFIED AND A STRUCTURAL ONE REPLACES IT,
-2026-08-21.** The paragraph above proposed answering `CARD_INFO` unmediated
-and seeing whether `GET_PROBED_IDS` came back. Done, live, by toggling
-`bdf_mediation` on a running guest -- it is writable and the module reads it
-per call:
-
-| workload | `bdf_mediation=1` | `bdf_mediation=0` |
-|---|---|---|
-| `vulkaninfo --summary` | PROBED_IDS **0**, DEVICE_IDS 1 | PROBED_IDS **0**, DEVICE_IDS 1 |
-| `glxinfo -B` | PROBED_IDS **0**, DEVICE_IDS 1 | PROBED_IDS **0**, DEVICE_IDS 1 |
-| `nvidia-smi -q` | PROBED_IDS 2 | PROBED_IDS 2 |
-
-**Identical.** The mediation is not what makes the branch, and the same run
-answers number 65 the same way -- `AMPERE_SMC_MONITOR_SESSION` is absent with
-mediation off too.
-
-**And it is not any answer the boundary gives, either.** Traced natively and
-in the guest with mediation off, the two runs make the SAME first four calls
-and diverge at the fifth, and the three escape answers before the branch are
-**byte-identical**:
-
-    CHECK_VERSION_STR (0xd2)   IDENTICAL
-    SYS_PARAMS        (0xd6)   IDENTICAL
-    CARD_INFO         (0xc8)   IDENTICAL
-    then: native GPU_GET_PROBED_IDS, guest GPU_GET_DEVICE_IDS
-
-With the `openat` sets and `/proc/driver/nvidia/params` already measured
-identical, **nothing the boundary carries differs before the branch.**
-
-**WHAT DOES DIFFER IS THE DRM DEVICE, and it is structural rather than
-mediated:**
-
-| | host | guest |
-|---|---|---|
-| `/dev/dri/card*` | `card1` → **nvidia** | `card0` → **virtio-pci** |
-| `/dev/dri/renderD128` | → **nvidia** | → **virtio-pci** |
-
-Both sides' userspace opens `/dev/dri/renderD128` -- 3 times natively and 2
-in the guest for `vk-enum` and `gl-enum` -- but it is a DIFFERENT DEVICE. In
-the guest the only DRM node is the virtio-gpu; NVIDIA has none unless
-`nvidia_drm` is loaded with `modeset=1`. And the probe that opens it 6 times
-on BOTH sides, `egl-gbm`, is exactly the one that never skipped anything.
-
-So the discovery branch is most likely taken on what the DRM enumeration
-finds, which is a property of the guest's virtual hardware and not of this
-boundary. That also predicts number 58 without being about it: the xcb
-platform module declining on an X server whose device is a virtio-gpu.
-
-**What would close it** is one rig configuration this run could not build: a
-guest whose `renderD128` IS the NVIDIA device (`nvidia_drm modeset=1`, and no
-virtio-gpu ahead of it in enumeration), then `vulkaninfo` and the same count.
-If `GET_PROBED_IDS` comes back there, the cause is named and this closes with
-the boundary exonerated.
 ### 56. The surface is tracked per run, and the question is per ioctl
 **Open, raised 2026-08-20.** Everything the matrix writes is keyed by the
 run that produced it: `catalog-<driver>.json` is one file per driver
@@ -2614,6 +2423,305 @@ instruments; deciding them took minutes. Both controls were `passthrough` —
 the class the catalogue declares unproblematic — and `nvidia-smi -q` PASSED
 in the guest and printed a plausible report while both were failing. Only
 the fingerprint diff saw them, which is the argument for the instrument.
+### 52. The guest's graphics stack asks a different set of questions
+**Resolved 2026-08-21. The cause is the X connection, demonstrated inside one
+rig; the boundary is exonerated.** The history below is kept because two
+leading candidates were falsified on the way and one earlier claim in it was
+simply wrong. The direct probe this entry called for exists --
+`probe/matrix/rm-direct.sh` over `probe/c/rmdirect.c`, raw RM ioctls with no
+driver userspace at all: it opens the control node, builds the object
+hierarchy by hand and issues each command once. In a guest it is
+**guest-validated, 11 signatures against 11** (re-read from
+`matrix/guest-610.57.04.json` on 2026-08-21; this entry said 10), and every
+command answers `NV_OK`:
+
+| command | in the guest |
+|---|---|
+| `NV0000_CTRL_CMD_GPU_GET_PROBED_IDS` | `NV_OK`, one probed GPU |
+| `NV0000_CTRL_CMD_GPU_ATTACH_IDS` | `NV_OK` |
+| `NV0000_CTRL_CMD_GPU_DETACH_IDS` | `NV_OK` |
+| `NV2080_CTRL_CMD_TIMER_GET_TIME` | `NV_OK` |
+| `NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2` | `NV_OK`, caps `81 2f` |
+
+So the first candidate explanation is the one that survives: **the guest's
+userspace takes a different discovery branch**, not "the mediated identity
+ends the enumeration early" and not "the boundary cannot carry these". The
+carrying is now measured rather than predicted -- four of the five are in
+`verified` or `verified-mediated` in the evidence file, and `TIMER_GET_TIME`
+is `unstable`, which is what a timer should be.
+
+`NV_ESC_RM_IDLE_CHANNELS`, the sixth command, is NOT in the direct probe: it
+needs a channel, which needs a GPFIFO allocation, a pushbuffer and a VA
+space, and building those by hand is a different program. It is verified
+anyway, through `egl-gbm`, which does issue it in a guest.
+
+WHICH PROBES STILL SKIP WHAT, re-measured on 2026-08-21 and narrower than
+this entry first stated. It is not "every graphics probe":
+
+  * `gl-enum`, `gl-render`, `vk-enum`, `vk-offscreen` skip the three GPU id
+    controls; `vk-rt` skips `DETACH_IDS` only;
+  * `TIMER_GET_TIME` and `SYSTEM_GET_CAPS_V2` are skipped more widely, by
+    those and by `egl-xlib` and `gles`;
+  * `egl-gbm`, and the whole CUDA and NVML set, ask them in a guest exactly
+    as they do natively.
+
+What is still open is WHY the branch differs, and that is now a question
+about NVIDIA's userspace rather than about this boundary. The probe that
+would narrow it further compares the guest's and the host's `openat`/`stat`
+sets around the discovery path, not their ioctls.
+
+**Original entry, measured 2026-08-20.** Every graphics probe in the guest sweep skips
+the SAME six commands, natively issued by all of them and by none of them
+in a guest:
+
+`NV0000_CTRL_CMD_GPU_GET_PROBED_IDS`, `..._ATTACH_IDS`, `..._DETACH_IDS`,
+`NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2`, `NV2080_CTRL_CMD_TIMER_GET_TIME`,
+`NV_ESC_RM_IDLE_CHANNELS` (and `NV_ESC_RM_DUP_OBJECT` in the two Vulkan
+probes).
+
+The same statement in the other namespace, and much larger: `vulkaninfo`
+issues **405 NVKMS ioctls natively and 4 in the guest** — none of the eight
+commands that make up the native enumeration, and two the host never
+issues. The GL and EGL probes go the other way: 6 natively, 14 in the
+guest.
+
+**Still open on 2026-08-20 after a second full sweep, which reproduced it
+exactly** — 9 FAIL, 3 blocked, 8 guest-validated, and six of those nine FAIL
+are this entry and nothing else. It is now the largest single cause of FAIL
+rows in the sweep, and it is not a defect: `egl-xlib`, `gl-enum`, `gles`,
+`vk-enum`, `vk-offscreen` and `vk-rt` all meet their own criteria in the
+guest and fail only on this signature-set difference.
+
+The direct probe that would settle it (issue the six commands in a guest and
+compare each status fingerprint against the native one) was scoped for this
+session and NOT built, because it was gated on every earlier package's gate
+being met and two were only partly met. It remains the next concrete step
+for this entry.
+
+Unverified, and the two candidate explanations are testable: either the
+guest's userspace takes a different discovery branch (the guest module
+enumerates GPUs in-kernel, so a probe may find the device already
+attached), or the mediated identity answers something that ends the
+enumeration early. Neither is a defect on its face — every probe still met
+its criterion — but it has a consequence that is exact: **those six
+signatures are predicted to be carried and are exercised by nothing in a
+guest**, so for them `predicted-green` remains untested no matter how many
+guest runs pass.
+
+**THE PROBE THIS ENTRY ASKED FOR WAS RUN, 2026-08-21, AND IT CAME BACK
+EMPTY -- WHICH IS THE RESULT.** The entry names it: *"The probe that would
+narrow it further compares the guest's and the host's `openat`/`stat` sets
+around the discovery path, not their ioctls."* The matrix straces already
+carry `openat` (`strace -f -y -e trace=ioctl,openat`), so it needed no new
+run.
+
+Filtered to what discovery actually reads -- the NVIDIA nodes, `/proc/driver`
+and `/sys` -- the two sides are IDENTICAL, in `gl-enum`, `vk-enum` and
+`egl-gbm` alike:
+
+    /dev/nvidia-modeset   /dev/nvidia0   /dev/nvidiactl   /proc/driver/nvidia/params
+
+Four paths on each side, no difference in the set, and every one of them opens
+SUCCESSFULLY on both. And `/proc/driver/nvidia/params` is byte-identical --
+45 parameters, `diff` empty -- so the one file whose CONTENT userspace could
+branch on says the same thing to both.
+
+**So the filesystem inputs to discovery are the same, and the branch is
+decided by an ioctl answer.** That eliminates a class rather than finding the
+cause, which is what this probe was for.
+
+**AND THE BRANCH POINT IS NOW NAMED, which is new.** Walking the two ioctl
+sequences from the first call, `vk-enum` diverges at step 4 and the three
+before it are identical:
+
+| # | native | guest |
+|---|---|---|
+| 0 | `NV_ESC_CHECK_VERSION_STR` | same |
+| 1 | `NV_ESC_SYS_PARAMS` | same |
+| 2 | **`NV_ESC_CARD_INFO`** | same |
+| 3 | alloc root client (`0x41`) | same |
+| 4 | **`GPU_GET_PROBED_IDS` (0x214)** | **`GPU_GET_DEVICE_IDS` (0x204)** |
+
+**It is not "a different question" -- it is ONE OF TWO OMITTED.** Counted
+across probes:
+
+| probe | native | guest |
+|---|---|---|
+| `vk-enum`, `gl-enum` | PROBED_IDS 1, DEVICE_IDS 1 | PROBED_IDS **0**, DEVICE_IDS 1 |
+| `egl-gbm` | PROBED_IDS 1, DEVICE_IDS 1 | PROBED_IDS 1, DEVICE_IDS 1 |
+| `nvml` | PROBED_IDS 2, DEVICE_IDS 0 | PROBED_IDS 2, DEVICE_IDS 0 |
+
+The native GL/Vulkan path asks BOTH; the guest asks only `GET_DEVICE_IDS`.
+`egl-gbm` asks both on both sides -- which is exactly why it never appeared in
+the skip list -- and `nvml` asks neither differently.
+
+**What that leaves, and it is a much smaller space.** The last thing both
+sides do identically before the branch is `NV_ESC_CARD_INFO`, and that is the
+one call in the sequence this project MEDIATES: the guest module rewrites its
+BDF and gpuId in place (number 62). So the leading candidate is now specific
+enough to test -- answer `CARD_INFO` unmediated to one run and see whether
+`GET_PROBED_IDS` comes back. That is the same experiment number 65 wants for
+the same reason, and one run could answer both.
+
+**THE LEADING CANDIDATE IS FALSIFIED AND A STRUCTURAL ONE REPLACES IT,
+2026-08-21.** The paragraph above proposed answering `CARD_INFO` unmediated
+and seeing whether `GET_PROBED_IDS` came back. Done, live, by toggling
+`bdf_mediation` on a running guest -- it is writable and the module reads it
+per call:
+
+| workload | `bdf_mediation=1` | `bdf_mediation=0` |
+|---|---|---|
+| `vulkaninfo --summary` | PROBED_IDS **0**, DEVICE_IDS 1 | PROBED_IDS **0**, DEVICE_IDS 1 |
+| `glxinfo -B` | PROBED_IDS **0**, DEVICE_IDS 1 | PROBED_IDS **0**, DEVICE_IDS 1 |
+| `nvidia-smi -q` | PROBED_IDS 2 | PROBED_IDS 2 |
+
+**Identical.** The mediation is not what makes the branch, and the same run
+answers number 65 the same way -- `AMPERE_SMC_MONITOR_SESSION` is absent with
+mediation off too.
+
+**And it is not any answer the boundary gives, either.** Traced natively and
+in the guest with mediation off, the two runs make the SAME first four calls
+and diverge at the fifth, and the three escape answers before the branch are
+**byte-identical**:
+
+    CHECK_VERSION_STR (0xd2)   IDENTICAL
+    SYS_PARAMS        (0xd6)   IDENTICAL
+    CARD_INFO         (0xc8)   IDENTICAL
+    then: native GPU_GET_PROBED_IDS, guest GPU_GET_DEVICE_IDS
+
+With the `openat` sets and `/proc/driver/nvidia/params` already measured
+identical, **nothing the boundary carries differs before the branch.**
+
+**WHAT DOES DIFFER IS THE DRM DEVICE, and it is structural rather than
+mediated:**
+
+| | host | guest |
+|---|---|---|
+| `/dev/dri/card*` | `card1` → **nvidia** | `card0` → **virtio-pci** |
+| `/dev/dri/renderD128` | → **nvidia** | → **virtio-pci** |
+
+Both sides' userspace opens `/dev/dri/renderD128` -- 3 times natively and 2
+in the guest for `vk-enum` and `gl-enum` -- but it is a DIFFERENT DEVICE. In
+the guest the only DRM node is the virtio-gpu; NVIDIA has none unless
+`nvidia_drm` is loaded with `modeset=1`. And the probe that opens it 6 times
+on BOTH sides, `egl-gbm`, is exactly the one that never skipped anything.
+
+So the discovery branch is most likely taken on what the DRM enumeration
+finds, which is a property of the guest's virtual hardware and not of this
+boundary. That also predicts number 58 without being about it: the xcb
+platform module declining on an X server whose device is a virtio-gpu.
+
+**What would close it** is one rig configuration this run could not build: a
+guest whose `renderD128` IS the NVIDIA device (`nvidia_drm modeset=1`, and no
+virtio-gpu ahead of it in enumeration), then `vulkaninfo` and the same count.
+If `GET_PROBED_IDS` comes back there, the cause is named and this closes with
+the boundary exonerated.
+
+---
+
+## Resolved 2026-08-21. One rig, one variable, and all six come back.
+
+**THE MEASUREMENT.** The same guest, the same probe script, the same
+`vulkaninfo` binary, the same boot -- run twice, differing only in whether
+`probe/run/matrix-guest.sh` was given `--display :7`:
+
+| `vk-enum` in the guest | PROBED_IDS | DEVICE_IDS | ATTACH | DETACH | SYS_CAPS_V2 | TIMER |
+|---|---|---|---|---|---|---|
+| **with** `--display :7` | **0** | 1 | **0** | **0** | **0** | **0** |
+| **without** `--display` | **2** | 1 | **1** | **1** | **2** | **2** |
+| native, for reference | 1 | 1 | 1 | 1 | 2 | 2 |
+
+**Every one of the six commands this entry is about comes back when the guest
+has no X display.** They are not unreachable, not unimplemented and not
+refused: the same userspace, on the same boundary, minutes apart, issues all
+of them. What suppressed them was the X connection.
+
+**So the coverage complaint dissolves, which was the only consequence this
+entry ever had.** Its exact words were: *"those six signatures are predicted
+to be carried and are exercised by nothing in a guest, so `predicted-green`
+remains untested no matter how many guest runs pass."* That is now false three
+times over -- `rm-direct` issues five of them directly with no driver
+userspace at all and gets `NV_OK`, `egl-gbm` and the CUDA and NVML probes
+issue them in a guest on every sweep, and the GL/Vulkan probes themselves
+issue them in a guest as soon as the display is taken away.
+
+**THE BOUNDARY IS EXONERATED, and by a stronger argument than "nothing
+differs".** `egl-gbm` and `vk-enum` were run **on the same rig within the same
+minute**, with `bdf_mediation=1` in both: `egl-gbm` asked all six, `vk-enum`
+asked none. One kernel, one module, one boundary, one moment -- so no property
+of this boundary can be what separates them. The difference is in what the
+two workloads do.
+
+**WHAT IS AND IS NOT ESTABLISHED ABOUT THE MECHANISM.** Measured, on this
+host and this guest:
+
+| X server the client talks to | its DRM device | the six commands |
+|---|---|---|
+| none (`DISPLAY` unset), native | -- | **asked** |
+| `:0`, native | nvidia | **asked** |
+| `Xvfb :9`, native | none | **asked** |
+| none (`DISPLAY` unset), guest | -- | **asked** |
+| `:7` Xorg, guest | virtio-gpu | **NOT asked** |
+
+The suppression needs an X server that is on a FOREIGN DRM device. An X server
+on the NVIDIA card does not do it, and an X server on no device at all does
+not do it either -- `Xvfb` was the control for that and it asked all six.
+**The one cell this host cannot fill** is a NATIVE X server on a foreign but
+real DRM device: this machine has exactly one DRM node and it is the NVIDIA
+one, so "guest" and "foreign X device" cannot be separated here. A machine
+with an integrated GPU would separate them in one run, and that is the only
+thing left to want.
+
+**This is the same mechanism as number 58**, which resolved the same day from
+the other end: `libnvidia-egl-xcb` declines on an X server whose DRM device is
+not NVIDIA's, and accepts on one that is. Two entries, one behaviour of
+NVIDIA's userspace when the X server is on somebody else's card.
+
+**Two candidates were falsified on the way, and both deserve to stay written
+down**, because each looked conclusive:
+
+  * **The mediated identity.** Falsified twice -- by toggling `bdf_mediation`
+    live, and again today by the display A/B, which changes the six with
+    mediation held at 1 throughout.
+  * **The DRM node, tested directly on the host.** `vulkaninfo` was run in a
+    private mount namespace with `/dev/dri` emptied, and again with
+    `renderD128` bind-mounted from `/dev/null`, so that a native run saw no
+    NVIDIA render node at all. `PROBED_IDS` stayed at 1 in **all three**
+    configurations, and the GPU was still found (`NVIDIA GeForce RTX 2070`).
+    So the render node a client opens for ITSELF is not the input. It is the
+    render node the X SERVER is on -- which is why the namespace test came
+    back negative and the display test came back positive.
+
+**AND ONE CLAIM IN THE HISTORY BELOW IS WRONG AND IS CORRECTED HERE.** It
+states that the three escape answers before the branch are byte-identical,
+naming `CARD_INFO (0xc8) IDENTICAL`. It is not. Diffed byte for byte out of
+the tracer's own dumps:
+
+    native   gpu_id 0x2d00   pci 0000:2d:00.0
+    guest    gpu_id 0x5      pci 0000:00:05.0
+
+That is `bdf_rewrite_card_info` doing exactly what it is for, so the
+difference is expected -- but "nothing the boundary carries differs before the
+branch" was not a true statement, and it was load-bearing for the reasoning
+that followed it. The conclusion survives anyway, by the two falsifications
+above and by the `egl-gbm`/`vk-enum` same-rig comparison, none of which depend
+on it.
+
+**HONEST NOTES ON THE RUNS.** The no-display `vk-enum` reported
+`FAIL: strace gate, delta -8` -- the tracer saw 1298 ioctls and strace 1290.
+That is a number 47 gate failure and not this measurement; the signature
+counts above are the tracer's, and an 8-call delta cannot turn 0 into 2. The
+guest asks `PROBED_IDS` **twice** without a display where the host asks it
+once, which is unexplained and left unexplained rather than smoothed over.
+`gl-enum` without a display exits 1 (`glxinfo` needs one), so only `vk-enum`
+carries the no-display half of the table.
+
+**A CONSEQUENCE FOR THE SWEEP, worth doing but not done here.** Because the
+display is what suppresses them, running the GL/Vulkan enumeration probes in
+BOTH modes would exercise the six signatures in a guest on every sweep instead
+of relying on `egl-gbm` and `rm-direct` for them. That is a probe-harness
+change and belongs to whoever next touches the sweep's shape; it is recorded
+here so it is not rediscovered.
 ### 53. Two libraries are staged into the guest and registered with nobody
 **Resolved 2026-08-21.** One half was fixed and measured, the other was
 falsified and rehomed, and what is left of the rule belongs to two other
