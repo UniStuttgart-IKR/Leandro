@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: MIT
+# results.tsv, from the run -- matrix policy, 2026-08-21.
+row	guest_mib	workload	value
+uncapped	8192	bmw27	00:23.13
+uncapped	8192	classroom	00:40.00
+uncapped	8192	nvenc_fps	167
+uncapped	8192	convburn	convburn: sync=end iters=400 batch=8 time=8.739s 21.85ms/it acc=3.041451216e+00 vram=1011MiB 
+uncapped	8192	vrampress	grown to 6400 MiB
+grid-8Q	6400	bmw27	00:23.26
+grid-8Q	6400	classroom	00:41.03
+grid-8Q	6400	nvenc_fps	165
+grid-8Q	6400	convburn	convburn: sync=end iters=400 batch=8 time=8.708s 21.77ms/it acc=3.041451216e+00 vram=1011MiB 
+grid-8Q	6400	vrampress	grown to 6272 MiB
+grid-4Q	3072	bmw27	00:23.32
+grid-4Q	3072	classroom	00:41.34
+grid-4Q	3072	classroom4k	00:42.00
+grid-4Q	3072	nvenc_fps	181
+grid-4Q	3072	convburn	convburn: sync=end iters=400 batch=8 time=8.731s 21.83ms/it acc=3.041451216e+00 vram=1011MiB 
+grid-4Q	3072	vrampress	grown to 2944 MiB
+grid-2Q	1280	bmw27	00:23.58
+grid-2Q	1280	classroom	00:41.56
+grid-2Q	1280	classroom4k	00:43.14
+grid-2Q	1280	nvenc_fps	183
+grid-2Q	1280	convburn	convburn: sync=end iters=400 batch=8 time=8.781s 21.95ms/it acc=3.041451216e+00 vram=1011MiB 
+grid-2Q	1280	vrampress	grown to 1152 MiB
+grid-1Q	512	bmw27	fail
+grid-1Q	512	classroom	fail
+grid-1Q	512	classroom4k	fail
+grid-1Q	512	nvenc_fps	172
+grid-1Q	512	convburn	           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 64.00 MiB. GPU 0 has a total capacity of 512.00 MiB of which 11.31 MiB is free. Including non-PyTorch memory, this process has 500.69 MiB memory in use. Of the allocated memory 369.17 MiB is allocated by PyTorch, and 4.83 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf) 
+grid-1Q	512	vrampress	grown to 384 MiB
+limit-3072	3072	bmw27	00:23.14
+limit-3072	3072	classroom	00:40.77
+limit-3072	3072	classroom4k	00:41.93
+limit-3072	3072	nvenc_fps	179
+limit-3072	3072	convburn	convburn: sync=end iters=400 batch=8 time=8.739s 21.85ms/it acc=3.041451216e+00 vram=1011MiB 
+limit-3072	3072	vrampress	grown to 2944 MiB
+limit-2048	2048	bmw27	00:23.72
+limit-2048	2048	classroom	00:41.67
+limit-2048	2048	classroom4k	00:42.03
+limit-2048	2048	nvenc_fps	170
+limit-2048	2048	convburn	convburn: sync=end iters=400 batch=8 time=8.776s 21.94ms/it acc=3.041451216e+00 vram=1011MiB 
+limit-2048	2048	vrampress	grown to 1920 MiB
+limit-1280	1280	bmw27	00:23.54
+limit-1280	1280	classroom	00:42.62
+limit-1280	1280	classroom4k	00:42.87
+limit-1280	1280	nvenc_fps	173
+limit-1280	1280	convburn	convburn: sync=end iters=400 batch=8 time=8.800s 22.00ms/it acc=3.041451216e+00 vram=1011MiB 
+limit-1280	1280	vrampress	grown to 1152 MiB
+limit-1024	1024	bmw27	00:23.64
+limit-1024	1024	classroom	fail
+limit-1024	1024	classroom4k	fail
+limit-1024	1024	nvenc_fps	173
+limit-1024	1024	convburn	[W821 21:13:17.749894737 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 608174080 bytes (free: 479519744, total: 1073741824). convburn: sync=end iters=400 batch=8 time=8.303s 20.76ms/it acc=3.041450977e+00 vram=723MiB 
+limit-1024	1024	vrampress	grown to 896 MiB
+limit-768	768	bmw27	01:36.10
+limit-768	768	classroom	fail
+limit-768	768	classroom4k	fail
+limit-768	768	nvenc_fps	178
+limit-768	768	convburn	[W821 21:15:48.030981071 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 228589568 bytes (free: 156558336, total: 805306368). convburn: sync=end iters=400 batch=8 time=11.259s 28.15ms/it acc=3.041450977e+00 vram=434MiB 
+limit-768	768	vrampress	grown to 640 MiB
+limit-512	512	bmw27	fail
+limit-512	512	classroom	fail
+limit-512	512	classroom4k	fail
+limit-512	512	nvenc_fps	187
+limit-512	512	convburn	           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 64.00 MiB. GPU 0 has a total capacity of 512.00 MiB of which 11.31 MiB is free. Including non-PyTorch memory, this process has 500.69 MiB memory in use. Of the allocated memory 369.17 MiB is allocated by PyTorch, and 4.83 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf) 
+limit-512	512	vrampress	grown to 384 MiB
+limit-384	384	bmw27	fail
+limit-384	384	classroom	fail
+limit-384	384	classroom4k	fail
+limit-384	384	nvenc_fps	170
+limit-384	384	convburn	           ^^^^^^^^^ torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 64.00 MiB. GPU 0 has a total capacity of 384.00 MiB of which 47.31 MiB is free. Including non-PyTorch memory, this process has 336.69 MiB memory in use. Of the allocated memory 224.88 MiB is allocated by PyTorch, and 1.12 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf) 
+limit-384	384	vrampress	grown to 256 MiB
+profile-3328	3072	bmw27	00:23.42
+profile-3328	3072	classroom	00:40.22
+profile-3328	3072	classroom4k	00:41.97
+profile-3328	3072	nvenc_fps	180
+profile-3328	3072	convburn	convburn: sync=end iters=400 batch=8 time=8.716s 21.79ms/it acc=3.041451216e+00 vram=1011MiB 
+profile-3328	3072	vrampress	grown to 2944 MiB
+profile-1536	1280	bmw27	00:23.55
+profile-1536	1280	classroom	00:43.30
+profile-1536	1280	classroom4k	00:45.64
+profile-1536	1280	nvenc_fps	168
+profile-1536	1280	convburn	convburn: sync=end iters=400 batch=8 time=8.777s 21.94ms/it acc=3.041451216e+00 vram=1011MiB 
+profile-1536	1280	vrampress	grown to 1152 MiB

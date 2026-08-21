@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MIT
+# results.tsv, from the run -- graceful policy, 2026-08-21.
+scene	vram	pin_host	pin_guest	managed	time	note
+bmw27	768	256	1024	0	01:34.72	ok
+bmw27	512	256	1024	0	fail	out of GPU memory
+bmw27	512	2048	4096	0	fail	out of GPU memory
+classroom	1024	2048	4096	0	fail	out of GPU and shared host memory
+classroom	768	2048	4096	0	fail	out of GPU memory
+classroom	1024	2048	4096	1	fail	out of GPU and shared host memory
+classroom	768	2048	4096	1	fail	out of GPU memory
+classroom	1280	2048	4096	0	00:40.53	ok

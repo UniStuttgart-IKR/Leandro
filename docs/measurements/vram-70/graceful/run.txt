@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# run.txt, from the run -- graceful policy, 2026-08-21.
+[23:23:19] === bmw27 at 768 MiB, host pin 256, guest pin 1024, managed 0 ===
+[23:25:09]   -> 01:34.72  
+[23:25:09] === bmw27 at 512 MiB, host pin 256, guest pin 1024, managed 0 ===
+[23:25:31]   -> FAILED  out of GPU memory
+[23:25:31] === bmw27 at 512 MiB, host pin 2048, guest pin 4096, managed 0 ===
+[23:25:52]   -> FAILED  out of GPU memory
+[23:25:52] === classroom at 1024 MiB, host pin 2048, guest pin 4096, managed 0 ===
+[23:26:11]   -> FAILED  out of GPU and shared host memory
+[23:26:11] === classroom at 768 MiB, host pin 2048, guest pin 4096, managed 0 ===
+[23:26:30]   -> FAILED  out of GPU memory
+[23:26:30] === classroom at 1024 MiB, host pin 2048, guest pin 4096, managed 1 ===
+[23:26:49]   -> FAILED  out of GPU and shared host memory
+[23:26:49] === classroom at 768 MiB, host pin 2048, guest pin 4096, managed 1 ===
+[23:27:07]   -> FAILED  out of GPU memory
+[23:27:07] === classroom at 1280 MiB, host pin 2048, guest pin 4096, managed 0 ===
+[23:28:05]   -> 00:40.53  
+[23:28:06] === graceful test done ===

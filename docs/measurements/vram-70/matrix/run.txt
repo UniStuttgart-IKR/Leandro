@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: MIT
+# run.txt, from the run -- matrix policy, 2026-08-21.
+[22:54:21] === uncapped (LEA_X=1) ===
+[22:54:38]   guest sees 8192 MiB
+[22:55:02]   bmw27 00:23.13
+[22:55:43]   classroom 00:40.00
+[22:55:45]   nvenc 167 fps
+[22:56:02]   convburn convburn: sync=end iters=400 batch=8 time=8.739s 21.85ms/it acc=3.041451216e+00 vram=1011MiB 
+[22:56:17]   vrampress grown to 6400 MiB
+[22:56:17]   card peak 7462 MiB
+[22:56:17] === grid-8Q (LEA_VGPU_TYPE=8Q) ===
+[22:56:34]   guest sees 6400 MiB
+[22:56:58]   bmw27 00:23.26
+[22:57:40]   classroom 00:41.03
+[22:57:43]   nvenc 165 fps
+[22:57:58]   convburn convburn: sync=end iters=400 batch=8 time=8.708s 21.77ms/it acc=3.041451216e+00 vram=1011MiB 
+[22:58:13]   vrampress grown to 6272 MiB
+[22:58:13]   card peak 7266 MiB
+[22:58:13] === grid-4Q (LEA_VGPU_TYPE=4Q) ===
+[22:58:30]   guest sees 3072 MiB
+[22:58:54]   bmw27 00:23.32
+[22:59:36]   classroom 00:41.34
+[23:00:20]   classroom-4k 00:42.00
+[23:00:22]   nvenc 181 fps
+[23:00:37]   convburn convburn: sync=end iters=400 batch=8 time=8.731s 21.83ms/it acc=3.041451216e+00 vram=1011MiB 
+[23:00:53]   vrampress grown to 2944 MiB
+[23:00:53]   card peak 3941 MiB
+[23:00:53] === grid-2Q (LEA_VGPU_TYPE=2Q) ===
+[23:01:09]   guest sees 1280 MiB
+[23:01:34]   bmw27 00:23.58
+[23:02:16]   classroom 00:41.56
+[23:03:00]   classroom-4k 00:43.14
+[23:03:02]   nvenc 183 fps
+[23:03:18]   convburn convburn: sync=end iters=400 batch=8 time=8.781s 21.95ms/it acc=3.041451216e+00 vram=1011MiB 
+[23:03:33]   vrampress grown to 1152 MiB
+[23:03:33]   card peak 2175 MiB
+[23:03:33] === grid-1Q (LEA_VGPU_TYPE=1Q) ===
+[23:03:50]   guest sees 512 MiB
+[23:03:55]   bmw27 FAILED
+[23:03:57]   classroom DID NOT FINISH
+[23:03:59]   classroom-4k DID NOT FINISH
+[23:04:02]   nvenc 172 fps
+[23:04:08]   convburn            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 64.00 MiB. GPU 0 has a total capacity of 512.00 MiB of which 11.31 MiB is free. Including non-PyTorch memory, this process has 500.69 MiB memory in use. Of the allocated memory 369.17 MiB is allocated by PyTorch, and 4.83 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf) 
+[23:04:24]   vrampress grown to 384 MiB
+[23:04:24]   card peak 1398 MiB
+[23:04:24] === limit-3072 (LEA_VRAM_LIMIT_MIB=3072) ===
+[23:04:41]   guest sees 3072 MiB
+[23:05:05]   bmw27 00:23.14
+[23:05:46]   classroom 00:40.77
+[23:06:29]   classroom-4k 00:41.93
+[23:06:32]   nvenc 179 fps
+[23:06:47]   convburn convburn: sync=end iters=400 batch=8 time=8.739s 21.85ms/it acc=3.041451216e+00 vram=1011MiB 
+[23:07:03]   vrampress grown to 2944 MiB
+[23:07:03]   card peak 3960 MiB
+[23:07:03] === limit-2048 (LEA_VRAM_LIMIT_MIB=2048) ===
+[23:07:19]   guest sees 2048 MiB
+[23:07:44]   bmw27 00:23.72
+[23:08:26]   classroom 00:41.67
+[23:09:09]   classroom-4k 00:42.03
+[23:09:12]   nvenc 170 fps
+[23:09:27]   convburn convburn: sync=end iters=400 batch=8 time=8.776s 21.94ms/it acc=3.041451216e+00 vram=1011MiB 
+[23:09:43]   vrampress grown to 1920 MiB
+[23:09:43]   card peak 2918 MiB
+[23:09:43] === limit-1280 (LEA_VRAM_LIMIT_MIB=1280) ===
+[23:09:59]   guest sees 1280 MiB
+[23:10:24]   bmw27 00:23.54
+[23:11:07]   classroom 00:42.62
+[23:11:51]   classroom-4k 00:42.87
+[23:11:53]   nvenc 173 fps
+[23:12:08]   convburn convburn: sync=end iters=400 batch=8 time=8.800s 22.00ms/it acc=3.041451216e+00 vram=1011MiB 
+[23:12:24]   vrampress grown to 1152 MiB
+[23:12:24]   card peak 2170 MiB
+[23:12:24] === limit-1024 (LEA_VRAM_LIMIT_MIB=1024) ===
+[23:12:40]   guest sees 1024 MiB
+[23:13:05]   bmw27 00:23.64
+[23:13:07]   classroom DID NOT FINISH
+[23:13:09]   classroom-4k DID NOT FINISH
+[23:13:12]   nvenc 173 fps
+[23:13:27]   convburn [W821 21:13:17.749894737 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 608174080 bytes (free: 479519744, total: 1073741824). convburn: sync=end iters=400 batch=8 time=8.303s 20.76ms/it acc=3.041450977e+00 vram=723MiB 
+[23:13:42]   vrampress grown to 896 MiB
+[23:13:42]   card peak 1885 MiB
+[23:13:42] === limit-768 (LEA_VRAM_LIMIT_MIB=768) ===
+[23:13:59]   guest sees 768 MiB
+[23:15:36]   bmw27 01:36.10
+[23:15:38]   classroom DID NOT FINISH
+[23:15:40]   classroom-4k DID NOT FINISH
+[23:15:43]   nvenc 178 fps
+[23:16:00]   convburn [W821 21:15:48.030981071 CUDACachingAllocator.cpp:3933] memory allocation failed with OOM on device 0 while trying to allocate 228589568 bytes (free: 156558336, total: 805306368). convburn: sync=end iters=400 batch=8 time=11.259s 28.15ms/it acc=3.041450977e+00 vram=434MiB 
+[23:16:16]   vrampress grown to 640 MiB
+[23:16:16]   card peak 1653 MiB
+[23:16:16] === limit-512 (LEA_VRAM_LIMIT_MIB=512) ===
+[23:16:32]   guest sees 512 MiB
+[23:16:38]   bmw27 FAILED
+[23:16:40]   classroom DID NOT FINISH
+[23:16:42]   classroom-4k DID NOT FINISH
+[23:16:44]   nvenc 187 fps
+[23:16:51]   convburn            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 64.00 MiB. GPU 0 has a total capacity of 512.00 MiB of which 11.31 MiB is free. Including non-PyTorch memory, this process has 500.69 MiB memory in use. Of the allocated memory 369.17 MiB is allocated by PyTorch, and 4.83 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf) 
+[23:17:06]   vrampress grown to 384 MiB
+[23:17:06]   card peak 1398 MiB
+[23:17:06] === limit-384 (LEA_VRAM_LIMIT_MIB=384) ===
+[23:17:23]   guest sees 384 MiB
+[23:17:24]   bmw27 FAILED
+[23:17:26]   classroom DID NOT FINISH
+[23:17:28]   classroom-4k DID NOT FINISH
+[23:17:31]   nvenc 170 fps
+[23:17:37]   convburn            ^^^^^^^^^ torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 64.00 MiB. GPU 0 has a total capacity of 384.00 MiB of which 47.31 MiB is free. Including non-PyTorch memory, this process has 336.69 MiB memory in use. Of the allocated memory 224.88 MiB is allocated by PyTorch, and 1.12 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf) 
+[23:17:53]   vrampress grown to 256 MiB
+[23:17:53]   card peak 1264 MiB
+[23:17:53] === profile-3328 (LEA_VRAM_PROFILE_MIB=3328) ===
+[23:18:10]   guest sees 3072 MiB
+[23:18:34]   bmw27 00:23.42
+[23:19:15]   classroom 00:40.22
+[23:19:58]   classroom-4k 00:41.97
+[23:20:00]   nvenc 180 fps
+[23:20:16]   convburn convburn: sync=end iters=400 batch=8 time=8.716s 21.79ms/it acc=3.041451216e+00 vram=1011MiB 
+[23:20:31]   vrampress grown to 2944 MiB
+[23:20:31]   card peak 3939 MiB
+[23:20:31] === profile-1536 (LEA_VRAM_PROFILE_MIB=1536) ===
+[23:20:48]   guest sees 1280 MiB
+[23:21:12]   bmw27 00:23.55
+[23:21:56]   classroom 00:43.30
+[23:22:43]   classroom-4k 00:45.64
+[23:22:45]   nvenc 168 fps
+[23:23:01]   convburn convburn: sync=end iters=400 batch=8 time=8.777s 21.94ms/it acc=3.041451216e+00 vram=1011MiB 
+[23:23:16]   vrampress grown to 1152 MiB
+[23:23:16]   card peak 2162 MiB
+[23:23:18] === matrix done ===

@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# render-classroom-768-p2048-g4096-m0.txt, from the run -- graceful policy, 2026-08-21.
+Fra:1 Mem:381.18M (Peak 381.18M) | Time:00:00.83 | Mem:223.30M, Peak:223.30M | _mainScene, interior | Updating Images | Loading base_woodFloor.jpg
+Fra:1 Mem:385.18M (Peak 385.18M) | Time:00:00.84 | Mem:227.30M, Peak:227.30M | _mainScene, interior | Updating Images | Loading pencil_glossyMask.png
+Fra:1 Mem:387.18M (Peak 387.18M) | Time:00:00.85 | Mem:231.30M, Peak:231.30M | _mainScene, interior | Updating Images | Loading childDrawing_01.jpg
+Fra:1 Mem:390.99M (Peak 390.99M) | Time:00:00.85 | Mem:233.30M, Peak:233.30M | _mainScene, interior | Updating Images | Loading europeMap.png
+Fra:1 Mem:394.99M (Peak 394.99M) | Time:00:00.86 | Mem:240.66M, Peak:240.66M | _mainScene, interior | Updating Images | Loading radiator_AO.png
+Fra:1 Mem:394.99M (Peak 394.99M) | Time:00:00.86 | Mem:244.47M, Peak:244.47M | _mainScene, interior | Updating Images | Loading ceilingAirVent_AO.png
+Fra:1 Mem:402.99M (Peak 402.99M) | Time:00:00.89 | Mem:270.22M, Peak:270.22M | _mainScene, interior | Updating Camera Volume
+Fra:1 Mem:402.99M (Peak 402.99M) | Time:00:00.89 | Mem:270.22M, Peak:270.22M | _mainScene, interior | Updating Lookup Tables
+Fra:1 Mem:402.99M (Peak 402.99M) | Time:00:00.89 | Mem:270.30M, Peak:270.30M | _mainScene, interior | Updating Lights
+Fra:1 Mem:402.99M (Peak 402.99M) | Time:00:00.89 | Mem:270.31M, Peak:270.31M | _mainScene, interior | Updating Lights | Computing distribution
+Fra:1 Mem:404.22M (Peak 404.22M) | Time:00:00.90 | Mem:271.54M, Peak:271.54M | _mainScene, interior | Updating Integrator
+Fra:1 Mem:405.22M (Peak 405.22M) | Time:00:00.90 | Mem:272.54M, Peak:272.54M | _mainScene, interior | Updating Film
+Fra:1 Mem:405.22M (Peak 405.22M) | Time:00:00.90 | Mem:272.46M, Peak:272.54M | _mainScene, interior | Updating Lookup Tables
+Fra:1 Mem:405.22M (Peak 405.22M) | Time:00:00.90 | Mem:272.54M, Peak:272.54M | _mainScene, interior | Updating Baking
+Fra:1 Mem:405.22M (Peak 405.22M) | Time:00:00.90 | Mem:272.54M, Peak:272.54M | _mainScene, interior | Updating Device | Writing constant memory
+System is out of GPU memory
+
+Refer to the Cycles GPU rendering documentation for possible solutions:
+https://docs.blender.org/manual/en/latest/render/cycles/gpu_rendering.html
+
+Fra:1 Mem:405.25M (Peak 409.24M) | Time:00:01.20 | Mem:648.55M, Peak:648.55M | _mainScene, interior | System is out of GPU memory
+Error: System is out of GPU memory
+CYCLES-DEVICES: ['Leandro RTX 2070-768M']
+
+Blender quit

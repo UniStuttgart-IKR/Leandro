@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# classroom-profile-1536.txt, from the run -- matrix policy, 2026-08-21.
+Fra:1 Mem:378.43M (Peak 378.43M) | Time:00:00.84 | Mem:229.63M, Peak:229.63M | _mainScene, interior | Updating Images | Loading ceilingAirVent_AO.png
+Fra:1 Mem:390.43M (Peak 390.43M) | Time:00:00.85 | Mem:245.63M, Peak:245.63M | _mainScene, interior | Updating Images | Loading pencil_colorMask.png
+Fra:1 Mem:392.43M (Peak 392.43M) | Time:00:00.86 | Mem:249.63M, Peak:249.63M | _mainScene, interior | Updating Images | Loading childDrawing_01.jpg
+Fra:1 Mem:396.23M (Peak 396.23M) | Time:00:00.86 | Mem:251.63M, Peak:251.63M | _mainScene, interior | Updating Images | Loading base_darkWood.png
+Fra:1 Mem:398.99M (Peak 398.99M) | Time:00:00.87 | Mem:255.63M, Peak:255.63M | _mainScene, interior | Updating Images | Loading europeMap.png
+Fra:1 Mem:402.99M (Peak 402.99M) | Time:00:00.90 | Mem:270.22M, Peak:270.22M | _mainScene, interior | Updating Camera Volume
+Fra:1 Mem:402.99M (Peak 402.99M) | Time:00:00.90 | Mem:270.22M, Peak:270.22M | _mainScene, interior | Updating Lookup Tables
+Fra:1 Mem:402.99M (Peak 402.99M) | Time:00:00.90 | Mem:270.30M, Peak:270.30M | _mainScene, interior | Updating Lights
+Fra:1 Mem:402.99M (Peak 402.99M) | Time:00:00.90 | Mem:270.31M, Peak:270.31M | _mainScene, interior | Updating Lights | Computing distribution
+Fra:1 Mem:404.22M (Peak 404.22M) | Time:00:00.91 | Mem:271.54M, Peak:271.54M | _mainScene, interior | Updating Integrator
+Fra:1 Mem:405.22M (Peak 405.22M) | Time:00:00.91 | Mem:272.54M, Peak:272.54M | _mainScene, interior | Updating Film
+Fra:1 Mem:405.22M (Peak 405.22M) | Time:00:00.91 | Mem:272.46M, Peak:272.54M | _mainScene, interior | Updating Lookup Tables
+Fra:1 Mem:405.22M (Peak 405.22M) | Time:00:00.91 | Mem:272.54M, Peak:272.54M | _mainScene, interior | Updating Baking
+Fra:1 Mem:405.22M (Peak 405.22M) | Time:00:00.91 | Mem:272.54M, Peak:272.54M | _mainScene, interior | Updating Device | Writing constant memory
+Fra:1 Mem:409.25M (Peak 409.25M) | Time:00:00.93 | Mem:648.55M, Peak:648.55M | _mainScene, interior | Sample 0/200
+Fra:1 Mem:741.49M (Peak 741.49M) | Time:00:01.26 | Remaining:01:06.27 | Mem:980.78M, Peak:980.78M | _mainScene, interior | Sample 1/200
+Fra:1 Mem:741.49M (Peak 741.49M) | Time:00:27.41 | Remaining:00:14.57 | Mem:980.79M, Peak:980.79M | _mainScene, interior | Sample 129/200
+Fra:1 Mem:1073.74M (Peak 1437.63M) | Time:00:42.69 | Mem:980.79M, Peak:980.79M | _mainScene, interior | Sample 200/200
+Fra:1 Mem:1073.74M (Peak 1437.63M) | Time:00:42.69 | Mem:980.79M, Peak:980.79M | _mainScene, interior | Finished
+Saved: '/tmp/c_0001.png'
+Time: 00:43.30 (Saving: 00:00.49)
+
+CYCLES-DEVICES: ['Leandro RTX 2070-1280M']
+
+Blender quit

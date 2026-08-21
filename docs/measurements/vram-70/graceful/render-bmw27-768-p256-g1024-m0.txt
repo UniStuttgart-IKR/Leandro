@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# render-bmw27-768-p256-g1024-m0.txt, from the run -- graceful policy, 2026-08-21.
+Fra:1 Mem:143.62M (Peak 338.62M) | Time:01:31.94 | Compositing | Operation 17-34
+Fra:1 Mem:159.25M (Peak 338.62M) | Time:01:31.95 | Compositing | Operation 18-34
+Fra:1 Mem:159.25M (Peak 338.62M) | Time:01:31.95 | Compositing | Operation 19-34
+Fra:1 Mem:159.25M (Peak 338.62M) | Time:01:31.96 | Compositing | Operation 20-34
+Fra:1 Mem:159.25M (Peak 338.62M) | Time:01:31.96 | Compositing | Operation 21-34
+Fra:1 Mem:159.25M (Peak 338.62M) | Time:01:31.96 | Compositing | Operation 22-34
+Fra:1 Mem:159.25M (Peak 338.62M) | Time:01:31.96 | Compositing | Operation 23-34
+Fra:1 Mem:190.89M (Peak 338.62M) | Time:01:32.43 | Compositing | Operation 24-34
+Fra:1 Mem:206.91M (Peak 338.62M) | Time:01:32.44 | Compositing | Operation 25-34
+Fra:1 Mem:206.91M (Peak 338.62M) | Time:01:32.44 | Compositing | Operation 26-34
+Fra:1 Mem:206.91M (Peak 338.62M) | Time:01:32.49 | Compositing | Operation 27-34
+Fra:1 Mem:206.91M (Peak 338.62M) | Time:01:32.49 | Compositing | Operation 28-34
+Fra:1 Mem:206.91M (Peak 338.62M) | Time:01:32.89 | Compositing | Operation 29-34
+Fra:1 Mem:206.91M (Peak 338.62M) | Time:01:32.94 | Compositing | Operation 30-34
+Fra:1 Mem:175.26M (Peak 338.62M) | Time:01:32.95 | Compositing | Operation 31-34
+Fra:1 Mem:151.53M (Peak 338.62M) | Time:01:32.95 | Compositing | Operation 32-34
+Fra:1 Mem:151.53M (Peak 338.62M) | Time:01:32.95 | Compositing | Operation 33-34
+Fra:1 Mem:111.98M (Peak 338.62M) | Time:01:32.96 | Compositing | Operation 34-34
+Fra:1 Mem:111.98M (Peak 338.62M) | Time:01:32.97 | Compositing | Operation 35-34
+Saved: '/tmp/g_0001.png'
+Time: 01:34.72 (Saving: 00:01.74)
+
+CYCLES-DEVICES: ['Leandro RTX 2070-768M']
+
+Blender quit

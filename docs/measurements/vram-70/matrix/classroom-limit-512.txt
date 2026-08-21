@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# classroom-limit-512.txt, from the run -- matrix policy, 2026-08-21.
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+System is out of GPU memory
+Fra:1 Mem:269.85M (Peak 281.82M) | Time:00:01.16 | Mem:648.55M, Peak:648.55M | _mainScene, interior | System is out of GPU memory
+Error: System is out of GPU memory
+CYCLES-DEVICES: ['Leandro RTX 2070-512M']
+
+Blender quit

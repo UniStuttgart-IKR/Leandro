@@ -1353,6 +1353,89 @@ refused against `2Q`'s `maxInstance` of four, and a sixth refused for being
 a different type on a card that is running `1Q` -- plus (a) and (b) above.
 None of them needs a guest that is not already on this rig.
 
+### 70. What a VRAM limit costs, and what happens at the edge
+**Open, raised 2026-08-21** on the `vram-grid` branch. Numbers 68 and 69
+established that a limit can be enforced and that the three policies are
+interchangeable. Neither asked the question a tenant actually cares about:
+**what does a smaller number cost me, and what happens when it is too
+small?**
+
+**FOURTEEN SIZES, SIX WORKLOADS, ONE GUEST** (`docs/measurements/vram-70/`).
+The sizes span 8192 down to 384 MiB, reached three different ways at 3072
+and at 1280 so that the POLICY and the NUMBER are separated. The workloads
+were picked to span the axis: `bmw27` (a 386 MB Cycles scene, fits
+everywhere), `classroom` (980 MB device-resident, the interesting one),
+`ffmpeg h264_nvenc`, `convburn` (torch, whose result this project checks
+bit-for-bit), and `vrampress` (the ceiling itself).
+
+**RESULT ONE: capping is free until it is fatal.** From 8192 to 1280 MiB --
+a 6.4x cut -- the worst penalty on any workload is 8 %, and most rows are
+inside run-to-run noise:
+
+| guest MiB | bmw27 | classroom | nvenc | convburn |
+|---|---|---|---|---|
+| 8192 | 23.13 s | 40.00 s | 167 fps | 21.85 ms/it |
+| 6400 | 23.26 | 41.03 | 165 | 21.77 |
+| 3072 | 23.32 / 23.14 / 23.42 | 41.34 / 40.77 / 40.22 | 181 / 179 / 180 | 21.83 / 21.85 / 21.79 |
+| 2048 | 23.72 | 41.67 | 170 | 21.94 |
+| 1280 | 23.58 / 23.54 / 23.55 | 41.56 / 42.62 / 43.30 | 183 / 173 / 168 | 21.95 / 22.00 / 21.94 |
+
+The triples at 3072 and 1280 are `--vgpu-type`, `--vram-limit` and
+`--vram-profile` reaching the same guest number. **They are
+indistinguishable**, which is the sharpest argument in the whole series
+that the mechanism does not matter and the number does.
+
+**RESULT TWO: the edge is a cliff, and it is one step wide.**
+
+| guest MiB | bmw27 (386 MB) | classroom (980 MB) | convburn |
+|---|---|---|---|
+| 1280 | 23.58 s | 41.56 s | 21.95 ms/it |
+| 1024 | 23.64 s | **fails** | 20.76, and the RESULT CHANGED |
+| 768 | **96.10 s -- 4.1x** | fails | 28.15, result changed |
+| 512 | fails | fails | OOM |
+
+`bmw27` at 768 MiB is the whole "graceful degradation" story in one number:
+it does not crash, it finishes in four times the wall clock, having pushed
+what it could to host memory. **That band is a single 256 MiB step.** Above
+it, no cost; below it, nothing runs.
+
+**RESULT THREE, and it is a warning: a cap can change a numerical result.**
+`convburn` completed at 1024 and 768 MiB, but with `acc=3.041450977e+00`
+where every other row in the matrix returns `acc=3.041451216e+00`. Under
+memory pressure cuDNN has less workspace and picks a different algorithm,
+so the summation order changes. This project's own gpu gate treats
+bit-identical torch output as a CORRECTNESS criterion (`test.sh gpu`,
+"torch bit-identical to a native run"); a VRAM cap tight enough to squeeze
+cuDNN quietly breaks that property while every test still passes.
+
+**RESULT FOUR, a negative one: the width of that band is NOT ours to set.**
+Two candidate knobs were tested and neither moved it:
+
+  * the PIN BUDGET (`LEA_MAX_PIN_MIB` 256 -> 2048, guest `max_pin_mib`
+    1024 -> 4096): `bmw27` at 512 MiB fails identically, `classroom` at
+    1024 fails identically;
+  * `LEA_MANAGED_COMPAT=1`: `classroom` at 1024 and 768 fails identically.
+    NOT CONFIRMED that the managed path was exercised at all -- the backend
+    logs a fake only when it makes one, and none appeared, so Cycles'
+    "shared host memory" may be `cuMemHostAlloc` rather than managed memory.
+
+So the graceful band is a property of the APPLICATION -- how much of its
+working set it can push off the device -- and of the scene, not of this
+boundary. We choose the number; the tenant's software decides whether a
+number that is too small means "slower" or "dead".
+
+**WHAT THIS SAYS TO AN OPERATOR.** Size a profile to the workload's peak
+plus the context (~128 MiB), not to a fraction of the card. There is
+nothing to be gained by shaving the number -- a 6.4x cut costs 8 % -- and
+everything to lose by shaving it one step too far.
+
+**WHAT IS NOT MEASURED HERE:** a workload that TRULY adapts, which is a
+game with texture streaming rather than a renderer or a training loop.
+Neither Cycles nor PyTorch scales its working set to fit; they fail or they
+thrash. Shadow of the Tomb Raider at a fixed resolution across these same
+sizes is the run that would show the third behaviour, and it is the one
+this rig has not done.
+
 ## Resolved and decided
 
 ### 1. Does the descriptor table warrant a protocol change?
