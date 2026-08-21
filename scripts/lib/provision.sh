@@ -37,6 +37,74 @@ _lea_ip() {
 }
 
 # ---- shipping ---------------------------------------------------------------
+# lea_guest_dns_ok NAME -- can the guest resolve? (quietly)
+lea_guest_dns_ok() {
+    local ip; ip=$(_lea_ip "$1") || return 1
+    lea_ssh "$ip" 'getent hosts archive.ubuntu.com >/dev/null 2>&1'
+}
+
+# lea_guest_fix_dns NAME -- find a resolver the GUEST can actually use.
+#
+# WHY THIS EXISTS RATHER THAN A BETTER GUESS IN THE SEED. The seed's resolvers
+# are applied by cloud-init on FIRST BOOT only, so changing them does nothing
+# for a disk that already exists -- and a rig that has to be recreated to fix
+# its DNS is not a rig most people can use. Worse, the host's own resolver is
+# often 127.0.0.53 (systemd-resolved's stub), which resolves perfectly on the
+# host and is nothing at all from inside a guest, so "use the host's resolver"
+# silently degrades to the hard-coded public pair -- which is exactly what a
+# network that blocks 8.8.8.8 refuses.
+#
+# So: ask the GUEST, which is the only party whose answer settles it, and try
+# candidates until one works. Reported 2026-08-21 from a university host where
+# NAT, ip_forward and both FORWARD rules were correct and 8.8.8.8 was blocked.
+#
+# Ordered cheapest-and-most-likely first. Nothing here needs sudo on the host
+# and nothing changes host configuration, which is the point.
+lea_guest_fix_dns() {
+    local name=$1 ip cand c
+    ip=$(_lea_ip "$name") || return 1
+    lea_guest_dns_ok "$name" && return 0
+
+    local -a cands=()
+    # Deliberate word splitting on a comma-separated knob, done with `read -a`
+    # rather than silenced with a directive. (A comment line must not BEGIN
+    # with the checker's name -- that is parsed as a directive and makes it
+    # give up on the whole file, which is the trap check.yml already records.)
+    if [[ -n ${LEA_GUEST_DNS:-} ]]; then
+        local -a _lea_dns_req
+        read -r -a _lea_dns_req <<<"${LEA_GUEST_DNS//,/ }"
+        cands+=("${_lea_dns_req[@]}")
+    fi
+    # The host's upstreams, loopback and IPv6 dropped for the reasons in
+    # _lea_guest_dns.
+    while read -r c; do cands+=("$c"); done < <(
+        { resolvectl dns 2>/dev/null | tr ' ' '\n'
+          grep -E '^nameserver' /etc/resolv.conf 2>/dev/null | awk '{print $2}'
+        } | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -v '^127\.')
+    # THE DEFAULT-ROUTE GATEWAY. On most LANs -- university ones especially --
+    # the router forwards DNS, and it is reachable from the guest through the
+    # same NAT the guest already uses. It is also derivable without sudo and
+    # without any host configuration, which the public resolvers are not.
+    c=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="via") print $(i+1); exit}')
+    [[ -n $c ]] && cands+=("$c")
+    cands+=(8.8.8.8 1.1.1.1)
+
+    local -A seen=()
+    for c in "${cands[@]}"; do
+        [[ -n $c && -z ${seen[$c]:-} ]] || continue
+        seen[$c]=1
+        # `options timeout:1 attempts:1` so a dead candidate costs a second,
+        # not the five glibc would otherwise spend on it.
+        if lea_ssh "$ip" "printf 'nameserver %s\noptions timeout:1 attempts:1\n' $c \
+                | sudo tee /etc/resolv.conf >/dev/null
+             getent hosts archive.ubuntu.com >/dev/null 2>&1"; then
+            info "  $name: resolver $c works from the guest"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # lea_guest_apt NAME PKG... -- install packages in an Ubuntu guest, once,
 # with the three things every bare `apt-get install` here was missing.
 #
@@ -77,8 +145,10 @@ lea_guest_apt() {
     # front of it. Two seconds here replaces minutes of waiting with the
     # sentence that identifies the problem AND says where to fix it -- on the
     # HOST, which is the part that is not obvious from inside the guest.
-    if ! lea_ssh "$ip" 'getent hosts archive.ubuntu.com >/dev/null 2>&1'; then
-        error "the guest cannot resolve archive.ubuntu.com, so apt cannot run.
+    if ! lea_guest_fix_dns "$name"; then
+        error "the guest cannot resolve archive.ubuntu.com, and no resolver worked.
+Tried, in order: LEA_GUEST_DNS if set, this host's own upstreams, the default
+route's gateway, then 8.8.8.8 and 1.1.1.1.
 The guest has an address and answers ssh, so this is NOT the VM: it is
 routing on the HOST. Check, in this order:
   scripts/showcase.sh net status        # uplink, NAT and the FORWARD rules
