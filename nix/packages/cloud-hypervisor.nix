@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 # SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-# cloud-hypervisor at CH_VERSION with this repository's patch series
-# (patches/0001-*, 0002-*): the generic vhost-user device learns SHARED
+# cloud-hypervisor at CH_VERSION with this repository's patch series --
+# WHICHEVER patches/*.patch exist, sorted, not a list repeated here: the
+# series has grown twice and a second list would have gone stale both times.
+# The generic vhost-user device learns SHARED
 # MEMORY REGIONS, which is what every RM mapping into the guest runs over --
 # without it the device comes up and ioctls work, but there is no
 # host-visible window and hence no CUDA. Its own derivation rather than an

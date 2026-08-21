@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: MIT -->
-# The two cloud-hypervisor patches
+# The three cloud-hypervisor patches
 
 `scripts/build.sh ch` clones cloud-hypervisor at [`CH_VERSION`](../CH_VERSION)
-and applies both of these before building it. They are the only changes
+and applies all of these before building it. They are the only changes
 this project needs in a VMM, and neither of them mentions NVIDIA, CUDA or
 Leandro: they close two gaps in cloud-hypervisor's **generic** vhost-user
 device, and any backend behind `--generic-vhost-user` gets them.
@@ -14,6 +14,7 @@ kept as two separate patches rather than one local fork.
 |---|---|
 | `0001-generic-vhost-user-shmem.patch` | the shared memory window is never negotiated, so a backend cannot expose host memory to the guest at all |
 | `0002-generic-vhost-user-device-features.patch` | only transport feature bits reach the guest, so every device type is reduced to its featureless form |
+| `0003-generic-vhost-user-refused-request.patch` | a request the backend's handler refuses is treated like a dead socket, so one refused `SHMEM_MAP` kills the whole device |
 
 ## 0001 -- the shared memory window
 

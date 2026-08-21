@@ -27,6 +27,54 @@ still owed: a change in cloud-hypervisor
 does not kill the worker, and a taxonomy of which 512 KiB mapping Steam's
 probe is attempting.
 
+**The cloud-hypervisor half is done and MEASURED, 2026-08-21.**
+`patches/0003-generic-vhost-user-refused-request.patch`.
+
+*The mechanism, read out of the code.* `FrontendReqHandler::handle_request()`
+(vhost 0.16) maps a handler failure to `Error::ReqHandlerError` and then --
+before returning it -- calls `self.send_ack_message(&hdr, &res)?`. So the
+backend has ALREADY been told its request failed, over the protocol, and the
+two ends are still in step. cloud-hypervisor's `handle_event` then treated
+that error like a dead socket: it set `disconnected` and returned
+`EpollHelperError::HandleEvent`, which terminates the epoll worker. One
+refused mapping, and the device is deaf for the life of the VM.
+
+*The A/B.* `LEA_TEST_SHMEM_MAP_OOB` (a one-shot test hook in the backend, see
+`on_map_prepare`) makes the FIRST `MapPrepare` ask the VMM to map one window
+past the end. The VMM bounds-checks it -- patch 0001 does that -- and refuses.
+Same knob, same probe, only the binary differs:
+
+| | probe 1 (sabotaged mapping) | probe 2 (legitimate) |
+|---|---|---|
+| CH without 0003 | fails | **fails** |
+| CH with 0003 | fails | **`stage 0/1/2 ok`, rc=0** |
+
+and the backend log is the clearer half. Without the patch:
+
+    SHMEM_MAP: Frontend internal error          <- the one refusal, correct
+    SHMEM_MAP: socket is broken: Broken pipe    <- the NEXT, legitimate map
+
+With it, the refusal is followed by ordinary operation resuming
+(`pool @0x204a00000 ... attached to GPU VA`). One refused mapping costs one
+mapping now, and not the device.
+
+*Why the hook exists at all:* the backend's own bounds check means a
+well-formed request never asks the VMM for something outside the window, so
+the branch where the VMM says no is unreachable in ordinary running. That is
+also why this defect survived so long -- and why the probe mmap fix above,
+which stopped the backend asking for the impossible, was enough to close the
+brick cycle without the VMM ever being corrected.
+
+*Honest scope.* This is defence in depth rather than the cause of the
+original wedge: with the backend half fixed, the guest no longer walks into
+the refusal by itself. What the patch removes is the class -- any refusal
+from the VMM, for any reason, taking the whole device with it. The window
+filling up is the reachable case that is not a bug in anybody's code, and
+number 31 measures 1015 window mappings held for dead clients, so it is not
+hypothetical.
+
+**Still owed, and it is the whole of what is left here:** the taxonomy of
+which 512 KiB mapping Steam's probe is attempting.
 ### 14. Fence waits sometimes fall back to the polling timer
 **Open, rarer since an unrelated fix.** A woken guest answers a fence in
 tenths of a millisecond. A polling guest answers in exactly 10.07 ms,
