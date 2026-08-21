@@ -22,6 +22,7 @@
 # WARNING: needs torch, cupy, cudf and cuml in the guest venv. None of them
 # are in the base image; a member that lacks them reports SKIP rather than
 # FAIL, because a missing dependency says nothing about the boundary.
+# `--install-deps` puts the three missing ones there (gigabytes, opt-in).
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 
@@ -35,7 +36,7 @@ usage() {
     exit "${1:-0}"
 }
 
-IP=$(lea_ip 0); ONLY=""; LIST=0; KEEP=0
+IP=$(lea_ip 0); ONLY=""; LIST=0; KEEP=0; DEPS=0
 while [[ $# -gt 0 ]]; do
     case $1 in
         --ip)   IP=$2; shift 2 ;;
@@ -43,6 +44,7 @@ while [[ $# -gt 0 ]]; do
         --only) ONLY=$2; shift 2 ;;
         --list) LIST=1; shift ;;
         --keep) KEEP=1; shift ;;
+        --install-deps) DEPS=1; shift ;;
         -h|--help) usage 0 ;;
         *) error "unknown option: $1"; usage 2 ;;
     esac
@@ -142,6 +144,38 @@ lea_ssh "$IP" 'test -x ~/gpu/venv/bin/python' 2>/dev/null \
     || { error "no python venv in the guest (~/gpu/venv). Provision with:
        ./scripts/showcase.sh up --with-torch"; exit 2; }
 
+# --install-deps: cupy, cudf and cuml into the guest venv.
+#
+# OPT-IN, because it is a download measured in gigabytes and because the three
+# of them say nothing about the boundary -- a suite that cannot import cudf
+# reports SKIP for exactly that reason. But "SKIP: missing module" with no way
+# to fix it is a dead end, and this runner knew the names all along (the
+# WARNING at the top of this file lists them).
+#
+# THE CUDA MAJOR IS ASKED, NOT ASSUMED. cupy and RAPIDS ship one wheel per
+# CUDA major -- cupy-cuda12x/cupy-cuda13x, cudf-cu12/cudf-cu13 -- and the
+# right one is whatever the GUEST's driver stack answers, not whatever this
+# host has. Read from nvidia-smi in the guest, which is the same place the
+# gate reads the UMD version from.
+if [[ $DEPS -eq 1 ]]; then
+    CU=$(lea_ssh "$IP" 'cd ~/gpu && LD_LIBRARY_PATH=$PWD/nv/lib ./nv/bin/nvidia-smi 2>/dev/null \
+            | sed -n "s/.*CUDA UMD Version: *\([0-9]*\)\..*/\1/p" | head -1' | tr -dc '0-9')
+    [[ -n $CU ]] || { error "cannot read the guest's CUDA major -- is the module loaded?"; exit 2; }
+    info "installing cupy-cuda${CU}x, cudf-cu$CU and cuml-cu$CU into the guest venv (GBs) ..."
+    lea_ssh "$IP" "~/gpu/venv/bin/pip install --quiet cupy-cuda${CU}x" \
+        || warn "cupy did not install -- test_nvrtc and test_uvm_migration will still SKIP"
+    # RAPIDS is not on PyPI proper; NVIDIA's index is where cudf/cuml live.
+    lea_ssh "$IP" "~/gpu/venv/bin/pip install --quiet \
+        --extra-index-url=https://pypi.nvidia.com cudf-cu$CU cuml-cu$CU" \
+        || warn "cudf/cuml did not install -- rapids_cuml_cudf will still SKIP"
+    lea_ssh "$IP" '~/gpu/venv/bin/python -c "
+import importlib
+for m in (\"cupy\",\"cudf\",\"cuml\"):
+    try:
+        importlib.import_module(m); print(\"  ok     \", m)
+    except Exception as e: print(\"  MISSING\", m, type(e).__name__)"' || true
+fi
+
 PIN_MIB=$(lea_ssh "$IP" 'cat /sys/module/virtio_nvrm/parameters/max_pin_mib 2>/dev/null' 2>/dev/null | tr -dc '0-9')
 if [[ -n ${PIN_MIB:-} && ${PIN_MIB:-0} -ge $PIN_NEEDED ]]; then
     PIN_EXPECT="pass"; PIN_NOTE=""; PIN_WHY="max_pin_mib=$PIN_MIB (>= $PIN_NEEDED needed)"
@@ -225,6 +259,9 @@ echo "logs: $OUT/"
 skipped=$(printf '%s\n' "${ROWS[@]}" | grep -c '^SKIP|') || true
 if [[ ${skipped:-0} -gt 0 ]]; then
     echo "SUITES: $skipped suite(s) could not run (missing dependencies)."
+    echo "  install them into the guest venv:  $0 --install-deps${IP:+ --ip $IP}"
+    echo "  (gigabytes, and none of them says anything about the boundary --"
+    echo "   which is why a missing one is SKIP and never FAIL.)"
     exit 2
 fi
 if [[ $deviation -ne 0 ]]; then
