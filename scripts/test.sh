@@ -716,6 +716,29 @@ gate_gpu() {
         pass smi "nvidia-smi identical to the native host run (masked), driver $WANT, guest sees $MEDIATED"
     else
         head -20 "$OUT/smi.diff"
+        # THE MASKED DIFF IS UNREADABLE ON ITS OWN, and this stage is the one
+        # most likely to fail for a reason that is not the boundary. A row
+        # reading `| N CARD On | N:N:N.N Off | N/A |` against
+        # `| N CARD Off | ...` names no field: every number is N and the
+        # columns have no header left. Reported 2026-08-21 from a Blackwell
+        # host, where the differing field turned out to be Persistence-M --
+        # host state that has nothing to do with the guest.
+        #
+        # So print the UNMASKED lines the diff points at, from both files,
+        # and the column header above them. Masking is what makes the
+        # comparison possible; it must not also make the result unreadable.
+        {
+            echo "--- the same rows UNMASKED (host first, then guest) ---"
+            grep -nE '^\|' "$OUT/smi-host.txt"   | sed -n '1,3p' | sed 's/^/  header /'
+            local ln
+            while read -r ln; do
+                sed -n "${ln}p" "$OUT/smi-host.txt"   | sed 's/^/  host  /'
+                sed -n "${ln}p" "$OUT/smi-module.txt" | sed 's/^/  guest /'
+            done < <(grep -oE '^[0-9]+' "$OUT/smi.diff" | sort -un | head -5)
+            echo "  (Persistence-M is the field after the card name. It is HOST"
+            echo "   driver lifecycle state; a guest cannot be expected to carry"
+            echo "   it, and nothing in the compute path reads it.)"
+        } 2>/dev/null | tee -a "$OUT/s41.log"
         fail smi "see $OUT/smi.diff and $OUT/s41.log"
     fi
 
