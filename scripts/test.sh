@@ -956,7 +956,25 @@ gate_vdisplay() {
     #     $LEA_BIN_DIR/nvrm-genhdr --expect-dump /tmp/expect.txt; head -1 /tmp/expect.txt
     # whose `hdr` line carries magic, version, bytes, checksum, ioctls,
     # classes, controls, nested -- fields 3, 8 and 9 are the three constants.
-    local LEA_VD_TABLE_VERSION=1 LEA_VD_EXPECT_CONTROLS=17 LEA_VD_EXPECT_NESTED=16
+    #
+    # MOVED 2026-08-21, from 17 / 16, and the tripwire worked exactly as this
+    # comment says it should: a changed count IS a finding. What moved it was
+    # two commits that each added a nested-pointer row for a good reason --
+    # 91bb590 (number 51: BIOS_GET_INFO's NvP64, one table row) and 4a4ea07
+    # (the tracer following a control's NvP64, so the answer behind it can be
+    # compared). Neither re-ran this gate, because the matrix work used the
+    # `vdisplay` RIG for its sweeps and not the vdisplay GATE, and the two
+    # share a name and nothing else.
+    #
+    # Found on a Blackwell host, which is worth saying because it is NOT a
+    # Blackwell fact: the counts are read out of the descriptor stream and
+    # would have failed identically on any card. The gpu gate did not catch
+    # it because its `tables` stage compares the guest's checksum against the
+    # HOST's -- two ends of one boundary agreeing about whatever was built --
+    # while this one compares the built table against what a person last
+    # wrote down. Both are worth having; only the second notices a surface
+    # that moved.
+    local LEA_VD_TABLE_VERSION=1 LEA_VD_EXPECT_CONTROLS=18 LEA_VD_EXPECT_NESTED=17
     # 1600x900 and NOT the module's own 1920x1080 default, deliberately: a
     # gate that asks for the default cannot tell "the parameters reached the
     # EDID" from "nothing was ever written".
