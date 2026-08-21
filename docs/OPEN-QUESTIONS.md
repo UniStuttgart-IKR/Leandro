@@ -364,23 +364,6 @@ Recorded because nothing in this tree mentioned `setpriority` or RTKit
 before, and because a stall with sound is exactly the shape a reader would
 otherwise file against numbers 10, 20 or 44.
 
-### 49. A deprecated control is forwarded verbatim with a pointer inside it
-**Open, 2026-08-20, one row out of 276.** The catalogue flags every
-signature that is forwarded without interpretation *and* whose parameter
-struct holds an `NvP64` or a file descriptor. Exactly one comes back:
-`NV0000_CTRL_CMD_GPU_GET_ID_INFO` (0x202, 40 bytes,
-`NV0000_CTRL_GPU_GET_ID_INFO_PARAMS`), seen in every CUDA, GL and Vulkan
-probe. Its header says "Deprecated. Please use
-`NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2` instead", and V2 (0x205) — which the
-same clients also call — has no pointer in it.
-
-It is on no mediation list, so the `szName` pointer travels as a **guest
-address handed to the host driver**. Whether that is a defect depends on
-something not measured yet: if RM never reads the field, nothing happens.
-Unverified either way, which is why it is a question and not a bug report.
-Worth settling because it is the exact shape of the failure class number 32
-named — a call that succeeds and answers plausibly.
-
 ### 52. The guest's graphics stack asks a different set of questions
 **Half answered 2026-08-21: the boundary carries them; the userspace stopped
 asking.** The direct probe this entry called for exists --
@@ -2478,6 +2461,66 @@ other in both directions.
 The claim this entry existed to make is therefore closed: 451 ioctls that
 appeared in no trace are recorded, counted and gated. What they MEAN is a
 decoder, and that is 64.
+### 49. A deprecated control is forwarded verbatim with a pointer inside it
+**Resolved 2026-08-21: RM never reads the field, so nothing happens.** The
+entry says the answer "depends on something not measured yet: if RM never
+reads the field, nothing happens" -- and that is now read out of the driver.
+The original reasoning is kept below. The catalogue flags every
+signature that is forwarded without interpretation *and* whose parameter
+struct holds an `NvP64` or a file descriptor. Exactly one comes back:
+`NV0000_CTRL_CMD_GPU_GET_ID_INFO` (0x202, 40 bytes,
+`NV0000_CTRL_GPU_GET_ID_INFO_PARAMS`), seen in every CUDA, GL and Vulkan
+probe. Its header says "Deprecated. Please use
+`NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2` instead", and V2 (0x205) — which the
+same clients also call — has no pointer in it.
+
+It is on no mediation list, so the `szName` pointer travels as a **guest
+address handed to the host driver**. Whether that is a defect depends on
+something not measured yet: if RM never reads the field, nothing happens.
+Unverified either way, which is why it is a question and not a bug report.
+Worth settling because it is the exact shape of the failure class number 32
+named — a call that succeeds and answers plausibly.
+
+---
+
+**ANSWERED 2026-08-21 by reading open-gpu-kernel-modules at
+`DRIVER_VERSION`**, the same way number 42 was settled -- and this one comes
+out the other way.
+
+*`szName` is referenced nowhere in the driver's source.* A grep for it across
+`src/` returns exactly two hits, and neither is code:
+
+    src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000gpu.h:88   the declaration
+    src/nvidia/generated/g_sdk-structures.h:249                its generated mirror
+
+*And the handler enumerates what it touches.* `0x202` dispatches through
+`cliresCtrlCmdGpuGetIdInfo_IMPL` (`rmapi/client_resource.c:1473`) to
+`gpumgrGetGpuIdInfo` (`gpu_mgr/gpu_mgr.c`), which reads `gpuId` as input and
+writes back exactly seven fields:
+
+    gpuFlags  deviceInstance  subDeviceInstance  sliStatus
+    boardId   gpuInstance     numaId
+
+`szName` is not among them. The pointer is neither dereferenced nor
+overwritten.
+
+**So the guest address travels to the host driver and is ignored**, which is
+the harmless one of the two possibilities this entry set out. The catalogue's
+flag is still correct and still worth having -- it found the one forwarded
+signature with an `NvP64` in it out of 276, which is exactly its job; what the
+flag cannot know is whether the far end reads the field, and only the source
+can say.
+
+**It stays worth knowing rather than being deleted**, for the reason the entry
+gives: this is the exact shape of number 32's failure class, a call that
+succeeds and answers plausibly. The difference is that here the field is
+provably dead, so a wrong value in it cannot become a wrong answer three steps
+later.
+
+**Consistent with the byte evidence**, which had already hinted at it from the
+other side: `verify` reports `GPU_GET_ID_INFO` answering byte-identically in a
+guest with the gpuId translated and nothing else moved. A field RM wrote
+through would not behave that way.
 ### 50. Nothing compares the answer bytes, so nothing is verified
 **Resolved 2026-08-21.** The harness exists, the mask problem this entry
 calls "the hard part" is solved by derivation, and the class it was written
