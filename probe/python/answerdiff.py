@@ -405,6 +405,14 @@ def read_side(path):
             # compares is the parameter block RM wrote back.
             sig, status = f"{r['dev']} 0x2b {r['class']}", "-"
         if sig is not None:
+            # The params buffer AND what its NvP64 points at, concatenated.
+            # For a list control the params are the QUESTION -- a count and a
+            # pointer -- and the ANSWER is behind the pointer, so comparing
+            # the params alone compares the question. `params_bytes` records
+            # where one ends and the other begins, so a finding can say which
+            # of the two an offset is in.
+            body = bytes.fromhex(r["dump"])
+            nested = bytes.fromhex(r.get("nested") or "")
             # The two samples go into two dicts. `calls` is the ANSWER, and
             # is what every existing comparison is about; `asked` is the
             # buffer as the caller handed it over, which is the only thing
@@ -412,8 +420,11 @@ def read_side(path):
             # pointer the caller never supplied (number 60).
             where = asked if r.get("phase") == "in" else calls
             where[sig].append({
-                "len": int(r["len"]), "status": status,
-                "bytes": list(bytes.fromhex(r["dump"])),
+                "len": int(r["len"]) + int(r.get("nlen") or 0),
+                "status": status,
+                "bytes": list(body + nested),
+                "params_bytes": len(body),
+                "has_nested": bool(nested),
             })
             continue
         if r["t"] == "cardinfo":
@@ -477,6 +488,19 @@ def written_words(asked, calls):
     return out
 
 
+def where_at(fm, off, params_bytes):
+    """Name the field at `off`, saying which BUFFER it is in.
+
+    Past the end of the params buffer the offset is into what an NvP64
+    pointed at, and the field map has nothing to say about it -- the map
+    describes the params struct, and the buffer behind the pointer is a list
+    whose element type the struct does not name.
+    """
+    if params_bytes is not None and off >= params_bytes:
+        return f"+{off - params_bytes} in the buffer behind the NvP64"
+    return name_at(fm, off)
+
+
 def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
                 stab=None, nasked=(), gasked=()):
     """One signature's verdict: verified, or the reason it is not.
@@ -521,6 +545,7 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
                           f"{g['len']} in the guest"), {}
         if len(n["bytes"]) != len(g["bytes"]):
             return None, f"call {i}: the two dumps are of different length", {}
+        pb = n.get("params_bytes")
         nws, gws = words_of(n["bytes"]), words_of(g["bytes"])
         for j, (nw, gw) in enumerate(zip(nws, gws)):
             if nw == gw:
@@ -553,7 +578,7 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
             # that case: the byte that moves is HEAP_FREE.
             if why is None and stab and off in stab["unstable"]:
                 return "unstable", (
-                    f"call {i}, {name_at(fm, off)}: {nw:#010x} natively, "
+                    f"call {i}, {where_at(fm, off, pb)}: {nw:#010x} natively, "
                     f"{gw:#010x} in the guest -- and this word is NOT STABLE "
                     f"between two native runs, or between two calls of one "
                     f"native run, so it is "
@@ -606,7 +631,7 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
                     nn = sum(1 for c in range(tot) if off in nwrote[c])
                     gg = sum(1 for c in range(tot) if off in gwrote[c])
                     return "unwritten", (
-                        f"call {i}, {name_at(fm, off)}: RM wrote {nw:#010x} "
+                        f"call {i}, {where_at(fm, off, pb)}: RM wrote {nw:#010x} "
                         f"natively and the guest left the caller's own "
                         f"{gw:#010x} in place, with NV_OK on both sides. Over "
                         f"the {tot} paired call(s) of this probe, this word "
@@ -618,7 +643,7 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
                 extra = (" -- this command IS mediated, and this byte is in "
                          "none of the fields the mediation declares"
                          if med else "")
-                return None, (f"call {i}, {name_at(fm, off)}: "
+                return None, (f"call {i}, {where_at(fm, off, pb)}: "
                               f"{nw:#010x} natively, {gw:#010x} in the guest"
                               f"{extra}"), {}
             masked[why] += 1
@@ -760,7 +785,9 @@ def main():
                     "native_calls_compared": (st or {}).get("repeats", 0),
                 })["probes"].append(p)
                 continue
-            if ok is True and declared.get(cmd):
+            followed = any(c.get("has_nested")
+                           for c in n["calls"].get(key, []))
+            if ok is True and declared.get(cmd) and not followed:
                 # THE ANSWER IS NOT IN WHAT WAS COMPARED.
                 #
                 # `ctrlout` dumps the params BUFFER. For a command whose

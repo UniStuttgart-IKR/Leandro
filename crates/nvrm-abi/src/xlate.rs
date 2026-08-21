@@ -21,7 +21,7 @@
 //! checklist.
 
 use crate::sys;
-use core::mem::size_of;
+use core::mem::{offset_of, size_of};
 
 /// Which class of device the call goes to. Decides the dispatch level:
 /// the frontend (ctl/gpu) uses _IOC encoding, UVM does not.
@@ -274,6 +274,139 @@ pub fn alloc_param_size_compiled(hclass: u32) -> Option<usize> {
         0x00c3 => size_of::<sys::NV_MEMORY_SYNCPOINT_ALLOCATION_PARAMS>(),
         _ => return None,
     })
+}
+
+/// Where a control's nested pointer and its count live, **as the compiler
+/// measures them**.
+///
+/// `ctrlout` dumps a control's params BUFFER. For these commands that buffer
+/// is the QUESTION -- a count and an `NvP64` -- and the ANSWER is behind the
+/// pointer. Thirteen signatures were reported `verified` on "16 of 16 bytes"
+/// because of it, which says the whole answer was compared and means the
+/// whole question was.
+///
+/// So `nvrm-trace` follows the pointer. The two OFFSETS come from
+/// `offset_of!` on the bindgen struct and not from `nested_ptrs` below,
+/// which is the table under test and which the guest module forwards on --
+/// an instrument that took them from there would agree with it by
+/// construction. The test beside this requires the two to agree.
+///
+/// WHAT REMAINS HAND-DERIVED, stated because it is the honest edge: `elem`.
+/// Whether a count field means BYTES or ENTRIES is prose in the header, not
+/// layout, and no `size_of` can answer it -- `NV0080_CTRL_GR_GET_INFO`'s
+/// `grInfoListSize` is a number of entries while `NV0080_CTRL_GR_GET_CAPS`'s
+/// `capsTblSize` is a number of bytes, and the two structs are identical.
+/// The element STRUCT is compiled where there is one. A wrong `elem` makes
+/// the tracer read the same wrong length the boundary already reads, so it
+/// adds no risk that is not already there, and it costs coverage rather than
+/// correctness in the direction that matters: fewer bytes compared.
+pub fn ctrl_nested_compiled(cmd: u32) -> &'static [(usize, usize, u32)] {
+    /// `NVXXXX_CTRL_XXX_INFO { index; data }`, the element of every
+    /// `...InfoList` below (ctrlxxxx.h:71).
+    const INFO: u32 = size_of::<sys::NVXXXX_CTRL_XXX_INFO>() as u32;
+    match cmd {
+        // Three string buffers, one shared size, in BYTES.
+        0x101 => &[
+            (offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, pDriverVersionBuffer),
+             offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, sizeOfStrings), 1),
+            (offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, pVersionBuffer),
+             offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, sizeOfStrings), 1),
+            (offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, pTitleBuffer),
+             offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, sizeOfStrings), 1),
+        ],
+        // Entry lists: the count is a number of NVXXXX_CTRL_XXX_INFO.
+        0x20800802 => &[
+            (offset_of!(sys::NV2080_CTRL_BIOS_GET_INFO_PARAMS, biosInfoList),
+             offset_of!(sys::NV2080_CTRL_BIOS_GET_INFO_PARAMS, biosInfoListSize), INFO)],
+        0x20801201 => &[
+            (offset_of!(sys::NV2080_CTRL_GR_GET_INFO_PARAMS, grInfoList),
+             offset_of!(sys::NV2080_CTRL_GR_GET_INFO_PARAMS, grInfoListSize), INFO)],
+        0x20801301 => &[
+            (offset_of!(sys::NV2080_CTRL_FB_GET_INFO_PARAMS, fbInfoList),
+             offset_of!(sys::NV2080_CTRL_FB_GET_INFO_PARAMS, fbInfoListSize), INFO)],
+        0x20801802 => &[
+            (offset_of!(sys::NV2080_CTRL_BUS_GET_INFO_PARAMS, busInfoList),
+             offset_of!(sys::NV2080_CTRL_BUS_GET_INFO_PARAMS, busInfoListSize), INFO)],
+        0x801104 => &[
+            (offset_of!(sys::NV0080_CTRL_GR_GET_INFO_PARAMS, grInfoList),
+             offset_of!(sys::NV0080_CTRL_GR_GET_INFO_PARAMS, grInfoListSize), INFO)],
+        // NvU32 arrays: the count is a number of 4-byte items.
+        0x20800123 => &[
+            (offset_of!(sys::NV2080_CTRL_GPU_GET_ENGINES_PARAMS, engineList),
+             offset_of!(sys::NV2080_CTRL_GPU_GET_ENGINES_PARAMS, engineCount), 4)],
+        0x800201 => &[
+            (offset_of!(sys::NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS, classList),
+             offset_of!(sys::NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS, numClasses), 4)],
+        0x80170d => &[
+            (offset_of!(sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS, pChannelHandleList),
+             offset_of!(sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS, numChannels), 4),
+            (offset_of!(sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS, pChannelList),
+             offset_of!(sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS, numChannels), 4)],
+        // Caps tables: the count is in BYTES, however identical the struct.
+        0x801102 => &[
+            (offset_of!(sys::NV0080_CTRL_GR_GET_CAPS_PARAMS, capsTbl),
+             offset_of!(sys::NV0080_CTRL_GR_GET_CAPS_PARAMS, capsTblSize), 1)],
+        0x801301 => &[
+            (offset_of!(sys::NV0080_CTRL_FB_GET_CAPS_PARAMS, capsTbl),
+             offset_of!(sys::NV0080_CTRL_FB_GET_CAPS_PARAMS, capsTblSize), 1)],
+        0x801701 => &[
+            (offset_of!(sys::NV0080_CTRL_FIFO_GET_CAPS_PARAMS, capsTbl),
+             offset_of!(sys::NV0080_CTRL_FIFO_GET_CAPS_PARAMS, capsTblSize), 1)],
+        0x801b01 => &[
+            (offset_of!(sys::NV0080_CTRL_NVENC_GET_CAPS_PARAMS, capsTbl),
+             offset_of!(sys::NV0080_CTRL_NVENC_GET_CAPS_PARAMS, capsTblSize), 1)],
+        _ => &[],
+    }
+}
+
+#[cfg(test)]
+mod ctrl_nested_tests {
+    use super::*;
+
+    /// The hand-written nested-pointer table against the compiler.
+    ///
+    /// `nested_ptrs` drives the guest module: it says where a pointer sits in
+    /// a params buffer and how long the buffer behind it is, and the module
+    /// copies exactly that across the boundary. A wrong offset there reads
+    /// the wrong eight bytes as a pointer. The offsets are layout, so the
+    /// compiler can check them, and every command the compiler knows about
+    /// must agree.
+    ///
+    /// `elem` is checked too, but that is the two tables agreeing rather than
+    /// the compiler adjudicating: whether a count means bytes or entries is
+    /// prose in a header. `ctrl_nested_compiled` says so in its own words.
+    #[test]
+    fn the_nested_pointer_offsets_are_what_the_compiler_measures() {
+        let mut checked = 0;
+        for cmd in nested_cmds() {
+            let compiled = ctrl_nested_compiled(*cmd);
+            if compiled.is_empty() {
+                continue;   // no bindgen struct for it; nothing to check
+            }
+            let table = nested_ptrs(*cmd);
+            assert_eq!(
+                compiled.len(), table.len(),
+                "command {cmd:#x}: {} compiled pointers against {} in the table",
+                compiled.len(), table.len()
+            );
+            for (i, (ptr_off, len_off, elem)) in compiled.iter().enumerate() {
+                assert_eq!(table[i].ptr_off as usize, *ptr_off,
+                           "command {cmd:#x} pointer {i}: table says +{}, the compiler +{ptr_off}",
+                           table[i].ptr_off);
+                match table[i].len {
+                    LenSource::Field { off, elem: e } => {
+                        assert_eq!(off as usize, *len_off,
+                                   "command {cmd:#x} pointer {i}: count at +{off} against +{len_off}");
+                        assert_eq!(e, *elem,
+                                   "command {cmd:#x} pointer {i}: elem {e} against {elem}");
+                    }
+                    _ => panic!("command {cmd:#x} pointer {i}: not a Field length"),
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked >= 15, "only {checked} pointers checked");
+    }
 }
 
 #[cfg(test)]

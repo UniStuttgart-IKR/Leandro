@@ -724,6 +724,50 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             if !pp.is_null() && plen > 0 {
                 let n = plen.min(dump_cap());
                 let bytes = core::slice::from_raw_parts(pp, n);
+
+                // AND WHAT THE PARAMS POINT AT. For these commands the params
+                // buffer is the QUESTION -- a count and an NvP64 -- and the
+                // ANSWER is behind the pointer. Without this, thirteen
+                // signatures were reported verified on "16 of 16 bytes",
+                // which says the whole answer was compared and means the
+                // whole question was.
+                //
+                // The offsets come from `offset_of!` on the bindgen struct,
+                // NOT from `xlate::nested_ptrs`: that is the table the guest
+                // module forwards on, and an instrument that took its
+                // offsets from the table under test would agree with it by
+                // construction. nvrm-abi's own test requires the two to
+                // agree.
+                //
+                // The read is bounded twice over: by the caller's own count
+                // field, which is the same length RM's copy_from_user and
+                // the guest module both read, and by the dump cap. A count
+                // beyond any plausible list is skipped rather than trusted.
+                let mut nested: Vec<u8> = Vec::new();
+                let mut ntotal: usize = 0;
+                for (ptr_off, len_off, elem) in
+                    nvrm_abi::xlate::ctrl_nested_compiled(cmd)
+                {
+                    if plen < ptr_off + 8 || plen < len_off + 4 {
+                        continue;
+                    }
+                    let gp = (pp.add(*ptr_off) as *const u64).read_unaligned();
+                    let cnt = (pp.add(*len_off) as *const u32).read_unaligned();
+                    if cnt as usize > (1 << 20) {
+                        continue;
+                    }
+                    let nl = (cnt as usize).saturating_mul(*elem as usize);
+                    if gp == 0 || nl == 0 {
+                        continue;
+                    }
+                    ntotal += nl;
+                    let room = dump_cap().saturating_sub(nested.len());
+                    let take = nl.min(room);
+                    if take > 0 {
+                        nested.extend_from_slice(core::slice::from_raw_parts(
+                            gp as usize as *const u8, take));
+                    }
+                }
                 // `hobject` is the object the control was issued ON, which
                 // is what tells two calls of one command apart when they
                 // differ: a device control and a subdevice control of the
@@ -737,6 +781,10 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                     key("len", V::I(plen as i64)),
                     key("status", V::H32(p.status as u32)),
                     pos("dump", V::Dump(bytes)),
+                    // Present only when there IS something behind a pointer,
+                    // so an ordinary control's line is unchanged.
+                    key("nlen", if ntotal > 0 { V::I(ntotal as i64) } else { V::Nil }),
+                    pos("nested", V::Dump(&nested)),
                 ]);
             }
         }

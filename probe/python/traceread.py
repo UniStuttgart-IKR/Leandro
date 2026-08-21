@@ -67,10 +67,15 @@ PHASED = frozenset({"nvos02", "nvos33", "nvos32", "nvos46", "nvos64",
 #   cardinfo  [0]     gpu_id=... pci=... ...      -- `i` is positional, as [n]
 #   ctrlout   0x214   len=384 status=0x0  <dump>  -- `cmd` and `dump` are
 #   uvmout    0x25    len=32   <dump>             -- `nr` and `dump` are
-MIXED = {"cardinfo": ("i",), "ctrlout": ("cmd", "dump"),
+MIXED = {"cardinfo": ("i",), "ctrlout": ("cmd", "dump", "nested"),
          "uvmout": ("nr", "dump"),
          "allocout": ("dev", "class", "src", "dump"),
          "escout": ("dev", "nr", "sub", "dump")}
+
+# Fields rendered as a byte DUMP: space-separated in the legacy TSV,
+# contiguous here. `ctrlout.nested` is the buffer a control's NvP64 points
+# at, which is where the answer of a list control actually lives.
+DUMPS = frozenset({"dump", "nested"})
 
 
 def _split_phase(kind):
@@ -107,9 +112,10 @@ def _from_tsv(line):
             k, _, v = x.partition("=")
             rec[k] = v
         elif kind == "ctrlout":
-            # The trailing dump, the one field of the old format that is
-            # neither positional-by-index nor named.
-            rec["dump"] = x.replace(" ", "")
+            # The trailing dumps, the fields of the old format that are
+            # neither positional-by-index nor named: `dump` first, then
+            # `nested` when the control has one.
+            rec["dump" if "dump" not in rec else "nested"] = x.replace(" ", "")
     return rec
 
 
@@ -252,7 +258,7 @@ def project(rec):
             continue
         if k == "i" and kind == "cardinfo":
             out.append(f"[{v}]")
-        elif k == "dump":
+        elif k in DUMPS:
             out.append(_spaced(v))
         elif k in mixed:
             # A positional field that is absent is `-` in the old format,

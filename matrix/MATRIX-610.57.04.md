@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-21T00:16:38Z
-commit:  cf5c074 (working tree modified)
+date:    2026-08-21T00:26:31Z
+commit:  565513f (working tree modified)
 ```
 
 Probes against status. This is the compatibility statement: a probe
@@ -39,7 +39,7 @@ Guest evidence: `matrix/guest-610.57.04.json`, 10 FAIL, 2 blocked, 9 guest-valid
 | `gl-render` | gl | predicted-green | FAIL * | 522 | 119 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
 | `gles` | gl | predicted-green | FAIL * | 568 | 117 | 0 | 68 | 34 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
 | `kms-nvkms` | kms | blocked: needs kernel-side trace point | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `nvdec` | video | predicted-green * | **guest-validated** | 996 | 131 | 0 | 81 | 50 | 0 | libcuda<br>libnvcuvid |
+| `nvdec` | video | predicted-green | **guest-validated** | 996 | 131 | 0 | 81 | 50 | 0 | libcuda<br>libnvcuvid |
 | `nvenc` | video | predicted-green | **guest-validated** | 1600 | 135 | 0 | 84 | 51 | 0 | libcuda<br>libnvcuvid<br>libnvidia-encode |
 | `nvfbc` | video | declared-unsupported: workload not procurable in this environment | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
 | `nvml` | nvml | predicted-green | FAIL * | 179 | 105 | 0 | 87 | 18 | 0 | libcuda<br>libnvidia-ml |
@@ -61,7 +61,6 @@ Guest evidence: `matrix/guest-610.57.04.json`, 10 FAIL, 2 blocked, 9 guest-valid
 - \* `gl-enum` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_DETACH_IDS (ctl nr=0x2a sub=0x216): 1 call(s) natively, none in the guest ...
 - \* `gl-render` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_DETACH_IDS (ctl nr=0x2a sub=0x216): 1 call(s) natively, none in the guest ...
 - \* `gles` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_OS_UNIX_IMPORT_OBJECT_FROM_FD (ctl nr=0x2a sub=0x3d06): 2 call(s) natively, none in the guest; NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2 (ctl nr=0x2a sub=0x730101): 2 call(s) natively, none in the guest; NV_ESC_RM_IDLE_CHANNELS (ctl nr=0x41 sub=-): 1 call(s) natively, none in the guest ...
-- \* `nvdec`: PASS (matched on attempt 2)
 - \* `nvml` in the guest: AMPERE_SMC_MONITOR_SESSION (ctl nr=0x2b sub=0xc640): 1 call(s) natively, none in the guest
 - \* `vk-enum` in the guest: NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_DETACH_IDS (ctl nr=0x2a sub=0x216): 1 call(s) natively, none in the guest ...
 - \* `vk-offscreen` in the guest: FAIL: probe exited 1 -- ffmpeg vulkan filter exited 244; NV2080_CTRL_CMD_TIMER_GET_TIME (ctl nr=0x2a sub=0x20800403): 2 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_GET_PROBED_IDS (ctl nr=0x2a sub=0x214): 1 call(s) natively, none in the guest; NV0000_CTRL_CMD_GPU_ATTACH_IDS (ctl nr=0x2a sub=0x215): 1 call(s) natively, none in the guest ...

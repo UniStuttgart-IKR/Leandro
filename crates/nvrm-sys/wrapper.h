@@ -102,6 +102,17 @@
 #include <ctrl/ctrl0000/ctrl0000gpuacct.h> /* GET_ACCOUNTING_STATE -- another
                                            params block with a gpuId in it,
                                            and NVML asks it per GPU          */
+/* The controls whose ANSWER lives behind an NvP64 rather than in the params
+ * buffer. `ctrlout` dumps the params, which for these is the question -- a
+ * count and a pointer -- so the answer was going uncompared. These are here
+ * so that `offset_of!` can say where the pointer and the count are, instead
+ * of xlate::nested_ptrs (the table under test) saying it. See
+ * ctrl_nested_compiled in nvrm-abi/src/xlate.rs and the test beside it. */
+#include <ctrl/ctrl2080/ctrl2080bios.h> /* BIOS_GET_INFO                    */
+#include <ctrl/ctrl0080/ctrl0080fb.h>   /* FB_GET_CAPS                      */
+#include <ctrl/ctrl0080/ctrl0080fifo.h> /* FIFO_GET_CAPS / GET_CHANNELLIST  */
+#include <ctrl/ctrl0080/ctrl0080gr.h>   /* GR_GET_CAPS / GR_GET_INFO        */
+#include <ctrl/ctrl2080/ctrl2080gr.h>   /* GR_GET_INFO (subdevice form)     */
 #include <ctrl/ctrl2080/ctrl2080fb.h>   /* FB_GET_INFO / _V2 -- the VRAM ledger
                                            rewrites `data` in this list, so the
                                            mediation manifest needs the entry

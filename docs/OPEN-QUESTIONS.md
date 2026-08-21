@@ -1320,6 +1320,53 @@ direction of error that `manifest_answered` exists to prevent for controls.
 Moving it changes what the catalogue counts, which is why it is a question
 here and not a commit.
 
+### 63. Two answers behind an NvP64 differ, and both look like the hardware saying so
+**Open, measured 2026-08-21.** They became visible the moment the tracer
+started following a control's `NvP64` — before that, `ctrlout` dumped the
+params buffer, which for a list control is the QUESTION, and thirteen
+signatures were reported `verified` on it (number 55, and the class
+`answer_behind_a_pointer` that briefly existed). With the pointer followed,
+two of the thirteen do not match.
+
+**`NV2080_CTRL_CMD_BUS_GET_INFO`** (`ctl nr=0x2a sub=0x20801802`), in `nvml`.
+The `busInfoList` entry at index `0x2d` —
+`NV2080_CTRL_BUS_INFO_INDEX_PCIE_GEN_INFO` (ctrl2080bus.h:329) — answers
+
+| | data |
+|---|---|
+| native | `0x00222000` |
+| guest | `0x00212000` |
+
+The other entry of the same list, index 0, answers `0x3` on both sides. The
+difference is one bit position in a PCIe generation field, and the guest's
+view of the link is genuinely not the host's: the card is passed through and
+what the guest sees of the PCIe topology is the virtual one. Plausibly
+correct on both sides and declared by nothing.
+
+**`NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST`** (`ctl nr=0x2a sub=0x80170d`), in
+eight probes — every CUDA one, `nvdec`, `nvenc`, `opencl`. The command has
+two `NvP64`s, `pChannelHandleList` and `pChannelList`, so the dump is a
+handle followed by a channel id. The handle matches (the handle mask covers
+it); the **channel id** is `0x35` natively and `0x37` in the guest,
+consistently, in all eight.
+
+A hardware channel id is assigned by RM when the channel is allocated, and
+the host has channels of its own that the guest does not. It is the same
+shape as `workSubmitToken` on `0xc36f0108`, which differs for the same
+reason and is likewise unmasked.
+
+**WHAT IS OPEN IS WHETHER THESE NEED A MASK, AND OF WHAT KIND.** Both are
+values the hardware or the host assigns, which a guest cannot be expected to
+match — the same category as a gpuId or an RM handle, and those have derived
+masks. A channel-id mask could be derived the way the handle mask is: a value
+this side's OWN trace shows being assigned to a channel. The PCIe field has
+no such derivation; declaring it would be a declared mask, which this
+project has avoided on purpose, and the alternative is to leave it reported.
+
+Neither should be masked by declaration on the strength of looking
+plausible. Both are reported as mismatches today, which is the safe place for
+them to sit while the question is open.
+
 ---
 
 ## Resolved and decided
