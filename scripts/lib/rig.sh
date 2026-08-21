@@ -218,6 +218,42 @@ _lea_index_taken() {
 # same bridge, taps and NAT, and then this is never needed.)
 _LEA_SUBNET="$LEA_NET_PREFIX.0/$LEA_NETMASK"
 
+# _lea_guest_dns -- the resolvers to hand the guest, as a comma-separated list.
+#
+# NOT hard-coded 8.8.8.8/1.1.1.1, which is what this was until 2026-08-21.
+# Plenty of networks -- university and corporate ones especially -- block or
+# hijack outbound DNS to public resolvers, and then a guest with a PERFECT
+# NAT still cannot resolve anything: `net status` reports uplink, NAT and both
+# FORWARD rules present, and apt says "Temporary failure resolving". Reported
+# from exactly such a host.
+#
+# The host's own upstream resolvers are the answer that is right by
+# construction, for the same reason _lea_uplink asks the routing table rather
+# than guessing an interface name. Loopback addresses are dropped: 127.0.0.53
+# is systemd-resolved's stub, which resolves beautifully on the host and is
+# nothing at all from inside a guest. IPv6 is dropped too -- the guest's
+# netplan block is IPv4-only, so a v6 resolver there is an address it has no
+# route to.
+#
+# LEA_GUEST_DNS overrides, for a host whose resolver the guest cannot reach
+# (a VPN-only resolver, say). The public pair remains the last resort, which
+# is what every previous run used.
+_lea_guest_dns() {
+    [[ -n ${LEA_GUEST_DNS:-} ]] && { echo "$LEA_GUEST_DNS"; return 0; }
+    local -a dns=()
+    local a
+    while read -r a; do
+        [[ $a =~ ^127\. ]] && continue
+        [[ $a == *:* ]] && continue
+        dns+=("$a")
+    done < <( { resolvectl dns 2>/dev/null | tr ' ' '\n'
+                grep -E '^nameserver' /etc/resolv.conf 2>/dev/null | awk '{print $2}'
+              } | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | awk '!seen[$0]++' )
+    [[ ${#dns[@]} -gt 0 ]] || dns=(8.8.8.8 1.1.1.1)
+    local IFS=,
+    echo "${dns[*]}"
+}
+
 # _lea_uplink -- the interface carrying the default route.
 #
 # NOT hard-coded: the interface name differs per machine (enp39s0 here,
@@ -591,6 +627,14 @@ EOS
     # Network NOT via cloud-init (that only runs on first boot and leaves
     # eth0 'False' on a restart). A persistent netplan file instead, applied
     # on EVERY boot -- it survives in the overlay.
+    # The resolvers, derived from this host, in the two spellings the seed
+    # needs: a YAML list for netplan and printf lines for resolv.conf. Both
+    # come from one call so they can never disagree.
+    local _LEA_DNS _LEA_DNS_LIST _LEA_DNS_LINES
+    _LEA_DNS=$(_lea_guest_dns)
+    _LEA_DNS_LIST=${_LEA_DNS//,/, }
+    _LEA_DNS_LINES=$(printf 'nameserver %s\\n' ${_LEA_DNS//,/ })
+    info "  $name: guest resolvers $_LEA_DNS"
     cat >"$stage/network-config" <<EOS
 version: 2
 ethernets: {}
@@ -621,7 +665,7 @@ write_files:
               - to: default
                 via: $LEA_GATEWAY
             nameservers:
-              addresses: [8.8.8.8, 1.1.1.1]
+              addresses: [$_LEA_DNS_LIST]
   - path: /etc/hosts
     append: true
     content: "127.0.1.1 $host\n"
@@ -629,7 +673,7 @@ runcmd:
   # Bring eth0 up now (netplan does it itself from the next boot on) and
   # replace the resolv.conf symlink with the resolved stub (else DNS is dead).
   - [ netplan, apply ]
-  - [ bash, -c, "rm -f /etc/resolv.conf; printf 'nameserver 8.8.8.8\\nnameserver 1.1.1.1\\n' > /etc/resolv.conf" ]
+  - [ bash, -c, "rm -f /etc/resolv.conf; printf '$_LEA_DNS_LINES' > /etc/resolv.conf" ]
   # Ubuntu 24.04 ships ssh socket-activated (ssh.socket). That reports
   # "Listening" but refuses connections after a restart. Switch to the
   # classic always-running ssh.service -- persists in the overlay and
