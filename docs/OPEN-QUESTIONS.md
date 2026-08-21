@@ -19,7 +19,8 @@ and thinner half of the project.
 ## Open
 
 ### 14. Fence waits sometimes fall back to the polling timer
-**Open, rarer since an unrelated fix.** A woken guest answers a fence in
+**Open, and narrowed hard on 2026-08-21: five candidate causes eliminated by
+counter, one boundary-vs-native comparison established.** A woken guest answers a fence in
 tenths of a millisecond. A polling guest answers in exactly 10.07 ms,
 because that is the fallback timer. The `events` stage of the display gate
 counts how many waits took the fallback, so a regression is visible rather
@@ -57,6 +58,75 @@ Still not traced to a cause. What this measurement adds to the next attempt
 is that the fallback is reachable within a 30-minute session under ordinary
 compositor load, so reproducing it does not need a long soak — 40 samples
 found three.
+
+---
+
+**MEASURED AGAIN 2026-08-21, and this is the first side-by-side.** The same
+`fencetime` source, built on both sides, 8 runs of 10 on each:
+
+| | samples | at the fallback | rate |
+|---|---|---|---|
+| **native** | 80 | **0** | 0% |
+| **guest** | 160 (two sessions) | **65** | **41%** |
+
+Native's slowest sample of eighty was **0.39 ms**; sixty-eight of eighty read
+0.03. So the fallback is not RM's behaviour under this workload -- it is
+specific to the guest, and this is the comparison this entry never had (the
+0.03 ms it quotes is from before the event back-channel existed).
+
+**FIVE CANDIDATE CAUSES ELIMINATED, each by a counter rather than by
+argument.** All four event-drop counters and both semsurf counters were read
+before and after every single run of ten:
+
+| candidate | what would show it | measured |
+|---|---|---|
+| an event dropped for want of a slot | `stat_events_drop_noslot` | **1 in 160 waits** |
+| the ring overflowing | `stat_events_drop_ringfull` | **0** |
+| filtered or wrong-class drops | `..._drop_filtered`, `..._drop_class` | **0** |
+| number 38's deliberate late-unregister drop | `stat_semsurf_late_unreg` | **0** |
+| the semaphore-surface path at all | `stat_semsurf_fired` | **0** |
+
+**So nothing is being dropped, and the semaphore-surface machinery is not on
+this path at all.** That kills the most attractive hypothesis outright. The
+`semsurf_after_control` comment states its own trade in exactly this entry's
+language -- *"the worst case is a late fence, not a lost one"* -- which reads
+like a confession to number 14. It is not: `stat_semsurf_fired` is **zero**
+across all 160 waits, so that code never ran here.
+
+**Two more excluded from the host side.** The frame limiter, which paces
+firings and would produce precisely this symptom, was **off**: `LEA_FRL_HZ`
+unset, and the backend never printed its `frame limiter on` line. And the host
+waiter poller passes `timeout = -1` to `poll(2)` unless the limiter is on
+(`waiters.rs`), so **there is no 10 ms anywhere on the host side**. The
+10.07 ms is RM's own fallback, inside the guest, and the question is why the
+wake-up does not beat it.
+
+**AND ONE POSITIVE CLUE.** `stat_events_registered` moves by **0 or 1 per run
+of ten waits**, while `stat_events_delivered` moves by **276 to 438**. So the
+back-channel is working hard throughout -- roughly 35 events per fence wait --
+and the fence wake-up is not an RM event registration this module counts.
+Whatever wakes a Vulkan fence here goes through neither the counted
+registration path nor the semsurf path, and **naming that path is the next
+step**: it cannot be instrumented until it is identified.
+
+**A red herring, recorded so it is not chased twice.** The backend log shows
+`NV2080_CTRL_CMD_GPU_QUERY_ECC_STATUS` returning `NV_ERR_NOT_SUPPORTED`
+(`0x56`) on every `fencetime` run. It is not related: the catalogue records
+the same command with the same status **31 times natively**, on a consumer
+card that has no ECC.
+
+**The rate tracks how fast the work completes, which is what a race would
+do.** An empty submit -- the fastest possible completion, and the worst case
+for arming a waiter in time -- gives 41% here. The 30-minute desktop soak
+above, under real `glmark2`/`vkmark` compositor load, gave 7.5%. Same defect,
+five times the rate when there is nothing for the wait to wait for. That is
+consistent with a lost wake-up whose window is the guest-to-host round trip,
+but it is a consistency and not a measurement, and it is written here as one.
+
+**What would close it:** identify what wakes a Vulkan fence in this stack --
+it is neither `semsurf` nor the counted event registration -- and put a
+counter on it. Then the same before/after method used above says in one run
+whether the wake-up arrives late or never arrives.
 ### 15. Concurrent CUDA processes failed on a long-running guest
 **Open, seen once on 2026-08-16, not reproduced since.** On a desktop
 guest after a long probing session, two simultaneous `nvprobe 3` runs
