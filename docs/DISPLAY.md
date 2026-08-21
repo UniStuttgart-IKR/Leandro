@@ -149,8 +149,12 @@ Worth stating because it is the road not taken. NVKMS's real display
 engine (the EVO path) is refused rather than missing: asking it for its
 head configuration returns `NV_ERR_INSUFFICIENT_PERMISSIONS`. That makes
 it a **privilege** question rather than a capability one, and forcing the
-displayless HAL is what this project does instead. The choice between the
-three ways out is still open — number 25.
+displayless HAL is what this project does instead, and since 2026-08-21 that
+is a decision rather than a default: number 25 is closed on it. Carrying
+`CAP_SYS_ADMIN` was measured to make the outcome *worse* (past the head mask,
+then dead on `GET_PCLK_LIMIT`, and the render node gone), and virtualising the
+display engine has no measurement behind it. What remains is the ceiling the
+chosen route carries: 2560x1600 and 4096000 pixels.
 
 Rendering itself is not what this carries. `virtio-gpu` with Venus or
 virgl paravirtualises graphics APIs and does that job well; it does not

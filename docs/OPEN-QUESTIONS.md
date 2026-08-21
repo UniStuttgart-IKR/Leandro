@@ -245,75 +245,6 @@ does not crash. Number 44 names the object (2026-08-20): the NULL is the
 array search both dereference, both dying at address 8, and the game's
 crash is the same defect rather than a neighbouring one.
 
-### 25. The displayless HAL is forced, and the EVO path is a privilege question
-**Open; cause measured, the choice between three routes is not made.** With
-`display=2` the EVO path prints exactly one line:
-`NV0073_CTRL_CMD_SPECIFIC_GET_ALL_HEAD_MASK` returns
-`NV_ERR_INSUFFICIENT_PERMISSIONS`, and nvidia-modeset gives up with
-`Failed to get head configuration`. So the EVO path is not missing, it is
-refused — a privilege question, not a capability one. Three routes out
-exist and the choice is a design decision, not a measurement.
-
----
-
-**DECISION MEMO, written 2026-08-21. This entry is blocked on a person, not
-on a measurement, and nothing below decides it.** The routes are named here
-because this entry said "three routes exist" without naming them, and a
-choice cannot be made from a count.
-
-What is measured and is not in dispute: the EVO path is REFUSED, not
-missing. `NV0073_CTRL_CMD_SPECIFIC_GET_ALL_HEAD_MASK` returns
-`NV_ERR_INSUFFICIENT_PERMISSIONS` and nvidia-modeset stops with *"Failed to
-get head configuration"*.
-
-**Option 1 — carry `CAP_SYS_ADMIN` (`LEA_ADMIN_PRIV=1`).** The mechanism
-exists: `settle_admin_privilege` in
-[`crates/vhost-user-nvrm/src/main.rs`](../crates/vhost-user-nvrm/src/main.rs)
-drops the capability unless that variable says otherwise, so this is one
-environment variable and a `setcap`.
-*Cost:* the sentence "the only boundary the host enforces is the VM" stops
-being true — this process takes guest input apart, and `CAP_SYS_ADMIN` is
-the almost-root capability.
-*What it changes downstream:* **measured 2026-08-08, it makes the outcome
-WORSE.** With the capability NVKMS gets past the head mask and then dies on
-`GET_PCLK_LIMIT`, which is kernel-privileged and admin does not reach, so
-nvidia-drm answers "Failed to allocate NvKmsKapiDevice" and `/dev/dri/card1`
-disappears entirely. Without it the earlier failure is harmless and the
-render node is there. This option is not "more privilege, more display" —
-it is measured to be strictly worse, and it would have to be paired with
-something for `GET_PCLK_LIMIT` to be worth anything.
-
-**Option 2 — keep forcing the displayless HAL.** This is the status quo and
-it works: `vdisplay=1` swaps `NV04_DISPLAY_COMMON` for
-`NVA083_GRID_DISPLAYLESS` in the answer to `GET_CLASSLIST` (one out, one in,
-so `numClasses` does not change), and the guest module answers the class
-itself — nothing reaches the host, because there is no host state behind an
-invented monitor.
-*Cost:* the mode is an INVENTION and the tree says so at load time; the
-ceiling is NVIDIA's own displayless limit, 2560x1600 and 4096000 pixels
-(`objgriddisplayless.c:38-39,54`), so 1080p fits and 4K does not. Whoever
-raises one raises both.
-*What it changes downstream:* nothing. The display gate is 12/12 green on
-this path.
-
-**Option 3 — virtualise the real display engine.** The road
-[`DISPLAY.md`](DISPLAY.md) explicitly does not take.
-*Cost:* a project, not a change, and it is the one route for which no
-measurement here exists at all.
-*What it changes downstream:* it is the only route that removes the
-resolution ceiling and the invention, and the only one that would make
-number 16's connector-detect breakage a real question rather than a property
-of a display nothing backs.
-
-**Recommendation, and it IS a recommendation.** Take **2** — that is, close
-this by deciding to keep the displayless HAL, and re-scope what remains as
-the resolution ceiling rather than as an open choice. Option 1 is measured
-worse; option 3 has no measurement and no demand behind it. The reason to
-DECIDE rather than leave it open is that the entry currently reads as though
-three live routes are being weighed, and only one of them has ever produced
-a working display.
-
-**A person answers this with one word:** `1`, `2`, `3`, or `leave-open`.
 ### 31. The backend holds thousands of `nvidiactl` file descriptors
 **Open, and substantially narrowed 2026-08-21: it has an owner, a rate and
 a mechanism now, and it is not what this entry called it.** Measured on a
@@ -646,86 +577,6 @@ and it is the only option that produces evidence rather than a bet.
 measurement above removes the urgency (nothing supplies the field) without
 removing the question, and reading the constructor is the only route
 available on hardware that has no MIG.
-
-**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
-### 43. Which FD does the driver require the mapping ioctl on?
-**Open; the code works and the documentation used to disagree with it.**
-[`crates/nvrm-client/src/mem.rs`](../crates/nvrm-client/src/mem.rs) issues
-the map ioctl on `rm.ctl()`, and that path is measured and works. The
-prose in this repository claimed for a while that it must go to the
-freshly opened fd instead. The doubt is written down rather than resolved:
-the two arrangements have never been compared against a real libcuda
-trace, which is what would settle it. Until then the code is the
-statement, not the prose.
-
----
-
-**DECISION MEMO, written 2026-08-21. The FACTUAL question is settled by the
-measurement this entry itself named; what is left for a person is what to do
-about it.**
-
-This entry says the two arrangements "have never been compared against a
-real libcuda trace, which is what would settle it". There are 41 such traces
-under `matrix/traces/610.57.04/` now. Read out of them:
-
-**`NV_ESC_RM_MAP_MEMORY` is issued on a `ctl` fd, in every probe, without
-exception** — and never on a `gpu` fd:
-
-| probe | 0x4e issued on | calls |
-|---|---|---|
-| `cuda-core`, `cuda-jit`, `cuda-launch` | `ctl` fd 10 | 29 each |
-| `nvdec` | `ctl` fd 11, `ctl` fd 42 | 29, 13 |
-| `nvenc` | `ctl` fd 11, `ctl` fd 41 | 29, 87 |
-| `opencl` | `ctl` fd 7 | 29 |
-
-**And the prose was wrong because it conflated two different fds.** The
-mapping protocol uses two, and the trace shows them plainly, in order:
-
-    open  ctl fd=10
-    ...
-    MAP_MEMORY  on ctl fd=10   (hMemory 0x5c000006)
-    open  ctl fd=16
-    mmap  ctl fd=16 len=4096
-
-The **ioctl** goes to the process's primary `ctl` fd every time. The
-**mmap** goes to a FRESHLY OPENED fd, one per mapping, opened immediately
-before it. "It must go to the freshly opened fd" is true of the `mmap` and
-false of the `ioctl`.
-
-**This is what `mem.rs` already does.** The ioctl is
-`rm.ctl().ioctl_raw(sys::NV_ESC_RM_MAP_MEMORY_DMA, &mut p)`
-([`crates/nvrm-client/src/mem.rs:221`](../crates/nvrm-client/src/mem.rs)) and
-the map target is `gpu.open_for_mapping(rm.ctl())` at :314. Its own module
-doc has said so since it was written — *"Exactly one mmap context per fd"*
-and *"Traces show a fresh `open` before every NV_ESC_RM_MAP_MEMORY"*. The
-code was right, the doc beside the code was right, and only the prose
-elsewhere was wrong.
-
-**Option 1 — close this as resolved.** The code is confirmed by libcuda's
-own behaviour over 41 traces and 6 independent userspaces (CUDA, NVDEC,
-NVENC, OpenCL).
-*Cost:* none.
-*Downstream:* one fewer open question, and the measurement is on record so
-the doubt cannot come back without new evidence.
-
-**Option 2 — close it and also record WHY the prose went wrong**, i.e. that
-the two-fd protocol has a fresh fd in it and it is the mmap target.
-*Cost:* two sentences.
-*Downstream:* this is the failure mode that produced the doubt in the first
-place, and it will produce it again for the next reader who sees
-`open_for_mapping` and remembers "fresh fd".
-
-**Option 3 — leave open** and require a counter-test that issues the ioctl
-on the fresh fd to see whether RM also accepts it.
-*Cost:* a probe.
-*Downstream:* it would answer "what does RM tolerate", which is a different
-and less useful question than "what does the driver require" — and this
-entry asks the second.
-
-**Recommendation.** Take **2**. The entry's own criterion is met: it asked
-for a comparison against a real libcuda trace and that comparison is above.
-It is left open here only because this run was asked not to decide the
-entries in this group.
 
 **A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
 ### 44. A game and the compositor die at the same two addresses in NVIDIA's GL core
@@ -1856,6 +1707,103 @@ runs instead of segfaulting, and `vkcube` under FIFO sits at 58.1 FPS
 instead of 1520. That resolved a contradiction that had stood since
 2026-08-17.
 
+### 25. The displayless HAL is forced, and the EVO path is a privilege question
+**Decided 2026-08-21: route 2, keep forcing the displayless HAL.** The
+cause was measured long ago; what was missing was the choice, and it is made.
+The original reasoning is kept below. With
+`display=2` the EVO path prints exactly one line:
+`NV0073_CTRL_CMD_SPECIFIC_GET_ALL_HEAD_MASK` returns
+`NV_ERR_INSUFFICIENT_PERMISSIONS`, and nvidia-modeset gives up with
+`Failed to get head configuration`. So the EVO path is not missing, it is
+refused — a privilege question, not a capability one. Three routes out
+exist and the choice is a design decision, not a measurement.
+
+---
+
+**DECISION MEMO, written 2026-08-21. This entry is blocked on a person, not
+on a measurement, and nothing below decides it.** The routes are named here
+because this entry said "three routes exist" without naming them, and a
+choice cannot be made from a count.
+
+What is measured and is not in dispute: the EVO path is REFUSED, not
+missing. `NV0073_CTRL_CMD_SPECIFIC_GET_ALL_HEAD_MASK` returns
+`NV_ERR_INSUFFICIENT_PERMISSIONS` and nvidia-modeset stops with *"Failed to
+get head configuration"*.
+
+**Option 1 — carry `CAP_SYS_ADMIN` (`LEA_ADMIN_PRIV=1`).** The mechanism
+exists: `settle_admin_privilege` in
+[`crates/vhost-user-nvrm/src/main.rs`](../crates/vhost-user-nvrm/src/main.rs)
+drops the capability unless that variable says otherwise, so this is one
+environment variable and a `setcap`.
+*Cost:* the sentence "the only boundary the host enforces is the VM" stops
+being true — this process takes guest input apart, and `CAP_SYS_ADMIN` is
+the almost-root capability.
+*What it changes downstream:* **measured 2026-08-08, it makes the outcome
+WORSE.** With the capability NVKMS gets past the head mask and then dies on
+`GET_PCLK_LIMIT`, which is kernel-privileged and admin does not reach, so
+nvidia-drm answers "Failed to allocate NvKmsKapiDevice" and `/dev/dri/card1`
+disappears entirely. Without it the earlier failure is harmless and the
+render node is there. This option is not "more privilege, more display" —
+it is measured to be strictly worse, and it would have to be paired with
+something for `GET_PCLK_LIMIT` to be worth anything.
+
+**Option 2 — keep forcing the displayless HAL.** This is the status quo and
+it works: `vdisplay=1` swaps `NV04_DISPLAY_COMMON` for
+`NVA083_GRID_DISPLAYLESS` in the answer to `GET_CLASSLIST` (one out, one in,
+so `numClasses` does not change), and the guest module answers the class
+itself — nothing reaches the host, because there is no host state behind an
+invented monitor.
+*Cost:* the mode is an INVENTION and the tree says so at load time; the
+ceiling is NVIDIA's own displayless limit, 2560x1600 and 4096000 pixels
+(`objgriddisplayless.c:38-39,54`), so 1080p fits and 4K does not. Whoever
+raises one raises both.
+*What it changes downstream:* nothing. The display gate is 12/12 green on
+this path.
+
+**Option 3 — virtualise the real display engine.** The road
+[`DISPLAY.md`](DISPLAY.md) explicitly does not take.
+*Cost:* a project, not a change, and it is the one route for which no
+measurement here exists at all.
+*What it changes downstream:* it is the only route that removes the
+resolution ceiling and the invention, and the only one that would make
+number 16's connector-detect breakage a real question rather than a property
+of a display nothing backs.
+
+**Recommendation, and it IS a recommendation.** Take **2** — that is, close
+this by deciding to keep the displayless HAL, and re-scope what remains as
+the resolution ceiling rather than as an open choice. Option 1 is measured
+worse; option 3 has no measurement and no demand behind it. The reason to
+DECIDE rather than leave it open is that the entry currently reads as though
+three live routes are being weighed, and only one of them has ever produced
+a working display.
+
+**A person answers this with one word:** `1`, `2`, `3`, or `leave-open`.
+
+---
+
+**DECIDED 2026-08-21 by the operator: option 2.** Forcing the displayless HAL
+is the answer, and this entry closes on the decision rather than on a new
+measurement — which is what it had been waiting for since 2026-08-08.
+
+Why that is the right shape of answer, restated so the decision is legible
+later: **option 1 was measured to make the outcome worse**, not better. With
+`CAP_SYS_ADMIN` NVKMS gets past the head mask and then dies on
+`GET_PCLK_LIMIT`, which is kernel-privileged and admin does not reach, so
+nvidia-drm answers "Failed to allocate NvKmsKapiDevice" and `/dev/dri/card1`
+disappears. More privilege, less display, and the "the only boundary the host
+enforces is the VM" sentence spent for nothing. Option 3 remains a project
+with no measurement behind it and no demand in front of it.
+
+**What is NOT closed by this, and it is deliberately a separate thing:** the
+resolution ceiling. The displayless path is bounded at 2560x1600 and 4096000
+pixels, NVIDIA's own limits for unlicensed passthrough
+(`objgriddisplayless.c:38-39,54`), so 1080p fits and 4K does not, and whoever
+raises one bound raises both. That is a property of the route now chosen, not
+an open question about which route to take, and it belongs with the display
+work rather than here.
+
+`docs/DISPLAY.md` said "The choice between the three ways out is still open —
+number 25". It is not open any more and that sentence is corrected there.
 ### 26. The EGLImage import itself is clean
 **Resolved as three negative results.** Xwayland can no longer be traced,
 so a one-purpose probe (`eglimport.c` — written for that session, not
@@ -1951,6 +1899,121 @@ the stream reported about 64 FPS at the same time as these 590 -- not a
 contradiction but number 30's rule from the other side: 64 is what reached
 a screen, 590 is what the client swapped.
 
+### 43. Which FD does the driver require the mapping ioctl on?
+**Resolved 2026-08-21.** The code works, the prose that disagreed with it was
+wrong, and the measurement this entry named as the thing that would settle it
+has been taken. The original reasoning is kept below.
+[`crates/nvrm-client/src/mem.rs`](../crates/nvrm-client/src/mem.rs) issues
+the map ioctl on `rm.ctl()`, and that path is measured and works. The
+prose in this repository claimed for a while that it must go to the
+freshly opened fd instead. The doubt is written down rather than resolved:
+the two arrangements have never been compared against a real libcuda
+trace, which is what would settle it. Until then the code is the
+statement, not the prose.
+
+---
+
+**DECISION MEMO, written 2026-08-21. The FACTUAL question is settled by the
+measurement this entry itself named; what is left for a person is what to do
+about it.**
+
+This entry says the two arrangements "have never been compared against a
+real libcuda trace, which is what would settle it". There are 41 such traces
+under `matrix/traces/610.57.04/` now. Read out of them:
+
+**`NV_ESC_RM_MAP_MEMORY` is issued on a `ctl` fd, in every probe, without
+exception** — and never on a `gpu` fd:
+
+| probe | 0x4e issued on | calls |
+|---|---|---|
+| `cuda-core`, `cuda-jit`, `cuda-launch` | `ctl` fd 10 | 29 each |
+| `nvdec` | `ctl` fd 11, `ctl` fd 42 | 29, 13 |
+| `nvenc` | `ctl` fd 11, `ctl` fd 41 | 29, 87 |
+| `opencl` | `ctl` fd 7 | 29 |
+
+**And the prose was wrong because it conflated two different fds.** The
+mapping protocol uses two, and the trace shows them plainly, in order:
+
+    open  ctl fd=10
+    ...
+    MAP_MEMORY  on ctl fd=10   (hMemory 0x5c000006)
+    open  ctl fd=16
+    mmap  ctl fd=16 len=4096
+
+The **ioctl** goes to the process's primary `ctl` fd every time. The
+**mmap** goes to a FRESHLY OPENED fd, one per mapping, opened immediately
+before it. "It must go to the freshly opened fd" is true of the `mmap` and
+false of the `ioctl`.
+
+**This is what `mem.rs` already does.** The ioctl is
+`rm.ctl().ioctl_raw(sys::NV_ESC_RM_MAP_MEMORY_DMA, &mut p)`
+([`crates/nvrm-client/src/mem.rs:221`](../crates/nvrm-client/src/mem.rs)) and
+the map target is `gpu.open_for_mapping(rm.ctl())` at :314. Its own module
+doc has said so since it was written — *"Exactly one mmap context per fd"*
+and *"Traces show a fresh `open` before every NV_ESC_RM_MAP_MEMORY"*. The
+code was right, the doc beside the code was right, and only the prose
+elsewhere was wrong.
+
+**Option 1 — close this as resolved.** The code is confirmed by libcuda's
+own behaviour over 41 traces and 6 independent userspaces (CUDA, NVDEC,
+NVENC, OpenCL).
+*Cost:* none.
+*Downstream:* one fewer open question, and the measurement is on record so
+the doubt cannot come back without new evidence.
+
+**Option 2 — close it and also record WHY the prose went wrong**, i.e. that
+the two-fd protocol has a fresh fd in it and it is the mmap target.
+*Cost:* two sentences.
+*Downstream:* this is the failure mode that produced the doubt in the first
+place, and it will produce it again for the next reader who sees
+`open_for_mapping` and remembers "fresh fd".
+
+**Option 3 — leave open** and require a counter-test that issues the ioctl
+on the fresh fd to see whether RM also accepts it.
+*Cost:* a probe.
+*Downstream:* it would answer "what does RM tolerate", which is a different
+and less useful question than "what does the driver require" — and this
+entry asks the second.
+
+**Recommendation.** Take **2**. The entry's own criterion is met: it asked
+for a comparison against a real libcuda trace and that comparison is above.
+It is left open here only because this run was asked not to decide the
+entries in this group.
+
+**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
+
+---
+
+**DECIDED 2026-08-21 by the operator: option 2 — close it, and record why the
+prose went wrong**, because that is the part that will otherwise be
+re-derived.
+
+**The measurement settled it** (the tables are above): `NV_ESC_RM_MAP_MEMORY`
+is issued on a `ctl` fd in all 41 libcuda traces, across six independent
+userspaces (CUDA, NVDEC, NVENC, OpenCL, GL, Vulkan), and never on a `gpu` fd.
+`mem.rs` already does exactly that.
+
+**AND HERE IS WHY THE DOUBT EXISTED, which is worth more than the verdict.**
+The mapping protocol uses **two** fds and the prose collapsed them into one:
+
+    open  ctl fd=10
+    ...
+    MAP_MEMORY  on ctl fd=10   (hMemory 0x5c000006)   <- the IOCTL
+    open  ctl fd=16                                   <- a FRESH fd
+    mmap  ctl fd=16 len=4096                          <- the MMAP TARGET
+
+"It must go to the freshly opened fd" is **true of the `mmap` and false of the
+`ioctl`**. There IS a fresh fd, one per mapping, opened immediately before —
+`mem.rs`'s own module doc has said so since it was written ("Exactly one mmap
+context per fd", "Traces show a fresh `open` before every
+NV_ESC_RM_MAP_MEMORY"). Someone read that, remembered "fresh fd", and attached
+it to the wrong call.
+
+So the failure here was never in the code or in the trace. It was a sentence
+that named a real thing and pointed it at the neighbouring operation, and the
+only reason it survived is that both statements are true of *something*. When
+a piece of prose about this codebase disagrees with the code, check whether it
+is describing the step next door.
 ### 45. `NV_ESC_ATTACH_GPUS_TO_FD` answers `-1` to Xwayland
 **Resolved 2026-08-20, and the cause was ours rather than the ioctl's.** A
 signal interrupted the guest module's wait for the host's reply AFTER the
