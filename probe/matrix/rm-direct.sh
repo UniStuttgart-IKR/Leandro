@@ -20,6 +20,15 @@
 # matrix-group:     direct
 # matrix-libs:
 # matrix-entry:     raw RM ioctls (probe/c/rmdirect.c), no driver userspace
+# It also allocates AMPERE_SMC_MONITOR_SESSION (class 0xc640), which is
+# number 65 and not one of number 52's commands. That allocation is NOT a
+# pass criterion and never fails the probe: without the MIG monitor
+# capability -- a node the host's nvidia.ko makes and this project's guest
+# module does not -- RM refuses it with NV_ERR_INSUFFICIENT_PERMISSIONS on
+# BOTH sides, which is the measurement rather than a fault. It is issued so
+# that the class is exercised by something at all; nothing else in a guest
+# ever asks for it.
+#
 # matrix-criterion: five of number 52's six commands answer NV_OK through
 #                   whatever boundary this side has -- the two GPU id
 #                   controls, the attach/detach pair and the two that need

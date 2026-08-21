@@ -809,6 +809,23 @@ pub fn alloc_param_size(hclass: u32) -> Option<u32> {
         // no entry for it, deliberately: the class is MIG-only and has
         // never been exercised here, so a guest that allocates it gets the
         // fd forwarded untranslated rather than a silent half-translation.
+        //
+        // MEASURED 2026-08-21 (number 65), which narrows that warning to
+        // something exact rather than something feared. The capability fd
+        // comes from /dev/nvidia-caps/nvidia-cap<minor>, whose minor is read
+        // out of /proc/driver/nvidia/capabilities/mig/monitor -- and NEITHER
+        // path exists in a guest, because they are made by the host's
+        // nvidia.ko and not by this project's guest module. So no guest
+        // client can obtain the fd this field carries, and the untranslated
+        // forward cannot be reached from a guest at all. `probe/bin/rmdirect`
+        // asks for the class directly and gets NV_ERR_INSUFFICIENT_PERMISSIONS
+        // (0x1b) on both sides for capDescriptor = -1 -- identical to a
+        // native run given the same input, so the boundary carries the
+        // allocation faithfully and the refusal is RM's, not ours.
+        //
+        // The entry to add here is therefore still MISSING and still wanted,
+        // but it is a prerequisite for exposing MIG to a guest, not a live
+        // hole: nothing can currently drive it.
         0xc640 => 8,   // AMPERE_SMC_MONITOR_SESSION
         // NV_MEMORY_ALLOCATION_PARAMS for the ordinary memory classes
         // (resource_list.h:574, :542, :563).

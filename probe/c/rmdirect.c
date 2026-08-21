@@ -23,6 +23,7 @@
  *   NV2080_CTRL_CMD_TIMER_GET_TIME       0x20800403 on a subdevice
  *   NV0073_CTRL_CMD_SYSTEM_GET_CAPS_V2   0x730101   on NV04_DISPLAY_COMMON
  *   NV0000_CTRL_CMD_GPU_DETACH_IDS       0x216   on the client
+ *   AMPERE_SMC_MONITOR_SESSION           0xc640  allocated on the client
  *
  * ATTACH and DETACH are a PAIR and the pair is the point: attaching without
  * detaching leaks the attachment, and this is exactly the lifecycle every
@@ -53,6 +54,13 @@
  *                                                  -> ctrl0073system.h:72,97
  *   NV0000_CTRL_GPU_INVALID_ID 0xffffffff terminates the id arrays, which is
  *     what the native traces show: `00 2d 00 00 ff ff ff ff ...`
+ *   NVC640_ALLOCATION_PARAMETERS { NvU64 capDescriptor } = 8 -> clc640.h:38.
+ *     capDescriptor is a FILE DESCRIPTOR and not a value, which is why
+ *     number 65 is a coverage question and not a correctness one.
+ *   /proc/driver/nvidia/capabilities/mig/monitor carries `DeviceFileMinor:`,
+ *     and /dev/nvidia-caps/nvidia-cap<minor> is the node it names --
+ *     nvidia-caps procfs, and read out of the native nvml strace rather
+ *     than out of a document.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -93,6 +101,12 @@
  * that is what V2 means -- with bCapsPopulated after it.) */
 #define CMD_GR_GET_CAPS_V2      0x801109
 
+/* AMPERE_SMC_MONITOR_SESSION, which is number 65. NVML allocates it once in
+ * a native `nvidia-smi -q` and never in a guest, and this program asks for
+ * it with no NVML in the process at all. */
+#define AMPERE_SMC_MONITOR_SESSION 0xc640
+#define MIG_MONITOR_PROC "/proc/driver/nvidia/capabilities/mig/monitor"
+
 #define MAX_GPUS   32
 #define INVALID_ID 0xffffffffu
 
@@ -102,6 +116,7 @@
 #define H_DEVICE    0x5ea00001u
 #define H_SUBDEVICE 0x5ea00002u
 #define H_DISPLAY   0x5ea00003u
+#define H_SMC       0x5ea00004u
 
 typedef struct {                    /* nv_ioctl_rm_api_version_t, 72 bytes */
     uint32_t cmd;
@@ -165,6 +180,32 @@ static int ctrl(uint32_t hclient, uint32_t hobject, uint32_t cmd,
     }
     printf("  %-22s cmd=%#010x ok status=0x0 paramsSize=%u\n", what, cmd, len);
     return 0;
+}
+
+/* The MIG monitor capability, opened the way the native nvml run opens it:
+ * read the minor out of the procfs node, then open the character device it
+ * names. Returns the fd, or -1 with `why` set to the step that stopped it.
+ * The two steps are reported separately on purpose -- the whole of number 65
+ * turns out to be WHICH of them fails in a guest. */
+static int open_mig_monitor_cap(const char **why)
+{
+    FILE *f = fopen(MIG_MONITOR_PROC, "r");
+    if (!f) { *why = MIG_MONITOR_PROC; return -1; }
+
+    int minor = -1;
+    char line[256];
+    while (fgets(line, sizeof line, f))
+        if (sscanf(line, "DeviceFileMinor: %d", &minor) == 1)
+            break;
+    fclose(f);
+    if (minor < 0) { *why = MIG_MONITOR_PROC " has no DeviceFileMinor"; return -1; }
+
+    static char node[64];
+    snprintf(node, sizeof node, "/dev/nvidia-caps/nvidia-cap%d", minor);
+    int fd_cap = open(node, O_RDONLY | O_CLOEXEC);
+    if (fd_cap < 0) { *why = node; return -1; }
+    *why = node;
+    return fd_cap;
 }
 
 /* One allocation. `parms` may be NULL: several classes take none. */
@@ -303,6 +344,59 @@ int main(void)
                  caps, (uint32_t)sizeof caps, "SYSTEM_GET_CAPS_V2");
             printf("  display caps: %02x %02x\n", caps[0], caps[1]);
         }
+    }
+
+    /* 4b. NUMBER 65'S CLASS, ASKED DIRECTLY, with no NVML in the process.
+     *
+     *  Parented to the CLIENT and not to the device: `nvml.jsonl` records
+     *  hRoot == hParent == the client handle on this allocation.
+     *
+     *  paramsSize stays 0 because the native call's is 0 -- the catalogue
+     *  records `observed_params_size: ["0x0"]` against a params_size of 8,
+     *  and RM reads the 8 bytes from its own size table. Passing 8 here
+     *  would be a different call from the one this entry is about.
+     *
+     *  This does NOT count into `failures`. A refusal is a measurement here,
+     *  and the machine-readable lines below are what the comparison reads.
+     */
+    {
+        const char *why = "(not reached)";
+        /* LEA_RMDIRECT_NO_CAP=1 refuses to open the capability even where
+         * one exists. That is the CONTROL for this measurement: a guest has
+         * no capability node, so comparing a guest's refusal against a
+         * native run that HAD one compares two different calls. With this
+         * set, both sides pass capDescriptor = -1 and the only remaining
+         * variable is the boundary. */
+        int capfd = getenv("LEA_RMDIRECT_NO_CAP") ? -1 : open_mig_monitor_cap(&why);
+        if (getenv("LEA_RMDIRECT_NO_CAP"))
+            why = "(LEA_RMDIRECT_NO_CAP=1 -- not opened)", errno = 0;
+        printf("  smc capability: %s -> %s\n",
+               why, capfd >= 0 ? "open" : (errno ? strerror(errno) : "skipped"));
+
+        /* capDescriptor is an fd. With no capability node there is no fd to
+         * pass, and -1 is what a caller has left; that is not a workaround,
+         * it is the situation a guest is actually in. */
+        uint64_t capDescriptor = (capfd >= 0) ? (uint64_t)(uint32_t)capfd
+                                              : (uint64_t)-1;
+
+        struct nvos64 a;
+        memset(&a, 0, sizeof a);
+        a.hRoot = hc;
+        a.hObjectParent = hc;
+        a.hObjectNew = H_SMC;
+        a.hClass = AMPERE_SMC_MONITOR_SESSION;
+        a.pAllocParms = (uint64_t)(uintptr_t)&capDescriptor;
+
+        int r = ioctl(fd, _IOWR(NV_IOCTL_MAGIC, NV_ESC_RM_ALLOC, struct nvos64), &a);
+        int e = r ? errno : 0;
+        printf("  alloc %-16s class=%#06x ret=%d status=%#x handle=%#x\n",
+               "smc monitor", AMPERE_SMC_MONITOR_SESSION, r, a.status, a.hObjectNew);
+        printf("SMC_MONITOR_CAPFD=%d\n", capfd);
+        printf("SMC_MONITOR_RET=%d\n", r);
+        printf("SMC_MONITOR_STATUS=%#x\n", a.status);
+        printf("SMC_MONITOR_ERRNO=%d\n", e);
+        if (capfd >= 0)
+            close(capfd);
     }
 
     /* 5. Detach, which is the other half of step 2 and not optional. */

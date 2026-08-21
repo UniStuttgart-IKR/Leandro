@@ -661,59 +661,6 @@ node is gated, the counts are honest, and no verdict anywhere rests on
 knowing what command 7 is. This is a reader to be written when something
 needs the names, not a gap that is currently misleading anyone.
 
-### 65. NVML allocates an SMC monitor session natively and never in a guest
-**Open, split out of number 51 on 2026-08-21**, which is resolved. It was
-never downstream of the two controls that entry fixed, and keeping it there
-made a closed entry look open.
-
-`AMPERE_SMC_MONITOR_SESSION` (class `0xc640`, `ctl nr=0x2b sub=0xc640`) is
-allocated **once** in a native `nvidia-smi -q` run and **never** in a guest
-one. It is the only finding the `nvml` probe has left:
-`matrix/guest-610.57.04.json` records 105 native signatures against 104,
-179 ioctls against 179, and this single `signature-absent-in-guest` row.
-
-**The first hypothesis is falsified, and that is the useful part.** It was
-that the absence was downstream of the two controls number 51 fixed
-(`GPUACCT_GET_ACCOUNTING_STATE` and `BIOS_GET_INFO`). Both answer `NV_OK` in
-a guest since the fix and the allocation is still absent, so it is not that.
-
-**What is known about when it happens.** Early — right after the GPU node is
-opened and `GET_PROBED_IDS` answers, and before UVM opens. So it belongs to
-NVML's initialisation and not to its process accounting, which is what the
-class name would suggest.
-
-**The candidate left is the mediated identity**, and it is a decision NVML
-makes from what the card says it is: the guest is told it is a "Leandro RTX
-2070". Weakened rather than confirmed by a measurement taken since:
-`NV2080_CTRL_CMD_GPU_GET_NAME_STRING` is `verified-mediated` over its 68
-bytes and differs from the native answer in `gpuNameString` **and in no
-other byte**, so the mediation is not writing anywhere it should not. That
-removes "the mediation corrupts something adjacent" and leaves "NVML reads
-the name and branches on it", which is not the same claim and is not
-measured.
-
-**Not a defect on its face.** `nvidia-smi -q` meets its criterion in the
-guest and prints a plausible report; nothing fails. What it costs is
-coverage: the class is allocated by nothing in a guest, so whatever the
-boundary would do with it is exercised by no sweep — the same shape as
-number 52's six commands, and the reason that entry states the consequence
-in those terms.
-
-**What would settle it**, cheapest first:
-
-1. `strace` the guest and native `nvidia-smi` around the allocation point
-   and diff what each read before deciding — the same `openat`/`stat`
-   comparison number 52's other half needs, on a different path.
-2. Answer the un-mediated product name to one run and see whether the
-   allocation appears. That is a measurement, not a change: if it does, the
-   branch is the name and the question becomes what SMC monitoring costs a
-   guest that has no MIG.
-3. Allocate the class directly from `probe/c/rmdirect.c`, which already
-   builds a hierarchy by hand, and find out whether the boundary carries it
-   at all. That answers the coverage question regardless of why NVML skips
-   it, and it is the one step that does not depend on guessing NVML's
-   reasoning.
-
 ## Resolved and decided
 
 ### 1. Does the descriptor table warrant a protocol change?
@@ -3812,6 +3759,129 @@ taken from the table under test.
 constant +2 on this rig. On a rig where the host has a different number of
 channels open it should differ by that count instead, and if it does the
 category is proven rather than inferred.
+### 65. NVML allocates an SMC monitor session natively and never in a guest
+**Resolved 2026-08-21, both halves measured.**
+Split out of number 51 on 2026-08-21, which is resolved. It was
+never downstream of the two controls that entry fixed, and keeping it there
+made a closed entry look open.
+
+`AMPERE_SMC_MONITOR_SESSION` (class `0xc640`, `ctl nr=0x2b sub=0xc640`) is
+allocated **once** in a native `nvidia-smi -q` run and **never** in a guest
+one. It is the only finding the `nvml` probe has left:
+`matrix/guest-610.57.04.json` records 105 native signatures against 104,
+179 ioctls against 179, and this single `signature-absent-in-guest` row.
+
+**The first hypothesis is falsified, and that is the useful part.** It was
+that the absence was downstream of the two controls number 51 fixed
+(`GPUACCT_GET_ACCOUNTING_STATE` and `BIOS_GET_INFO`). Both answer `NV_OK` in
+a guest since the fix and the allocation is still absent, so it is not that.
+
+**What is known about when it happens.** Early — right after the GPU node is
+opened and `GET_PROBED_IDS` answers, and before UVM opens. So it belongs to
+NVML's initialisation and not to its process accounting, which is what the
+class name would suggest.
+
+**The candidate left is the mediated identity**, and it is a decision NVML
+makes from what the card says it is: the guest is told it is a "Leandro RTX
+2070". Weakened rather than confirmed by a measurement taken since:
+`NV2080_CTRL_CMD_GPU_GET_NAME_STRING` is `verified-mediated` over its 68
+bytes and differs from the native answer in `gpuNameString` **and in no
+other byte**, so the mediation is not writing anywhere it should not. That
+removes "the mediation corrupts something adjacent" and leaves "NVML reads
+the name and branches on it", which is not the same claim and is not
+measured.
+
+**Not a defect on its face.** `nvidia-smi -q` meets its criterion in the
+guest and prints a plausible report; nothing fails. What it costs is
+coverage: the class is allocated by nothing in a guest, so whatever the
+boundary would do with it is exercised by no sweep — the same shape as
+number 52's six commands, and the reason that entry states the consequence
+in those terms.
+
+**What would settle it**, cheapest first:
+
+1. `strace` the guest and native `nvidia-smi` around the allocation point
+   and diff what each read before deciding — the same `openat`/`stat`
+   comparison number 52's other half needs, on a different path.
+2. Answer the un-mediated product name to one run and see whether the
+   allocation appears. That is a measurement, not a change: if it does, the
+   branch is the name and the question becomes what SMC monitoring costs a
+   guest that has no MIG.
+3. Allocate the class directly from `probe/c/rmdirect.c`, which already
+   builds a hierarchy by hand, and find out whether the boundary carries it
+   at all. That answers the coverage question regardless of why NVML skips
+   it, and it is the one step that does not depend on guessing NVML's
+   reasoning.
+
+---
+
+## Resolved 2026-08-21. Both halves measured, and the surviving hypothesis is falsified.
+
+**WHY NVML NEVER ALLOCATES IT IN A GUEST -- route 1, answered out of
+artefacts that were already on disk, with no run needed.** The native and
+guest `nvml` straces were diffed around the allocation point, which is what
+this entry asked for:
+
+    NATIVE   openat /proc/driver/nvidia/capabilities/mig/config   -> ok
+             openat /proc/driver/nvidia/capabilities/mig/monitor  -> ok
+             openat /dev/nvidia-caps/nvidia-cap2                  -> fd
+             ioctl  0x2b class 0xc640, capDescriptor = that fd    -> NV_OK
+
+    GUEST    openat /proc/driver/nvidia/capabilities/mig/config   -> ENOENT
+             openat /proc/driver/nvidia/capabilities/mig/monitor  -> ENOENT
+             (no /dev/nvidia-caps open -- the directory does not exist)
+             (no allocation, and none is attempted)
+
+NVML does not branch on the product name. It branches on **whether it could
+open the MIG monitor capability**, and it stops two `openat`s before it would
+have had anything to allocate with. `capDescriptor` is a FILE DESCRIPTOR
+(`clc640.h:38`), the fd comes from `/dev/nvidia-caps/nvidia-cap<minor>`, and
+the minor is read out of the procfs node -- so with no capability there is no
+fd, and with no fd there is no call. **The mediated-identity candidate is
+falsified**, and the falsification is clean: the guest's identity is the same
+in every run below, and the status changes only with the fd.
+
+**WHETHER THE BOUNDARY CARRIES THE CLASS -- route 3, the coverage half, run
+directly.** `probe/c/rmdirect.c` now allocates `0xc640` itself, parented to
+the client with `paramsSize = 0`, exactly as `nvml.jsonl` records the native
+call. Four runs, one variable:
+
+| | where | `capDescriptor` | `ret` | RM status |
+|---|---|---|---|---|
+| **A** | native, capability opened | fd 5 | 0 | **`0x0` NV_OK** |
+| **B** | native, `LEA_RMDIRECT_NO_CAP=1` | -1 | 0 | **`0x1b`** |
+| **C** | guest, no capability node exists | -1 | 0 | **`0x1b`** |
+| **D** | guest, `LEA_RMDIRECT_NO_CAP=1` | -1 | 0 | **`0x1b`** |
+
+`0x1b` is `NV_ERR_INSUFFICIENT_PERMISSIONS` (`nvgpu.rs:545`).
+
+**B == C == D.** Given the same input, the guest gets the same answer as the
+host, byte for byte, and `ret = 0` throughout -- the boundary forwarded the
+allocation, RM answered it, and the refusal is RM's own. So the boundary
+carries `ctl 0x2b 0xc640` **faithfully, refusal included**, which is the same
+shape as number 61's `GR_GET_CAPS_V2` reproducer. **A vs B** is the control
+that makes the rest mean anything: on one machine, with one variable, the fd
+is the whole difference between NV_OK and a refusal.
+
+**What is honestly still not exercised, stated rather than papered over.**
+The NV_OK path -- an allocation with a REAL capability descriptor -- is
+reached by no guest, and cannot be: `/proc/driver/nvidia/capabilities/` and
+`/dev/nvidia-caps/` are made by the host's `nvidia.ko` and not by this
+project's guest module, so a guest client has no fd to pass. That is a
+narrowing of the warning `xlate.rs` already carried rather than a new
+finding: `alloc_fd_field` has no entry for `0xc640`, so the fd would be
+forwarded untranslated -- and **nothing can currently drive that path**, because
+nothing in a guest can obtain the fd to mistranslate. The missing entry is a
+prerequisite for exposing MIG to a guest, not a live hole. `xlate.rs` now
+records that measurement where the warning is.
+
+**So the catalogue row is right as it stands.** `signature-absent-in-guest`
+for `ctl 0x2b 0xc640` is a true statement about NVML's behaviour and it is not
+a boundary finding. The `rm-direct` probe now issues the class on every sweep,
+so it is exercised by something on both sides, which is what the coverage
+complaint was actually about. The allocation is deliberately not a pass
+criterion there -- a refusal is the expected result on both sides, and a probe
+that failed on it would be asserting the opposite of what was measured.
 ### 66. The control test proves stability on one side of the boundary only
 **Resolved 2026-08-21: the third variant exists.** The original reasoning is
 kept below. A signature moved from `verified` to
