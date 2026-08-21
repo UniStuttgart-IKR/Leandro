@@ -1310,142 +1310,6 @@ become historical. That is the whole reason this is a question and not a
 commit.
 
 **A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
-### 63. Two answers behind an NvP64 differ, and both look like the hardware saying so
-**Open, measured 2026-08-21.** They became visible the moment the tracer
-started following a control's `NvP64` — before that, `ctrlout` dumped the
-params buffer, which for a list control is the QUESTION, and thirteen
-signatures were reported `verified` on it (number 55, and the class
-`answer_behind_a_pointer` that briefly existed). With the pointer followed,
-two of the thirteen do not match.
-
-**`NV2080_CTRL_CMD_BUS_GET_INFO`** (`ctl nr=0x2a sub=0x20801802`), in `nvml`.
-The `busInfoList` entry at index `0x2d` —
-`NV2080_CTRL_BUS_INFO_INDEX_PCIE_GEN_INFO` (ctrl2080bus.h:329) — answers
-
-| | data |
-|---|---|
-| native | `0x00222000` |
-| guest | `0x00212000` |
-
-The other entry of the same list, index 0, answers `0x3` on both sides. The
-difference is one bit position in a PCIe generation field, and the guest's
-view of the link is genuinely not the host's: the card is passed through and
-what the guest sees of the PCIe topology is the virtual one. Plausibly
-correct on both sides and declared by nothing.
-
-**`NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST`** (`ctl nr=0x2a sub=0x80170d`), in
-eight probes — every CUDA one, `nvdec`, `nvenc`, `opencl`. The command has
-two `NvP64`s, `pChannelHandleList` and `pChannelList`, so the dump is a
-handle followed by a channel id. The handle matches (the handle mask covers
-it); the **channel id** is `0x35` natively and `0x37` in the guest,
-consistently, in all eight.
-
-A hardware channel id is assigned by RM when the channel is allocated, and
-the host has channels of its own that the guest does not. It is the same
-shape as `workSubmitToken` on `0xc36f0108`, which differs for the same
-reason and is likewise unmasked.
-
-**WHAT IS OPEN IS WHETHER THESE NEED A MASK, AND OF WHAT KIND.** Both are
-values the hardware or the host assigns, which a guest cannot be expected to
-match — the same category as a gpuId or an RM handle, and those have derived
-masks. A channel-id mask could be derived the way the handle mask is: a value
-this side's OWN trace shows being assigned to a channel. The PCIe field has
-no such derivation; declaring it would be a declared mask, which this
-project has avoided on purpose, and the alternative is to leave it reported.
-
-Neither should be masked by declaration on the strength of looking
-plausible. Both are reported as mismatches today, which is the safe place for
-them to sit while the question is open.
-
----
-
----
-
-**DECISION MEMO, written 2026-08-21. Nothing below decides it: option 2
-would add the first declared mask in this tree, which is a person's call.**
-
-**HALF OF THIS ENTRY HAS ALREADY ANSWERED ITSELF, and by the method this
-project prefers.** `BUS_GET_INFO`'s PCIe generation field is **no longer a
-mismatch**. In `verified-610.57.04.json` as it stands it is classified
-`unstable`, with the reason *"call 1, +4 in the buffer behind the NvP64:
-0x00222000 natively, 0x00202000 in the guest -- and this word is NOT STABLE
-between two native runs"*. Note the guest value: this entry recorded
-`0x00212000` and the artefact now says `0x00202000`. **The field moved
-between runs, which is what "unstable" means**, and the control test
-classified it out without anybody deciding anything.
-
-So the PCIe field needs no mask at all. It needed a second native run, and
-it got one. That is worth keeping as the general lesson: the answer to *"is
-this difference real?"* was not a mask, it was a control.
-
-**What is left is one row.** `NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST`
-(`ctl 0x2a 0x80170d`), the sole surviving `mismatch` in the evidence file,
-in eight probes, `stability: every word that differs was constant across the
-calls one native run made`.
-
-**Re-measured 2026-08-21, and it is sharper than the entry states.** The
-dump behind the two `NvP64`s is a handle followed by a channel id, 8 bytes
-per channel. In `nvenc`, the first three channels:
-
-| | handle | channel id |
-|---|---|---|
-| native | `0x5c000019`, `0x5c00001f`, `0x5c000023` | `0x35`, `0x36`, `0x37` |
-| guest | `0x5c000019`, `0x5c00001f`, `0x5c000023` | `0x37`, `0x38`, `0x39` |
-
-**The handles are identical and the ids are the native ones + 2**, and the
-first channel is `0x35` natively against `0x37` in the guest in all five
-probes checked individually (`cuda-core`, `cuda-jit`, `nvdec`, `nvenc`,
-`opencl`). A constant offset is what "the host has channels of its own that
-the guest does not" predicts.
-
-**AND A DERIVED MASK IS NOT AVAILABLE, which is the decisive new fact.**
-The handle mask works because a handle is observed being ASSIGNED in the
-trace's own allocation lines. A channel id is not: the channel allocation
-(`hClass 0xc46f`, 376 bytes of answer) does not carry it — checked in both
-the native and the guest `nvenc` traces, zero occurrences in the guest's
-allocation answers. The only place the id appears is inside the answer of
-the very command under test, so deriving the mask from it would make the
-instrument agree with what it is measuring — the same circularity that
-stopped allocation dump lengths being taken from the table under test.
-
-**Option 1 — leave it reported as a mismatch (status quo).**
-*Cost:* the `mismatch` class is never empty, so "mismatch is empty" stops
-being a usable one-line health statement for the sweep.
-*Downstream:* the safe direction. A real defect appearing later in this
-class is still visible, just alongside a known row.
-
-**Option 2 — declare a channel-id mask.**
-*Cost:* **the first declared mask in the tree.** All five existing masks are
-derived from what a run produced, and the handoffs record that property as
-deliberate and worth keeping. Declaring one spends it.
-*Downstream:* `mismatch` becomes empty and stays a meaningful alarm. But the
-next plausible-looking difference has a precedent to point at, and that
-precedent is the thing this project has refused on purpose.
-
-**Option 3 — a new class, beside `unstable` and `mismatch`:
-`host-assigned`.** Not masked, not a defect, listed separately: values the
-HOST or the hardware assigns that a guest cannot be expected to match.
-`workSubmitToken` on `0xc36f0108` is already the same shape and is likewise
-unmasked, so this class would have two members on the day it is created.
-*Cost:* a class and its criterion — and the criterion must be stated so it
-cannot become a place to put anything inconvenient.
-*Downstream:* `mismatch` becomes empty and stays an alarm, WITHOUT declaring
-a mask. The claim moves from "these bytes are equal" to "these bytes differ
-and here is the category", which is what the evidence actually supports.
-
-**Recommendation.** Take **3**. It is the only option that gets `mismatch`
-back to being a usable alarm without spending the derived-mask property, and
-the honest statement about a channel id is not "ignore this word" but "this
-word is assigned by the host". Option 2 buys the same alarm for a principle
-this project has held on purpose; option 1 keeps the principle and loses the
-alarm.
-
-**Whichever is taken, the constant +2 deserves one more measurement first:**
-it should be checked on a rig where the host has a DIFFERENT number of
-channels open, because if the offset tracks that count the category is
-proven rather than inferred. That is a cheap run and it is not blocking.
-
-**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
 ### 64. The NVKMS commands are recorded and none of them has a name
 **Open, split out of number 48 on 2026-08-21**, which is resolved: the node
 is traced, counted and gated, and this is the half that was never anything
@@ -2909,3 +2773,193 @@ and `0x2080a097` (offset 8: `0x00000014` natively, `0x00000007` in one guest
 sweep and `0x00000023` in the next — which is two-run evidence that it is
 volatile, obtained by accident, and exactly what the second-native-trace
 variant would establish on purpose).
+### 63. Two answers behind an NvP64 differ, and both look like the hardware saying so
+**Resolved 2026-08-21: option 3, a `host_assigned` class.** One half answered
+itself before the decision was taken. The original reasoning is kept below.
+They became visible the moment the tracer
+started following a control's `NvP64` — before that, `ctrlout` dumped the
+params buffer, which for a list control is the QUESTION, and thirteen
+signatures were reported `verified` on it (number 55, and the class
+`answer_behind_a_pointer` that briefly existed). With the pointer followed,
+two of the thirteen do not match.
+
+**`NV2080_CTRL_CMD_BUS_GET_INFO`** (`ctl nr=0x2a sub=0x20801802`), in `nvml`.
+The `busInfoList` entry at index `0x2d` —
+`NV2080_CTRL_BUS_INFO_INDEX_PCIE_GEN_INFO` (ctrl2080bus.h:329) — answers
+
+| | data |
+|---|---|
+| native | `0x00222000` |
+| guest | `0x00212000` |
+
+The other entry of the same list, index 0, answers `0x3` on both sides. The
+difference is one bit position in a PCIe generation field, and the guest's
+view of the link is genuinely not the host's: the card is passed through and
+what the guest sees of the PCIe topology is the virtual one. Plausibly
+correct on both sides and declared by nothing.
+
+**`NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST`** (`ctl nr=0x2a sub=0x80170d`), in
+eight probes — every CUDA one, `nvdec`, `nvenc`, `opencl`. The command has
+two `NvP64`s, `pChannelHandleList` and `pChannelList`, so the dump is a
+handle followed by a channel id. The handle matches (the handle mask covers
+it); the **channel id** is `0x35` natively and `0x37` in the guest,
+consistently, in all eight.
+
+A hardware channel id is assigned by RM when the channel is allocated, and
+the host has channels of its own that the guest does not. It is the same
+shape as `workSubmitToken` on `0xc36f0108`, which differs for the same
+reason and is likewise unmasked.
+
+**WHAT IS OPEN IS WHETHER THESE NEED A MASK, AND OF WHAT KIND.** Both are
+values the hardware or the host assigns, which a guest cannot be expected to
+match — the same category as a gpuId or an RM handle, and those have derived
+masks. A channel-id mask could be derived the way the handle mask is: a value
+this side's OWN trace shows being assigned to a channel. The PCIe field has
+no such derivation; declaring it would be a declared mask, which this
+project has avoided on purpose, and the alternative is to leave it reported.
+
+Neither should be masked by declaration on the strength of looking
+plausible. Both are reported as mismatches today, which is the safe place for
+them to sit while the question is open.
+
+---
+
+---
+
+**DECISION MEMO, written 2026-08-21. Nothing below decides it: option 2
+would add the first declared mask in this tree, which is a person's call.**
+
+**HALF OF THIS ENTRY HAS ALREADY ANSWERED ITSELF, and by the method this
+project prefers.** `BUS_GET_INFO`'s PCIe generation field is **no longer a
+mismatch**. In `verified-610.57.04.json` as it stands it is classified
+`unstable`, with the reason *"call 1, +4 in the buffer behind the NvP64:
+0x00222000 natively, 0x00202000 in the guest -- and this word is NOT STABLE
+between two native runs"*. Note the guest value: this entry recorded
+`0x00212000` and the artefact now says `0x00202000`. **The field moved
+between runs, which is what "unstable" means**, and the control test
+classified it out without anybody deciding anything.
+
+So the PCIe field needs no mask at all. It needed a second native run, and
+it got one. That is worth keeping as the general lesson: the answer to *"is
+this difference real?"* was not a mask, it was a control.
+
+**What is left is one row.** `NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST`
+(`ctl 0x2a 0x80170d`), the sole surviving `mismatch` in the evidence file,
+in eight probes, `stability: every word that differs was constant across the
+calls one native run made`.
+
+**Re-measured 2026-08-21, and it is sharper than the entry states.** The
+dump behind the two `NvP64`s is a handle followed by a channel id, 8 bytes
+per channel. In `nvenc`, the first three channels:
+
+| | handle | channel id |
+|---|---|---|
+| native | `0x5c000019`, `0x5c00001f`, `0x5c000023` | `0x35`, `0x36`, `0x37` |
+| guest | `0x5c000019`, `0x5c00001f`, `0x5c000023` | `0x37`, `0x38`, `0x39` |
+
+**The handles are identical and the ids are the native ones + 2**, and the
+first channel is `0x35` natively against `0x37` in the guest in all five
+probes checked individually (`cuda-core`, `cuda-jit`, `nvdec`, `nvenc`,
+`opencl`). A constant offset is what "the host has channels of its own that
+the guest does not" predicts.
+
+**AND A DERIVED MASK IS NOT AVAILABLE, which is the decisive new fact.**
+The handle mask works because a handle is observed being ASSIGNED in the
+trace's own allocation lines. A channel id is not: the channel allocation
+(`hClass 0xc46f`, 376 bytes of answer) does not carry it — checked in both
+the native and the guest `nvenc` traces, zero occurrences in the guest's
+allocation answers. The only place the id appears is inside the answer of
+the very command under test, so deriving the mask from it would make the
+instrument agree with what it is measuring — the same circularity that
+stopped allocation dump lengths being taken from the table under test.
+
+**Option 1 — leave it reported as a mismatch (status quo).**
+*Cost:* the `mismatch` class is never empty, so "mismatch is empty" stops
+being a usable one-line health statement for the sweep.
+*Downstream:* the safe direction. A real defect appearing later in this
+class is still visible, just alongside a known row.
+
+**Option 2 — declare a channel-id mask.**
+*Cost:* **the first declared mask in the tree.** All five existing masks are
+derived from what a run produced, and the handoffs record that property as
+deliberate and worth keeping. Declaring one spends it.
+*Downstream:* `mismatch` becomes empty and stays a meaningful alarm. But the
+next plausible-looking difference has a precedent to point at, and that
+precedent is the thing this project has refused on purpose.
+
+**Option 3 — a new class, beside `unstable` and `mismatch`:
+`host-assigned`.** Not masked, not a defect, listed separately: values the
+HOST or the hardware assigns that a guest cannot be expected to match.
+`workSubmitToken` on `0xc36f0108` is already the same shape and is likewise
+unmasked, so this class would have two members on the day it is created.
+*Cost:* a class and its criterion — and the criterion must be stated so it
+cannot become a place to put anything inconvenient.
+*Downstream:* `mismatch` becomes empty and stays an alarm, WITHOUT declaring
+a mask. The claim moves from "these bytes are equal" to "these bytes differ
+and here is the category", which is what the evidence actually supports.
+
+**Recommendation.** Take **3**. It is the only option that gets `mismatch`
+back to being a usable alarm without spending the derived-mask property, and
+the honest statement about a channel id is not "ignore this word" but "this
+word is assigned by the host". Option 2 buys the same alarm for a principle
+this project has held on purpose; option 1 keeps the principle and loses the
+alarm.
+
+**Whichever is taken, the constant +2 deserves one more measurement first:**
+it should be checked on a rig where the host has a DIFFERENT number of
+channels open, because if the offset tracks that count the category is
+proven rather than inferred. That is a cheap run and it is not blocking.
+
+**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
+
+---
+
+**DECIDED 2026-08-21 by the operator: option 3 -- a `host_assigned` class
+beside `unstable` and `mismatch`.** Built, and the result is measured:
+
+    before   1 MISMATCH, 212 verified + 4 mediated
+    after    0 MISMATCH, 212 verified + 4 mediated, 1 host_assigned
+
+**`mismatch` is empty and `verified` did not move.** That second half is the
+point: the class LABELS, it does not promote. A row in it joins neither
+verified class, exactly as `unstable` does not.
+
+**Only ONE of the two rows is in it, and the other never needed it.**
+`BUS_GET_INFO`'s PCIe generation field had already classified itself out -- the
+control test calls it `unstable`, and its guest value moved between runs
+(`0x00212000` when this entry was written, `0x00202000` in the artefact
+since). A second native run answered it, which is the method this project
+prefers to a mask, and no declaration was spent on it.
+
+**A correction to the memo above:** it said `workSubmitToken` (`0xc36f0108`)
+was "already the same shape" and would make this class two members on day one.
+It would not. That signature is `unstable` today and correctly so -- a submit
+token changes per channel allocation. The class has exactly one member,
+`NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST`.
+
+**What keeps it honest**, written into `answerdiff.py` beside the table:
+
+  * it is a CLASS, not a MASK, and the difference is the whole design. A mask
+    says "these bytes may differ" and the signature can still be verified -- a
+    claim about correctness. This says "these bytes DO differ, and here is the
+    category". The cost of a wrong entry is bounded to losing an alarm; it can
+    never make something count as verified that is not.
+  * it is checked **last**, after the derived masks, the control test, the
+    mediation manifest and the written-ness label. Only a word both sides
+    wrote, that is stable, and that nothing else explains, can reach it.
+  * the criterion is four numbered conditions, so it cannot become a place to
+    put anything inconvenient, and every entry names its evidence.
+
+**Why a DERIVED mask was not available**, which is what forced a declaration
+and is the fact that decides this entry: the channel id appears nowhere in the
+trace except inside the answer of the command under test. The channel
+allocation (`hClass 0xc46f`, 376 bytes of answer) does not carry it -- checked
+in both the native and the guest `nvenc` traces. Deriving a mask from the
+command's own answer would make the instrument agree with what it is
+measuring, the same circularity that stopped allocation dump lengths being
+taken from the table under test.
+
+**Still worth one more measurement, and it is not blocking:** the offset is a
+constant +2 on this rig. On a rig where the host has a different number of
+channels open it should differ by that count instead, and if it does the
+category is proven rather than inferred.
