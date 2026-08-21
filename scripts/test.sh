@@ -523,6 +523,25 @@ nix_sparse_dirs() {
     return 1
 }
 
+# foreign_reason NAMES -- the skip line when another rig is up.
+#
+# All three gates used to build this themselves, two of them without saying
+# what to do about it and the third suggesting `--name X` with a literal X.
+# And `tr '\n' ' '` leaves a trailing space, which is the double space in
+# "running: desktop  -- stop them first".
+#
+# The usual CAUSE is worth naming, because it is not a misconfiguration: an
+# INTERRUPTED gate leaves its own rig up. The display gate brings up
+# `desktop`; Ctrl-C it and every later gate correctly refuses to touch a rig
+# it did not start, which reads like a new fault and is the previous one's
+# leftovers. Reported 2026-08-21 as "also some kinda bug".
+foreign_reason() {
+    local names; names=$(tr '\n' ' ' <<<"$1" | sed -e 's/  */ /g' -e 's/ *$//')
+    local cmd=""; local n
+    for n in $names; do cmd="$cmd scripts/showcase.sh down --name $n --force;"; done
+    echo "instances of another rig are running: $names -- a gate will not touch a rig it did not start. Stop them:${cmd% } (an interrupted gate leaves its own rig up; the display gate's is 'desktop')"
+}
+
 dangling_refs() {
     local J='JOURNA''L' P='prompt''s/' hits
     hits=$(git ls-files | grep -vE "^(vendor/|patches/|crates/vhost-user-nvrm/fuzz/corpus/|${P}|docs/${J}\.md$)" \
@@ -642,7 +661,7 @@ gate_gpu() {
     # is about the GPU being shared with a measurement, not about collateral.
     local foreign owner
     if foreign=$(lea_foreign_rigs "$NAME"); then
-        lea_gate_skip "instances of another rig are running: $(tr '\n' ' ' <<<"$foreign") -- stop them first (showcase.sh down --name X)"
+        lea_gate_skip "$(foreign_reason "$foreign")"
     fi
     if owner=$(lea_inst_owner "$NAME"); then
         lea_gate_skip "$NAME is in use by pid $owner (a bench or a showcase run?) -- not taking it over"
@@ -1015,7 +1034,7 @@ gate_vdisplay() {
     # Our OWN instance from a previous run is not foreign -- it is what the
     # setup stage takes down first.
     if foreign=$(lea_foreign_rigs "$NAME"); then
-        lea_gate_skip "instances of another rig are running: $(tr '\n' ' ' <<<"$foreign")"
+        lea_gate_skip "$(foreign_reason "$foreign")"
     fi
     if foreign=$(lea_inst_owner "$NAME"); then
         lea_gate_skip "$NAME is in use by pid $foreign -- not taking it over"
@@ -1279,7 +1298,7 @@ gate_display() {
     say "rig"
     local foreign
     if foreign=$(lea_foreign_rigs "$NAME"); then
-        lea_gate_skip "instances of another rig are running: $(tr '\n' ' ' <<<"$foreign")"
+        lea_gate_skip "$(foreign_reason "$foreign")"
     fi
     if foreign=$(lea_inst_owner "$NAME"); then
         lea_gate_skip "$NAME is in use by pid $foreign -- not taking it over"
