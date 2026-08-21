@@ -1845,11 +1845,43 @@ EOC
         # encoder, web login), and a Sunshine started without it picks NvFBC
         # and streams black.
         lea_sunshine_configure "$ip"
+        # THE WAYLAND HALF OF THE SESSION TOO, and leaving it out is why
+        # Sunshine refused every capture mode under a Wayland session:
+        #
+        #   Error: [wayland] Environment variable WAYLAND_DISPLAY has not
+        #          been defined
+        #   Error: Unable to initialize capture method
+        #   Fatal: Unable to find display or encoder during startup
+        #
+        # and Moonlight then got 503 "Is a display connected and turned on?".
+        # Measured 2026-08-21 with capture=kms AND with capture=portal -- both
+        # need Wayland, because Sunshine enumerates outputs through the
+        # compositor even for the KMS path.
+        #
+        # Under Wayland, gnome-shell's environ carries NEITHER DisplaY nor
+        # XAUTHORITY (measured the same day, while chasing number 44), so the
+        # two lines below find nothing and the `env` reduced to bare
+        # `sunshine`. WAYLAND_DISPLAY and XDG_RUNTIME_DIR are read from the
+        # compositor the same way, and DBUS_SESSION_BUS_ADDRESS goes with them
+        # because the portal path needs the session bus.
         lea_ssh "$ip" 'GS=$(pgrep -x gnome-shell | head -1)
-            D=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^DISPLAY=//p")
-            XA=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^XAUTHORITY=//p")
-            sh -c "setsid nohup env DISPLAY=$D XAUTHORITY=$XA sunshine \
-                >/tmp/lea-sunshine.out 2>&1 </dev/null &"'
+            e() { tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^$1=//p" | head -1; }
+            D=$(e DISPLAY); XA=$(e XAUTHORITY)
+            WD=$(e WAYLAND_DISPLAY); XRD=$(e XDG_RUNTIME_DIR); DB=$(e DBUS_SESSION_BUS_ADDRESS)
+            # A Wayland session that does not export WAYLAND_DISPLAY into the
+            # compositor own environ still has the socket; fall back to it
+            # rather than start a Sunshine that cannot capture.
+            [ -n "$WD" ] || { for s in ${XRD:-/run/user/1000}/wayland-*; do
+                    case "$s" in *.lock) continue ;; esac
+                    [ -S "$s" ] && WD=${s##*/} && break; done; }
+            set --
+            [ -n "$D" ]   && set -- "$@" "DISPLAY=$D"
+            [ -n "$XA" ]  && set -- "$@" "XAUTHORITY=$XA"
+            [ -n "$WD" ]  && set -- "$@" "WAYLAND_DISPLAY=$WD"
+            [ -n "$XRD" ] && set -- "$@" "XDG_RUNTIME_DIR=$XRD"
+            [ -n "$DB" ]  && set -- "$@" "DBUS_SESSION_BUS_ADDRESS=$DB"
+            echo "  sunshine env: $*"
+            setsid nohup env "$@" sunshine >/tmp/lea-sunshine.out 2>&1 </dev/null &'
         if [[ $steam -eq 1 ]]; then
             lea_ssh "$ip" 'GS=$(pgrep -x gnome-shell | head -1)
                 D=$(tr "\0" "\n" < /proc/$GS/environ | sed -n "s/^DISPLAY=//p")
