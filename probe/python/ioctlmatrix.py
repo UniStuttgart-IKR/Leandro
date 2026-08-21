@@ -961,6 +961,49 @@ UNKNOWN = "unknown -- not in public headers"
 MAP_MEMORY_NR = "0x4e"
 
 
+# RM's own control-privilege flags. `RMCTRL_FLAGS_PRIVILEGED` is 0x4 and
+# `RMCTRL_FLAGS_NON_PRIVILEGED` is 0x8 (control.h); a declaration that sets
+# NEITHER gets the 0x0 default, `RMCTRL_FLAGS_KERNEL_PRIVILEGED`, whose own
+# comment says it "will only be allowed for kernel mode callers ... Otherwise,
+# NV_ERR_INSUFFICIENT_PERMISSIONS is returned."
+#
+# That matters here because this backend runs in USERSPACE. Its RM client can
+# never be a kernel client, so a kernel-privileged control is refused however
+# the call is forwarded, and no amount of capability fixes it (OPEN-QUESTIONS
+# 19 and 25; CAP_SYS_ADMIN was measured and made it worse -- main.rs).
+#
+# So the number worth watching is how many of the controls a GUEST'S
+# USERSPACE actually issues fall in that class. It is currently zero, and it
+# is computed rather than asserted so that it stays honest if a new workload
+# changes it.
+RMCTRL_FLAGS_PRIVILEGED = 0x4
+RMCTRL_FLAGS_NON_PRIVILEGED = 0x8
+NVOC_METHOD = re.compile(
+    r"/\*flags=\*/\s*(0x[0-9a-fA-F]+)u.*?/\*methodId=\*/\s*(0x[0-9a-fA-F]+)u", re.S)
+
+_KPRIV = None
+
+
+def kernel_privileged(root):
+    """-> {methodId: True/False}, parsed out of the generated nvoc tables.
+
+    Empty on a vendor tree without them, which costs a flag and nothing else.
+    """
+    global _KPRIV
+    if _KPRIV is None:
+        _KPRIV = {}
+        gen = pathlib.Path(root) / "src/nvidia/generated"
+        for f in sorted(gen.glob("*.c")) if gen.is_dir() else []:
+            try:
+                text = f.read_text(errors="replace")
+            except OSError:
+                continue
+            for fl, mid in NVOC_METHOD.findall(text):
+                _KPRIV[int(mid, 16)] = not (
+                    int(fl, 16) & (RMCTRL_FLAGS_PRIVILEGED | RMCTRL_FLAGS_NON_PRIVILEGED))
+    return _KPRIV
+
+
 _NVKMS_TABLE = None
 
 
@@ -1195,6 +1238,17 @@ def resolve(sigs, gov, hdr, sizes, mediated, drm, esc_mediated=None):
                                      if n.startswith("NVIDIA_") else "libdrm drm.h")
                     row["description"] = ("DRM, not RM: a different namespace and a "
                                           "different boundary (probe/run/drmtrace.sh)")
+
+        # ---- RM's own privilege class ------------------------------------
+        # Kept apart from the mediation flags below: those say what a
+        # forwarder must TRANSLATE, this says who RM will accept the call
+        # from at all. See kernel_privileged() and OPEN-QUESTIONS 19.
+        if kind == "ctrl" and sub is not None and kernel_privileged(hdr.root).get(sub):
+            row["flags"].append("kernel-privileged")
+            row["notes"].append(
+                "RM declares this KERNEL_PRIVILEGED (control.h): only a kernel-mode "
+                "caller with a kernel RM client may issue it, and this backend runs in "
+                "userspace, so it is refused however it is forwarded -- OPEN-QUESTIONS 19")
 
         # ---- mediation flags ---------------------------------------------
         body = struct_body(hdr, meta.get("incl") if meta else None,
@@ -1695,6 +1749,24 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
             fh.write("Where the two can be compared -- RM_ALLOC classes and UVM commands,\n"
                      "the two places a size is not self-describing -- they agree.\n\n")
 
+        # The number OPEN-QUESTIONS 19 rests on, recomputed every run rather
+        # than quoted: how much of what a guest's userspace actually issues
+        # falls in a class this backend cannot serve at all.
+        _ctrls = [r for r in rows if r["nr"] == "0x2a"]
+        _kp = [r for r in _ctrls if "kernel-privileged" in r["flags"]]
+        _kpriv_summary = (
+            f"Of the {len(_ctrls)} control(s) in this catalogue, **{len(_kp)}** are "
+            "kernel-privileged.\nEvery one of them would be refused with "
+            "`NV_ERR_INSUFFICIENT_PERMISSIONS`\nregardless of what this boundary does, "
+            "so a non-zero number here is a\nfeature limit and not a defect to fix."
+            if _kp else
+            f"Of the {len(_ctrls)} control(s) in this catalogue, **none** is "
+            "kernel-privileged --\nso nothing a guest's userspace issues here lands in "
+            "the class RM refuses to a\nuserspace caller. The commands that DO "
+            "(OPEN-QUESTIONS 19) are issued by\n`nvidia-modeset` and `nvidia-drm` "
+            "inside the guest kernel, which no userspace\ntracer sees and no row here "
+            "represents.")
+
         counts = collections.Counter(r["status"] for r in rows)
         fh.write("| status | signatures |\n|---|---:|\n")
         for s in STATUS_ORDER:
@@ -1709,7 +1781,12 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
                  "| `embedded-ptr(second-level)` | the pointed-to buffer holds further pointers -- the expensive case |\n"
                  "| `process-local-va` | an OS_DESCRIPTOR-style user range: pages have to be pinned and described |\n"
                  "| `size-table` | RM_ALLOC is not self-describing; this hClass needs a size entry |\n"
-                 "| `none` | flat struct, self-describing length -- likely pure passthrough |\n\n")
+                 "| `none` | flat struct, self-describing length -- likely pure passthrough |\n\n"
+                 "One flag in that column is NOT about mediation, and is listed apart\n"
+                 "so it is not read as one:\n\n"
+                 "| flag | what it means |\n|---|---|\n"
+                 "| `kernel-privileged` | RM accepts this control only from a kernel-mode caller (`RMCTRL_FLAGS_KERNEL_PRIVILEGED`, control.h). This backend is a userspace process, so such a control is refused whatever a forwarder does with it -- no capability reaches it (OPEN-QUESTIONS 19, 25). |\n\n"
+                 f"{_kpriv_summary}\n\n")
 
         cur = None
         for r in sorted(rows, key=sortkey):

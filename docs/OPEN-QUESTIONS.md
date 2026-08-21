@@ -220,15 +220,6 @@ dangerous inverse (a *lost* completion, which would freeze a compositor)
 has never been observed. Since 2026-08-18 it is understood as a signature
 of the same root as 22-A.
 
-### 19. `GET_SURFACE_PHYS_PAGES` is refused with `INSUFFICIENT_PERMISSIONS`
-**Open, not a blocker.** Under four concurrent Vulkan clients, RM answers
-control `0x3e0102` on an `NV01_MEMORY_SYSTEM` object with
-`NV_ERR_INSUFFICIENT_PERMISSIONS`, and nvidia-drm logs `Failed to get
-memory pages for NvKmsKapiMemory`. Do not confuse this with number 20: the
-theory that it caused CS2's empty window was checked and rejected — the
-timestamps of the two error kinds do not coincide, and no RM call failed
-while the FBO errors were occurring.
-
 ### 31. The backend holds thousands of `nvidiactl` file descriptors
 **Open, and substantially narrowed 2026-08-21: it has an owner, a rate and
 a mechanism now, and it is not what this entry called it.** Measured on a
@@ -827,6 +818,99 @@ rule that is the only proof of presentation, and this is a pixel reader rather
 than a human. What is claimed is what the reader can support -- the scanout
 carries content, it changes when a client draws, and all three import paths
 agree about it.
+### 19. `GET_SURFACE_PHYS_PAGES` is refused with `INSUFFICIENT_PERMISSIONS`
+**Resolved 2026-08-21: the vendor source names the cause, a run confirms the
+mechanism live, and the scope is now computed on every catalogue run.**
+Originally recorded as: Under four concurrent Vulkan clients, RM answers
+control `0x3e0102` on an `NV01_MEMORY_SYSTEM` object with
+`NV_ERR_INSUFFICIENT_PERMISSIONS`, and nvidia-drm logs `Failed to get
+memory pages for NvKmsKapiMemory`. Do not confuse this with number 20: the
+theory that it caused CS2's empty window was checked and rejected — the
+timestamps of the two error kinds do not coincide, and no RM call failed
+while the FBO errors were occurring.
+
+---
+
+## Resolved 2026-08-21. It is RM's privilege model, and this backend is in userspace.
+
+**FIRST, A CORRECTION TO THE TITLE.** `0x3e0102` is
+`NV003E_CTRL_CMD_GET_SURFACE_NUM_PHYS_PAGES` -- the call that asks *how many*
+pages. `GET_SURFACE_PHYS_PAGES`, the one this entry is named after, is
+`0x3e0103`. `nvkms-kapi.c:2091` issues the count first and returns early if it
+fails, so **the command in the title was never issued**: the refusal happened
+one call earlier.
+
+**THE CAUSE, and the code says it in so many words.** Both controls are
+declared with `flags = 0x101` in RM's generated dispatch table
+(`g_system_mem_nvoc.c`) -- that is
+`RMCTRL_FLAGS_API_LOCK_READONLY | RMCTRL_FLAGS_NO_GPUS_LOCK`, and it sets
+**neither** `RMCTRL_FLAGS_PRIVILEGED` (`0x4`) **nor**
+`RMCTRL_FLAGS_NON_PRIVILEGED` (`0x8`). What is left is the `0x0` default,
+`RMCTRL_FLAGS_KERNEL_PRIVILEGED`, whose own comment in `control.h` reads:
+
+> *"If the KERNEL_PRIVILEGED flag is specified, the call will only be allowed
+> for kernel mode callers (such as other kernel drivers) using a privileged
+> kernel RM client (`CliCheckIsKernelClient()` returning true). Otherwise,
+> **NV_ERR_INSUFFICIENT_PERMISSIONS** is returned."*
+
+`NV_ERR_INSUFFICIENT_PERMISSIONS` is `0x1b`, which is the observed status.
+Natively `nvkms-kapi` **is** a kernel-mode caller. Here the call is forwarded
+to a **userspace** backend, whose RM client cannot be a kernel client, so RM
+refuses it. **Not a bug in the forwarding -- the forwarding is fine and the
+answer is correct.**
+
+**AND NO CAPABILITY REACHES IT**, which was already measured and is worth
+joining up: `main.rs` records 2026-08-08 that with `CAP_SYS_ADMIN` NVKMS gets
+past the head mask and then dies on `GET_PCLK_LIMIT`, *"kernel-privileged,
+which admin does NOT reach"*, and `/dev/dri/card1` disappears -- more
+privilege made the outcome **worse**. So this is the same structural family as
+number 25, which is decided.
+
+**CONFIRMED LIVE, on a sibling command, 2026-08-21.** A display session was
+brought up and four concurrent Vulkan clients run. `0x3e0102` did **not**
+reappear -- in this configuration `nvidia_drm` registers no DRM node
+(both `card0` and `renderD128` are `virtio-pci`, which is number 52's
+structural finding), so `__nv_drm_nvkms_gem_obj_init` is never reached. But
+the mechanism reproduced 40+ times on another command:
+
+    vhost-user-nvrm: dev 0 nr 0x2a cmd 0x20803d03 ret 0 status 0x1b (proc 1 nvidia-modeset)
+
+`0x20803d03` is `NV2080_CTRL_CMD_OS_UNIX_AUDIO_DYNAMIC_POWER`, `flags = 0x1`
+-- again neither privilege bit, again kernel-privileged, again issued by an
+in-kernel caller (`nvidia-modeset`), again `0x1b`. Verified for all three:
+
+| command | | flags | kernel-privileged |
+|---|---|---|---|
+| `0x3e0102` | `GET_SURFACE_NUM_PHYS_PAGES` | `0x101` | **yes** |
+| `0x3e0103` | `GET_SURFACE_PHYS_PAGES` | `0x101` | **yes** |
+| `0x20803d03` | `OS_UNIX_AUDIO_DYNAMIC_POWER` | `0x001` | **yes** |
+
+**HOW MUCH THIS COSTS, computed rather than asserted.** Parsing every control
+declaration out of RM's generated nvoc tables gives **331 of 1362** controls
+kernel-privileged. Intersected with what this boundary actually carries: of
+the **181** controls in the catalogue, **none** is kernel-privileged. So
+nothing a guest's *userspace* issues falls in the class RM refuses to a
+userspace caller -- the ones that do are issued by `nvidia-modeset` and
+`nvidia-drm` **inside the guest kernel**, which no userspace tracer sees and
+no catalogue row represents.
+
+**That number is now recomputed on every catalogue run** rather than quoted
+from here: `ioctlmatrix.py` parses the nvoc flags, tags any such row
+`kernel-privileged`, and the catalogue prints the count with the consequence
+spelled out. If a future workload issues one, it appears as a flagged row with
+a note instead of as a surprise in a log.
+
+**THE FUNCTIONAL COST IS BOUNDED, and the vendor code bounds it.**
+`nvidia-drm-gem-nvkms-memory.c:429` calls `getMemoryPages` **only** when
+`!nvKms->isVidmem(pMemory)`, and returns `-ENOMEM` when it fails. So what is
+lost is the creation of GEM objects backed by **system** memory -- dumb
+buffers and the like -- and never a vidmem allocation, which is what
+rendering uses. That is consistent with this entry's original "not a blocker"
+and with number 20's finding that CS2's empty window was *not* caused by it.
+
+**What would change it** is a kernel-side component on the host holding a
+kernel RM client for these calls -- which is a different architecture, not a
+fix, and the same conclusion number 25 reached by its own route.
 ### 20. CS2 renders but its window stays empty
 **Resolved on the native path 2026-08-17.** CS2 loads, computes and plays
 audio, and the X window is viewable and correctly sized — but GNOME's

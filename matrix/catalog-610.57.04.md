@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-21T14:28:33Z
-commit:  b730495 (working tree modified)
+date:    2026-08-21T14:38:44Z
+commit:  0910ae2 (working tree modified)
 ```
 
 One row per signature `(device, ioctl nr, sub)`. Names, descriptions,
@@ -90,6 +90,19 @@ the two places a size is not self-describing -- they agree.
 | `process-local-va` | an OS_DESCRIPTOR-style user range: pages have to be pinned and described |
 | `size-table` | RM_ALLOC is not self-describing; this hClass needs a size entry |
 | `none` | flat struct, self-describing length -- likely pure passthrough |
+
+One flag in that column is NOT about mediation, and is listed apart
+so it is not read as one:
+
+| flag | what it means |
+|---|---|
+| `kernel-privileged` | RM accepts this control only from a kernel-mode caller (`RMCTRL_FLAGS_KERNEL_PRIVILEGED`, control.h). This backend is a userspace process, so such a control is refused whatever a forwarder does with it -- no capability reaches it (OPEN-QUESTIONS 19, 25). |
+
+Of the 181 control(s) in this catalogue, **none** is kernel-privileged --
+so nothing a guest's userspace issues here lands in the class RM refuses to a
+userspace caller. The commands that DO (OPEN-QUESTIONS 19) are issued by
+`nvidia-modeset` and `nvidia-drm` inside the guest kernel, which no userspace
+tracer sees and no row here represents.
 
 
 ## passthrough
