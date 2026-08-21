@@ -498,82 +498,6 @@ Recorded because nothing in this tree mentioned `setpriority` or RTKit
 before, and because a stall with sound is exactly the shape a reader would
 otherwise file against numbers 10, 20 or 44.
 
-### 47. Two counting rules in our own instruments are wrong
-**Open, both measured 2026-08-20, both found by building a second
-consumer of the same traces.** Neither is a driver question; both make our
-own numbers say something they do not mean.
-
-**A mapping handle is counted as a signature.** The `sig()` key everything
-here uses is `(dev, nr, sub)`, and `sub` is documented as the second
-*dispatch* level. For `NV_ESC_RM_MAP_MEMORY` (0x4e) it is not: `log.rs`
-puts **hMemory** there, deliberately, so that mappings can be matched to
-their allocations by handle. A handle is an instance, not a call. In
-`lvl3.tsv`, `lvl4blocking.tsv` and `torch5conv.tsv` alike, **29 of the 135
-"signatures" are hMemory values** — 21 % — and they are stable only because
-RM hands out handles deterministically for a fixed workload. Under an
-enumerating Vulkan client the same escape produced **409** of them. The
-saturation curve in `trace.sh analyse` therefore starts about 29 rows too
-high and, on a workload that maps a lot, would never look saturated at all.
-`scripts/ioctl-matrix.sh` collapses 0x4e to one row and says so; `trace.sh`
-still counts the old way.
-
-**`grep '_IOC'` counts DRM calls as NVIDIA ones.** The delta column of
-`trace.sh` counts strace lines carrying the substring `_IOC`, and
-`DRM_IOCTL_VERSION` contains it. For `nvprobe` and `torch` that never
-mattered, because a CUDA probe touches no DRM node. For a GL, EGL or Vulkan
-client it does: one `eglinfo`-shaped run showed **441 phantom calls** the
-tracer had supposedly missed, every one of them a DRM ioctl strace had
-named. The token that means "strace has no name for this request" is
-`_IOC(` with the parenthesis, and the count has to be restricted to the fds
-that are NVIDIA nodes — which needs `strace -y`. Both are the same mistake:
-counting what the substring matches instead of what the rule means, and it
-is the third time this project has been bitten by exactly that (`grep
-'^nvos64'` also matching `nvos64in` is in `probe/README.md`).
-
-### 48. Userspace talks to `/dev/nvidia-modeset`, and the tracer cannot see it
-**Open, half fixed 2026-08-20.** The tracer classified `ctl`, `gpu`, `uvm`,
-`uvm-tools`, `event`, `drm` and `render`. There was no tag for
-`/dev/nvidia-modeset`, so an ioctl on that node was not recorded, not
-counted, and not visible in any trace this project had taken.
-
-They exist, and there are more of them than expected. Counted across the
-matrix probes: **451 calls**, of which **405 come from `vulkaninfo
---summary` alone** — an enumerating Vulkan client makes more calls to NVKMS
-from userspace than the whole NVML path makes to RM. Every GL and EGL probe
-makes six. They were found only by counting the tracer against `strace -y`
-per node and asking what the remainder was made of.
-
-Two things follow. The cheap one is a device tag in `crates/nvrm-trace`, so
-the calls are recorded at all. The expensive one is that **NVKMS command
-numbers are their own namespace** — not RM_CONTROL commands, resolving
-against no `ctrl*.h` — so naming them needs a reader that does not exist
-here. `matrix/catalog-<driver>.md` carries the count and the node and
-invents nothing.
-
-This also sharpens what "NVKMS is in-kernel" meant. Its RM traffic is, and
-that half is still unobservable from userspace. Its *own* ioctl surface is
-not: userspace calls it directly, and that half we could measure today.
-
-**The cheap half is done (2026-08-20).** `NvDev::Modeset` exists, the node
-is traced, and it passes the same counter-check against `strace -y` that
-`/dev/nvidiactl` and `/dev/nvidiaN` do — 405 against 405 on `vk-enum`, 6
-against 6 on every GL and EGL probe, in its own pair of columns so the two
-namespaces never share a total. The 451 calls are **14 commands**, and
-`nr` is 0 in all of them: NVKMS carries its whole interface under
-`_IOWR('m', 0, struct NvKmsIoctlParams)` and puts the real command in a
-field of that 16-byte struct. The tracer reads it there, so the catalogue's
-`sub` column is the command and its `psize` column is the size of the block
-the command points at — the one number a future decoder can be checked
-against before it is trusted. Offsets are not written into the reader: the
-struct comes through bindgen with its layout tests, like every other.
-
-What is left is the expensive half, unchanged: **naming** them. That is the
-task in `matrix/TASKS-<driver>.md`, and the criterion is that every row in
-the catalogue's NVKMS section carries a name and a params struct out of
-`nvkms-api.h`, the way an RM_CONTROL row carries one out of `ctrl*.h`.
-Every reference trace taken before 2026-08-20 is incomplete on this node
-and was re-cut; the older ones stay as history.
-
 ### 49. A deprecated control is forwarded verbatim with a pointer inside it
 **Open, 2026-08-20, one row out of 276.** The catalogue flags every
 signature that is forwarded without interpretation *and* whose parameter
@@ -591,133 +515,15 @@ Unverified either way, which is why it is a question and not a bug report.
 Worth settling because it is the exact shape of the failure class number 32
 named — a call that succeeds and answers plausibly.
 
-### 50. Nothing compares the answer bytes, so nothing is verified
-**Open, first slice built 2026-08-20.** The gpu and display gates compare status codes,
-workload results and a whole PyTorch run bit for bit. Nothing anywhere
-compares the **response bytes of a forwarded RM control** against the bytes
-the same call returns natively.
-
-The consequence is now a number rather than a worry. Of 290 catalogued
-signatures, **75 are governed by the descriptor tables or answered by the
-backend, and all 75 are `implemented-unverified`** — the class
-`implemented-verified` is empty and stays empty until a differential
-harness exists. `matrix/TASKS-<driver>.md` carries the standing task, and
-`scripts/ioctl-matrix.sh` reads `matrix/verified-<driver>.json` the moment
-something writes it. That file is never written by hand: a hand-written
-verification record is not evidence.
-
-Why it matters is already on record twice. Number 32 named the failure
-class — an answer that looks valid and is wrong — and number 44 turned out
-to be exactly it: an object a NULL check waved through whose leading fields
-were never filled. A status comparison cannot see either one.
-
-The hard part is not the comparison, it is the mask: handles, gpuIds and
-addresses are translated on purpose, so a harness that flagged them would
-cry wolf on every call.
-
-Since 2026-08-20 there is a step between prediction and that harness:
-`scripts/ioctl-matrix.sh guest` runs the same probes inside a VM and
-compares the signature set and the rm_status fingerprint. A probe that
-survives it is `guest-validated`, which is more than `predicted-green` and
-strictly less than `implemented-verified` — it says the guest asked the
-same questions and got the same KIND of answers, not that the answers
-carried the same bytes. Number 51 is what it found on its first run.
-
-And since the same day there is a first slice of the byte comparison
-itself, `scripts/ioctl-matrix.sh verify` — see number 55, which is mostly
-about what it CANNOT reach.
-
-### 51. A guest answers two nvml controls differently, and both shapes were predicted
-**Open, measured 2026-08-20.** First run of the guest sweep, twenty probes,
-seven of them identical to the native trace signature for signature. `nvml`
-was not: two controls answer in the guest what they never answer natively,
-and both are the failure shape this catalogue already predicted in the
-abstract.
-
-| control | native | guest | what its params carry |
-|---|---|---|---|
-| `NV2080_CTRL_CMD_BIOS_GET_INFO` (0x20800802) | `NV_OK` | `0x1e NV_ERR_INVALID_ADDRESS` | `NvP64 biosInfoList` — a pointer into the caller's address space |
-| `NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE` (0xb02) | `NV_OK` | `0x1f NV_ERR_INVALID_ARGUMENT` | `NvU32 gpuId` as its first field |
-
-Both are `passthrough` in the catalogue, i.e. forwarded verbatim. An
-INVALID_ADDRESS for a struct whose only interesting field is a guest
-pointer, and an INVALID_ARGUMENT for a struct whose first field is a gpuId,
-are not mysteries: they are the two mediation classes this project already
-has names for. The gpuId one is the same failure as
-`GET_P2P_CAPS_MATRIX` in the raytracing work — the host answered
-INVALID_ARGUMENT for the guest's id — and the pointer one is task 1 of
-`matrix/TASKS-<driver>.md` caught in the act rather than reasoned about.
-
-`nvidia-smi -q` itself succeeded in the guest and printed a plausible
-report. That is the point of comparing fingerprints rather than exit codes.
-
-**The flag-scan undercount noted with this entry is closed (2026-08-20).**
-`BIOS_GET_INFO` carries a `finn:` comment that evaluates a bare number
-instead of naming its params struct, so the catalogue had no struct for the
-very control this entry had just fixed. The name is not invented: it is
-PROPOSED by the naming convention and accepted only when the typedef is in
-the command's own header AND `sizeof` compiles for it. Two conventions turned
-out to be real (`_CMD` dropped, and `_CMD` kept), and a command whose header
-holds both is left alone. 35 params structs recovered header-wide, and of the
-135 named control rows the six without a struct became **four** — all four of
-which take no arguments at all: no typedef in the header, and `paramsSize 0`
-in every one of the 27 observed calls. That is a closed answer, not a gap.
-
-**The identity mediation is tested for the first time.** The remaining
-hypothesis for the `AMPERE_SMC_MONITOR_SESSION` leftover below was the
-mediated identity itself. `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` is now
-`verified-mediated` over 32 of its 68 bytes: it differs from the native
-answer in `gpuNameString` and in NO OTHER BYTE. That does not explain the
-missing allocation, but it does remove "the mediation writes somewhere it
-should not" from the list of candidates for it.
-
-**Both are fixed and the fix is measured (2026-08-20).** Each was one table
-row, because the mechanism for each already existed and only this command
-was missing from it:
-
-  - the gpuId joins `NVRM_BDF_SCALARS` (nvrm-genhdr), the same list
-    `GET_ID_INFO` and `ASYNC_ATTACH_ID` are in;
-  - the pointer joins `nested_ptrs` (xlate.rs) as
-    `{ ptr_off: 8, elem: 8 }`, the same shape as `BUS_GET_INFO` and read
-    out of its own header — `NV2080_CTRL_BIOS_INFO` is the
-    `NVXXXX_CTRL_XXX_INFO { index; data }` pair again.
-
-Re-run in a guest afterwards: both answer `NV_OK`, the status fingerprint
-of the whole probe matches the native one, and `verify` puts
-`BIOS_GET_INFO`'s answer bytes in the verified class with its pointer field
-masked as a declared pointer. 61 of nvml's 72 answers now match; the 11
-that do not are the mediated identity (name, PIDs, PCI info) and values
-that are not stable between two runs of the same binary — a timer, PEX
-counters, the current P-state.
-
-Two things are left over.
-
-**The mediation-flag scan undercounts.** `BIOS_GET_INFO` carried flags
-`none` and an empty `params_struct`: the params name is only readable from
-the `finn:` comment on the define line, and older commands do not carry it
-there. Six of the 135 named control rows are in that state, so the
-undercount is small and bounded — but it is real, and the fix is the
-naming convention with an existence check in the same header.
-
-**`AMPERE_SMC_MONITOR_SESSION` (class 0xc640) is allocated natively and
-never in the guest, and the first hypothesis is now falsified.** It is not
-downstream of the two controls above: both answer identically since the
-fix, and the allocation is still absent. It happens early — right after the
-GPU node is opened and `GET_PROBED_IDS` answers, before UVM — so it is part
-of `nvidia-smi`'s init and not of its process accounting. Nothing in the
-answer comparison explains it, which leaves the mediated identity itself as
-the candidate: the guest is told it is a "Leandro RTX 2070", and whether
-NVML opens an SMC monitor session is a decision it makes from what the card
-says it is.
-
 ### 52. The guest's graphics stack asks a different set of questions
 **Half answered 2026-08-21: the boundary carries them; the userspace stopped
 asking.** The direct probe this entry called for exists --
 `probe/matrix/rm-direct.sh` over `probe/c/rmdirect.c`, raw RM ioctls with no
 driver userspace at all: it opens the control node, builds the object
 hierarchy by hand and issues each command once. In a guest it is
-**guest-validated, 10 signatures against 10**, and every command answers
-`NV_OK`:
+**guest-validated, 11 signatures against 11** (re-read from
+`matrix/guest-610.57.04.json` on 2026-08-21; this entry said 10), and every
+command answers `NV_OK`:
 
 | command | in the guest |
 |---|---|
@@ -791,270 +597,6 @@ its criterion — but it has a consequence that is exact: **those six
 signatures are predicted to be carried and are exercised by nothing in a
 guest**, so for them `predicted-green` remains untested no matter how many
 guest runs pass.
-
-### 53. Two libraries are staged into the guest and registered with nobody
-**Half fixed, half falsified 2026-08-20.** `oclprobe` in the guest: *"no OpenCL platform
-(loader found no vendor library)"*. `libnvidia-opencl` IS staged — it is in
-the `optional` array — but nothing writes `/etc/OpenCL/vendors/nvidia.icd`,
-and an ICD loader with no vendor file finds no platform. `eglplat xcb` in
-the guest resolves to vendor `Mesa Project` rather than NVIDIA, which is
-the same shape one platform further on.
-
-This is a class this project already wrote down for EGL — *without
-`10_nvidia.json`, libEGL picks Mesa, silently* — and `lea_gl_stage`
-rewrites those manifests for exactly that reason. The rule generalises and
-was not generalised: **a staged library that no manifest names is an absent
-library that costs disk.** The staging inventory in `DISCOVERY.md` cannot
-see it, because it compares file sets and this is a registration.
-
-**The OpenCL half is fixed, and the rule was generalised rather than the
-case patched.** The set of manifests is not a list somebody maintains: it is
-what a host with the driver installed HAS, derived on 2026-08-20 by
-
-    grep -rl libnvidia /etc/OpenCL /usr/share/glvnd /usr/share/egl \
-                       /usr/share/vulkan /usr/share/vulkansc
-
-— **ten files**, of which `lea_gl_stage` already wrote six (the EGL vendor
-JSON, four external-platform JSONs, the Vulkan ICD). `lea_guest_setup` now
-writes two more, each only when the library it names actually resolves under
-`/opt/nvrm/lib` and removed again when it does not: `nvidia.icd` for
-`libnvidia-opencl` and `nvidia_icd_vksc.json` for `libnvidia-vksc-core`.
-The remaining two are the halves of `nvidia_layers.json` — number 57.
-
-Measured the same day, and it is the whole of the fix: the `opencl` probe
-went from FAIL to **guest-validated**, 107 signatures against 107, criterion
-*"OpenCL vector add on NVIDIA's platform: 4096/4096 elements verified"*.
-Nothing else changed. Note what that says about the class: `libnvidia-opencl`
-is a separate userspace on the same driver, and its whole escape surface was
-untested for want of a one-line text file.
-
-**The `eglplat xcb` half is FALSIFIED, and it was not the same shape at
-all.** Measured 2026-08-20 out of the guest run's own strace: the guest
-DOES read `/usr/share/egl/egl_external_platform.d/20_nvidia_xcb.json`, it
-DOES read `10_nvidia.json` beside Mesa's `50_mesa.json`, and it DOES
-`dlopen` `libnvidia-egl-xcb.so.1` successfully — and `eglQueryString`
-still answers `Mesa Project`. The registration chain is complete and the
-divergence is one level below it, which is a different question and has its
-own entry: number 58.
-
-### 54. Two probe criteria cannot pass in a guest, because the guest renames the card
-**Fixed 2026-08-20.** `gl-enum` and `gles` fail in the guest with
-*"renderer is 'Leandro RTX 2070/PCIe/SSE2', not NVIDIA"* — and the same
-run's version string reads `OpenGL ES 3.2 NVIDIA 610.57.04`. The renderer
-IS NVIDIA's; the criterion greps for a product name that the identity
-mediation deliberately rewrites. The probes were written against a host and
-the criterion inherited that.
-
-**Both criteria now gate on the VERSION string, and it is the sharper test
-rather than the looser one.** The renderer string carries the card's product
-name, which the mediation rewrites on purpose; the version string is
-untouched by it and identical on both sides — measured 2026-08-20:
-`4.6.0 NVIDIA 610.57.04` and `OpenGL ES 3.2 NVIDIA 610.57.04`, natively and
-in the guest. And it is checked against `DRIVER_VERSION` rather than against
-the word `NVIDIA`, so a guest answered by a userspace of the WRONG version
-is now a failure where before it was a pass. The renderer string is still
-reported beside the criterion: it is the mediated identity, which belongs in
-the record and is not a pass criterion.
-
-**The absence half was not where this entry said it was.** It is not a
-difference between the two shell probes — those already agreed. All four
-platforms in `probe/c/eglplat.c` returned **1** for a missing native
-display, and the shell comments claimed 2, so the contract was written down
-in one place and implemented in another. Absence is now measured on the
-thing itself (`WAYLAND_DISPLAY` unset, `DISPLAY` unset, no
-`/dev/dri/renderD128`) and answers **2**; a display that EXISTS and refuses
-the connection stays **1**. The exit-code contract sits in the probe's own
-header, which is the one place all four platforms read from.
-
-Measured after: `gl-enum` and `gles` meet their criterion in the guest, and
-`egl-wayland` reports *"declared-unsupported — a Wayland display
-(WAYLAND_DISPLAY) is not available"* instead of failing. Both still appear
-as FAIL in the guest column, for the signature-set divergence of number 52
-and for nothing to do with this entry — which is exactly the separation the
-two columns exist for.
-
-### 55. The answer bytes are compared now, and the class that can be promoted is not the class that can be reached
-**Both halves answered; the reach half closed 2026-08-21.** What the reach
-half asked for was answer evidence for the classes `ctrlout` could not see --
-allocations, UVM, and the controls outside the two namespaces it happened to
-cover. All of them have it now, and the numbers moved accordingly:
-`implemented-verified` went from 5 signatures to 60, `implemented-unverified`
-from 70 to 15.
-
-Where the reach ends is measured rather than asserted. Of the 258 comparable
-signatures **249 have answer evidence, at 99.5% of their answer bytes**. The
-nine without are not gaps in the instrument: five controls whose `paramsSize`
-is 0 on every observed call and which therefore carry no answer buffer at
-all, two that only `cuda-torch` calls and cuda-torch is blocked in the guest
-for want of PyTorch, and `UVM_DEINITIALIZE`, which takes no parameter struct.
-
-Four things got it there, and each is worth naming because each was a
-different kind of missing:
-
-  * **the length, four times over.** A control's is `paramsSize`, an
-    escape's is `_IOC_SIZE`, and both are the caller's own declared size --
-    self-describing, safe at any width, needing no table. An allocation's and
-    a UVM command's are not: they come from the CLASS and from the command,
-    which is what `xlate::alloc_param_size` and `xlate::uvm_param_size` are
-    for. Those are the tables under test, so the tracer uses `size_of` of the
-    bindgen struct instead and a test requires the two to agree. Sixty-odd
-    hand-computed sizes are checked by the compiler now and all of them were
-    right -- which does not make them right by luck any more, it makes them
-    checked;
-  * **the cap.** 32 bytes, then 256, and 256 was 4.3% of the answer bytes in
-    a sweep. 65536 is 99.5% and costs 110 MB of trace;
-  * **the before-call sample**, which resolved number 60 and became the fifth
-    mask;
-  * **one record per allocation** even when the class passes no parameters,
-    because then the escape's own struct is the whole answer.
-
-The original entry follows.
-
-**Criterion half answered 2026-08-20.** `scripts/ioctl-matrix.sh verify` compares the
-ANSWER of a forwarded control, native run against guest run, call by call
-and word by word. It logs nothing new: the tracer has dumped the first 32
-bytes of the params buffer after the call since the enumeration work
-(`ctrlout` in `log.rs`, written for exactly this diff), so both phases had
-been recording the evidence all along.
-
-The mask — the hard half of number 50 — is DERIVED rather than declared. A
-differing word is allowed only if it is this side's own `gpu_id`, which
-each trace states in its own `cardinfo` line, or a handle this side
-allocated, which its own allocation lines name. Anything else that differs
-is a mismatch, and one unexplained word anywhere disqualifies the
-signature, including when it matched under a different probe.
-
-First run: 67 signatures matched, over the twenty probes that produced
-answers on both sides, several of them with `masked {gpuId: n}` — which is
-not a difference tolerated but the translation observed working. **0 of them
-were `implemented-verified`**, and that was the finding.
-
-Then a third mask was added: a word may differ if it is part of a pointer
-field the DESCRIPTOR TABLE declares for that command, read out of
-`tables.txt` beside the traces. With it the numbers are **72 matched, 3 of
-them `implemented-verified`** — `NV2080_CTRL_CMD_BUS_GET_INFO`,
-`NV2080_CTRL_CMD_BIOS_GET_INFO` and `NV2080_CTRL_CMD_GPU_GET_ENGINES`, each
-over the whole 16 bytes of its params with only the pointer masked. The
-class is not empty any more, and its first entry is the control number 51
-had just fixed.
-
-**That it is 3 and not 73 is the finding, and it has two halves that are
-worth keeping apart.**
-
-*Reach.* `ctrlout` covers root-client (0x2xx) and subdevice (0x2080xxxx)
-controls and nothing else. Allocations and UVM commands have no answer dump
-at all — and those are where most of the governed class lives, because they
-are the two places a size is not self-describing. This slice cannot see
-them.
-
-*Criterion.* Several of the governed controls it does reach are the seven
-the backend answers itself, and their answers differ from the native ones
-on purpose: that is what mediation is. `NV2080_CTRL_CMD_GPU_GET_NAME` differs at offset
-4 by `NVID` against `Lean` — the mediated product name, working exactly as
-designed and reported as a mismatch, because byte equality is the wrong
-test for a mediated command. The right test is "differs in exactly the
-fields the mediation rewrites, and nowhere else", and it needs the
-mediation to name its own fields.
-
-So the pipeline is real and its coverage is honest, and the two things it
-would take to make `implemented-verified` more than a handful are now
-specific rather than a standing wish: an answer dump for allocations and
-UVM, and a per-command field mask that the mediation itself declares.
-
-**The second of those exists now (2026-08-20).** The mediation names its own
-fields: `crates/nvrm-abi/src/mediate.rs` carries one record per
-`(command, field offset, field length, kind)` over six kinds, and
-`nvrm-genhdr --mediation-dump` writes it beside `tables.txt`. It is derived
-rather than written next to the code — the BDF tables and the PCI address
-offsets moved out of the generator into it, so the C header the guest module
-is built from and the mask `verify` uses come from ONE table. Proof the move
-was safe: the regenerated `nvrm_wire.h` is byte for byte the committed one.
-
-The fourth mask is **inverted** against the other three. They say "this word
-may differ, here is the proof"; this one says "this command is mediated, so
-it must differ inside these fields AND NOWHERE ELSE". It works at BYTE
-granularity, because `GET_PCI_INFO` packs `bus` and `slot` into one word as
-two `NvU16` and a mediated field must never shield the neighbour it shares a
-word with.
-
-**It found a missing record on its first run, before any deliberate test.**
-`GET_PCI_INFO` differed at `bus` — `0x2d` natively, the guest's own `0x05` —
-with *"this command IS mediated, and this byte is in none of the fields the
-mediation declares"*. The manifest was incomplete and the code was right:
-the guest module writes domain, bus and slot beside the id, because gpuId is
-DERIVED from the address and the two must not contradict each other. Those
-three are records now and `GET_PCI_INFO` is verified over its whole 12 bytes.
-
-The negative test was run twice on a copy and discarded: moving `bus` to a
-wrong offset makes the diff report the REAL field as a violation by name,
-and removing the identity-string record makes `GPU_GET_NAME_STRING` a
-mismatch again.
-
-**`verified-mediated` is its own class and must never share a row with
-`implemented-verified`.** Membership is decided on what MOVED in this run,
-not on the manifest alone. And it does NOT prove that the mediation is what
-moved those bytes — the manifest declares what MAY be rewritten, and a
-declared field can also be a value that is simply not stable. That is what
-the control test is for, and it took two commands straight back out again
-(see below).
-
-**The reach half is untouched and is now the whole of what is left.**
-`ctrlout` still covers root-client and subdevice controls only. The two
-semaphore-surface controls the backend answers (`0xda0003`, `0xda0005`) are
-out of its reach entirely, so no amount of masking can judge them, and
-allocations and UVM — where most of the governed class lives — still have no
-answer dump at all. That is the tracer work, and it is the designated next
-step.
-
-**The control test exists, in its cheap variant.** For every command a native
-trace called more than once, the answer words are compared across those
-calls; a word that differs native-against-native is not stable and can be
-evidence for nothing. `not_verified` splits into `mismatch` / `unstable` /
-`stability-unknown`, and only `mismatch` is a potential defect: on this
-baseline 11 rows became **1 mismatch, 10 unstable and 2 of unknown
-stability**. Nothing lists the unstable rows — TIMER_GET_TIME, the timer
-correlation, the PEX counters, BUS_GET_INFO_V2, GR_CTXSW_ZCULL_BIND and the
-counter-shaped rows that resolve to no public header classify themselves out
-of their own native traces.
-
-It is used in ONE DIRECTION. It can move a difference out of `mismatch`; it
-can never move one into a verified class. The first version left `unstable`
-out of the disqualification test and the verified count rose from 100 to
-102 — a stability classification that promotes has its logic inverted.
-
-Two things it cannot do, both structural and both fixed by the same missing
-instrument:
-
-  * **Two calls of one command in one trace are not always the same
-    QUESTION.** Index-list commands (`GPU_GET_INFO_V2`, `GR_GET_INFO`,
-    `FB_GET_INFO`) ask for a different index each call, so their answers
-    differ because the question differed. Of 19 verified signatures with a
-    word flagged here, most are of that shape.
-  * **A command called once per trace is invisible to it.**
-    `PERF_GET_CURRENT_PSTATE` is one, and it is the row that entered
-    `verified` on a single lucky call. It stays `verified` with
-    `stability: unknown` recorded on the row rather than being silently
-    treated as stable.
-
-The variant without either weakness is **a second native trace of the same
-probe**, where call i of one run is the same question as call i of the
-other. It costs one run per probe. There is already accidental evidence for
-how much it would buy: `0x2080a097` answered `0x00000007` in one guest sweep
-and `0x00000023` in the next, from the same tree — a row the within-trace
-variant calls `stability-unknown` and two runs would settle immediately.
-
-The three masks are worth noting as a pattern, because all three are of one
-kind: each is DERIVED from something the run already produced — the card's
-own id out of `cardinfo`, the handles out of the allocation lines, the
-pointer offsets out of the descriptor stream. None of them is a list
-somebody maintains, and each one made the comparison sharper rather than
-looser.
-
-One thing the slice settled in passing: `NV0000_CTRL_CMD_GPU_GET_ID_INFO`
-(number 49, the deprecated control with an `NvP64` in it) answers
-byte-identically in a guest over the first 32 bytes of its 128, with the
-gpuId translated and nothing else moved. That is evidence that its pointer
-field is not read into, and not yet proof — 32 of 128 bytes is 32 bytes.
 
 ### 56. The surface is tracked per run, and the question is per ioctl
 **Open, raised 2026-08-20.** Everything the matrix writes is keyed by the
@@ -1369,6 +911,89 @@ them to sit while the question is open.
 
 ---
 
+### 64. The NVKMS commands are recorded and none of them has a name
+**Open, split out of number 48 on 2026-08-21**, which is resolved: the node
+is traced, counted and gated, and this is the half that was never anything
+but a decoder.
+
+NVKMS carries its whole interface under a single ioctl number —
+`_IOWR('m', 0, struct NvKmsIoctlParams)` (`nvkms-ioctl.h`) — so `nr` is 0 on
+every line and the real command is a field of that 16-byte struct. The
+tracer reads it there and puts it in `sub`, with the size of the block it
+points at in `psize`. Across the matrix probes that is **451 calls in 14
+commands**, 405 of them from `vulkaninfo --summary` alone.
+
+**Nothing is named.** NVKMS command numbers are their own namespace and
+resolve against no `ctrl*.h`, so the raw number is the honest catalogue
+entry until a reader for `nvkms-api.h` exists. `matrix/catalog-<drv>.md`
+carries the count and the node and invents nothing, which is the right
+behaviour and not a workaround.
+
+**The criterion**, unchanged from 48 and from `matrix/TASKS-<drv>.md` task
+2: every row in the catalogue's NVKMS section carries a name and a params
+struct out of `nvkms-api.h`, the way an RM_CONTROL row carries one out of
+`ctrl*.h`. The one number a decoder can be checked against before it is
+trusted is already recorded — `psize`, the size of the block each command
+points at, measured per call.
+
+**Deliberately not next.** The raw numbers cost nobody anything today: the
+node is gated, the counts are honest, and no verdict anywhere rests on
+knowing what command 7 is. This is a reader to be written when something
+needs the names, not a gap that is currently misleading anyone.
+
+### 65. NVML allocates an SMC monitor session natively and never in a guest
+**Open, split out of number 51 on 2026-08-21**, which is resolved. It was
+never downstream of the two controls that entry fixed, and keeping it there
+made a closed entry look open.
+
+`AMPERE_SMC_MONITOR_SESSION` (class `0xc640`, `ctl nr=0x2b sub=0xc640`) is
+allocated **once** in a native `nvidia-smi -q` run and **never** in a guest
+one. It is the only finding the `nvml` probe has left:
+`matrix/guest-610.57.04.json` records 105 native signatures against 104,
+179 ioctls against 179, and this single `signature-absent-in-guest` row.
+
+**The first hypothesis is falsified, and that is the useful part.** It was
+that the absence was downstream of the two controls number 51 fixed
+(`GPUACCT_GET_ACCOUNTING_STATE` and `BIOS_GET_INFO`). Both answer `NV_OK` in
+a guest since the fix and the allocation is still absent, so it is not that.
+
+**What is known about when it happens.** Early — right after the GPU node is
+opened and `GET_PROBED_IDS` answers, and before UVM opens. So it belongs to
+NVML's initialisation and not to its process accounting, which is what the
+class name would suggest.
+
+**The candidate left is the mediated identity**, and it is a decision NVML
+makes from what the card says it is: the guest is told it is a "Leandro RTX
+2070". Weakened rather than confirmed by a measurement taken since:
+`NV2080_CTRL_CMD_GPU_GET_NAME_STRING` is `verified-mediated` over its 68
+bytes and differs from the native answer in `gpuNameString` **and in no
+other byte**, so the mediation is not writing anywhere it should not. That
+removes "the mediation corrupts something adjacent" and leaves "NVML reads
+the name and branches on it", which is not the same claim and is not
+measured.
+
+**Not a defect on its face.** `nvidia-smi -q` meets its criterion in the
+guest and prints a plausible report; nothing fails. What it costs is
+coverage: the class is allocated by nothing in a guest, so whatever the
+boundary would do with it is exercised by no sweep — the same shape as
+number 52's six commands, and the reason that entry states the consequence
+in those terms.
+
+**What would settle it**, cheapest first:
+
+1. `strace` the guest and native `nvidia-smi` around the allocation point
+   and diff what each read before deciding — the same `openat`/`stat`
+   comparison number 52's other half needs, on a different path.
+2. Answer the un-mediated product name to one run and see whether the
+   allocation appears. That is a measurement, not a change: if it does, the
+   branch is the name and the question becomes what SMC monitoring costs a
+   guest that has no MIG.
+3. Allocate the class directly from `probe/c/rmdirect.c`, which already
+   builds a hierarchy by hand, and find out whether the boundary carries it
+   at all. That answers the coverage question regardless of why NVML skips
+   it, and it is the one step that does not depend on guessing NVML's
+   reasoning.
+
 ## Resolved and decided
 
 ### 1. Does the descriptor table warrant a protocol change?
@@ -1618,6 +1243,697 @@ what both the hollow libGLX nodes and eglcore's live `rax` carry. But the
 client crash of 23/33/44 was never reproduced on a fresh guest, so nothing
 here has been shown to fix it.
 
+### 47. Two counting rules in our own instruments are wrong
+**Resolved 2026-08-21.** Both were measured on 2026-08-20 and found by
+building a second consumer of the same traces; both are fixed in both
+consumers now. The original reasoning is kept below. Neither is a driver question; both make our
+own numbers say something they do not mean.
+
+**A mapping handle is counted as a signature.** The `sig()` key everything
+here uses is `(dev, nr, sub)`, and `sub` is documented as the second
+*dispatch* level. For `NV_ESC_RM_MAP_MEMORY` (0x4e) it is not: `log.rs`
+puts **hMemory** there, deliberately, so that mappings can be matched to
+their allocations by handle. A handle is an instance, not a call. In
+`lvl3.tsv`, `lvl4blocking.tsv` and `torch5conv.tsv` alike, **29 of the 135
+"signatures" are hMemory values** — 21 % — and they are stable only because
+RM hands out handles deterministically for a fixed workload. Under an
+enumerating Vulkan client the same escape produced **409** of them. The
+saturation curve in `trace.sh analyse` therefore starts about 29 rows too
+high and, on a workload that maps a lot, would never look saturated at all.
+`scripts/ioctl-matrix.sh` collapses 0x4e to one row and says so; `trace.sh`
+still counts the old way.
+
+**`grep '_IOC'` counts DRM calls as NVIDIA ones.** The delta column of
+`trace.sh` counts strace lines carrying the substring `_IOC`, and
+`DRM_IOCTL_VERSION` contains it. For `nvprobe` and `torch` that never
+mattered, because a CUDA probe touches no DRM node. For a GL, EGL or Vulkan
+client it does: one `eglinfo`-shaped run showed **441 phantom calls** the
+tracer had supposedly missed, every one of them a DRM ioctl strace had
+named. The token that means "strace has no name for this request" is
+`_IOC(` with the parenthesis, and the count has to be restricted to the fds
+that are NVIDIA nodes — which needs `strace -y`. Both are the same mistake:
+counting what the substring matches instead of what the rule means, and it
+is the third time this project has been bitten by exactly that (`grep
+'^nvos64'` also matching `nvos64in` is in `probe/README.md`).
+
+**Both were fixed in `scripts/ioctl-matrix.sh` and neither in
+`probe/run/trace.sh`, and that is what this entry was still recording.** The
+paragraphs above say so in as many words. Re-measured on 2026-08-21 rather
+than repeated, because a claim that quotes itself is not evidence:
+
+*The mapping handle.* The raw key against the collapsed one, on the three
+traces named above:
+
+| trace | raw key | collapsed |
+|---|---|---|
+| `lvl3.tsv` | 135 | **107** |
+| `lvl4blocking.tsv` | 135 | **107** |
+| `torch5conv.tsv` | 134 | **106** |
+
+28 of the 135 were one escape wearing 29 handles, exactly as written. It is
+worse where more is mapped: `nvenc` 250 → 135, `vk-enum` 161 → 123.
+
+*The substring.* Over the committed matrix straces, `grep -c '_IOC'` against
+the rule:
+
+| probe | `grep _IOC` | correct | phantom |
+|---|---|---|---|
+| `vk-enum` | 1384 | 961 | 423 |
+| `gl-enum` | 593 | 531 | 62 |
+| `gles` | 624 | 568 | 56 |
+| `egl-xlib` | 604 | 566 | 38 |
+| `cuda-core` | 433 | 433 | **0** |
+| `nvml` | 179 | 179 | **0** |
+
+The last two rows are why `trace.sh` never saw it: `nvprobe`, `torch` and
+`smi` touch no DRM and no NVKMS node, so the wrong rule and the right one
+agree on every workload that file traces. Decomposed, `vk-enum`'s 1372
+`_IOC(` lines are 961 RM + 405 NVKMS + 6 DRM, and the twelve lines carrying
+`_IOC` *without* the parenthesis are `DRM_IOCTL_VERSION`,
+`DRM_IOCTL_GEM_CLOSE` and `DRM_IOCTL_AMDGPU_FENCE_TO_HANDLE` — named
+requests, which is the mechanism this entry named.
+
+**What closed it.** `trace.sh` asks the one counting rule instead of writing
+its own — `lea_matrix_n_tracer`/`_kms`/`_drm` and `lea_matrix_n_strace` — and
+its strace invocation gained `-y`, without which the node filter has no fd
+paths to filter on. NVKMS and DRM are their own columns. The signature key
+is `lea_trace_sig` in `scripts/lib/matrix.sh`, beside the counters, and both
+of `trace.sh`'s signature sites use it; the per-device table had the defect
+too and was not in this entry.
+
+Measured after, on a fresh `nvprobe` sweep: delta **0** on all six stages,
+NVKMS 0/0, NF 9, and the saturation curve flattens where it should — `lvl2`,
+`lvl4auto`, `lvl4blocking`, `torch4`, `torch5` and `torch5conv` each add 0
+new signatures, where before every extra mapping looked like new surface.
+The per-device column sums to 88+5+13 = 106 against a curve of 106.
+
+**The lesson, and it is the one worth keeping:** before the fix both of
+`trace.sh`'s numbers were internally consistent at 134 and both were 28 too
+high. A wrong rule applied everywhere agrees with itself, so
+self-consistency is not a check — which is the argument for the rule living
+in one place and every consumer asking it.
+### 48. Userspace talks to `/dev/nvidia-modeset`, and the tracer cannot see it
+**Resolved 2026-08-21**, for the half this entry is about: the node is
+traced. Naming the commands was always the *other* half and is now its own
+entry, number 64, so that nothing sits here half answered. The original
+reasoning is kept below. The tracer classified `ctl`, `gpu`, `uvm`,
+`uvm-tools`, `event`, `drm` and `render`. There was no tag for
+`/dev/nvidia-modeset`, so an ioctl on that node was not recorded, not
+counted, and not visible in any trace this project had taken.
+
+They exist, and there are more of them than expected. Counted across the
+matrix probes: **451 calls**, of which **405 come from `vulkaninfo
+--summary` alone** — an enumerating Vulkan client makes more calls to NVKMS
+from userspace than the whole NVML path makes to RM. Every GL and EGL probe
+makes six. They were found only by counting the tracer against `strace -y`
+per node and asking what the remainder was made of.
+
+Two things follow. The cheap one is a device tag in `crates/nvrm-trace`, so
+the calls are recorded at all. The expensive one is that **NVKMS command
+numbers are their own namespace** — not RM_CONTROL commands, resolving
+against no `ctrl*.h` — so naming them needs a reader that does not exist
+here. `matrix/catalog-<driver>.md` carries the count and the node and
+invents nothing.
+
+This also sharpens what "NVKMS is in-kernel" meant. Its RM traffic is, and
+that half is still unobservable from userspace. Its *own* ioctl surface is
+not: userspace calls it directly, and that half we could measure today.
+
+**The cheap half is done (2026-08-20).** `NvDev::Modeset` exists, the node
+is traced, and it passes the same counter-check against `strace -y` that
+`/dev/nvidiactl` and `/dev/nvidiaN` do — 405 against 405 on `vk-enum`, 6
+against 6 on every GL and EGL probe, in its own pair of columns so the two
+namespaces never share a total. The 451 calls are **14 commands**, and
+`nr` is 0 in all of them: NVKMS carries its whole interface under
+`_IOWR('m', 0, struct NvKmsIoctlParams)` and puts the real command in a
+field of that 16-byte struct. The tracer reads it there, so the catalogue's
+`sub` column is the command and its `psize` column is the size of the block
+the command points at — the one number a future decoder can be checked
+against before it is trusted. Offsets are not written into the reader: the
+struct comes through bindgen with its layout tests, like every other.
+
+What is left is the expensive half, unchanged: **naming** them. That is
+**number 64** now, with only that in it. Every reference trace taken before
+2026-08-20 is incomplete on this node and was re-cut; the older ones stay as
+history.
+
+**Confirmed 2026-08-21 against the code and the run**, not against the
+status line above. `NvDev::Modeset` is a device tag in `crates/nvrm-trace`,
+and the node is counted by `lea_matrix_n_tracer_kms` /
+`lea_matrix_n_strace_kms` in `scripts/lib/matrix.sh` — its own pair of
+columns, never added into the RM total. Re-measured on the committed
+straces: `vk-enum` carries **405** NVKMS `_IOC(` lines against the tracer's
+405, and every GL and EGL probe **6** against 6.
+
+That separation is not cosmetic, and this run produced a second
+demonstration of it. `probe/run/trace.sh` was folding all nodes into one
+total and comparing it against a strace count taken over every fd; on the
+workloads that file traces the two errors cancel exactly, and on `vk-enum`
+they would not have (number 47). Two namespaces in one total hide each
+other in both directions.
+
+The claim this entry existed to make is therefore closed: 451 ioctls that
+appeared in no trace are recorded, counted and gated. What they MEAN is a
+decoder, and that is 64.
+### 50. Nothing compares the answer bytes, so nothing is verified
+**Resolved 2026-08-21.** The harness exists, the mask problem this entry
+calls "the hard part" is solved by derivation, and the class it was written
+about is no longer empty. The original reasoning is kept below. The gpu and display gates compare status codes,
+workload results and a whole PyTorch run bit for bit. Nothing anywhere
+compares the **response bytes of a forwarded RM control** against the bytes
+the same call returns natively.
+
+The consequence is now a number rather than a worry. Of 290 catalogued
+signatures, **75 are governed by the descriptor tables or answered by the
+backend, and all 75 are `implemented-unverified`** — the class
+`implemented-verified` is empty and stays empty until a differential
+harness exists. `matrix/TASKS-<driver>.md` carries the standing task, and
+`scripts/ioctl-matrix.sh` reads `matrix/verified-<driver>.json` the moment
+something writes it. That file is never written by hand: a hand-written
+verification record is not evidence.
+
+Why it matters is already on record twice. Number 32 named the failure
+class — an answer that looks valid and is wrong — and number 44 turned out
+to be exactly it: an object a NULL check waved through whose leading fields
+were never filled. A status comparison cannot see either one.
+
+The hard part is not the comparison, it is the mask: handles, gpuIds and
+addresses are translated on purpose, so a harness that flagged them would
+cry wolf on every call.
+
+Since 2026-08-20 there is a step between prediction and that harness:
+`scripts/ioctl-matrix.sh guest` runs the same probes inside a VM and
+compares the signature set and the rm_status fingerprint. A probe that
+survives it is `guest-validated`, which is more than `predicted-green` and
+strictly less than `implemented-verified` — it says the guest asked the
+same questions and got the same KIND of answers, not that the answers
+carried the same bytes. Number 51 is what it found on its first run.
+
+And since the same day there is a first slice of the byte comparison
+itself, `scripts/ioctl-matrix.sh verify` — see number 55, which is mostly
+about what it CANNOT reach.
+
+**What this entry asked for exists and is measured.** It was written when
+`implemented-verified` was empty and said it "stays empty until a
+differential harness exists". Read off `matrix/verified-610.57.04.json` and
+`matrix/catalog-610.57.04.json` as they stand:
+
+| | when this was written | now |
+|---|---|---|
+| `implemented-verified` | 0 of 75 | **58** |
+| `implemented-unverified` | 75 | **17** |
+| verified signatures | — | **212**, plus 4 `verified-mediated` |
+| answer bytes compared | — | **99.5%** of 249 of 258 comparable signatures |
+
+**And the hard part was the mask, exactly as this entry predicted.** It is
+solved the way the entry implies it must be — without a maintained list.
+Five masks, every one DERIVED from something the run itself produced:
+`gpuId` from the trace's own `cardinfo` line, handles from its own allocation
+lines, declared pointers from `tables.txt`, the mediation manifest from
+`mediate.rs`, and written-ness from the before-call sample. None of them is
+a declaration and each made the comparison sharper rather than looser.
+
+The reach and the criterion are number 55, which is resolved with it. What
+the method still cannot judge is stated there and in number 63, and is a
+property of byte equality rather than a gap in this harness: 24 signatures
+whose answers move between two native runs of the same binary.
+
+The two failure classes this entry cites as the reason it matters are
+unchanged and still the point: number 32's *an answer that looks valid and
+is wrong*, and number 44, which turned out to be exactly it. Neither is
+visible to a status comparison, and 44 is still open.
+### 51. A guest answers two nvml controls differently, and both shapes were predicted
+**Resolved 2026-08-21.** Both controls are fixed and re-measured, and the
+flag-scan undercount this entry also carried is closed. The one thing left
+over was never about these two controls and is now number 65. The original
+reasoning is kept below. First run of the guest sweep, twenty probes,
+seven of them identical to the native trace signature for signature. `nvml`
+was not: two controls answer in the guest what they never answer natively,
+and both are the failure shape this catalogue already predicted in the
+abstract.
+
+| control | native | guest | what its params carry |
+|---|---|---|---|
+| `NV2080_CTRL_CMD_BIOS_GET_INFO` (0x20800802) | `NV_OK` | `0x1e NV_ERR_INVALID_ADDRESS` | `NvP64 biosInfoList` — a pointer into the caller's address space |
+| `NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE` (0xb02) | `NV_OK` | `0x1f NV_ERR_INVALID_ARGUMENT` | `NvU32 gpuId` as its first field |
+
+Both are `passthrough` in the catalogue, i.e. forwarded verbatim. An
+INVALID_ADDRESS for a struct whose only interesting field is a guest
+pointer, and an INVALID_ARGUMENT for a struct whose first field is a gpuId,
+are not mysteries: they are the two mediation classes this project already
+has names for. The gpuId one is the same failure as
+`GET_P2P_CAPS_MATRIX` in the raytracing work — the host answered
+INVALID_ARGUMENT for the guest's id — and the pointer one is task 1 of
+`matrix/TASKS-<driver>.md` caught in the act rather than reasoned about.
+
+`nvidia-smi -q` itself succeeded in the guest and printed a plausible
+report. That is the point of comparing fingerprints rather than exit codes.
+
+**The flag-scan undercount noted with this entry is closed (2026-08-20).**
+`BIOS_GET_INFO` carries a `finn:` comment that evaluates a bare number
+instead of naming its params struct, so the catalogue had no struct for the
+very control this entry had just fixed. The name is not invented: it is
+PROPOSED by the naming convention and accepted only when the typedef is in
+the command's own header AND `sizeof` compiles for it. Two conventions turned
+out to be real (`_CMD` dropped, and `_CMD` kept), and a command whose header
+holds both is left alone. 35 params structs recovered header-wide, and of the
+135 named control rows the six without a struct became **four** — all four of
+which take no arguments at all: no typedef in the header, and `paramsSize 0`
+in every one of the 27 observed calls. That is a closed answer, not a gap.
+
+**The identity mediation is tested for the first time.** The remaining
+hypothesis for the `AMPERE_SMC_MONITOR_SESSION` leftover below was the
+mediated identity itself. `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` is now
+`verified-mediated` over 32 of its 68 bytes: it differs from the native
+answer in `gpuNameString` and in NO OTHER BYTE. That does not explain the
+missing allocation, but it does remove "the mediation writes somewhere it
+should not" from the list of candidates for it.
+
+**Both are fixed and the fix is measured (2026-08-20).** Each was one table
+row, because the mechanism for each already existed and only this command
+was missing from it:
+
+  - the gpuId joins `NVRM_BDF_SCALARS` (nvrm-genhdr), the same list
+    `GET_ID_INFO` and `ASYNC_ATTACH_ID` are in;
+  - the pointer joins `nested_ptrs` (xlate.rs) as
+    `{ ptr_off: 8, elem: 8 }`, the same shape as `BUS_GET_INFO` and read
+    out of its own header — `NV2080_CTRL_BIOS_INFO` is the
+    `NVXXXX_CTRL_XXX_INFO { index; data }` pair again.
+
+Re-run in a guest afterwards: both answer `NV_OK`, the status fingerprint
+of the whole probe matches the native one, and `verify` puts
+`BIOS_GET_INFO`'s answer bytes in the verified class with its pointer field
+masked as a declared pointer. 61 of nvml's 72 answers now match; the 11
+that do not are the mediated identity (name, PIDs, PCI info) and values
+that are not stable between two runs of the same binary — a timer, PEX
+counters, the current P-state.
+
+Two things were left over, and both are settled.
+
+**The mediation-flag scan undercount is closed**, and the paragraph above
+records how: the naming convention proposes the struct and it is accepted
+only when the typedef is in the command's own header AND `sizeof` compiles
+for it. 35 params structs recovered header-wide, and the six named control
+rows without a struct became **four** — all four of which take no arguments
+at all, `paramsSize 0` in every one of the 27 observed calls. That is a
+closed answer and not a bounded gap.
+
+**`AMPERE_SMC_MONITOR_SESSION` (class 0xc640) is number 65 now**, with only
+that in it. In short, and the detail is there: It is not
+downstream of the two controls above: both answer identically since the
+fix, and the allocation is still absent. It happens early — right after the
+GPU node is opened and `GET_PROBED_IDS` answers, before UVM — so it is part
+of `nvidia-smi`'s init and not of its process accounting. Nothing in the
+answer comparison explains it, which leaves the mediated identity itself as
+the candidate: the guest is told it is a "Leandro RTX 2070", and whether
+NVML opens an SMC monitor session is a decision it makes from what the card
+says it is.
+
+**Confirmed 2026-08-21 in the code and in the run**, not from the status
+line above.
+
+*The two table rows exist.* The gpuId is
+[`crates/nvrm-abi/src/mediate.rs:193`](../crates/nvrm-abi/src/mediate.rs),
+in `bdf_scalars()` — which is also where `nvrm-genhdr` writes
+`NVRM_BDF_SCALARS` from, so the C header the guest module is built from and
+the mask `verify` uses come from one table. The pointer is
+[`crates/nvrm-abi/src/xlate.rs:1277`](../crates/nvrm-abi/src/xlate.rs),
+`{ ptr_off: 8, elem: 8 }`, and `0x20800802` is in `nested_cmds()`.
+
+*And the guest run says they work.* In `matrix/guest-610.57.04.json` the
+`nvml` probe records **179 ioctls natively and 179 in the guest**, and
+exactly **one** finding — the missing `AMPERE_SMC_MONITOR_SESSION`
+allocation, which is number 65. Neither control appears. The status
+fingerprint that had two failures has none.
+
+**The lesson this entry was written for, restated because it held.** Each
+fix was ONE TABLE ROW. The mechanism for each already existed and only that
+command was missing from it. Finding them took a night of building
+instruments; deciding them took minutes. Both controls were `passthrough` —
+the class the catalogue declares unproblematic — and `nvidia-smi -q` PASSED
+in the guest and printed a plausible report while both were failing. Only
+the fingerprint diff saw them, which is the argument for the instrument.
+### 53. Two libraries are staged into the guest and registered with nobody
+**Resolved 2026-08-21.** One half was fixed and measured, the other was
+falsified and rehomed, and what is left of the rule belongs to two other
+entries. The original reasoning is kept below. `oclprobe` in the guest: *"no OpenCL platform
+(loader found no vendor library)"*. `libnvidia-opencl` IS staged — it is in
+the `optional` array — but nothing writes `/etc/OpenCL/vendors/nvidia.icd`,
+and an ICD loader with no vendor file finds no platform. `eglplat xcb` in
+the guest resolves to vendor `Mesa Project` rather than NVIDIA, which is
+the same shape one platform further on.
+
+This is a class this project already wrote down for EGL — *without
+`10_nvidia.json`, libEGL picks Mesa, silently* — and `lea_gl_stage`
+rewrites those manifests for exactly that reason. The rule generalises and
+was not generalised: **a staged library that no manifest names is an absent
+library that costs disk.** The staging inventory in `DISCOVERY.md` cannot
+see it, because it compares file sets and this is a registration.
+
+**The OpenCL half is fixed, and the rule was generalised rather than the
+case patched.** The set of manifests is not a list somebody maintains: it is
+what a host with the driver installed HAS, derived on 2026-08-20 by
+
+    grep -rl libnvidia /etc/OpenCL /usr/share/glvnd /usr/share/egl \
+                       /usr/share/vulkan /usr/share/vulkansc
+
+— **ten files**, of which `lea_gl_stage` already wrote six (the EGL vendor
+JSON, four external-platform JSONs, the Vulkan ICD). `lea_guest_setup` now
+writes two more, each only when the library it names actually resolves under
+`/opt/nvrm/lib` and removed again when it does not: `nvidia.icd` for
+`libnvidia-opencl` and `nvidia_icd_vksc.json` for `libnvidia-vksc-core`.
+The remaining two are the halves of `nvidia_layers.json` — number 57.
+
+Measured the same day, and it is the whole of the fix: the `opencl` probe
+went from FAIL to **guest-validated**, 107 signatures against 107, criterion
+*"OpenCL vector add on NVIDIA's platform: 4096/4096 elements verified"*.
+Nothing else changed. Note what that says about the class: `libnvidia-opencl`
+is a separate userspace on the same driver, and its whole escape surface was
+untested for want of a one-line text file.
+
+**The `eglplat xcb` half is FALSIFIED, and it was not the same shape at
+all.** Measured 2026-08-20 out of the guest run's own strace: the guest
+DOES read `/usr/share/egl/egl_external_platform.d/20_nvidia_xcb.json`, it
+DOES read `10_nvidia.json` beside Mesa's `50_mesa.json`, and it DOES
+`dlopen` `libnvidia-egl-xcb.so.1` successfully — and `eglQueryString`
+still answers `Mesa Project`. The registration chain is complete and the
+divergence is one level below it, which is a different question and has its
+own entry: number 58.
+
+**Both halves are answered and neither is still this entry's.** Confirmed
+2026-08-21 against `matrix/guest-610.57.04.json`:
+
+- *The OpenCL half is fixed.* `opencl` is **guest-validated, 107 signatures
+  against 107**, criterion *"OpenCL vector add on NVIDIA's platform:
+  4096/4096 elements verified"*. It was FAIL for want of a one-line text
+  file, and the rule was generalised rather than the case patched — the set
+  of manifests is derived from what a host with the driver installed HAS,
+  not from a list somebody keeps.
+- *The `eglplat xcb` half is falsified* — the registration chain is
+  complete and the vendor library declines anyway — and it has its own
+  entry, number **58**, where it belongs.
+
+**What remains of the generalised rule is number 57 and is scoped there.**
+Of the ten host files that name an NVIDIA library, eight are written into
+the guest. The ninth and tenth are the two halves of `nvidia_layers.json`,
+and 57 states why neither can be written without a measurement first:
+`VK_LAYER_NV_present` names a library that is not staged, so writing the
+file whole would point the loader at something absent — this entry's own
+failure mode, in the other direction.
+
+So nothing is left here that is not owned by 57 or 58, which is the
+condition for closing it rather than leaving it half open.
+### 54. Two probe criteria cannot pass in a guest, because the guest renames the card
+**Resolved 2026-08-21**, fixed 2026-08-20 and confirmed against the code
+and the artefacts rather than against this entry's own status line. `gl-enum` and `gles` fail in the guest with
+*"renderer is 'Leandro RTX 2070/PCIe/SSE2', not NVIDIA"* — and the same
+run's version string reads `OpenGL ES 3.2 NVIDIA 610.57.04`. The renderer
+IS NVIDIA's; the criterion greps for a product name that the identity
+mediation deliberately rewrites. The probes were written against a host and
+the criterion inherited that.
+
+**Both criteria now gate on the VERSION string, and it is the sharper test
+rather than the looser one.** The renderer string carries the card's product
+name, which the mediation rewrites on purpose; the version string is
+untouched by it and identical on both sides — measured 2026-08-20:
+`4.6.0 NVIDIA 610.57.04` and `OpenGL ES 3.2 NVIDIA 610.57.04`, natively and
+in the guest. And it is checked against `DRIVER_VERSION` rather than against
+the word `NVIDIA`, so a guest answered by a userspace of the WRONG version
+is now a failure where before it was a pass. The renderer string is still
+reported beside the criterion: it is the mediated identity, which belongs in
+the record and is not a pass criterion.
+
+**The absence half was not where this entry said it was.** It is not a
+difference between the two shell probes — those already agreed. All four
+platforms in `probe/c/eglplat.c` returned **1** for a missing native
+display, and the shell comments claimed 2, so the contract was written down
+in one place and implemented in another. Absence is now measured on the
+thing itself (`WAYLAND_DISPLAY` unset, `DISPLAY` unset, no
+`/dev/dri/renderD128`) and answers **2**; a display that EXISTS and refuses
+the connection stays **1**. The exit-code contract sits in the probe's own
+header, which is the one place all four platforms read from.
+
+Measured after: `gl-enum` and `gles` meet their criterion in the guest, and
+`egl-wayland` reports *"declared-unsupported — a Wayland display
+(WAYLAND_DISPLAY) is not available"* instead of failing. Both still appear
+as FAIL in the guest column, for the signature-set divergence of number 52
+and for nothing to do with this entry — which is exactly the separation the
+two columns exist for.
+
+**Confirmed 2026-08-21, in the code and in the run.** This entry said
+"Fixed" and that is not evidence; both halves were checked against what is
+in the tree.
+
+*The criteria gate on the version string.* Both probes read the version
+string, and both check it against `DRIVER_VERSION` through
+`lea_want_driver` rather than against the word `NVIDIA` —
+[`probe/matrix/gl-enum.sh:47-49`](../probe/matrix/gl-enum.sh) and
+[`probe/matrix/gles.sh:51-53`](../probe/matrix/gles.sh). The renderer string
+is read and reported beside the criterion and gates nothing, which is the
+distinction this entry is about.
+
+*The exit-code contract is on the thing itself.*
+[`probe/c/eglplat.c`](../probe/c/eglplat.c) returns **2** for an absence it
+measures — `WAYLAND_DISPLAY` unset, `DISPLAY` unset, no
+`/dev/dri/renderD128` — and **1** for a display that exists and refuses the
+connection, on all four platforms, with the contract in the probe's own
+header.
+
+*And the guest run agrees.* In `matrix/guest-610.57.04.json` both probes
+carry their criterion as met in the guest: `gl-enum` *"glxinfo resolved to
+'4.6.0 NVIDIA 610.57.04' with direct rendering"* and `gles` *"GLES2
+enumeration resolved to 'OpenGL ES 3.2 NVIDIA 610.57.04'"*. Both are still
+FAIL in the guest column, for number 52's signature-set divergence and for
+nothing to do with this entry — which is the separation the two columns
+exist for, and the reason a FAIL row had to be read rather than counted.
+### 55. The answer bytes are compared now, and the class that can be promoted is not the class that can be reached
+**Resolved 2026-08-21.** Both halves are answered and both were confirmed
+against `matrix/verified-610.57.04.json` rather than against this entry.
+One number below was stale and is corrected at the end. The original
+reasoning is kept. What the reach
+half asked for was answer evidence for the classes `ctrlout` could not see --
+allocations, UVM, and the controls outside the two namespaces it happened to
+cover. All of them have it now, and the numbers moved accordingly:
+`implemented-verified` went from 5 signatures to 60, `implemented-unverified`
+from 70 to 15.
+
+Where the reach ends is measured rather than asserted. Of the 258 comparable
+signatures **249 have answer evidence, at 99.5% of their answer bytes**. The
+nine without are not gaps in the instrument: five controls whose `paramsSize`
+is 0 on every observed call and which therefore carry no answer buffer at
+all, two that only `cuda-torch` calls and cuda-torch is blocked in the guest
+for want of PyTorch, and `UVM_DEINITIALIZE`, which takes no parameter struct.
+
+Four things got it there, and each is worth naming because each was a
+different kind of missing:
+
+  * **the length, four times over.** A control's is `paramsSize`, an
+    escape's is `_IOC_SIZE`, and both are the caller's own declared size --
+    self-describing, safe at any width, needing no table. An allocation's and
+    a UVM command's are not: they come from the CLASS and from the command,
+    which is what `xlate::alloc_param_size` and `xlate::uvm_param_size` are
+    for. Those are the tables under test, so the tracer uses `size_of` of the
+    bindgen struct instead and a test requires the two to agree. Sixty-odd
+    hand-computed sizes are checked by the compiler now and all of them were
+    right -- which does not make them right by luck any more, it makes them
+    checked;
+  * **the cap.** 32 bytes, then 256, and 256 was 4.3% of the answer bytes in
+    a sweep. 65536 is 99.5% and costs 110 MB of trace;
+  * **the before-call sample**, which resolved number 60 and became the fifth
+    mask;
+  * **one record per allocation** even when the class passes no parameters,
+    because then the escape's own struct is the whole answer.
+
+The original entry follows.
+
+**Criterion half answered 2026-08-20.** `scripts/ioctl-matrix.sh verify` compares the
+ANSWER of a forwarded control, native run against guest run, call by call
+and word by word. It logs nothing new: the tracer has dumped the first 32
+bytes of the params buffer after the call since the enumeration work
+(`ctrlout` in `log.rs`, written for exactly this diff), so both phases had
+been recording the evidence all along.
+
+The mask — the hard half of number 50 — is DERIVED rather than declared. A
+differing word is allowed only if it is this side's own `gpu_id`, which
+each trace states in its own `cardinfo` line, or a handle this side
+allocated, which its own allocation lines name. Anything else that differs
+is a mismatch, and one unexplained word anywhere disqualifies the
+signature, including when it matched under a different probe.
+
+First run: 67 signatures matched, over the twenty probes that produced
+answers on both sides, several of them with `masked {gpuId: n}` — which is
+not a difference tolerated but the translation observed working. **0 of them
+were `implemented-verified`**, and that was the finding.
+
+Then a third mask was added: a word may differ if it is part of a pointer
+field the DESCRIPTOR TABLE declares for that command, read out of
+`tables.txt` beside the traces. With it the numbers are **72 matched, 3 of
+them `implemented-verified`** — `NV2080_CTRL_CMD_BUS_GET_INFO`,
+`NV2080_CTRL_CMD_BIOS_GET_INFO` and `NV2080_CTRL_CMD_GPU_GET_ENGINES`, each
+over the whole 16 bytes of its params with only the pointer masked. The
+class is not empty any more, and its first entry is the control number 51
+had just fixed.
+
+**That it is 3 and not 73 is the finding, and it has two halves that are
+worth keeping apart.**
+
+*Reach.* `ctrlout` covers root-client (0x2xx) and subdevice (0x2080xxxx)
+controls and nothing else. Allocations and UVM commands have no answer dump
+at all — and those are where most of the governed class lives, because they
+are the two places a size is not self-describing. This slice cannot see
+them.
+
+*Criterion.* Several of the governed controls it does reach are the seven
+the backend answers itself, and their answers differ from the native ones
+on purpose: that is what mediation is. `NV2080_CTRL_CMD_GPU_GET_NAME` differs at offset
+4 by `NVID` against `Lean` — the mediated product name, working exactly as
+designed and reported as a mismatch, because byte equality is the wrong
+test for a mediated command. The right test is "differs in exactly the
+fields the mediation rewrites, and nowhere else", and it needs the
+mediation to name its own fields.
+
+So the pipeline is real and its coverage is honest, and the two things it
+would take to make `implemented-verified` more than a handful are now
+specific rather than a standing wish: an answer dump for allocations and
+UVM, and a per-command field mask that the mediation itself declares.
+
+**The second of those exists now (2026-08-20).** The mediation names its own
+fields: `crates/nvrm-abi/src/mediate.rs` carries one record per
+`(command, field offset, field length, kind)` over six kinds, and
+`nvrm-genhdr --mediation-dump` writes it beside `tables.txt`. It is derived
+rather than written next to the code — the BDF tables and the PCI address
+offsets moved out of the generator into it, so the C header the guest module
+is built from and the mask `verify` uses come from ONE table. Proof the move
+was safe: the regenerated `nvrm_wire.h` is byte for byte the committed one.
+
+The fourth mask is **inverted** against the other three. They say "this word
+may differ, here is the proof"; this one says "this command is mediated, so
+it must differ inside these fields AND NOWHERE ELSE". It works at BYTE
+granularity, because `GET_PCI_INFO` packs `bus` and `slot` into one word as
+two `NvU16` and a mediated field must never shield the neighbour it shares a
+word with.
+
+**It found a missing record on its first run, before any deliberate test.**
+`GET_PCI_INFO` differed at `bus` — `0x2d` natively, the guest's own `0x05` —
+with *"this command IS mediated, and this byte is in none of the fields the
+mediation declares"*. The manifest was incomplete and the code was right:
+the guest module writes domain, bus and slot beside the id, because gpuId is
+DERIVED from the address and the two must not contradict each other. Those
+three are records now and `GET_PCI_INFO` is verified over its whole 12 bytes.
+
+The negative test was run twice on a copy and discarded: moving `bus` to a
+wrong offset makes the diff report the REAL field as a violation by name,
+and removing the identity-string record makes `GPU_GET_NAME_STRING` a
+mismatch again.
+
+**`verified-mediated` is its own class and must never share a row with
+`implemented-verified`.** Membership is decided on what MOVED in this run,
+not on the manifest alone. And it does NOT prove that the mediation is what
+moved those bytes — the manifest declares what MAY be rewritten, and a
+declared field can also be a value that is simply not stable. That is what
+the control test is for, and it took two commands straight back out again
+(see below).
+
+**The reach half is untouched and is now the whole of what is left.**
+`ctrlout` still covers root-client and subdevice controls only. The two
+semaphore-surface controls the backend answers (`0xda0003`, `0xda0005`) are
+out of its reach entirely, so no amount of masking can judge them, and
+allocations and UVM — where most of the governed class lives — still have no
+answer dump at all. That is the tracer work, and it is the designated next
+step.
+
+**The control test exists, in its cheap variant.** For every command a native
+trace called more than once, the answer words are compared across those
+calls; a word that differs native-against-native is not stable and can be
+evidence for nothing. `not_verified` splits into `mismatch` / `unstable` /
+`stability-unknown`, and only `mismatch` is a potential defect: on this
+baseline 11 rows became **1 mismatch, 10 unstable and 2 of unknown
+stability**. Nothing lists the unstable rows — TIMER_GET_TIME, the timer
+correlation, the PEX counters, BUS_GET_INFO_V2, GR_CTXSW_ZCULL_BIND and the
+counter-shaped rows that resolve to no public header classify themselves out
+of their own native traces.
+
+It is used in ONE DIRECTION. It can move a difference out of `mismatch`; it
+can never move one into a verified class. The first version left `unstable`
+out of the disqualification test and the verified count rose from 100 to
+102 — a stability classification that promotes has its logic inverted.
+
+Two things it cannot do, both structural and both fixed by the same missing
+instrument:
+
+  * **Two calls of one command in one trace are not always the same
+    QUESTION.** Index-list commands (`GPU_GET_INFO_V2`, `GR_GET_INFO`,
+    `FB_GET_INFO`) ask for a different index each call, so their answers
+    differ because the question differed. Of 19 verified signatures with a
+    word flagged here, most are of that shape.
+  * **A command called once per trace is invisible to it.**
+    `PERF_GET_CURRENT_PSTATE` is one, and it is the row that entered
+    `verified` on a single lucky call. It stays `verified` with
+    `stability: unknown` recorded on the row rather than being silently
+    treated as stable.
+
+The variant without either weakness is **a second native trace of the same
+probe**, where call i of one run is the same question as call i of the
+other. It costs one run per probe. There is already accidental evidence for
+how much it would buy: `0x2080a097` answered `0x00000007` in one guest sweep
+and `0x00000023` in the next, from the same tree — a row the within-trace
+variant calls `stability-unknown` and two runs would settle immediately.
+
+The three masks are worth noting as a pattern, because all three are of one
+kind: each is DERIVED from something the run already produced — the card's
+own id out of `cardinfo`, the handles out of the allocation lines, the
+pointer offsets out of the descriptor stream. None of them is a list
+somebody maintains, and each one made the comparison sharper rather than
+looser.
+
+One thing the slice settled in passing: `NV0000_CTRL_CMD_GPU_GET_ID_INFO`
+(number 49, the deprecated control with an `NvP64` in it) answers
+byte-identically in a guest over the first 32 bytes of its 128, with the
+gpuId translated and nothing else moved. That is evidence that its pointer
+field is not read into, and not yet proof — 32 of 128 bytes is 32 bytes.
+
+**Confirmed against the artefacts, and this entry's own headline was
+stale.** The paragraph above reads *"`implemented-verified` went from 5
+signatures to 60, `implemented-unverified` from 70 to 15"*. That was true
+for about an hour. Thirteen signatures were then found to have been verified
+on the QUESTION rather than the answer — `ctrlout` dumps a control's params
+buffer, and for a list control that buffer is a count and an `NvP64` — so
+they were reclassified out (60 → 47) and earned back by the tracer following
+the pointer (→ 58). Read off `matrix/catalog-610.57.04.json` as it stands:
+
+    290 signatures: 182 passthrough, 17 implemented-unverified,
+                    58 implemented-verified, 1 implemented-verified-mediated,
+                    32 not-governed
+
+So the measured numbers are **58 and 17**, not 60 and 15, and the entry is
+corrected rather than left to be quoted. `matrix/verified-610.57.04.json`
+agrees: **212 verified + 4 verified-mediated**, 1 mismatch, 1
+answer-not-written, 24 unstable, 0 stability-unknown.
+
+**Both halves, checked:**
+
+*Reach.* 249 of 258 comparable signatures carry answer evidence, at 99.5% of
+their answer bytes. The nine without are enumerated in the entry and none is
+a gap in the instrument. `ctrlout` covers every control, allocations, UVM
+and every other escape, before and after each call, at 65536 bytes.
+
+*Criterion.* The mediation names its own fields — 37 commands and 53 fields
+in the manifest the evidence file cites, generated from `mediate.rs`, the
+same table the guest module's BDF header comes from. `verified-mediated` is
+its own class and does not share a row with `verified`.
+
+**What the method still cannot judge is a property of byte equality, not a
+gap here.** 24 signatures are `unstable`: their answers move between two
+native runs of the same binary, so byte equality is the wrong test for them
+and no mask can make it the right one. The control test that establishes
+this has both variants now — within-trace and a second native run — unioned,
+never substituted, because each finds volatility the other cannot.
+
+The one thing this entry asked for that a later run had to correct is worth
+keeping as a caution: *"verified, 16 of 16 bytes"* said the whole answer was
+compared and meant the whole question was. Reach and criterion are separate
+claims, and a percentage of bytes compared is only as good as the question
+of which bytes count.
 ### 60. One answer survived every mask, and it was memory nobody wrote
 **Resolved 2026-08-21, and it is not a defect.** The entry below predicted
 its own test: *"if it is zero on entry on both sides and non-zero on return
