@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-21T00:13:25Z",
-    "commit:  ad26572 (working tree modified)"
+    "date:    2026-08-21T00:16:30Z",
+    "commit:  cf5c074 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh verify",
   "method": "the tracer's ctrlout lines -- the params buffer sampled BEFORE and AFTER each call -- from the native trace against the guest trace, call by call, word by word",
@@ -218,7 +218,6 @@
   "control_test": "within-trace variant: for every command a native trace called more than once, the answer words are compared across those calls. A word that differs native-against-native is not stable and can be evidence for nothing. It is used in ONE DIRECTION -- it moves a difference out of `mismatch`, and never into a verified class. LIMIT: two calls of one command in one trace are not always the same QUESTION (index-list commands such as GPU_GET_INFO_V2 and GR_GET_INFO ask for a different index each call), so this flags more words than are genuinely volatile. The variant without that weakness is a second native trace of the same probe, where call i is the same question on both sides",
   "verified": [
     "ctl 0x29 -",
-    "ctl 0x2a 0x101",
     "ctl 0x2a 0x102",
     "ctl 0x2a 0x136",
     "ctl 0x2a 0x13a",
@@ -230,7 +229,6 @@
     "ctl 0x2a 0x20800102",
     "ctl 0x2a 0x20800111",
     "ctl 0x2a 0x20800119",
-    "ctl 0x2a 0x20800123",
     "ctl 0x2a 0x2080012f",
     "ctl 0x2a 0x20800131",
     "ctl 0x2a 0x2080013f",
@@ -247,8 +245,6 @@
     "ctl 0x2a 0x208001a4",
     "ctl 0x2a 0x208001b2",
     "ctl 0x2a 0x20800301",
-    "ctl 0x2a 0x20800802",
-    "ctl 0x2a 0x20801201",
     "ctl 0x2a 0x20801206",
     "ctl 0x2a 0x20801208",
     "ctl 0x2a 0x20801210",
@@ -257,7 +253,6 @@
     "ctl 0x2a 0x20801227",
     "ctl 0x2a 0x2080122a",
     "ctl 0x2a 0x2080122b",
-    "ctl 0x2a 0x20801301",
     "ctl 0x2a 0x20801315",
     "ctl 0x2a 0x20801320",
     "ctl 0x2a 0x20801322",
@@ -266,7 +261,6 @@
     "ctl 0x2a 0x20801357",
     "ctl 0x2a 0x20801701",
     "ctl 0x2a 0x20801801",
-    "ctl 0x2a 0x20801802",
     "ctl 0x2a 0x20801803",
     "ctl 0x2a 0x20801813",
     "ctl 0x2a 0x20801829",
@@ -330,25 +324,18 @@
     "ctl 0x2a 0x730107",
     "ctl 0x2a 0x730108",
     "ctl 0x2a 0x73010c",
-    "ctl 0x2a 0x800201",
     "ctl 0x2a 0x800280",
     "ctl 0x2a 0x800288",
     "ctl 0x2a 0x800289",
     "ctl 0x2a 0x80028e",
     "ctl 0x2a 0x800292",
     "ctl 0x2a 0x800294",
-    "ctl 0x2a 0x801102",
-    "ctl 0x2a 0x801104",
-    "ctl 0x2a 0x801301",
     "ctl 0x2a 0x801307",
     "ctl 0x2a 0x801402",
-    "ctl 0x2a 0x801701",
     "ctl 0x2a 0x801707",
-    "ctl 0x2a 0x80170d",
     "ctl 0x2a 0x801806",
     "ctl 0x2a 0x80180d",
     "ctl 0x2a 0x801909",
-    "ctl 0x2a 0x801b01",
     "ctl 0x2a 0x801c02",
     "ctl 0x2a 0x83de0309",
     "ctl 0x2a 0x906f0101",
@@ -480,52 +467,6 @@
         0,
         4,
         8
-      ],
-      "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
-    },
-    "ctl 0x2a 0x101": {
-      "name": "NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION",
-      "status_before": "implemented-verified",
-      "probes": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls_compared": 10,
-      "bytes_compared": 40,
-      "answer_size": 40,
-      "params_struct": "NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS",
-      "fields_covered": [
-        "sizeOfStrings (NvU32) @0",
-        "pDriverVersionBuffer (NvP64) @8",
-        "pVersionBuffer (NvP64) @16",
-        "pTitleBuffer (NvP64) @24",
-        "changelistNumber (NvU32) @32",
-        "officialChangelistNumber (NvU32) @36"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 60
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8",
-        "NvP64 (nested-ptr) @16",
-        "NvP64 (nested-ptr) @24"
-      ],
-      "probes_not_comparable": [],
-      "fully_paired": true,
-      "native_calls_seen": 3,
-      "unstable_words_in_extent": [
-        8,
-        16,
-        24
       ],
       "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
     },
@@ -1022,35 +963,6 @@
       "unstable_words_in_extent": [],
       "stability": "every compared word was constant across the calls one native run made"
     },
-    "ctl 0x2a 0x20800123": {
-      "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES",
-      "status_before": "implemented-verified",
-      "probes": [
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls_compared": 3,
-      "bytes_compared": 16,
-      "answer_size": 16,
-      "params_struct": "NV2080_CTRL_GPU_GET_ENGINES_PARAMS",
-      "fields_covered": [
-        "engineCount (NvU32) @0",
-        "engineList (NvP64) @8"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 5
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8"
-      ],
-      "probes_not_comparable": [],
-      "fully_paired": true,
-      "native_calls_seen": 1,
-      "unstable_words_in_extent": [],
-      "stability": "unknown -- no native trace called it twice, so nothing here says whether these bytes are stable at all"
-    },
     "ctl 0x2a 0x2080012f": {
       "name": "NV2080_CTRL_CMD_GPU_QUERY_ECC_STATUS",
       "status_before": "passthrough",
@@ -1532,80 +1444,6 @@
       ],
       "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
     },
-    "ctl 0x2a 0x20800802": {
-      "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
-      "status_before": "implemented-verified",
-      "probes": [
-        "nvml"
-      ],
-      "calls_compared": 1,
-      "bytes_compared": 16,
-      "answer_size": 16,
-      "params_struct": "NV2080_CTRL_BIOS_GET_INFO_PARAMS",
-      "fields_covered": [
-        "biosInfoListSize (NvU32) @0",
-        "biosInfoList (NvP64) @8"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 2
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8"
-      ],
-      "probes_not_comparable": [],
-      "fully_paired": true,
-      "native_calls_seen": 1,
-      "unstable_words_in_extent": [],
-      "stability": "unknown -- no native trace called it twice, so nothing here says whether these bytes are stable at all"
-    },
-    "ctl 0x2a 0x20801201": {
-      "name": "NV2080_CTRL_CMD_GR_GET_INFO",
-      "status_before": "implemented-verified",
-      "probes": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "egl-gbm",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls_compared": 10,
-      "bytes_compared": 32,
-      "answer_size": 32,
-      "params_struct": "NV2080_CTRL_GR_GET_INFO_PARAMS",
-      "fields_covered": [
-        "grInfoListSize (NvU32) @0",
-        "grInfoList (NvP64) @8",
-        "grRouteInfo (NV2080_CTRL_GR_ROUTE_INFO) @16"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 20
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8"
-      ],
-      "probes_not_comparable": [
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "fully_paired": false,
-      "native_calls_seen": 3,
-      "unstable_words_in_extent": [
-        0,
-        8
-      ],
-      "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
-    },
     "ctl 0x2a 0x20801206": {
       "name": "NV2080_CTRL_CMD_GR_GET_ZCULL_INFO",
       "status_before": "passthrough",
@@ -1892,46 +1730,6 @@
       ],
       "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
     },
-    "ctl 0x2a 0x20801301": {
-      "name": "NV2080_CTRL_CMD_FB_GET_INFO",
-      "status_before": "implemented-verified",
-      "probes": [
-        "egl-gbm"
-      ],
-      "calls_compared": 5,
-      "bytes_compared": 16,
-      "answer_size": 16,
-      "params_struct": "NV2080_CTRL_FB_GET_INFO_PARAMS",
-      "fields_covered": [
-        "fbInfoListSize (NvU32) @0",
-        "fbInfoList (NvP64) @8"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 10
-      },
-      "mediation": [
-        "fbInfoList[].data (backend-answered) @4 x128 stride 8",
-        "NvP64 (nested-ptr) @8"
-      ],
-      "probes_not_comparable": [
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "fully_paired": false,
-      "native_calls_seen": 8,
-      "unstable_words_in_extent": [
-        0,
-        4,
-        8
-      ],
-      "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
-    },
     "ctl 0x2a 0x20801315": {
       "name": "NV2080_CTRL_CMD_FB_GET_GPU_CACHE_INFO",
       "status_before": "passthrough",
@@ -2183,37 +1981,6 @@
       "native_calls_seen": 3,
       "unstable_words_in_extent": [],
       "stability": "every compared word was constant across the calls one native run made"
-    },
-    "ctl 0x2a 0x20801802": {
-      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
-      "status_before": "implemented-verified",
-      "probes": [
-        "nvdec",
-        "nvenc",
-        "nvml"
-      ],
-      "calls_compared": 10,
-      "bytes_compared": 16,
-      "answer_size": 16,
-      "params_struct": "NV2080_CTRL_BUS_GET_INFO_PARAMS",
-      "fields_covered": [
-        "busInfoListSize (NvU32) @0",
-        "busInfoList (NvP64) @8"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 20
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8"
-      ],
-      "probes_not_comparable": [],
-      "fully_paired": true,
-      "native_calls_seen": 7,
-      "unstable_words_in_extent": [
-        8
-      ],
-      "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
     },
     "ctl 0x2a 0x20801803": {
       "name": "NV2080_CTRL_CMD_BUS_GET_PCI_BAR_INFO",
@@ -3978,37 +3745,6 @@
       ],
       "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
     },
-    "ctl 0x2a 0x800201": {
-      "name": "NV0080_CTRL_CMD_GPU_GET_CLASSLIST",
-      "status_before": "implemented-verified",
-      "probes": [
-        "nvdec",
-        "nvenc"
-      ],
-      "calls_compared": 6,
-      "bytes_compared": 16,
-      "answer_size": 16,
-      "params_struct": "NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS",
-      "fields_covered": [
-        "numClasses (NvU32) @0",
-        "classList (NvP64) @8"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 6
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8"
-      ],
-      "probes_not_comparable": [],
-      "fully_paired": true,
-      "native_calls_seen": 4,
-      "unstable_words_in_extent": [
-        8,
-        12
-      ],
-      "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
-    },
     "ctl 0x2a 0x800280": {
       "name": "NV0080_CTRL_CMD_GPU_GET_NUM_SUBDEVICES",
       "status_before": "passthrough",
@@ -4193,119 +3929,6 @@
       "unstable_words_in_extent": [],
       "stability": "unknown -- no native trace called it twice, so nothing here says whether these bytes are stable at all"
     },
-    "ctl 0x2a 0x801102": {
-      "name": "NV0080_CTRL_CMD_GR_GET_CAPS",
-      "status_before": "implemented-verified",
-      "probes": [
-        "egl-gbm"
-      ],
-      "calls_compared": 2,
-      "bytes_compared": 16,
-      "answer_size": 16,
-      "params_struct": "NV0080_CTRL_GR_GET_CAPS_PARAMS",
-      "fields_covered": [
-        "capsTblSize (NvU32) @0",
-        "capsTbl (NvP64) @8"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 4
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8"
-      ],
-      "probes_not_comparable": [
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "fully_paired": false,
-      "native_calls_seen": 2,
-      "unstable_words_in_extent": [
-        8,
-        12
-      ],
-      "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
-    },
-    "ctl 0x2a 0x801104": {
-      "name": "NV0080_CTRL_CMD_GR_GET_INFO",
-      "status_before": "implemented-verified",
-      "probes": [
-        "egl-gbm"
-      ],
-      "calls_compared": 2,
-      "bytes_compared": 16,
-      "answer_size": 16,
-      "params_struct": "NV0080_CTRL_GR_GET_INFO_PARAMS",
-      "fields_covered": [
-        "grInfoListSize (NvU32) @0",
-        "grInfoList (NvP64) @8"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 4
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8"
-      ],
-      "probes_not_comparable": [
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "fully_paired": false,
-      "native_calls_seen": 2,
-      "unstable_words_in_extent": [
-        8
-      ],
-      "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
-    },
-    "ctl 0x2a 0x801301": {
-      "name": "NV0080_CTRL_CMD_FB_GET_CAPS",
-      "status_before": "implemented-verified",
-      "probes": [
-        "egl-gbm"
-      ],
-      "calls_compared": 2,
-      "bytes_compared": 16,
-      "answer_size": 16,
-      "params_struct": "NV0080_CTRL_FB_GET_CAPS_PARAMS",
-      "fields_covered": [
-        "capsTblSize (NvU32) @0",
-        "capsTbl (NvP64) @8"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 4
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8"
-      ],
-      "probes_not_comparable": [
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "fully_paired": false,
-      "native_calls_seen": 2,
-      "unstable_words_in_extent": [
-        8,
-        12
-      ],
-      "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
-    },
     "ctl 0x2a 0x801307": {
       "name": "NV0080_CTRL_CMD_FB_GET_CAPS_V2",
       "status_before": "passthrough",
@@ -4366,44 +3989,6 @@
       "unstable_words_in_extent": [],
       "stability": "every compared word was constant across the calls one native run made"
     },
-    "ctl 0x2a 0x801701": {
-      "name": "NV0080_CTRL_CMD_FIFO_GET_CAPS",
-      "status_before": "implemented-verified",
-      "probes": [
-        "egl-gbm"
-      ],
-      "calls_compared": 2,
-      "bytes_compared": 16,
-      "answer_size": 16,
-      "params_struct": "NV0080_CTRL_FIFO_GET_CAPS_PARAMS",
-      "fields_covered": [
-        "capsTblSize (NvU32) @0",
-        "capsTbl (NvP64) @8"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 4
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8"
-      ],
-      "probes_not_comparable": [
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "fully_paired": false,
-      "native_calls_seen": 2,
-      "unstable_words_in_extent": [
-        8,
-        12
-      ],
-      "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
-    },
     "ctl 0x2a 0x801707": {
       "name": "NV0080_CTRL_CMD_FIFO_GET_ENGINE_CONTEXT_PROPERTIES",
       "status_before": "passthrough",
@@ -4435,44 +4020,6 @@
       "native_calls_seen": 10,
       "unstable_words_in_extent": [],
       "stability": "every compared word was constant across the calls one native run made"
-    },
-    "ctl 0x2a 0x80170d": {
-      "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
-      "status_before": "implemented-verified",
-      "probes": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls_compared": 160,
-      "bytes_compared": 24,
-      "answer_size": 24,
-      "params_struct": "NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS",
-      "fields_covered": [
-        "numChannels (NvU32) @0",
-        "pChannelHandleList (NvP64) @8",
-        "pChannelList (NvP64) @16"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 640
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8",
-        "NvP64 (nested-ptr) @16"
-      ],
-      "probes_not_comparable": [],
-      "fully_paired": true,
-      "native_calls_seen": 20,
-      "unstable_words_in_extent": [
-        16
-      ],
-      "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
     },
     "ctl 0x2a 0x801806": {
       "name": "NV0080_CTRL_CMD_DMA_ADV_SCHED_GET_VA_CAPS",
@@ -4573,39 +4120,6 @@
       "native_calls_seen": 2,
       "unstable_words_in_extent": [],
       "stability": "every compared word was constant across the calls one native run made"
-    },
-    "ctl 0x2a 0x801b01": {
-      "name": "NV0080_CTRL_CMD_NVENC_GET_CAPS",
-      "status_before": "implemented-verified",
-      "probes": [
-        "nvdec",
-        "nvenc",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls_compared": 6,
-      "bytes_compared": 16,
-      "answer_size": 16,
-      "params_struct": "NV0080_CTRL_NVENC_GET_CAPS_PARAMS",
-      "fields_covered": [
-        "capsTblSize (NvU32) @0",
-        "capsTbl (NvP64) @8"
-      ],
-      "fields_not_covered": [],
-      "words_masked": {
-        "not-written": 11
-      },
-      "mediation": [
-        "NvP64 (nested-ptr) @8"
-      ],
-      "probes_not_comparable": [],
-      "fully_paired": true,
-      "native_calls_seen": 2,
-      "unstable_words_in_extent": [
-        8
-      ],
-      "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
     },
     "ctl 0x2a 0x801c02": {
       "name": "NV0080_CTRL_CMD_NVDEC_GET_CAPS_V2",
@@ -7437,6 +6951,213 @@
       "catalogue_notes": []
     }
   ],
+  "answer_behind_a_pointer": [
+    {
+      "signature": "ctl 0x2a 0x101",
+      "name": "NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-rt"
+      ],
+      "params_bytes_compared": 40,
+      "pointer_offsets": [
+        8,
+        16,
+        24
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x20800123",
+      "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES",
+      "probes": [
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "params_bytes_compared": 16,
+      "pointer_offsets": [
+        8
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x20800802",
+      "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
+      "probes": [
+        "nvml"
+      ],
+      "params_bytes_compared": 16,
+      "pointer_offsets": [
+        8
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x20801201",
+      "name": "NV2080_CTRL_CMD_GR_GET_INFO",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "egl-gbm",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "params_bytes_compared": 32,
+      "pointer_offsets": [
+        8
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x20801301",
+      "name": "NV2080_CTRL_CMD_FB_GET_INFO",
+      "probes": [
+        "egl-gbm"
+      ],
+      "params_bytes_compared": 16,
+      "pointer_offsets": [
+        8
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x20801802",
+      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
+      "probes": [
+        "nvdec",
+        "nvenc",
+        "nvml"
+      ],
+      "params_bytes_compared": 16,
+      "pointer_offsets": [
+        8
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x800201",
+      "name": "NV0080_CTRL_CMD_GPU_GET_CLASSLIST",
+      "probes": [
+        "nvdec",
+        "nvenc"
+      ],
+      "params_bytes_compared": 16,
+      "pointer_offsets": [
+        8
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x801102",
+      "name": "NV0080_CTRL_CMD_GR_GET_CAPS",
+      "probes": [
+        "egl-gbm"
+      ],
+      "params_bytes_compared": 16,
+      "pointer_offsets": [
+        8
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x801104",
+      "name": "NV0080_CTRL_CMD_GR_GET_INFO",
+      "probes": [
+        "egl-gbm"
+      ],
+      "params_bytes_compared": 16,
+      "pointer_offsets": [
+        8
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x801301",
+      "name": "NV0080_CTRL_CMD_FB_GET_CAPS",
+      "probes": [
+        "egl-gbm"
+      ],
+      "params_bytes_compared": 16,
+      "pointer_offsets": [
+        8
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x801701",
+      "name": "NV0080_CTRL_CMD_FIFO_GET_CAPS",
+      "probes": [
+        "egl-gbm"
+      ],
+      "params_bytes_compared": 16,
+      "pointer_offsets": [
+        8
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x80170d",
+      "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "params_bytes_compared": 24,
+      "pointer_offsets": [
+        8,
+        16
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    },
+    {
+      "signature": "ctl 0x2a 0x801b01",
+      "name": "NV0080_CTRL_CMD_NVENC_GET_CAPS",
+      "probes": [
+        "nvdec",
+        "nvenc",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "params_bytes_compared": 16,
+      "pointer_offsets": [
+        8
+      ],
+      "reason": "the params buffer matched on both sides, but this command's descriptor row declares an NvP64 and the answer is behind it -- nothing dumps what it points at, so the answer itself was not compared",
+      "catalogue_status": "implemented-verified"
+    }
+  ],
   "unstable": [
     {
       "signature": "ctl 0x2a 0x2080018d",
@@ -7992,6 +7713,7 @@
   "stability_unknown": [],
   "verdicts": {
     "mismatch": "the bytes differ, at a word that was constant across the calls one native run made, and that BOTH sides wrote. A potential defect",
+    "answer-behind-a-pointer": "the params buffer matched on both sides and the answer is not in it: the command declares an NvP64 and nothing dumps what it points at. NOT verified -- matching on the question is not the claim `verified` makes",
     "answer-not-written": "RM wrote this word natively and the guest left the caller's own value in place, with NV_OK on both sides. A DIFFERENCE, and no status fingerprint can see it because nothing failed -- but not by itself a defect: measured 2026-08-21, RM declines to populate some answers depending on the caller's state, and does so identically on both sides when asked identically. What this class says is that the two sides reached the call in different states; whether the boundary caused that is a separate question and needs a reproducer",
     "unstable": "the bytes differ, at a word that moves between two calls of one native run, or between two native runs of the same probe -- evidence for nothing, in either direction",
     "stability-unknown": "the bytes differ, and no native trace called the command twice, so the control test has nothing to say. Never to be read as stable"
@@ -9838,7 +9560,13 @@
     "ctl 0x2a 0x2080016c",
     "ctl 0x2a 0x2080018e",
     "ctl 0x2a 0x20800403",
+    "ctl 0x2a 0x20801201",
+    "ctl 0x2a 0x20801301",
     "ctl 0x2a 0x3d06",
+    "ctl 0x2a 0x801102",
+    "ctl 0x2a 0x801104",
+    "ctl 0x2a 0x801301",
+    "ctl 0x2a 0x801701",
     "ctl 0x2a 0xc36f0108",
     "ctl 0x2b 0x40",
     "ctl 0x2b 0x5",

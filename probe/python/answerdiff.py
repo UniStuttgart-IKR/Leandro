@@ -688,6 +688,7 @@ def main():
     # the good half of exactly that case.
     ok_by_sig, bad_by_sig, evidence, sides, skipped = {}, {}, {}, {}, []
     abstained, unstable_by_sig, unwritten_by_sig = {}, {}, {}
+    behind = {}
     for p in a.probes:
         n = read_side(traceread.trace_file(ndir, p))
         g = read_side(traceread.trace_file(gdir, p))
@@ -757,6 +758,35 @@ def main():
                     "probes": [], "reason": why,
                     "unstable_words": (st or {}).get("unstable", []),
                     "native_calls_compared": (st or {}).get("repeats", 0),
+                })["probes"].append(p)
+                continue
+            if ok is True and declared.get(cmd):
+                # THE ANSWER IS NOT IN WHAT WAS COMPARED.
+                #
+                # `ctrlout` dumps the params BUFFER. For a command whose
+                # descriptor row declares an NvP64, the params buffer holds
+                # the QUESTION -- a count and a pointer -- and the answer is
+                # behind the pointer, which nothing dumps. Measured
+                # 2026-08-21: thirteen signatures were reported `verified` on
+                # "16 of 16 bytes", which reads as the whole answer and is
+                # the whole question. GPU_GET_CLASSLIST, GR_GET_INFO,
+                # FB_GET_INFO, BIOS_GET_INFO and GPU_GET_ENGINES are among
+                # them.
+                #
+                # Matching on the question is worth something -- the count,
+                # the flags and the shape of the request survived the
+                # boundary -- but it is not the claim `verified` makes, so it
+                # is a class of its own and it does not promote.
+                behind.setdefault(key, {
+                    "signature": key, "name": row.get("name", ""),
+                    "probes": [], "params_bytes_compared": len(n["calls"][key][0]["bytes"]),
+                    "pointer_offsets": sorted(declared.get(cmd, ())),
+                    "reason": ("the params buffer matched on both sides, but "
+                               "this command's descriptor row declares an "
+                               "NvP64 and the answer is behind it -- nothing "
+                               "dumps what it points at, so the answer itself "
+                               "was not compared"),
+                    "catalogue_status": row.get("status", ""),
                 })["probes"].append(p)
                 continue
             if ok:
@@ -987,12 +1017,19 @@ def main():
         "not_verified": notv,
         "mismatch": mismatch,
         "answer_not_written": unwritten,
+        "answer_behind_a_pointer": [behind[k] for k in sorted(behind)],
         "unstable": unstable,
         "stability_unknown": stability_unknown,
         "verdicts": {
             "mismatch": "the bytes differ, at a word that was constant across "
                         "the calls one native run made, and that BOTH sides "
                         "wrote. A potential defect",
+            "answer-behind-a-pointer": "the params buffer matched on both "
+                                       "sides and the answer is not in it: "
+                                       "the command declares an NvP64 and "
+                                       "nothing dumps what it points at. NOT "
+                                       "verified -- matching on the question "
+                                       "is not the claim `verified` makes",
             "answer-not-written": "RM wrote this word natively and the guest "
                                   "left the caller's own value in place, with "
                                   "NV_OK on both sides. A DIFFERENCE, and no "
@@ -1068,6 +1105,8 @@ def main():
     for x in unwritten:
         print(f"  NOTANSWERED {x['signature']:<18} {x['name'][:44]:<44} "
               f"{x['reason'][:90]}")
+    print(f"{len(behind)} signature(s) matched on the params buffer and are "
+          f"NOT verified: their answer is behind an NvP64 that nothing dumps")
     print(f"control: {len(control_seen)} signature(s) had a second native run "
           f"to compare against; the rest rest on the within-trace variant only")
     print(f"not verified splits four ways: {len(mismatch)} MISMATCH (the "

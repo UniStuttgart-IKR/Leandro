@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-21T00:13:33Z",
-    "commit:  ad26572 (working tree modified)"
+    "date:    2026-08-21T00:16:38Z",
+    "commit:  cf5c074 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -8783,6 +8783,152 @@
     {
       "device": "ctl",
       "nr": "0x2a",
+      "sub": "0x101",
+      "kind": "ctrl",
+      "name": "NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION",
+      "description": "This command returns the current driver information.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000system.h:108",
+      "params_struct": "NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS",
+      "params_size": 40,
+      "observed_params_size": [
+        "0x28"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-rt"
+      ],
+      "calls": 11,
+      "rm_status": {
+        "0x0": 11
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24"
+      ],
+      "fields": [
+        {
+          "name": "sizeOfStrings",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pDriverVersionBuffer",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "pVersionBuffer",
+          "type": "NvP64",
+          "offset": 16,
+          "size": 8
+        },
+        {
+          "name": "pTitleBuffer",
+          "type": "NvP64",
+          "offset": 24,
+          "size": 8
+        },
+        {
+          "name": "changelistNumber",
+          "type": "NvU32",
+          "offset": 32,
+          "size": 4
+        },
+        {
+          "name": "officialChangelistNumber",
+          "type": "NvU32",
+          "offset": 36,
+          "size": 4
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x20801201",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_GR_GET_INFO",
+      "description": "This command returns gr engine information for the associated GPU.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:408",
+      "params_struct": "NV2080_CTRL_GR_GET_INFO_PARAMS",
+      "params_size": 32,
+      "observed_params_size": [
+        "0x20"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "opencl",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 30,
+      "rm_status": {
+        "0x0": 30
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: grInfoList @8"
+      ],
+      "fields": [
+        {
+          "name": "grInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "grInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "grRouteInfo",
+          "type": "NV2080_CTRL_GR_ROUTE_INFO",
+          "offset": 16,
+          "size": 16
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
       "sub": "0x20801303",
       "kind": "ctrl",
       "name": "NV2080_CTRL_CMD_FB_GET_INFO_V2",
@@ -8828,6 +8974,64 @@
           "type": "NV2080_CTRL_FB_INFO[NV2080_CTRL_FB_INFO_MAX_LIST_SIZE]",
           "offset": 4,
           "size": 1024
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x80170d",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
+      "description": "Takes a list of hChannels as input and returns the corresponding Channel IDs that they corresponding to on hw.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:178",
+      "params_struct": "NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS",
+      "params_size": 24,
+      "observed_params_size": [
+        "0x18"
+      ],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "calls": 180,
+      "rm_status": {
+        "0x0": 180
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16"
+      ],
+      "fields": [
+        {
+          "name": "numChannels",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "pChannelHandleList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        },
+        {
+          "name": "pChannelList",
+          "type": "NvP64",
+          "offset": 16,
+          "size": 8
         }
       ],
       "status": "implemented-unverified",
@@ -9071,6 +9275,272 @@
       "xlate_size": 80
     },
     {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x20801301",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_FB_GET_INFO",
+      "description": "This command returns fb engine information for the associated GPU.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:480",
+      "params_struct": "NV2080_CTRL_FB_GET_INFO_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 54,
+      "rm_status": {
+        "0x0": 54
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "answered by the backend itself: fbInfoList[].data @4 (backend-answered, mediation.txt)",
+        "pointer field(s), offsets compiled: fbInfoList @8"
+      ],
+      "fields": [
+        {
+          "name": "fbInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "fbInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x801102",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_GR_GET_CAPS",
+      "description": "This command returns the set of graphics capabilities for the device in the form of an array of unsigned bytes.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gr.h:60",
+      "params_struct": "NV0080_CTRL_GR_GET_CAPS_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 20,
+      "rm_status": {
+        "0x0": 20
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x801104",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_GR_GET_INFO",
+      "description": "This command returns graphics engine information for the associate GPU.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gr.h:194",
+      "params_struct": "NV0080_CTRL_GR_GET_INFO_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 20,
+      "rm_status": {
+        "0x0": 20
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: grInfoList @8"
+      ],
+      "fields": [
+        {
+          "name": "grInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "grInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x801301",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_FB_GET_CAPS",
+      "description": "This command returns the set of framebuffer capabilities for the device in the form of an array of unsigned bytes.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fb.h:60",
+      "params_struct": "NV0080_CTRL_FB_GET_CAPS_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 20,
+      "rm_status": {
+        "0x0": 20
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x801701",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_FIFO_GET_CAPS",
+      "description": "This command returns the set of FIFO engine capabilities for the device in the form of an array of unsigned bytes.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:59",
+      "params_struct": "NV0080_CTRL_FIFO_GET_CAPS_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 20,
+      "rm_status": {
+        "0x0": 20
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
       "device": "gpu",
       "nr": "0x27",
       "sub": "0x3e",
@@ -9142,6 +9612,145 @@
           "type": "NV0000_CTRL_OS_UNIX_EXPORT_OBJECT",
           "offset": 4,
           "size": 16
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x20801802",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
+      "description": "This command returns bus engine information for the associated GPU.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:579",
+      "params_struct": "NV2080_CTRL_BUS_GET_INFO_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "nvdec",
+        "nvenc",
+        "nvml"
+      ],
+      "calls": 10,
+      "rm_status": {
+        "0x0": 10
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: busInfoList @8"
+      ],
+      "fields": [
+        {
+          "name": "busInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "busInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x800201",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_GPU_GET_CLASSLIST",
+      "description": "This command returns supported class information for the specified device.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gpu.h:70",
+      "params_struct": "NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "nvdec",
+        "nvenc"
+      ],
+      "calls": 6,
+      "rm_status": {
+        "0x0": 6
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: classList @8"
+      ],
+      "fields": [
+        {
+          "name": "numClasses",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "classList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x801b01",
+      "kind": "ctrl",
+      "name": "NV0080_CTRL_CMD_NVENC_GET_CAPS",
+      "description": "This command returns the set of NVENC capabilities for the device in the form of an array of unsigned bytes.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080nvenc.h:59",
+      "params_struct": "NV0080_CTRL_NVENC_GET_CAPS_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "nvdec",
+        "nvenc",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 6,
+      "rm_status": {
+        "0x0": 6
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: capsTbl @8"
+      ],
+      "fields": [
+        {
+          "name": "capsTblSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "capsTbl",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
         }
       ],
       "status": "implemented-unverified",
@@ -9247,6 +9856,51 @@
     },
     {
       "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x20800802",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
+      "description": "This command returns bios information for the associated GPU.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bios.h:71",
+      "params_struct": "NV2080_CTRL_BIOS_GET_INFO_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "nvml"
+      ],
+      "calls": 1,
+      "rm_status": {
+        "0x0": 1
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "params struct name not in the finn: comment; convention (_CMD_ dropped, _PARAMS appended), typedef present and sizeof compiled",
+        "pointer field(s), offsets compiled: biosInfoList @8"
+      ],
+      "fields": [
+        {
+          "name": "biosInfoListSize",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "biosInfoList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
       "nr": "0x2b",
       "sub": "0xc640",
       "kind": "alloc",
@@ -9302,6 +9956,52 @@
       "notes": [],
       "status": "implemented-unverified",
       "xlate_size": 0
+    },
+    {
+      "device": "ctl",
+      "nr": "0x2a",
+      "sub": "0x20800123",
+      "kind": "ctrl",
+      "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES",
+      "description": "Returns a list of supported engine types along with the number of instances of each type.",
+      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:769",
+      "params_struct": "NV2080_CTRL_GPU_GET_ENGINES_PARAMS",
+      "params_size": 16,
+      "observed_params_size": [
+        "0x10"
+      ],
+      "seen_in": [
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 3,
+      "rm_status": {
+        "0x0": 3
+      },
+      "flags": [
+        "embedded-ptr",
+        "embedded-ptr(second-level)"
+      ],
+      "notes": [
+        "pointer field(s), offsets compiled: engineList @8"
+      ],
+      "fields": [
+        {
+          "name": "engineCount",
+          "type": "NvU32",
+          "offset": 0,
+          "size": 4
+        },
+        {
+          "name": "engineList",
+          "type": "NvP64",
+          "offset": 8,
+          "size": 8
+        }
+      ],
+      "status": "implemented-unverified",
+      "xlate_size": null
     },
     {
       "device": "ctl",
@@ -9409,213 +10109,6 @@
       ],
       "notes": [
         "answer bytes compared against a native run: 801 call(s), 16 of 16 bytes, masked {'not-written': 847}; NOT paired in egl-xlib, gl-enum, gl-render, gles, nvdec, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x101",
-      "kind": "ctrl",
-      "name": "NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION",
-      "description": "This command returns the current driver information.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0000/ctrl0000system.h:108",
-      "params_struct": "NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS",
-      "params_size": 40,
-      "observed_params_size": [
-        "0x28"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-rt"
-      ],
-      "calls": 11,
-      "rm_status": {
-        "0x0": 11
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24",
-        "answer bytes compared against a native run: 10 call(s), 40 of 40 bytes, masked {'not-written': 60}"
-      ],
-      "fields": [
-        {
-          "name": "sizeOfStrings",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "pDriverVersionBuffer",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        },
-        {
-          "name": "pVersionBuffer",
-          "type": "NvP64",
-          "offset": 16,
-          "size": 8
-        },
-        {
-          "name": "pTitleBuffer",
-          "type": "NvP64",
-          "offset": 24,
-          "size": 8
-        },
-        {
-          "name": "changelistNumber",
-          "type": "NvU32",
-          "offset": 32,
-          "size": 4
-        },
-        {
-          "name": "officialChangelistNumber",
-          "type": "NvU32",
-          "offset": 36,
-          "size": 4
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x20801201",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_GR_GET_INFO",
-      "description": "This command returns gr engine information for the associated GPU.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gr.h:408",
-      "params_struct": "NV2080_CTRL_GR_GET_INFO_PARAMS",
-      "params_size": 32,
-      "observed_params_size": [
-        "0x20"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "nvdec",
-        "nvenc",
-        "opencl",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 30,
-      "rm_status": {
-        "0x0": 30
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 32 of 32 bytes, masked {'not-written': 20}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
-      ],
-      "fields": [
-        {
-          "name": "grInfoListSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "grInfoList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        },
-        {
-          "name": "grRouteInfo",
-          "type": "NV2080_CTRL_GR_ROUTE_INFO",
-          "offset": 16,
-          "size": 16
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x80170d",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
-      "description": "Takes a list of hChannels as input and returns the corresponding Channel IDs that they corresponding to on hw.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:178",
-      "params_struct": "NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS",
-      "params_size": 24,
-      "observed_params_size": [
-        "0x18"
-      ],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "calls": 180,
-      "rm_status": {
-        "0x0": 180
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16",
-        "answer bytes compared against a native run: 160 call(s), 24 of 24 bytes, masked {'not-written': 640}"
-      ],
-      "fields": [
-        {
-          "name": "numChannels",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "pChannelHandleList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        },
-        {
-          "name": "pChannelList",
-          "type": "NvP64",
-          "offset": 16,
-          "size": 8
-        }
       ],
       "status": "implemented-verified",
       "xlate_size": null
@@ -11025,61 +11518,6 @@
     {
       "device": "ctl",
       "nr": "0x2a",
-      "sub": "0x20801301",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_FB_GET_INFO",
-      "description": "This command returns fb engine information for the associated GPU.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h:480",
-      "params_struct": "NV2080_CTRL_FB_GET_INFO_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 54,
-      "rm_status": {
-        "0x0": 54
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "answered by the backend itself: fbInfoList[].data @4 (backend-answered, mediation.txt)",
-        "pointer field(s), offsets compiled: fbInfoList @8",
-        "answer bytes compared against a native run: 5 call(s), 16 of 16 bytes, masked {'not-written': 10}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
-      ],
-      "fields": [
-        {
-          "name": "fbInfoListSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "fbInfoList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
       "sub": "0x3d05",
       "kind": "ctrl",
       "name": "NV0000_CTRL_CMD_OS_UNIX_EXPORT_OBJECT_TO_FD",
@@ -11130,222 +11568,6 @@
           "type": "NvU32",
           "offset": 20,
           "size": 4
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x801102",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_GR_GET_CAPS",
-      "description": "This command returns the set of graphics capabilities for the device in the form of an array of unsigned bytes.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gr.h:60",
-      "params_struct": "NV0080_CTRL_GR_GET_CAPS_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 20,
-      "rm_status": {
-        "0x0": 20
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
-      ],
-      "fields": [
-        {
-          "name": "capsTblSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "capsTbl",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x801104",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_GR_GET_INFO",
-      "description": "This command returns graphics engine information for the associate GPU.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gr.h:194",
-      "params_struct": "NV0080_CTRL_GR_GET_INFO_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 20,
-      "rm_status": {
-        "0x0": 20
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: grInfoList @8",
-        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
-      ],
-      "fields": [
-        {
-          "name": "grInfoListSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "grInfoList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x801301",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_FB_GET_CAPS",
-      "description": "This command returns the set of framebuffer capabilities for the device in the form of an array of unsigned bytes.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fb.h:60",
-      "params_struct": "NV0080_CTRL_FB_GET_CAPS_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 20,
-      "rm_status": {
-        "0x0": 20
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
-      ],
-      "fields": [
-        {
-          "name": "capsTblSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "capsTbl",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x801701",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_FIFO_GET_CAPS",
-      "description": "This command returns the set of FIFO engine capabilities for the device in the form of an array of unsigned bytes.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080fifo.h:59",
-      "params_struct": "NV0080_CTRL_FIFO_GET_CAPS_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 20,
-      "rm_status": {
-        "0x0": 20
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 2 call(s), 16 of 16 bytes, masked {'not-written': 4}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt, which judged nothing either way"
-      ],
-      "fields": [
-        {
-          "name": "capsTblSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "capsTbl",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
         }
       ],
       "status": "implemented-verified",
@@ -11746,148 +11968,6 @@
     },
     {
       "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x20801802",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_BUS_GET_INFO",
-      "description": "This command returns bus engine information for the associated GPU.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h:579",
-      "params_struct": "NV2080_CTRL_BUS_GET_INFO_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "nvdec",
-        "nvenc",
-        "nvml"
-      ],
-      "calls": 10,
-      "rm_status": {
-        "0x0": 10
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: busInfoList @8",
-        "answer bytes compared against a native run: 10 call(s), 16 of 16 bytes, masked {'not-written': 20}"
-      ],
-      "fields": [
-        {
-          "name": "busInfoListSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "busInfoList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x800201",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_GPU_GET_CLASSLIST",
-      "description": "This command returns supported class information for the specified device.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080gpu.h:70",
-      "params_struct": "NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "nvdec",
-        "nvenc"
-      ],
-      "calls": 6,
-      "rm_status": {
-        "0x0": 6
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: classList @8",
-        "answer bytes compared against a native run: 6 call(s), 16 of 16 bytes, masked {'not-written': 6}"
-      ],
-      "fields": [
-        {
-          "name": "numClasses",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "classList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x801b01",
-      "kind": "ctrl",
-      "name": "NV0080_CTRL_CMD_NVENC_GET_CAPS",
-      "description": "This command returns the set of NVENC capabilities for the device in the form of an array of unsigned bytes.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl0080/ctrl0080nvenc.h:59",
-      "params_struct": "NV0080_CTRL_NVENC_GET_CAPS_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "nvdec",
-        "nvenc",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 6,
-      "rm_status": {
-        "0x0": 6
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 6 call(s), 16 of 16 bytes, masked {'not-written': 11}"
-      ],
-      "fields": [
-        {
-          "name": "capsTblSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "capsTbl",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
       "nr": "0x2b",
       "sub": "0x2",
       "kind": "alloc",
@@ -12036,99 +12116,6 @@
       ],
       "status": "implemented-verified",
       "xlate_size": 12
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x20800802",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_BIOS_GET_INFO",
-      "description": "This command returns bios information for the associated GPU.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bios.h:71",
-      "params_struct": "NV2080_CTRL_BIOS_GET_INFO_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "nvml"
-      ],
-      "calls": 1,
-      "rm_status": {
-        "0x0": 1
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "params struct name not in the finn: comment; convention (_CMD_ dropped, _PARAMS appended), typedef present and sizeof compiled",
-        "pointer field(s), offsets compiled: biosInfoList @8",
-        "answer bytes compared against a native run: 1 call(s), 16 of 16 bytes, masked {'not-written': 2}"
-      ],
-      "fields": [
-        {
-          "name": "biosInfoListSize",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "biosInfoList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0x2a",
-      "sub": "0x20800123",
-      "kind": "ctrl",
-      "name": "NV2080_CTRL_CMD_GPU_GET_ENGINES",
-      "description": "Returns a list of supported engine types along with the number of instances of each type.",
-      "header": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h:769",
-      "params_struct": "NV2080_CTRL_GPU_GET_ENGINES_PARAMS",
-      "params_size": 16,
-      "observed_params_size": [
-        "0x10"
-      ],
-      "seen_in": [
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 3,
-      "rm_status": {
-        "0x0": 3
-      },
-      "flags": [
-        "embedded-ptr",
-        "embedded-ptr(second-level)"
-      ],
-      "notes": [
-        "pointer field(s), offsets compiled: engineList @8",
-        "answer bytes compared against a native run: 3 call(s), 16 of 16 bytes, masked {'not-written': 5}"
-      ],
-      "fields": [
-        {
-          "name": "engineCount",
-          "type": "NvU32",
-          "offset": 0,
-          "size": 4
-        },
-        {
-          "name": "engineList",
-          "type": "NvP64",
-          "offset": 8,
-          "size": 8
-        }
-      ],
-      "status": "implemented-verified",
-      "xlate_size": null
     },
     {
       "device": "ctl",
