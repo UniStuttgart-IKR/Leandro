@@ -507,78 +507,6 @@ another run of this one.
 reading is 2**, and 22-C, 23, 32, 33, 35 and 44 close together on that
 evidence. That is six entries on one measurement, which is why it is worth
 doing properly rather than quickly.
-### 42. Is `capDescriptor` on 0xc640 really an fd that needs no translation?
-**Open, and deliberately left as it is.** `NV0080_CTRL_CMD_FIFO_...` class
-0xc640 carries a `capDescriptor` in its alloc parameters, which is an fd in
-the guest's numbering, and `alloc_fd_field` in
-[`crates/nvrm-abi/src/xlate.rs`](../crates/nvrm-abi/src/xlate.rs) has no
-entry for it -- so it is forwarded untranslated. Nothing has been observed
-to break, because the field is MIG-only and no measured workload allocates
-that class. Two answers are possible and only one is right: either the
-field is never a real fd on this path, or the entry is missing and a MIG
-guest would hand the host a number from its own table. Deciding it needs a
-workload that allocates the class, not more reading.
-
----
-
-**DECISION MEMO, written 2026-08-21. Nothing below decides it — but this
-entry's PREMISE has changed and that part is a measurement.**
-
-**The premise "no measured workload allocates that class" is false.** Class
-`0xc640` is `AMPERE_SMC_MONITOR_SESSION`, and `nvidia-smi -q` allocates it —
-once, natively, in the `nvml` probe. From the native trace:
-
-    nvos64  hRoot=0xc1d5363e hParent=0xc1d5363e hNew=0xa55a0010
-            hClass=0xc640 paramsSize=0x0 flags=0x0 status=0x0
-
-**And it passes no parameters at all.** `paramsSize=0x0`, so
-`NVC640_ALLOCATION_PARAMETERS { NvU64 capDescriptor }` (clc640.h:38, 8
-bytes, `xlate.rs:812`) is not supplied on this path. The tracer's before and
-after dumps of that buffer are byte-identical (`0d 00 00 00 00 00 00 00` on
-both), so RM neither read a meaningful value out of it nor wrote one into
-it — the bytes are the caller's own leftovers, which is what the
-written-ness mask exists to recognise.
-
-So the field this entry asks about is **not exercised by the one workload
-that reaches the class**, and it is exercised by nothing in a guest at all:
-the class is never allocated there (number 65). That narrows the question
-without answering it — it is still "is `capDescriptor` an fd", and there is
-still no observation of it carrying one.
-
-**Option 1 — leave it untranslated (status quo).** No entry in
-`alloc_fd_field`.
-*Cost:* nothing today, now better founded than when this entry was written:
-the only observed allocation supplies no `capDescriptor` at all.
-*Downstream:* a MIG guest that did supply one would hand the host a number
-from its own fd table. This card is Turing and has no MIG, so that guest
-cannot be built here.
-
-**Option 2 — add the `alloc_fd_field` entry now.**
-*Cost:* one table row, and a real risk in the other direction: if the field
-is not an fd on some path, translating it corrupts a valid value. The two
-event classes that ARE in that table needed an `alloc_fd_guard` for exactly
-this reason, because `NV0005_ALLOC_PARAMETERS` reuses `data` for an fd and
-for a callback pointer. There is no observation here to build a guard from.
-*Downstream:* a wrong translation of a field nothing supplies is invisible
-until the first MIG guest, which is the worst place to find it.
-
-**Option 3 — decide it by reading, not by workload.** `capDescriptor` is an
-`NvU64` and the question is whether RM's `0xc640` constructor calls
-`osUserHandleToKernelPtr` on it, the way the event path does. That is a read
-of open-gpu-kernel-modules, and it is exactly the kind of statement the
-`attested` column discussed in the design conversation is FOR — a human
-statement with a citation, which is not the same claim as `verified` and
-must not share a column with it.
-*Cost:* an hour of reading and a citation.
-*Downstream:* it answers the question permanently and without MIG hardware,
-and it is the only option that produces evidence rather than a bet.
-
-**Recommendation.** Take **3**, and keep **1** until 3 says otherwise. The
-measurement above removes the urgency (nothing supplies the field) without
-removing the question, and reading the constructor is the only route
-available on hardware that has no MIG.
-
-**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
 ### 44. A game and the compositor die at the same two addresses in NVIDIA's GL core
 **Open, and this is the first stack the chain in 32/35 has.** Shadow of
 the Tomb Raider (the native Feral port, Vulkan) crashes 15-20 s after
@@ -1899,6 +1827,147 @@ the stream reported about 64 FPS at the same time as these 590 -- not a
 contradiction but number 30's rule from the other side: 64 is what reached
 a screen, 590 is what the client swapped.
 
+### 42. Is `capDescriptor` on 0xc640 really an fd that needs no translation?
+**Resolved 2026-08-21: it IS a file descriptor, and it DOES need
+translation.** Settled by reading the driver (option 3), which is what the
+operator chose. The original reasoning is kept below. `NV0080_CTRL_CMD_FIFO_...` class
+0xc640 carries a `capDescriptor` in its alloc parameters, which is an fd in
+the guest's numbering, and `alloc_fd_field` in
+[`crates/nvrm-abi/src/xlate.rs`](../crates/nvrm-abi/src/xlate.rs) has no
+entry for it -- so it is forwarded untranslated. Nothing has been observed
+to break, because the field is MIG-only and no measured workload allocates
+that class. Two answers are possible and only one is right: either the
+field is never a real fd on this path, or the entry is missing and a MIG
+guest would hand the host a number from its own table. Deciding it needs a
+workload that allocates the class, not more reading.
+
+---
+
+**DECISION MEMO, written 2026-08-21. Nothing below decides it — but this
+entry's PREMISE has changed and that part is a measurement.**
+
+**The premise "no measured workload allocates that class" is false.** Class
+`0xc640` is `AMPERE_SMC_MONITOR_SESSION`, and `nvidia-smi -q` allocates it —
+once, natively, in the `nvml` probe. From the native trace:
+
+    nvos64  hRoot=0xc1d5363e hParent=0xc1d5363e hNew=0xa55a0010
+            hClass=0xc640 paramsSize=0x0 flags=0x0 status=0x0
+
+**And it passes no parameters at all.** `paramsSize=0x0`, so
+`NVC640_ALLOCATION_PARAMETERS { NvU64 capDescriptor }` (clc640.h:38, 8
+bytes, `xlate.rs:812`) is not supplied on this path. The tracer's before and
+after dumps of that buffer are byte-identical (`0d 00 00 00 00 00 00 00` on
+both), so RM neither read a meaningful value out of it nor wrote one into
+it — the bytes are the caller's own leftovers, which is what the
+written-ness mask exists to recognise.
+
+So the field this entry asks about is **not exercised by the one workload
+that reaches the class**, and it is exercised by nothing in a guest at all:
+the class is never allocated there (number 65). That narrows the question
+without answering it — it is still "is `capDescriptor` an fd", and there is
+still no observation of it carrying one.
+
+**Option 1 — leave it untranslated (status quo).** No entry in
+`alloc_fd_field`.
+*Cost:* nothing today, now better founded than when this entry was written:
+the only observed allocation supplies no `capDescriptor` at all.
+*Downstream:* a MIG guest that did supply one would hand the host a number
+from its own fd table. This card is Turing and has no MIG, so that guest
+cannot be built here.
+
+**Option 2 — add the `alloc_fd_field` entry now.**
+*Cost:* one table row, and a real risk in the other direction: if the field
+is not an fd on some path, translating it corrupts a valid value. The two
+event classes that ARE in that table needed an `alloc_fd_guard` for exactly
+this reason, because `NV0005_ALLOC_PARAMETERS` reuses `data` for an fd and
+for a callback pointer. There is no observation here to build a guard from.
+*Downstream:* a wrong translation of a field nothing supplies is invisible
+until the first MIG guest, which is the worst place to find it.
+
+**Option 3 — decide it by reading, not by workload.** `capDescriptor` is an
+`NvU64` and the question is whether RM's `0xc640` constructor calls
+`osUserHandleToKernelPtr` on it, the way the event path does. That is a read
+of open-gpu-kernel-modules, and it is exactly the kind of statement the
+`attested` column discussed in the design conversation is FOR — a human
+statement with a citation, which is not the same claim as `verified` and
+must not share a column with it.
+*Cost:* an hour of reading and a citation.
+*Downstream:* it answers the question permanently and without MIG hardware,
+and it is the only option that produces evidence rather than a bet.
+
+**Recommendation.** Take **3**, and keep **1** until 3 says otherwise. The
+measurement above removes the urgency (nothing supplies the field) without
+removing the question, and reading the constructor is the only route
+available on hardware that has no MIG.
+
+**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
+
+---
+
+**ANSWERED 2026-08-21 by reading open-gpu-kernel-modules at
+`DRIVER_VERSION`. The entry offered two possibilities and the first one is
+false.**
+
+*The header says it outright* (`src/common/sdk/nvidia/inc/class/clc640.h:38-46`):
+
+    // capDescriptor is a file descriptor for unix RM clients, but a void
+    // pointer for windows RM clients.
+    //
+    // capDescriptor is transparent to RM clients i.e. RM's user-mode shim
+    // populates this field on behalf of clients.
+
+*And the code does exactly that.* `migmonitorsessionConstruct_IMPL`
+(`src/nvidia/src/kernel/gpu/mig_mgr/mig_monitor_session.c:52-66`) passes
+`pUserParams->capDescriptor` to `osRmCapAcquire`, which on Linux
+(`src/nvidia/arch/nvalloc/unix/src/os.c`) begins
+
+    int fd = (int)capDescriptor;
+
+and ends in `os_nv_cap_validate_and_dup_fd(cap, fd)` →
+`nv_cap_validate_and_dup_fd` (`kernel-open/nvidia/nv-caps.c:510`), whose first
+act is **`fget(fd)`** — a lookup in the CALLING PROCESS's file descriptor
+table.
+
+**So the answer to the question as asked is: the entry is missing, and a MIG
+guest would hand the host a number from its own table.** That is settled, and
+it needed no MIG hardware to settle — only reading, which is why this was the
+right option.
+
+**WHAT SAVES IT FROM BEING A PRIVILEGE HOLE, and it is worth knowing:** the
+failure is fail-closed three times over. `fget` on an absent fd returns NULL →
+`-1` → `NV_ERR_INSUFFICIENT_PERMISSIONS`. Even a number that names a live host
+fd is rejected unless `file->f_op == &g_nv_cap_drv_fops`, i.e. it is an fd on
+**nv-cap-drv** and nothing else, and then only if its device minor matches the
+capability asked for. A stray guest number cannot borrow a host capability; it
+can only be refused. And where the capability filesystem is absent entirely,
+`osRmCapAcquire` answers `NV_ERR_NOT_SUPPORTED` and the constructor falls back
+to `rmclientIsAdmin()`, so the fd is not consulted at all.
+
+**WHY THE ROW IS STILL NOT ADDED, which is now a specific engineering reason
+and no longer "nobody has looked".** Adding `0xc640` to `alloc_fd_field`
+naively would make things worse on the hardware we have, in two ways the
+module's own code names:
+
+1. **`fd_off + 4 > c->size` → `-EINVAL`** (`virtio_nvrm.c`, the fd-field
+   step). The one observed allocation of this class passes
+   **`paramsSize=0x0`** — measured, `nvml` trace — so there is no params
+   block to read a descriptor out of, and the module would refuse an
+   allocation that works today.
+2. **An unpopulated `capDescriptor` is `0`, and `0` is not the pass-through
+   sentinel.** The module passes `n < 0` through unchanged; `n == 0` is
+   resolved as a real fd, and fd 0 is stdin. That turns a benign RM refusal
+   into `-EBADF` from our own module.
+
+So the row needs a **guard**, in the sense `alloc_fd_guard` already exists for
+the two event classes — and unlike those, this struct has no second field to
+discriminate on, so the guard has to be built from an observation of a
+POPULATED `capDescriptor`. That needs a MIG-capable card; this one is Turing.
+
+**Owed, and blocked on hardware rather than on understanding:** a guarded
+`alloc_fd_field` entry for `0xc640`, validated against a real
+`AMPERE_SMC_MONITOR_SESSION` allocation. Until then the field is unexercised
+(number 65: the class is never allocated in a guest at all) and the failure
+mode if it ever were is a refusal, not a leak.
 ### 43. Which FD does the driver require the mapping ioctl on?
 **Resolved 2026-08-21.** The code works, the prose that disagreed with it was
 wrong, and the measurement this entry named as the thing that would settle it
