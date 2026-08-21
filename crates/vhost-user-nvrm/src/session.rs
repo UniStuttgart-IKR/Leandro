@@ -2498,7 +2498,9 @@ impl Session {
             if profile.policy == crate::vram::Policy::Grid
                 && u32::from_le_bytes(self.scratch[28..32].try_into().unwrap()) == sys::NV_OK
             {
-                if cmd == crate::grid::CMD_GPU_GET_VIRTUALIZATION_MODE {
+                if cmd == crate::grid::CMD_GPU_GET_VIRTUALIZATION_MODE
+                    && crate::grid::mediate_mode()
+                {
                     let mode = crate::grid::rewrite_virtualization_mode(&mut self.aux);
                     if debug_level() >= 1 {
                         eprintln!(
@@ -2506,15 +2508,37 @@ impl Session {
                             profile.vgpu_type
                         );
                     }
-                } else if cmd == crate::grid::CMD_GPU_GET_GID_INFO {
+                } else if cmd == crate::grid::CMD_GPU_GET_GID_INFO
+                    && crate::grid::mediate_uuid()
+                {
                     let uuid = crate::grid::rewrite_gid_info(
                         &mut self.aux,
                         crate::grid::identity(),
                     );
                     if debug_level() >= 1 {
-                        eprintln!("vhost-user-nvrm: uuid -> {uuid:?}");
+                        // The FLAGS matter more than the answer: this
+                        // rewrite ignores them, and whether that is why
+                        // libcuda stops (number 69) is exactly what they
+                        // would say.
+                        let f = u32::from_le_bytes(
+                            self.aux[nvrm_abi::mediate::GID_FLAGS_OFF
+                                ..nvrm_abi::mediate::GID_FLAGS_OFF + 4]
+                                .try_into()
+                                .unwrap(),
+                        );
+                        let n = u32::from_le_bytes(
+                            self.aux[nvrm_abi::mediate::GID_LENGTH_OFF
+                                ..nvrm_abi::mediate::GID_LENGTH_OFF + 4]
+                                .try_into()
+                                .unwrap(),
+                        );
+                        eprintln!(
+                            "vhost-user-nvrm: uuid -> {uuid:?} (flags {f:#x}, length now {n})"
+                        );
                     }
-                } else if cmd == crate::grid::CMD_GPU_GET_ENCODER_CAPACITY {
+                } else if cmd == crate::grid::CMD_GPU_GET_ENCODER_CAPACITY
+                    && crate::grid::mediate_enc()
+                {
                     let pct = crate::grid::rewrite_encoder_capacity(
                         &mut self.aux,
                         profile.encoder_capacity,

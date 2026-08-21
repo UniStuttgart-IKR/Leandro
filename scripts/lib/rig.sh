@@ -653,6 +653,7 @@ lea_backend_start() {
               LEA_VGPU_PROFILE_MIB="$vprof" \
               LEA_VGPU_FB_MIB="$vfb" \
               LEA_VGPU_ENCODER_CAP="$venc" \
+              LEA_VGPU_MEDIATE="${LEA_VGPU_MEDIATE:-}" \
               LEA_MAX_PIN_MIB="${LEA_MAX_PIN_MIB:-}" \
               LEA_OBJLOG="${LEA_OBJLOG:-}" \
               LEA_FD_CENSUS="${LEA_FD_CENSUS:-}" \

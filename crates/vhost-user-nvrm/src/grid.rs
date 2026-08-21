@@ -105,6 +105,106 @@ pub fn rewrite_encoder_capacity(aux: &mut [u8], percent: u32) -> Option<u32> {
 // A vGPU guest does not have this problem: its UUID is the mdev device's,
 // not the board's, and two vGPUs on one card differ.
 
+/// WHICH of these answers this backend gives, `LEA_VGPU_MEDIATE`.
+///
+/// A comma list of `mode`, `uuid` and `enc`; the default is
+/// `uuid,enc` and NOT `mode`, and that default is a measurement rather
+/// than a preference -- see [`mediate_mode`].
+///
+/// Read once: these are checked per answered control, and `std::env::var`
+/// takes a lock and scans `environ`.
+fn switches() -> &'static (bool, bool, bool) {
+    static SW: std::sync::OnceLock<(bool, bool, bool)> = std::sync::OnceLock::new();
+    SW.get_or_init(|| {
+        let raw = std::env::var("LEA_VGPU_MEDIATE").unwrap_or_default();
+        let raw = raw.trim();
+        if raw.is_empty() {
+            // MEASURED, not chosen: of the three, only the encoder share
+            // leaves CUDA working. See `mediate_mode` and `mediate_uuid`.
+            return (false, false, true);
+        }
+        if raw.eq_ignore_ascii_case("none") {
+            return (false, false, false);
+        }
+        let has = |w: &str| raw.split(',').any(|p| p.trim().eq_ignore_ascii_case(w));
+        let all = has("all");
+        (all || has("mode"), all || has("uuid"), all || has("enc"))
+    })
+}
+
+/// Is the VIRTUALIZATION MODE answer on? **Off by default, and this is the
+/// most expensive thing measured on this branch.**
+///
+/// Measured 2026-08-21, four guests under `RTX2070-2Q` with the mode
+/// answered as `VGX` and `isGridBuild` set: `nvidia-smi` was entirely
+/// happy -- it printed `Leandro RTX2070-2Q`, 1280 MiB, `Virtualization
+/// Mode: VGPU` -- and **libcuda would not start at all**:
+///
+///     vrampress: cuInit 100
+///
+/// which is `CUDA_ERROR_NO_DEVICE`. Every guest, every row of the
+/// benchmark that had it on. The card is visible, named, sized, and has no
+/// CUDA device on it.
+///
+/// The reading, and it is the lesson of this whole branch: a vGPU guest's
+/// userspace reaches the GPU through a path that exists BECAUSE the guest
+/// driver is a vGPU guest driver -- an RPC channel to a plugin in the
+/// host. Telling an ordinary driver's userspace that it is on a vGPU makes
+/// it look for that path, and there is none here. **Saying it is a vGPU
+/// and being one are different things, and libcuda knows the difference
+/// even though nvidia-smi does not.**
+///
+/// So it is opt-in, for a rig that wants to see it, and off wherever CUDA
+/// matters.
+pub fn mediate_mode() -> bool {
+    switches().0
+}
+
+/// Is the per-VM UUID answer on? **Off by default, because it breaks CUDA
+/// -- differently from the mode answer, and less obviously.**
+///
+/// Measured 2026-08-21, one guest under `RTX2070-2Q`, this answer alone:
+/// `nvidia-smi` printed the new UUID (`GPU-68f65e19-4ec5-46d4-8b4f-...`,
+/// derived from the VM's name, and DIFFERENT per VM as intended), and
+///
+///     vrampress: cuInit 3
+///
+/// which is `CUDA_ERROR_NOT_INITIALIZED` -- not "no device" but "this
+/// device did not come up". So libcuda does more with the UUID than print
+/// it, and something it cross-checks no longer agrees.
+///
+/// TWO CANDIDATES WERE EXCLUDED before this was left open, both measured
+/// on the same guest:
+///
+///   * **The flags are not the problem.** libcuda asks exactly twice and
+///     both times with `flags = 0x2` = `FORMAT_BINARY`, and this rewrite
+///     answers 16 bytes with `length` set to 16 -- the shape RM itself
+///     returns for a binary SHA-1 GID. Nothing is truncated and no
+///     SHA-256 or uGPU form is asked for.
+///   * **Nothing else in the guest disagrees.**
+///     `/proc/driver/nvidia/gpus/` is EMPTY there -- `nvrm_nodes` runs
+///     with `create_nodes=0` and `virtio_nvrm` touches no `/proc` at all
+///     (number 2) -- so there is no second copy to contradict. And NVML is
+///     content: `nvidia-smi -L` prints
+///     `GPU 0: Leandro RTX2070-2Q (UUID: GPU-68f65e19-...)`.
+///
+/// So the objection is inside libcuda, and finding it means tracing
+/// libcuda rather than reasoning about it. That is the next step and it is
+/// not this branch's.
+///
+/// The leak it was written for is real and is recorded (four guests, one
+/// UUID, all the card's). This is not a reason to keep the leak; it is a
+/// reason not to ship the fix before it is understood.
+pub fn mediate_uuid() -> bool {
+    switches().1
+}
+
+/// Is the encoder-capacity answer on? On by default: it is a number a
+/// client reads and nothing acts on inside the guest.
+pub fn mediate_enc() -> bool {
+    switches().2
+}
+
 /// The name of the VM this process serves, for the UUID below.
 ///
 /// Set once at startup from the SOCKET PATH -- `vm/<name>/nvrm.sock` --
