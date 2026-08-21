@@ -482,6 +482,47 @@ no_markers() {
 # which is how a workaround gets deleted by the next person. They were
 # resolved by writing the EVIDENCE into the comment instead of a location.
 # The patterns are split so this file does not match itself.
+# The nix derivation fetches a SPARSE checkout, and bindgen is handed a list
+# of include directories. Those are the same list in two files, and nothing
+# made them agree until 2026-08-21, when they drifted: the NVKMS work
+# (OPEN-QUESTIONS 48) added kernel-open/nvidia-modeset to
+# crates/nvrm-sys/build.rs and to wrapper.h and not to
+# nix/packages/nvidia-headers.nix. Every local build stayed green -- a
+# checkout has the whole vendor tree and only the derivation is sparse -- and
+# `nix build` died on `'nvkms-ioctl.h' file not found`, which names the
+# symptom and not the cause.
+#
+# Comments are stripped before the lists are read: both files legitimately
+# mention these paths in prose, and a reader that matched prose would pass
+# for the wrong reason.
+nix_sparse_dirs() {
+    local nixf=nix/packages/nvidia-headers.nix rsf=crates/nvrm-sys/build.rs
+    [[ -f $nixf && -f $rsf ]] || { echo "missing $nixf or $rsf"; return 1; }
+    local want have
+    want=$(sed -n '/const INCLUDE_DIRS/,/^];/p' "$rsf" \
+           | sed 's://.*::' | grep -oE '"[^"]+"' | tr -d '"' | sort -u)
+    have=$(sed -n '/sparseCheckout = \[/,/\];/p' "$nixf" \
+           | sed 's:#.*::' | grep -oE '"[^"]+"' | tr -d '"' | sort -u)
+    [[ -n $want && -n $have ]] || { echo "could not read one of the two lists"; return 1; }
+    local missing extra
+    missing=$(comm -23 <(echo "$want") <(echo "$have"))
+    extra=$(comm -13 <(echo "$want") <(echo "$have"))
+    [[ -z $missing && -z $extra ]] && return 0
+    echo "$rsf and $nixf disagree about the NVIDIA include directories."
+    [[ -n $missing ]] && { echo "  bindgen reads these and the derivation does NOT fetch them:";
+                           echo "$missing" | sed 's/^/    /'
+                           echo "    -> nix build fails with a 'file not found' on a header."; }
+    [[ -n $extra ]] && { echo "  the derivation fetches these and bindgen does not read them:";
+                         echo "$extra" | sed 's/^/    /'
+                         echo "    -> harmless, but the lists should say the same thing."; }
+    echo
+    echo "Adding a path to sparseCheckout CHANGES THE HASH, and a fixed-output"
+    echo "derivation's store path comes from the hash -- so nix hands back the"
+    echo "old tree instead of rebuilding. Force it with a deliberately wrong"
+    echo "hash and read the 'got:' line."
+    return 1
+}
+
 dangling_refs() {
     local J='JOURNA''L' P='prompt''s/' hits
     hits=$(git ls-files | grep -vE "^(vendor/|patches/|crates/vhost-user-nvrm/fuzz/corpus/|${P}|docs/${J}\.md$)" \
@@ -540,6 +581,7 @@ do_check() {
     step "kapi-abi"             kapi_abi
     step "bash -n"              shell_syntax
     step "licence"              licence_headers
+    step "nix-sparse"           nix_sparse_dirs
     step "dangling-refs"        dangling_refs
     step "no-markers"           no_markers
     echo

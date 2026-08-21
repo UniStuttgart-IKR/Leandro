@@ -461,7 +461,16 @@ lea_matrix_host_payload() {
             | sed 's/\.so\..*$//' | sort -u
         return 0
     fi
-    ls -1 "$dir" 2>/dev/null | grep -F ".so.$want" | sed 's/\.so\..*$//' | sort -u
+    # A glob and not `ls | grep`: a file name is not a line, and ls mangles
+    # the ones that contain a newline or a backslash. The `-e` guard is what
+    # makes an unmatched glob produce nothing instead of its own pattern --
+    # `nullglob` is deliberately not set here, because setting a shell option
+    # in a sourced library changes every caller's globbing too.
+    local f
+    for f in "$dir"/*".so.$want"*; do
+        [[ -e $f ]] || continue
+        printf '%s\n' "${f##*/}"
+    done | sed 's/\.so\..*$//' | sort -u
 }
 
 # lea_matrix_host_payload_source BITS -- which of the three answered.

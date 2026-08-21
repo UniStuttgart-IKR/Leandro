@@ -60,11 +60,16 @@ else
     [[ -t 1 ]] && _LEA_COLOUR=1 || _LEA_COLOUR=0
     [[ -t 2 ]] && _LEA_COLOUR_ERR=1 || _LEA_COLOUR_ERR=0
 fi
+# LEA_DIM is read by scripts/showcase.sh, which SOURCES this file -- a
+# direction `shellcheck -x` cannot follow, so it sees an assignment with no
+# reader and says so. LEA_CYA had no reader anywhere and is gone rather than
+# silenced: a colour nothing paints with is dead code, not a false positive.
+# shellcheck disable=SC2034  # LEA_DIM: used by showcase.sh, which sources this
 if [[ $_LEA_COLOUR -eq 1 || $_LEA_COLOUR_ERR -eq 1 ]]; then
     LEA_B=$'\e[1m'; LEA_DIM=$'\e[2m'; LEA_GRN=$'\e[32m'; LEA_RED=$'\e[31m'
-    LEA_YEL=$'\e[33m'; LEA_CYA=$'\e[36m'; LEA_R=$'\e[0m'
+    LEA_YEL=$'\e[33m'; LEA_R=$'\e[0m'
 else
-    LEA_B=""; LEA_DIM=""; LEA_GRN=""; LEA_RED=""; LEA_YEL=""; LEA_CYA=""; LEA_R=""
+    LEA_B=""; LEA_DIM=""; LEA_GRN=""; LEA_RED=""; LEA_YEL=""; LEA_R=""
 fi
 # The prefix carries the colour, never the message: a reader greps for
 # "WARNING:" and a terminal shows it in yellow, and both get what they came
