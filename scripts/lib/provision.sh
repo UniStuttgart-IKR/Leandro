@@ -1809,6 +1809,24 @@ Session='"$( [[ $wayland -eq 1 ]] && echo ubuntu-wayland || echo ubuntu-xorg )"'
 XSession='"$( [[ $wayland -eq 1 ]] && echo ubuntu-wayland || echo ubuntu-xorg )"'
 SystemAccount=false
 EOC
+        # And make the DAEMON re-read it, or the write above is undone.
+        #
+        # accounts-daemon keeps its own copy of this file in memory and
+        # writes that copy back when the user logs in. So a file written
+        # underneath a RUNNING daemon survives exactly until gdm restarts,
+        # which is the next thing this function does.
+        #
+        # Measured 2026-08-21 on the FIRST up of a new desktop instance
+        # (--name desktop2 --index 7 --wayland): custom.conf said
+        # WaylandEnable=true, this file said ubuntu-wayland, and the session
+        # still came up Type=x11 with the file rewritten to ubuntu-xorg --
+        # carrying the Icon= and [InputSource0] stanzas that only the daemon
+        # writes, which is how the overwriter was identified. Restarting the
+        # daemon here made the same flag take on the next try.
+        #
+        # The comment above already knew this setting outlives custom.conf.
+        # What it missed is that the DAEMON outlives the FILE.
+        sudo systemctl restart accounts-daemon 2>/dev/null || true
         # gdm3 inside the mediated PCI identity namespace: nvidia_drv.so
         # probes libpciaccess for a 10de device; our DRM node hangs off a
         # virtio device, so without this it reports "No devices detected".
