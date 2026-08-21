@@ -488,8 +488,10 @@ It rendered: **2100 MiB of device memory, 37 % GPU utilisation, 49 threads**,
 windows on the compositor's Xwayland, and `steamwebhelper` holding
 `/dev/nvidia0` beside it — so the Vulkan application and the OpenGL overlay
 were both live in one process tree, which is the configuration number 44
-describes. It ran for **minutes**, sampled every 20 seconds, where number 44
-records the crash arriving **15–20 seconds after launch**.
+describes. It ran for **about ten minutes** — `ps` read its elapsed time at 3:51 and a
+watcher sampled every 20 seconds for 360 s after that — where number 44 records
+the crash arriving **15–20 seconds after launch**. So it survived roughly
+**30× the interval in which it previously died**.
 
 Every detector stayed at zero throughout: `segfault at 8`, `Failed to acquire
 the EGL Image`, `GL_OUT_OF_MEMORY`, `ATTACH_GPUS_TO_FD` answering `-1`,
