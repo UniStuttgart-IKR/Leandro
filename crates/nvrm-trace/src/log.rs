@@ -732,6 +732,7 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 // name and never sees it.
                 rec("ctrlout", phase_of(tag), &[
                     pos("cmd", V::H32(cmd)),
+                    key("hclient", V::H32(p.hClient)),
                     key("hobject", V::H32(p.hObject)),
                     key("len", V::I(plen as i64)),
                     key("status", V::H32(p.status as u32)),

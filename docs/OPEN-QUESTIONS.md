@@ -1256,13 +1256,33 @@ graphics object having been allocated on the device, which `nvdec` does and
 this probe does not. The boundary carries the command faithfully, including
 its refusal to answer.
 
-So what is open is not "the guest lost an answer". It is **why `nvdec`'s
-guest run reaches its first `GR_GET_CAPS_V2` in a different state than its
-native run does**, when the object hierarchy at that point is identical and
-the second call agrees byte for byte. An ordering or lazy-initialisation
-difference is the shape to look for, and it is a question about sequence
-rather than about bytes -- which means the next instrument is not another
-mask but a comparison of what each side had allocated by that point.
+So what is open is not "the guest lost an answer". It is narrower, and two
+further measurements narrow it again.
+
+**The two calls come from two different CLIENTS.** With `hclient` and
+`hobject` on the trace record:
+
+| | client of call 0 | client of call 1 | hObject |
+|---|---|---|---|
+| native | `0xc1d5034e` — answered | `0xc1d5034f` — answered | `0x80000000` both |
+| guest | `0xc1d504c9` — **not** answered | `0xc1d504cb` — answered | `0x80000000` both |
+
+So it is per-client, not per-call-order in any deeper sense, and both sides
+target the same device-instance handle.
+
+**And the object state at each call is IDENTICAL on the two sides.** Walking
+the traces in order, both sides have allocated exactly 120 objects of exactly
+the same classes in the same order before their first `GR_GET_CAPS_V2`, and
+exactly the same seven more (`0x41 0x80 0x2080 0x70 0xc361 0x3e 0x40` — a
+second client and its device) before the second. Whatever makes RM answer,
+the two sides had the same hierarchy in hand when they asked.
+
+That leaves: **the guest's FIRST client does not get the caps answer where
+the native first client does, with the same objects allocated and the same
+target handle.** It is a per-client state difference that the object graph
+does not capture. The next thing to look at is what else distinguishes a
+client -- the guest allocates one extra client between the two (the handles
+differ by 2 rather than by 1) -- and not another mask over bytes.
 
 **`0x2080a079`** (`ctl nr=0x2a sub=0x2080a079`), in `nvml`, no public header,
 one call, written natively and not in the guest at offset 8, `0x3` against
