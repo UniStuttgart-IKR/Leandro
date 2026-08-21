@@ -84,6 +84,14 @@
 #define CMD_GPU_DETACH_IDS      0x216
 #define CMD_TIMER_GET_TIME      0x20800403
 #define CMD_SYSTEM_GET_CAPS_V2  0x730101
+/* NV0080_CTRL_CMD_GR_GET_CAPS_V2. Not one of number 52's commands -- it is
+ * here because number 61 is about it: in a guest, `nvdec`'s FIRST call of it
+ * returns NV_OK and writes nothing while its second writes the same table
+ * the native run produces. This probe calls it twice from a program with no
+ * driver userspace in it, which is what tells a boundary behaviour apart
+ * from something a library does. (ctrl0080gr.h; capsTbl is INLINE in V2 --
+ * that is what V2 means -- with bCapsPopulated after it.) */
+#define CMD_GR_GET_CAPS_V2      0x801109
 
 #define MAX_GPUS   32
 #define INVALID_ID 0xffffffffu
@@ -120,12 +128,20 @@ struct dev_params {                 /* NV0080_ALLOC_PARAMETERS, 56 bytes */
     uint32_t vaMode, pad2;
 };
 
+/* NV0080_CTRL_GR_GET_CAPS_V2_PARAMS { NvU8 capsTbl[23]; NvBool
+ * bCapsPopulated; ... } -- the traces show paramsSize 48 on every call, so
+ * 48 is what a caller passes and 48 is what this passes. */
+#define GR_CAPS_V2_LEN 48
+
 struct probed_ids { uint32_t gpuIds[MAX_GPUS], excluded[MAX_GPUS], flags[MAX_GPUS]; };
 struct attach_ids { uint32_t gpuIds[MAX_GPUS], failedId; };
 struct detach_ids { uint32_t gpuIds[MAX_GPUS]; };
 
 static int fd = -1;
 static int failures;
+/* Calls that returned NV_OK and wrote nothing. Counted apart from
+ * `failures`: nothing failed, which is the whole point of number 61. */
+static int unanswered;
 
 /* One control. Reports and counts rather than exiting: a probe that stops at
  * the first refusal measures one command, and the point is to measure five. */
@@ -260,6 +276,26 @@ int main(void)
             printf("  gpu time: %llu ns\n", (unsigned long long)t);
         }
 
+        /* 3b. NUMBER 61's REPRODUCER. Twice, on the device, with a buffer
+         *     filled with a pattern RM cannot plausibly write, so that
+         *     "did RM answer" is a question this program can answer for
+         *     itself rather than one for the trace. */
+        for (int k = 0; k < 2; k++) {
+            unsigned char caps[GR_CAPS_V2_LEN];
+            memset(caps, 0xa5, sizeof caps);
+            if (ctrl(hc, H_DEVICE, CMD_GR_GET_CAPS_V2,
+                     caps, (uint32_t)sizeof caps, "GR_GET_CAPS_V2") == 0) {
+                int touched = 0;
+                for (size_t j = 0; j < sizeof caps; j++)
+                    if (caps[j] != 0xa5) { touched = 1; break; }
+                printf("  GR_GET_CAPS_V2 call %d: RM %s the buffer (first bytes %02x %02x %02x)\n",
+                       k, touched ? "WROTE" : "did NOT write",
+                       caps[0], caps[1], caps[2]);
+                if (!touched)
+                    unanswered++;
+            }
+        }
+
         /* 4. The display object. It takes no allocation parameters. */
         if (alloc(hc, H_DEVICE, H_DISPLAY, NV04_DISPLAY_COMMON, NULL, "display") == 0) {
             uint8_t caps[2] = { 0, 0 };
@@ -285,5 +321,6 @@ int main(void)
     close(fd);
 
     printf("COMMANDS_FAILED=%d\n", failures);
+    printf("COMMANDS_UNANSWERED=%d\n", unanswered);
     return failures ? 1 : 0;
 }

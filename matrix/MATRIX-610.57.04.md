@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-20T23:47:36Z
-commit:  f5a92e6 (working tree modified)
+date:    2026-08-21T00:02:13Z
+commit:  047aea1 (working tree modified)
 ```
 
 Probes against status. This is the compatibility statement: a probe
@@ -46,7 +46,7 @@ Guest evidence: `matrix/guest-610.57.04.json`, 10 FAIL, 2 blocked, 9 guest-valid
 | `nvofa` | video | declared-unsupported: workload not procurable in this environment | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
 | `opencl` | compute | predicted-green | **guest-validated** | 620 | 107 | 0 | 64 | 43 | 0 | libcuda<br>libnvidia-nvvm<br>libnvidia-opencl |
 | `pkcs11` | compat | declared-unsupported: no workload exists | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `rm-direct` | direct | predicted-green | **guest-validated** | 10 | 10 | 0 | 7 | 3 | 0 | &mdash; |
+| `rm-direct` | direct | predicted-green | **guest-validated** | 12 | 11 | 0 | 8 | 3 | 0 | &mdash; |
 | `vk-enum` | vulkan | predicted-green | FAIL * | 961 | 123 | 0 | 73 | 35 | 405 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
 | `vk-offscreen` | vulkan | predicted-green | FAIL * | 5568 | 117 | 0 | 73 | 37 | 2 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-tls |
 | `vk-rt` | vulkan | predicted-green | FAIL * | 1289 | 155 | 0 | 102 | 46 | 2 | libGLX_nvidia<br>libcuda<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |

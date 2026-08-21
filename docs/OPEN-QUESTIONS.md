@@ -1219,48 +1219,61 @@ Score such a day by class-coverage delta, not by probes added. That is the
 number that makes "did we find non-carryable ioctls" answerable instead of
 hopeful.
 
-### 61. Two controls answer `NV_OK` in a guest and write nothing
-**Open, measured 2026-08-21.** The whole of the potential-defect class in
-`matrix/verified-<driver>.json` after the fifth mask, and a class no gate
-before this one could see: **both sides return `NV_OK`**, so the status
-fingerprint matches perfectly, the probe passes its criterion, and the guest
-receives no answer.
+### 61. Two controls are answered on one side of the boundary and not the other
+**Open, measured 2026-08-21, and narrower than it first read.** The whole of
+the potential-defect class in `matrix/verified-<driver>.json` after the fifth
+mask, and a class no gate before this one could see: **both sides return
+`NV_OK`**, so the status fingerprint matches perfectly, the probe passes its
+criterion, and the answer bytes differ anyway.
 
 The instrument is the before-call sample. A word whose after sample equals
 its before sample was not written on that call; where RM wrote one natively
-and the guest did not, the guest was told the call succeeded and answered
-nothing. That is a sharper statement than "the bytes differ" and it has its
-own class, `answer_not_written`.
+and the guest did not, the two sides reached that call in different states.
 
 **`NV0080_CTRL_CMD_GR_GET_CAPS_V2`** (`ctl nr=0x2a sub=0x801109`), in
-`nvdec`, `paramsSize 48`. Natively the buffer goes from the caller's garbage
-to a capability table (`b0 62 00 00 ... 04 a0 0f`, then `bCapsPopulated = 1`
+`nvdec`, `paramsSize 48`, the same target object (`hObject 0x80000000`) and
+the same hierarchy on both sides. Natively the buffer goes from the caller's
+garbage to a capability table (`b0 62 00 00 ... 04 a0 0f`, `bCapsPopulated`
 at offset 40) on **both** of the two calls. In the guest the **first** call
 leaves all 48 bytes exactly as the caller had them and the **second** writes
-the capability table **byte-identical to the native one**. So it is not "the
-guest cannot answer this": it is answered correctly one call later.
+the capability table **byte-identical to the native one**. Reproduced on
+three consecutive guest runs.
 
-That is the interesting shape and the reason the finding reports counts
-rather than a verdict. A first call that is not answered and a second that is
-suggests state that is not ready yet at the boundary rather than a missing
-translation. `V2` carries `capsTbl` INLINE -- that is what V2 means -- so
-unlike `GR_GET_CAPS` (`0x801102`) it needs no `nested_ptrs` entry and should
-forward verbatim on a self-describing `paramsSize`.
+**THE FIRST READING OF THIS WAS WRONG AND THE CORRECTION IS THE USEFUL
+PART.** It read as "the guest was told the call succeeded and got no answer",
+which is a boundary defect. `probe/c/rmdirect.c` calls the command twice from
+a program with no driver userspace in it at all, with the buffer prefilled
+with `0xa5` so the program can answer "did RM write" for itself:
 
-Two honest edges. Call i of one side is call i of the other only because both
-runs made the same number of calls, which is all that has been checked --
-`nvenc` calls it once and **neither** side answers there, so RM itself
-returns `NV_OK` without populating in some contexts. And what a caps table
-that never arrives costs is unmeasured: `nvdec` is `guest-validated` and
-decoded video.
+| | call 0 | call 1 |
+|---|---|---|
+| native | did NOT write | did NOT write |
+| guest | did NOT write | did NOT write |
 
-**`0x2080a079`** (`ctl nr=0x2a sub=0x2080a079`), in `nvml`, no public header.
-One call, written natively, not written in the guest, offset 8, `0x3` against
-the caller's `0x0`. One call is thin evidence and it is stated as one call.
+**Identical.** RM itself returns `NV_OK` without populating `capsTbl`, and
+whether it populates depends on the caller's state -- plausibly on a
+graphics object having been allocated on the device, which `nvdec` does and
+this probe does not. The boundary carries the command faithfully, including
+its refusal to answer.
 
-The next step for both is the same and is not a sweep: find where the
-write-back is decided for a control whose params are inline, and whether the
-first call differs from the second in what the backend has set up by then.
+So what is open is not "the guest lost an answer". It is **why `nvdec`'s
+guest run reaches its first `GR_GET_CAPS_V2` in a different state than its
+native run does**, when the object hierarchy at that point is identical and
+the second call agrees byte for byte. An ordering or lazy-initialisation
+difference is the shape to look for, and it is a question about sequence
+rather than about bytes -- which means the next instrument is not another
+mask but a comparison of what each side had allocated by that point.
+
+**`0x2080a079`** (`ctl nr=0x2a sub=0x2080a079`), in `nvml`, no public header,
+one call, written natively and not in the guest at offset 8, `0x3` against
+`0x0`. One call is thin evidence and it is stated as one call; the same
+caveat applies to it as to the above, and more so, because nothing has
+reproduced it from a minimal program.
+
+WHAT THE CLASS MEANS NOW, in the evidence file's own words: a difference the
+status fingerprint cannot see, and a statement that the two sides reached the
+call in different states. Not by itself a defect. That is weaker than the
+class first claimed and it is what the measurement supports.
 
 ### 62. An escape the guest module rewrites is not in the descriptor table
 **Open, measured 2026-08-21.** `NV_ESC_CARD_INFO` carries the BDF and the

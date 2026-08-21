@@ -724,8 +724,15 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             if !pp.is_null() && plen > 0 {
                 let n = plen.min(dump_cap());
                 let bytes = core::slice::from_raw_parts(pp, n);
+                // `hobject` is the object the control was issued ON, which
+                // is what tells two calls of one command apart when they
+                // differ: a device control and a subdevice control of the
+                // same number are different questions. Diagnostic -- the
+                // comparison reads `cmd`, `len`, `status` and `dump` by
+                // name and never sees it.
                 rec("ctrlout", phase_of(tag), &[
                     pos("cmd", V::H32(cmd)),
+                    key("hobject", V::H32(p.hObject)),
                     key("len", V::I(plen as i64)),
                     key("status", V::H32(p.status as u32)),
                     pos("dump", V::Dump(bytes)),

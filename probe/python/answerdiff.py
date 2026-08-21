@@ -608,10 +608,13 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
                     return "unwritten", (
                         f"call {i}, {name_at(fm, off)}: RM wrote {nw:#010x} "
                         f"natively and the guest left the caller's own "
-                        f"{gw:#010x} in place -- the call returned NV_OK and "
-                        f"answered nothing. Over the {tot} paired call(s) of "
-                        f"this probe, this word was written natively on {nn} "
-                        f"and in the guest on {gg}"), {}
+                        f"{gw:#010x} in place, with NV_OK on both sides. Over "
+                        f"the {tot} paired call(s) of this probe, this word "
+                        f"was written natively on {nn} and in the guest on "
+                        f"{gg}. NOT by itself a defect -- RM declines to "
+                        f"populate some answers depending on the caller's "
+                        f"state -- but the two sides reached this call in "
+                        f"different states"), {}
                 extra = (" -- this command IS mediated, and this byte is in "
                          "none of the fields the mediation declares"
                          if med else "")
@@ -992,10 +995,17 @@ def main():
                         "wrote. A potential defect",
             "answer-not-written": "RM wrote this word natively and the guest "
                                   "left the caller's own value in place, with "
-                                  "NV_OK on both sides. A potential defect, "
-                                  "and a sharper one than a mismatch: no "
-                                  "status fingerprint can see it, because "
-                                  "nothing failed",
+                                  "NV_OK on both sides. A DIFFERENCE, and no "
+                                  "status fingerprint can see it because "
+                                  "nothing failed -- but not by itself a "
+                                  "defect: measured 2026-08-21, RM declines "
+                                  "to populate some answers depending on the "
+                                  "caller's state, and does so identically on "
+                                  "both sides when asked identically. What "
+                                  "this class says is that the two sides "
+                                  "reached the call in different states; "
+                                  "whether the boundary caused that is a "
+                                  "separate question and needs a reproducer",
             "unstable": "the bytes differ, at a word that moves between two "
                         "calls of one native run, or between two native "
                         "runs of the same probe -- evidence for nothing, in "
@@ -1060,8 +1070,11 @@ def main():
               f"{x['reason'][:90]}")
     print(f"control: {len(control_seen)} signature(s) had a second native run "
           f"to compare against; the rest rest on the within-trace variant only")
-    print(f"not verified splits four ways: {len(mismatch)} MISMATCH and "
-          f"{len(unwritten)} ANSWER-NOT-WRITTEN (the potential defects), "
+    print(f"not verified splits four ways: {len(mismatch)} MISMATCH (the "
+          f"potential defects), {len(unwritten)} ANSWER-NOT-WRITTEN (a "
+          f"difference no status fingerprint can see, and not by itself a "
+          f"defect -- RM declines to populate some answers depending on the "
+          f"caller's state), "
           f"{len(unstable)} unstable (differ at a word that moves within one "
           f"native run), {len(stability_unknown)} of unknown stability (no "
           f"native trace called them twice)")
