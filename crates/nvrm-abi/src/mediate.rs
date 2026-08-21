@@ -282,6 +282,43 @@ pub const CMD_FB_GET_INFO_V2: u32 = 0x2080_1303;
 /// index list, but the array hangs off an `NvP64` instead of sitting in the
 /// params buffer (`xlate::nested_ptrs`, ptr_off 8).
 pub const CMD_FB_GET_INFO: u32 = 0x2080_1301;
+/// `NV0080_CTRL_CMD_GPU_GET_VIRTUALIZATION_MODE` (ctrl0080gpu.h:300).
+///
+/// The question every client asks about the card it just opened. Measured
+/// (matrix/catalog-610.57.04.json): **34 calls from 20 library classes** --
+/// every CUDA probe, all four EGL platforms, GL, GLES, NVDEC, NVENC, NVML,
+/// OpenCL and all three Vulkan probes -- and today the guest is handed the
+/// HOST's answer, `NONE`, unchanged.
+pub const CMD_GPU_GET_VIRTUALIZATION_MODE: u32 = 0x0080_0289;
+/// `NV2080_CTRL_CMD_GPU_GET_ENCODER_CAPACITY` (ctrl2080gpu.h:2322). 22
+/// calls, from `nvenc` alone.
+pub const CMD_GPU_GET_ENCODER_CAPACITY: u32 = 0x2080_016c;
+
+/// `NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS`: `virtualizationMode`
+/// @0, `isGridBuild` @4 -- a `NvBool`, which is one byte.
+pub const VIRTMODE_OFF: usize =
+    offset_of!(sys::NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS, virtualizationMode);
+pub const VIRTMODE_GRIDBUILD_OFF: usize =
+    offset_of!(sys::NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS, isGridBuild);
+pub const VIRTMODE_LEN: usize =
+    size_of::<sys::NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS>();
+
+/// `NV0080_CTRL_GPU_VIRTUALIZATION_MODE_*` (ctrl0080gpu.h:302-307). `VGX`
+/// is what a vGPU GUEST reports; `HOST` is what the machine running the
+/// plugin reports.
+pub const VIRTUALIZATION_MODE_NONE: u32 = 0;
+pub const VIRTUALIZATION_MODE_VGX: u32 = 2;
+
+/// `NV2080_CTRL_GPU_GET_ENCODER_CAPACITY_PARAMS`: `queryType` @0 is the
+/// question (H264 / HEVC / AV1) and is carried unchanged; `encoderCapacity`
+/// @4 is the answer, a percentage.
+pub const ENCCAP_QUERY_OFF: usize =
+    offset_of!(sys::NV2080_CTRL_GPU_GET_ENCODER_CAPACITY_PARAMS, queryType);
+pub const ENCCAP_OFF: usize =
+    offset_of!(sys::NV2080_CTRL_GPU_GET_ENCODER_CAPACITY_PARAMS, encoderCapacity);
+pub const ENCCAP_LEN: usize =
+    size_of::<sys::NV2080_CTRL_GPU_GET_ENCODER_CAPACITY_PARAMS>();
+
 /// `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` (ctrl2080gpu.h:325).
 pub const CMD_GPU_GET_NAME_STRING: u32 = 0x2080_0110;
 
@@ -452,6 +489,31 @@ pub fn manifest() -> Vec<Mediated> {
                   stays visible",
         });
     }
+    // The two the vGPU-shaped policy answers (number 69). They are listed
+    // unconditionally, exactly like the VRAM sizes above: the manifest says
+    // which fields this boundary MAY rewrite, not which policy happens to
+    // be running -- a manifest that changed with the configuration could
+    // not be compared against a native run at all.
+    out.push(Mediated {
+        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_VIRTUALIZATION_MODE,
+        off: VIRTMODE_OFF as u32, len: 4, stride: 0, count: 0,
+        kind: Kind::BackendAnswered, field: "virtualizationMode",
+        why: "VGX under the vGPU-shaped policy, where the guest IS on a \
+              profile out of a catalogue and every client asks this",
+    });
+    out.push(Mediated {
+        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_VIRTUALIZATION_MODE,
+        off: VIRTMODE_GRIDBUILD_OFF as u32, len: 1, stride: 0, count: 0,
+        kind: Kind::BackendAnswered, field: "isGridBuild",
+        why: "the boolean beside the mode, kept consistent with it",
+    });
+    out.push(Mediated {
+        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_ENCODER_CAPACITY,
+        off: ENCCAP_OFF as u32, len: 4, stride: 0, count: 0,
+        kind: Kind::BackendAnswered, field: "encoderCapacity",
+        why: "the profile's NVENC share. Only the ANSWER -- queryType is \
+              the question and is carried unchanged",
+    });
     out.push(Mediated {
         nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_NAME_STRING, off: NAME_OFF as u32, len: NAME_MAX as u32,
         stride: 0, count: 0, kind: Kind::IdentityString, field: "gpuNameString",

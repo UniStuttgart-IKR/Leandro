@@ -173,12 +173,23 @@ pub struct Profile {
     /// empty otherwise. It is what the guest's card is CALLED, so it has
     /// to travel with the numbers rather than beside them.
     pub vgpu_type: &'static str,
+    /// vGPU's `encoderCapacity`, a percentage, under [`Policy::Grid`]; 0
+    /// otherwise, which is how `grid::rewrite_encoder_capacity` knows to
+    /// leave RM's own answer alone.
+    pub encoder_capacity: u32,
 }
 
 impl Profile {
     /// No policy: the default configuration.
     pub const OFF: Profile =
-        Profile { policy: Policy::Off, size: 0, reservation: 0, fb_length: 0, vgpu_type: "" };
+        Profile {
+            policy: Policy::Off,
+            size: 0,
+            reservation: 0,
+            fb_length: 0,
+            vgpu_type: "",
+            encoder_capacity: 0,
+        };
 
     /// The old cap, in bytes -- for tests and for the `Accounting` path.
     pub fn accounting(bytes: u64) -> Profile {
@@ -191,6 +202,7 @@ impl Profile {
             reservation: 0,
             fb_length: bytes,
             vgpu_type: "",
+            encoder_capacity: 0,
         }
     }
 
@@ -265,6 +277,7 @@ struct RawEnv<'a> {
     vgpu_type: Option<&'a str>,
     vgpu_profile: Option<&'a str>,
     vgpu_fb: Option<&'a str>,
+    vgpu_encoder: Option<&'a str>,
 }
 
 fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
@@ -298,6 +311,12 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
         mib("LEA_VGPU_PROFILE_MIB", env.vgpu_profile),
         mib("LEA_VGPU_FB_MIB", env.vgpu_fb),
     );
+    // Not a MiB, a percentage -- and the only knob here that is not a size,
+    // which is why it is parsed on its own.
+    let vgpu_encoder = env
+        .vgpu_encoder
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .filter(|&p| p > 0 && p <= 100);
 
     // The vGPU-shaped policy, and it is all-or-nothing: a type name
     // without its numbers is a name for something nobody computed.
@@ -337,6 +356,7 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
                 reservation: (p - f) << 20,
                 fb_length: f << 20,
                 vgpu_type: name,
+                encoder_capacity: vgpu_encoder.unwrap_or(0),
             },
             notes,
         ));
@@ -382,6 +402,7 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
             reservation: reservation << 20,
             fb_length: (size - reservation) << 20,
             vgpu_type: "",
+            encoder_capacity: 0,
         },
         notes,
     ))
@@ -404,10 +425,11 @@ fn profile_from_env() -> Result<Profile, String> {
         get("LEA_VRAM_PROFILE_MIB"),
         get("LEA_VRAM_RESERVE_MIB"),
     );
-    let (vtype, vprofile, vfb) = (
+    let (vtype, vprofile, vfb, venc) = (
         get("LEA_VGPU_TYPE"),
         get("LEA_VGPU_PROFILE_MIB"),
         get("LEA_VGPU_FB_MIB"),
+        get("LEA_VGPU_ENCODER_CAP"),
     );
     let (p, notes) = decide(RawEnv {
         limit: limit.as_deref(),
@@ -416,6 +438,7 @@ fn profile_from_env() -> Result<Profile, String> {
         vgpu_type: vtype.as_deref(),
         vgpu_profile: vprofile.as_deref(),
         vgpu_fb: vfb.as_deref(),
+        vgpu_encoder: venc.as_deref(),
     })?;
     for n in notes {
         eprintln!("vhost-user-nvrm: {n}");

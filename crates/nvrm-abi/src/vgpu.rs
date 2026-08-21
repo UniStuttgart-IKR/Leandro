@@ -118,6 +118,17 @@ pub struct Profile {
     pub fb_length: u64,
     /// vGPU's `guestVmmuCount`.
     pub segments: u64,
+    /// vGPU's `encoderCapacity`: this type's share of NVENC, as a
+    /// percentage, which is the unit
+    /// `NV2080_CTRL_CMD_GPU_GET_ENCODER_CAPACITY` answers in
+    /// (`NV_ENC_CAPACITY_MAX_VALUE` is 100 and is what a bare-metal card
+    /// reports, subdevice_ctrl_gpu_kernel.c:1000).
+    ///
+    /// DERIVED, because NVIDIA's per-profile values are in the closed
+    /// catalogue: an equal share, `100 / maxInstance`. That is the only
+    /// division a homogeneous catalogue can justify, and it is what vGPU's
+    /// published tables do for the Q series.
+    pub encoder_capacity: u32,
 }
 
 impl Profile {
@@ -247,6 +258,7 @@ impl Catalogue {
                 reservation,
                 fb_length,
                 segments: fb_length / segment,
+                encoder_capacity: 100 / max_instance,
             });
         }
         Catalogue { board: board.to_string(), total, usable, segment, overhead, profiles }
@@ -277,16 +289,19 @@ impl Catalogue {
             mib(self.segment),
             mib(self.overhead),
         ));
-        s.push_str("type          max  profile   reserved   guest FB   segments   all instances\n");
+        s.push_str(
+            "type          max  profile   reserved   guest FB   segments   encoder%   all instances\n",
+        );
         for p in &self.profiles {
             s.push_str(&format!(
-                "{:<13} {:>3} {:>8} {:>10} {:>10} {:>10} {:>13}\n",
+                "{:<13} {:>3} {:>8} {:>10} {:>10} {:>10} {:>9} {:>13}\n",
                 p.name,
                 p.max_instance,
                 mib(p.profile_size),
                 mib(p.reservation),
                 mib(p.fb_length),
                 p.segments,
+                p.encoder_capacity,
                 mib(p.fb_length * p.max_instance as u64),
             ));
         }
@@ -367,6 +382,16 @@ mod tests {
         assert_eq!(p.max_instance, 4);
         // ... and it is findable by either spelling.
         assert_eq!(c.find("RTX2070-2Q"), c.find("2q"));
+    }
+
+    /// The encoder share follows the same division as the framebuffer, and
+    /// a whole card is a whole encoder.
+    #[test]
+    fn the_encoder_is_shared_the_way_the_framebuffer_is() {
+        let c = rtx2070(256 * MIB);
+        assert_eq!(c.find("8Q").unwrap().encoder_capacity, 100);
+        assert_eq!(c.find("4Q").unwrap().encoder_capacity, 50);
+        assert_eq!(c.find("2Q").unwrap().encoder_capacity, 25);
     }
 
     #[test]

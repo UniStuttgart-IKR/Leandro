@@ -42,6 +42,9 @@ use nvrm_client::RmClient;
 const CMD_GPU_GET_VMMU_SEGMENT_SIZE: u32 = 0x2080_017e;
 /// `NV2080_CTRL_CMD_FB_GET_INFO_V2` (ctrl2080fb.h:489).
 const CMD_FB_GET_INFO_V2: u32 = 0x2080_1303;
+/// `NV2080_CTRL_FB_INFO_INDEX_HEAP_FREE` (ctrl2080fb.h), in kilobytes.
+const FB_INFO_INDEX_HEAP_FREE: u32 = 0x16;
+
 /// `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` (ctrl2080gpu.h:325).
 const CMD_GPU_GET_NAME_STRING: u32 = 0x2080_0110;
 
@@ -145,17 +148,51 @@ fn main() {
 
     // ---- and the total it partitions -----------------------------------
     let mut fb = FbInfoParams::default();
-    fb.count = 2;
+    fb.count = 3;
     fb.list[0].index = vgpu::FB_INFO_INDEX_TOTAL_RAM_SIZE;
     fb.list[1].index = vgpu::FB_INFO_INDEX_HEAP_SIZE;
+    fb.list[2].index = FB_INFO_INDEX_HEAP_FREE;
     rm.control(subdevice, CMD_FB_GET_INFO_V2, &mut fb).expect("FB_GET_INFO_V2");
     let total_kb = fb.list[0].data as u64;
     let heap_kb = fb.list[1].data as u64;
+    let free_kb = fb.list[2].data as u64;
     say!(
-        "fb total: {} MiB (TOTAL_RAM_SIZE), heap {} MiB (HEAP_SIZE)",
+        "fb total: {} MiB (TOTAL_RAM_SIZE), heap {} MiB (HEAP_SIZE), free now {} MiB",
         total_kb / 1024,
-        heap_kb / 1024
+        heap_kb / 1024,
+        free_kb / 1024
     );
+
+    // THE HOST IS A TENANT TOO, and vGPU never has to think about it: a
+    // card running vGPU profiles runs nothing else, while this one is
+    // driving the machine's own desktop. Whatever is in use right now is
+    // not available to guests, and a catalogue derived from the whole heap
+    // would hand out memory that is already spoken for. Measured at this
+    // instant rather than assumed, and overridable for a host that will be
+    // idle later (or busier).
+    let in_use_kb = heap_kb.saturating_sub(free_kb);
+    let host_reserve = match std::env::var("LEA_VGPU_HOST_RESERVE_MIB") {
+        Ok(v) if !v.trim().is_empty() => match v.trim().parse::<u64>() {
+            Ok(m) => {
+                say!("host reserve: {m} MiB (LEA_VGPU_HOST_RESERVE_MIB)");
+                m << 20
+            }
+            Err(_) => {
+                eprintln!("vgpuprofile: LEA_VGPU_HOST_RESERVE_MIB={v:?} unusable -- measuring instead");
+                in_use_kb * 1024
+            }
+        },
+        _ => {
+            say!(
+                "host reserve: {} MiB, which is what the HOST is holding right now \
+                 (heap minus free). vGPU never has to allow for this -- its cards \
+                 run nothing but guests.",
+                in_use_kb / 1024
+            );
+            in_use_kb * 1024
+        }
+    };
+    let usable = (heap_kb * 1024).saturating_sub(host_reserve);
 
     // ---- and the board's own name --------------------------------------
     let mut np = NameParams::default();
@@ -173,7 +210,7 @@ fn main() {
         .unwrap_or(256)
         << 20;
     let board = vgpu::board_name(&name);
-    let cat = vgpu::Catalogue::derive(&board, total_kb * 1024, heap_kb * 1024, segment, overhead);
+    let cat = vgpu::Catalogue::derive(&board, total_kb * 1024, usable, segment, overhead);
 
     if let Some(want) = select {
         match cat.find(&want) {
@@ -187,6 +224,7 @@ fn main() {
                 println!("vgpu_max_instance={}", p.max_instance);
                 println!("vgpu_segments={}", p.segments);
                 println!("vgpu_segment_mib={}", cat.segment >> 20);
+                println!("vgpu_encoder_cap={}", p.encoder_capacity);
                 return;
             }
             None => {

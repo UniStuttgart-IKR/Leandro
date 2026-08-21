@@ -9,6 +9,7 @@
 //! and integration tests cannot touch `Session` otherwise. The daemon
 //! itself (`main.rs`) uses the same modules.
 
+pub mod grid;
 pub mod guest_words;
 pub mod host_pool;
 pub mod mirror;

@@ -2487,6 +2487,38 @@ impl Session {
                     }
                 }
             }
+
+            // (3d) What the card IS, under the vGPU-shaped policy only
+            // (number 69). Everything else keeps RM's own answers: a VM
+            // with a smaller framebuffer is not a vGPU and must not say it
+            // is. Both buffers are flat, both are in the mediation
+            // manifest, and both are rewritten only on an NV_OK answer --
+            // an error the guest should see is an error it sees.
+            let profile = self.vram.profile();
+            if profile.policy == crate::vram::Policy::Grid
+                && u32::from_le_bytes(self.scratch[28..32].try_into().unwrap()) == sys::NV_OK
+            {
+                if cmd == crate::grid::CMD_GPU_GET_VIRTUALIZATION_MODE {
+                    let mode = crate::grid::rewrite_virtualization_mode(&mut self.aux);
+                    if debug_level() >= 1 {
+                        eprintln!(
+                            "vhost-user-nvrm: virtualization mode -> {mode:?} (VGX) for {}",
+                            profile.vgpu_type
+                        );
+                    }
+                } else if cmd == crate::grid::CMD_GPU_GET_ENCODER_CAPACITY {
+                    let pct = crate::grid::rewrite_encoder_capacity(
+                        &mut self.aux,
+                        profile.encoder_capacity,
+                    );
+                    if debug_level() >= 1 {
+                        eprintln!(
+                            "vhost-user-nvrm: encoder capacity -> {pct:?}% for {}",
+                            profile.vgpu_type
+                        );
+                    }
+                }
+            }
         }
 
         // Settle what prepare reserved on the VRAM ledger: keep the charge

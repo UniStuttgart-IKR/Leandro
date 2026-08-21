@@ -571,7 +571,7 @@ _lea_stop_stale() {
 lea_backend_start() {
     local name=$1 kind=$2; shift 2
     local cap="${LEA_VRAM_LIMIT_MIB:-}" prof="${LEA_VRAM_PROFILE_MIB:-}"
-    local vtype="${LEA_VGPU_TYPE:-}" vprof="" vfb=""
+    local vtype="${LEA_VGPU_TYPE:-}" vprof="" vfb="" venc=""
     while [[ $# -gt 0 ]]; do
         case $1 in
             --vram-limit)   cap=$2; shift 2 ;;
@@ -602,10 +602,11 @@ lea_backend_start() {
                     "$LEA_BIN_DIR/vgpuprofile" >&2 || true
                     return 1; }
                 local vgpu_type="" vgpu_profile_mib="" vgpu_fb_mib="" vgpu_max_instance=""
-                local vgpu_segments="" vgpu_segment_mib=""
+                local vgpu_segments="" vgpu_segment_mib="" vgpu_encoder_cap=""
                 eval "$_vg"
                 vtype=$vgpu_type; vprof=$vgpu_profile_mib; vfb=$vgpu_fb_mib
-                info "  $name: vGPU type $vtype -- profile ${vprof} MiB, guest FB ${vfb} MiB ($vgpu_segments x ${vgpu_segment_mib} MiB VMMU segments)"
+                venc=$vgpu_encoder_cap
+                info "  $name: vGPU type $vtype -- profile ${vprof} MiB, guest FB ${vfb} MiB ($vgpu_segments x ${vgpu_segment_mib} MiB VMMU segments), encoder ${venc}%"
                 lea_vgpu_admit "$name" "$vtype" "$vgpu_max_instance" || return 1
                 echo "$vtype" > "$dir/vgpu-type"
             fi
@@ -651,6 +652,7 @@ lea_backend_start() {
               LEA_VGPU_TYPE="$vtype" \
               LEA_VGPU_PROFILE_MIB="$vprof" \
               LEA_VGPU_FB_MIB="$vfb" \
+              LEA_VGPU_ENCODER_CAP="$venc" \
               LEA_MAX_PIN_MIB="${LEA_MAX_PIN_MIB:-}" \
               LEA_OBJLOG="${LEA_OBJLOG:-}" \
               LEA_FD_CENSUS="${LEA_FD_CENSUS:-}" \
