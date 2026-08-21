@@ -226,25 +226,6 @@ theory that it caused CS2's empty window was checked and rejected — the
 timestamps of the two error kinds do not coincide, and no RM call failed
 while the FBO errors were occurring.
 
-### 22. `GL_OUT_OF_MEMORY` on EGLImage import under Xwayland
-**Open; three separate defects under one number.** Steam's and CS2's
-windows exist and are mapped but are never drawn, and glamor reports
-`GL_OUT_OF_MEMORY — Failed to acquire the EGL Image memory`. Defect A is
-named (see 25); B is a 32-bit gap in GBM packaging; C is the import
-failure itself, which is now understood as the head of the chain in 35.
-
-### 23. GLX clients segfault in the guest
-**Open, reproduced, root cause unknown.** `glxgears` and Steam's
-`gldriverquery` both segfault at address 8 inside
-`libGLX_nvidia.so`. Number 33 established that the faulting pointer is
-exactly NULL rather than a wrongly mapped address, and that the crash
-depends on process state rather than on which client runs. Number 29
-narrowed it further: the same binary in a self-started Xwayland instance
-does not crash. Number 44 names the object (2026-08-20): the NULL is the
-`+8` field of a config object that libGLX_nvidia's list walk and glcore's
-array search both dereference, both dying at address 8, and the game's
-crash is the same defect rather than a neighbouring one.
-
 ### 31. The backend holds thousands of `nvidiactl` file descriptors
 **Open, and substantially narrowed 2026-08-21: it has an owner, a rate and
 a mechanism now, and it is not what this entry called it.** Measured on a
@@ -353,468 +334,6 @@ CS2 hit the wall at 129 mappings when it was 1 GiB. The point is the shape, not
 an imminent failure — the mappings are never reclaimed, so the headroom is
 consumed by how many GL clients a desktop has ever run rather than by how many
 are running.
-### 32. Xwayland dies on SIGFPE inside NVIDIA's EGL core
-**Open; the faulting instruction is named, the field is not.** Twice, both
-times at the same instruction inside `libnvidia-eglcore`, Xwayland took a
-floating point exception and aborted. A division by zero means some value
-we supply is zero where the driver assumes it cannot be. Number 39 cleared
-three candidate controls, which answer completely and plausibly.
-
-### 33. The crash in 23 is a NULL pointer, and depends on state
-**Open.** All `segfault at 8` addresses of one boot were resolved back to
-two instructions in `libGLX_nvidia`, both dereferencing offset 8 of a base
-pointer that is exactly zero. That rules out the "wrongly mapped address"
-hypothesis. The crash follows process state rather than the client, and
-the instance appears to poison itself over time.
-
-### 35. The EGLImage import failure is the head of the chain
-**Open; the chain is closed, the next measurement is not taken.** Xwayland's
-own backtrace shows the failure originating in `libnvidia-eglcore` and
-propagating up through glamor. Numbers 22-C, 23, 26, 32 and 33 all pointed
-at this without naming it. Fixing the import is expected to resolve the
-rest; nothing above it needs its own fix.
-
----
-
-**BLOCKER FILED 2026-08-21. The next measurement this entry names was taken
-and the chain did not reproduce.** Recording what was tried and at what
-intensity, because a negative at a stated intensity is worth something and
-"we tried" is not.
-
-Number 44 says what it needs: *"Naming it needs a guest kept until it poisons
-itself, with the trace already running."* That guest was kept.
-
-**The session.** A GNOME **Wayland** desktop guest, the compositor's own
-Xwayland (the instance number 44 says poisons itself, never restarted), up
-~40 minutes, `bdf_mediation=1`, `display=1`, `vdisplay=1`, Sunshine capturing
-throughout. Deliberately WITHOUT `LEA_DEBUG=2`: the previous attempt at this
-ran under it, it sits on a per-frame path, and a state-dependent defect is
-exactly the kind that debug output can move.
-
-**What was driven at it:**
-
-  * repeated concurrent `glmark2` + `vkmark` + `vkcube` on the compositor's
-    Xwayland — a Vulkan client and an OpenGL client drawing at once under the
-    compositor, which is the shape of the game-plus-overlay case, with
-    Sunshine capturing as the third leg;
-  * **750 GL client lifecycles** (`glxinfo`) against that same never-restarted
-    Xwayland, plus repeated `glxgears`;
-  * 1, 2, 4, 8 and 32 concurrent CUDA processes, twice, at two very different
-    session states.
-
-**Every detector stayed at zero:**
-
-| detector | result |
-|---|---|
-| `segfault at 8` in `dmesg` | **0** |
-| `Failed to acquire the EGL Image` in the journal | **0** |
-| `glxgears` on the compositor's Xwayland | ran to its timeout every time |
-| `glxinfo` control on the same display | worked every time |
-| `NV_ESC_ATTACH_GPUS_TO_FD` answering `-1` | 0 |
-| `BDF mediation OFF` in the guest log | 0 |
-
-**And one confounder was removed on the way.** The first version of the
-segfault detector read `dmesg` without `sudo`; the guest has
-`kernel.dmesg_restrict=1`, so it failed with EPERM and `grep -c` reported 0 —
-a counter reading zero for a reason that had nothing to do with segfaults.
-Measured: plain `dmesg` 1 line (the error), `sudo dmesg` 709. Every zero above
-is from the privileged read.
-
-**Two code-side candidates were examined and neither fired.** The poisoned
-object is built for `0xffffffff`, and `bdf_to_guest` in `virtio_nvrm.c` has two
-ways to hand out an id the guest should not have: before `bdf_host_id` is
-learned it passes host ids through untranslated, and `bdf_disabled` can switch
-mediation off permanently mid-session — a path whose own comment records it
-happening "in the middle of an X server start" and leaving nvidia-drm with a
-half-mediated view, which is the right shape for this defect. On this session
-the learning window closed at t=24.9 s, just after NVKMS attached and before
-any graphics, and the `BDF mediation OFF` warning never fired. Also checked
-and wrong: the idea that the state is per-process. `bdf_host_id` lives in
-`struct nvrm_dev`, which is per virtio device, i.e. one per guest.
-
-**A caution for the next reader, because it is load-bearing.** Number 44 reads
-`0xffffffff` at `+0x30` as `NVRM_GPU_INVALID_ID`. The healthy values at that
-offset are `0x14` and `0x13` — small integers, where a gpu id on this rig is
-`0x2d00` natively and `0x6` in this guest. So `+0x30` is more likely an INDEX
-whose "not found" is `-1` than a gpu id, and the match with
-`NVRM_GPU_INVALID_ID` may be a coincidence of value. That matters because it
-is the link the whole "something hands libGLX_nvidia a -1" reading rests on.
-
-**What this run therefore establishes:** the poisoning is not reached by GL
-client churn at 750 lifecycles, not by concurrent GL and Vulkan load under the
-compositor, not by 40 minutes, and not by driving the backend to 2010 open
-descriptors. That is a much stronger negative than the previous one (48
-lifecycles, six rounds) and it points the same way.
-
-**What the next attempt needs, and it is now a short list.** The two sessions
-that DID poison had one thing this run could not reproduce: **a real game
-under Steam, with its overlay** — a Vulkan application and an OpenGL overlay
-inside one process tree, plus Moonlight actually connected. Everything else
-about those sessions has now been driven harder than they were. So either that
-combination is the variable, or the poisoning was removed by number 45's fix
-(the signal-restart double-submit that made a one-shot escape fail spuriously),
-which landed after both poisoned sessions and has never been tested against
-them. **Those two hypotheses are now the whole of this question**, and the
-first is one session with Steam away from being decided.
-
-**THE GAME WAS RUN, AND IT DID NOT CRASH.** The variable named above as the one
-this run could not reproduce was reproduced after all: the `desktop` rig was
-brought up with `--games --with-steam`, and **Shadow of the Tomb Raider — the
-exact title of number 44 — was launched under Steam** in the GNOME Wayland
-session.
-
-It rendered: **2100 MiB of device memory, 37 % GPU utilisation, 49 threads**,
-windows on the compositor's Xwayland, and `steamwebhelper` holding
-`/dev/nvidia0` beside it — so the Vulkan application and the OpenGL overlay
-were both live in one process tree, which is the configuration number 44
-describes. It ran for **about ten minutes** — `ps` read its elapsed time at 3:51 and a
-watcher sampled every 20 seconds for 360 s after that — where number 44 records
-the crash arriving **15–20 seconds after launch**. So it survived roughly
-**30× the interval in which it previously died**.
-
-Every detector stayed at zero throughout: `segfault at 8`, `Failed to acquire
-the EGL Image`, `GL_OUT_OF_MEMORY`, `ATTACH_GPUS_TO_FD` answering `-1`,
-`BDF mediation OFF`.
-
-**ONE DIFFERENCE REMAINS AND IT IS BLOCKED ON THE IMAGE, NOT ON THE
-QUESTION.** Number 44's session was being STREAMED — Sunshine on
-`capture=kms` with Moonlight connected. This rig's Sunshine came up
-`capture=portal`, and Moonlight is refused by it:
-
-    Launch response: status_code="503"
-    "Failed to initialize video capture/encoding. Is a display connected
-     and turned on?"
-
-which is the documented portal behaviour the rig warns about at boot
-(*"An unpatched Sunshine stops at the portal's permission dialog; bake with
-`--desktop-session xorg` for the path the numbers were taken on"*). So the
-streaming leg could not be added, and closing it needs a **rebake**, not
-another run of this one.
-
-**WHAT THIS LEAVES, and it is now two named things rather than a mystery:**
-
-1. **The stream is the last untested variable.** `--desktop-session xorg`,
-   `capture=kms`, Moonlight connected, then the game. That is one bake and one
-   run.
-2. **Or number 45 already fixed it.** The signal-restart double-submit that
-   made a one-shot escape fail spuriously landed AFTER both sessions that
-   poisoned, and has never been tested against them. Everything this run drove
-   at the defect — 750 GL client lifecycles, concurrent GL and Vulkan under the
-   compositor, 2010 open descriptors, and now the game itself — is consistent
-   with the defect no longer being there.
-
-**If the next run closes 1 and the game still does not crash, the honest
-reading is 2**, and 22-C, 23, 32, 33, 35 and 44 close together on that
-evidence. That is six entries on one measurement, which is why it is worth
-doing properly rather than quickly.
-### 44. A game and the compositor die at the same two addresses in NVIDIA's GL core
-**Open, and this is the first stack the chain in 32/35 has.** Shadow of
-the Tomb Raider (the native Feral port, Vulkan) crashes 15-20 s after
-launch in a GNOME **Wayland** session. Two processes dump core at the SAME
-frame #0 and #1:
-
-    #0  libnvidia-glcore.so.610.57.04 + 0xd0a989
-    #1  libnvidia-glcore.so.610.57.04 + 0xf985b0
-    #2  ShadowOfTheTombRaider + 0x1df9535
-
--- `WinMain`, the game's own process, and `WebViewRenderer`, the Steam
-overlay's CEF renderer. The game renders with Vulkan; the overlay with
-OpenGL. Both end in `libnvidia-glcore` at one address.
-
-Beside it, the compositor logs **744** EGL failures in the same session,
-with backtraces into `libnvidia-eglcore` -- the library number 35 names as
-the head of the chain -- and the visible symptom is the one number 10 had:
-windows go invisible while gnome-shell keeps running and the scanout
-buffer stops changing (`fbprobe`: STATIC, 0/9 polls, peak 1024/1024, so
-full rather than black).
-
-Measured 2026-08-20 on 610.57.04, guest module loaded, KMS capture. What
-is NEW here and was not available before:
-
-- a reproducer that takes 15-20 seconds rather than hours,
-- six core dumps kept under `vm/out-eglcrash/` (1.7 GB for the main one),
-  with `coredumpctl info` output beside them,
-- both crash sites at once: `glcore` for the clients, `eglcore` for the
-  compositor.
-
-**Hypothesis on the table, from the operator:** a missing or wrongly
-mediated ioctl in the GL/EGL path. What speaks for it: this is exactly
-where a mediated call would surface, in a library that assumes an answer
-it did not get. What speaks against it, so far: the backend's failure log
-for that session contains no unmediated call and no unknown class -- the
-failures it does record are `NV_ERR_NOT_SUPPORTED` on `0x2080012f` /
-`0x20800157` and `NV_ERR_OBJECT_NOT_FOUND` on `0x2080014b`, all three of
-which probe/README.md section 6 lists as occurring in the DIRECT run as
-well. The one group not on that list is the `0x73xxxx` family (NV0073,
-display controls), 30 calls answering `NV_ERR_OBJECT_NOT_FOUND` -- which
-is plausible for a display NVKMS invents and no physical monitor backs,
-and is worth ruling out rather than assuming.
-
-**The native counter-check is in, and it does not crash.** Measured
-2026-08-20 on this host: the same game, native, **under Wayland**
-(Hyprland), 1440p, about **100 FPS**, stable -- no crash, no EGL failures.
-So the two `glcore` addresses are not a place NVIDIA's driver dies on its
-own under a Wayland compositor, and whatever brings it there is on the
-guest side of the boundary.
-
-Two differences remain between the two runs and have to be closed before
-this is called proven: the host compositor is Hyprland (wlroots) and the
-guest's is mutter (GNOME), and the resolutions differ (1440p host, 1080p
-guest). A GNOME Wayland session on the host would remove the first one.
-
-What is therefore still open is the operator's hypothesis, and it is now
-the leading one: a missing or wrongly mediated call in the GL/EGL path.
-The remaining measurement is the last call before the crash --
-`LEA_DEBUG=2` logs every forwarded one, `LEA_CTRL_DUMP` dumps the ANSWER
-of a named control, and that second one matters because the failure class
-here may be "an answer that looks valid and is wrong" (number 32), which
-a status comparison cannot see and only the bytes can.
-
-Under X11 the same guest runs the same game; the `display` gate is 12/12
-green on that path (2026-08-20).
-
-**The crash site is read out of the core, and the bad value is a RETURN
-value.** Measured 2026-08-20 from `vm/out-eglcrash/winmain.core` -- which
-is the only core still kept in that directory -- against the host's
-libraries:
-
-- The two addresses are **not in one function**. `.eh_frame` FDEs put
-  `0xd0a989` at +0x139 of `[0xd0a850..0xd0aada)` and `0xf985b0` at +0x1e0
-  of `[0xf983d0..0xf98763)`. The second is the return address of
-  `call *0x110(%rax)`, so frame #1 calls frame #0 as a virtual method,
-  slot `0x110` of the vtable at `glcore+0x26fd1d0` -- confirmed in the
-  core, where `vtable[0x110]` is `glcore+0xd0a850` exactly.
-- The faulting instruction is `mov 0x8(%rdx),%rdx` with `rdx == 0`, so the
-  fault address is exactly **8**: the signature number 33 describes.
-- `rsi` is **not an argument**. It is the return value of the indirect
-  call at `glcore+0xd0a925`, and glcore checks it (`test %rax,%rax; je`)
-  and accepts it. The object is non-NULL and hollow: `+0x00..+0x27` are
-  all zero, including the `+8` pointer that faults, while `+0x28 = 9`,
-  `+0x30 = 0xffffffff`, `+0x50`, `+0x58 = 0x1d5`, `+0xa0` and
-  `+0xa8 = 0x20164010` are populated. A constructed object whose leading
-  fields were never filled -- not a fresh allocation, not a wild pointer.
-- The producer is **`libGLX_nvidia.so.610.57.04 + 0x83240`**, a function
-  entry (FDE `[0x83240..0x83449)`), reached through the dispatch table
-  `[[[this+0x5c8]+0x58]+0xba0] + 0x28da0`. It is called with the keys of
-  the enabled entries of `this+0x270` (4 of 4, stride 0x58), the count,
-  and a selector of **-1** -- and the object it hands back carries `-1`
-  at `+0x30`.
-- The loop then compares `key->+8` against `returned->+8->+8` and dies on
-  the **first** of the four entries.
-
-So the failure class is the one number 32 named and a status comparison
-cannot see: **an answer that looks valid and is wrong.** What is new is
-that the answer has an author -- `libGLX_nvidia`, the library numbers 23
-and 33 also end in -- and that glcore's own NULL check waves it through.
-
-The libraries are the host's bytes by construction: `lea_gl_stage` copies
-them out of `lea_nvidia_libdir` (here `/usr/lib`), pinned to
-`DRIVER_VERSION`. Recorded so a later run can check it directly rather
-than trusting that: `libnvidia-glcore.so.610.57.04` sha256
-`3a43bc796820f6ef4c102587db14284d90e9292a2b47d03ad4c1343cc8b3305a`,
-`libGLX_nvidia.so.610.57.04` sha256
-`7ef1112f99de62db27670075e2dd1318235bbb3fe769850bf714b0c7e657784c`.
-
-**The `0x73xxxx` group is ruled out, not assumed.** All of them -- 32 of
-them, not the 30 written above -- come from `nvidia-modeset`, and all fall
-in lines 9..66 of a 1410-line log, i.e. session startup. No process on the
-crash path (the game, `steamwebhelper`, `Xwayland`, `gnome-shell`) issues
-a single one.
-
-**The failure list above is incomplete.** That session records 263
-failures in 36 distinct (cmd, status, proc) combinations. Two of them come
-from crash-path processes and are NOT in probe/README.md section 6:
-
-- `NV_ESC_ATTACH_GPUS_TO_FD` (`nr 0xd4`, `NV_IOCTL_BASE + 12`) answering
-  **`ret -1`** to **Xwayland**, four times, during the game session (log
-  lines 321, 436, 463, 962).
-- `0x90960101` answering `0x80` to `steamwebhelper`, once.
-
-The first matters because the comment on `bdf_rewrite_attach_gpus()`
-([`guest-module/virtio_nvrm/virtio_nvrm.c`](../guest-module/virtio_nvrm/virtio_nvrm.c))
-describes exactly this `-1` as a bug found on 2026-08-15 and fixed there.
-Its guard needs `dev_tag == NVRM_DEV_CTL` and `bdf_on(dev)`; the log says
-`dev 0`, `NVRM_DEV_CTL` is `0`, and `provision.sh` turns `bdf_mediation`
-on for the display path this session used. The guard is therefore
-satisfied, the rewrite ran, and the call still fails. Unexplained -- and
-it is the only failure in the crash path that names the binding between a
-GPU and an fd.
-
-**A near miss, written down so it is not walked into twice: the
-cross-session fd tokens are NOT the cause.** The log shows 20
-`fd_field_token ... CROSS-SESSION` lines and zero `STALE` ones, which
-reads exactly like the chain the diagnostic in
-[`crates/vhost-user-nvrm/src/nvrm.rs`](../crates/vhost-user-nvrm/src/nvrm.rs)
-was added to prove. It is not: that diagnostic resolves against the
-CALLER's mirror, while the real translation uses `req.fd_field_proc`
-(protocol v6). The whole log contains **no refusal line at all**
-(`session N: ...`), so no `EBADF` on `fd_field_token` was ever returned.
-The diagnostic fires on the healthy v6 path too, and as written it invites
-the wrong conclusion.
-
-**Why this is still not the last call.** The `nvrm.log` kept beside the
-cores is not a `LEA_DEBUG=2` trace -- it holds failures, the fd census and
-events, 263 failure lines out of 1410. The last forwarded call before the
-SIGSEGV is therefore not in the evidence and cannot be recovered from it;
-it needs a re-run. What that re-run now has that the last one did not: a
-named producer (`libGLX_nvidia+0x83240`), a named suspect call
-(`NV_ESC_ATTACH_GPUS_TO_FD` on Xwayland), and two processes to filter to
-instead of a whole desktop session.
-
-*Unverified:* that the hollow object and the four failed
-`NV_ESC_ATTACH_GPUS_TO_FD` calls are one defect. Both sit on the
-Xwayland/GLX path and both concern which GPU an fd is bound to, but
-nothing measured so far links the crashing lookup to an fd whose attach
-failed. `LEA_DEBUG=2` together with `LEA_OBJLOG=1`, filtered to
-`Xwayland` and `steamwebhelper`, is the measurement that would decide it.
-
-Two side findings, not pursued here: the fd census ends the session at 799
-of 1021 process fds on `nvidiactl` with `unaccounted -201`, a negative
-number that should not be possible; and `Failed to acquire the EGL Image`
-stands at 744 occurrences after number 40 measured it down to zero, on a
-different session type (GNOME Wayland rather than the CS2/X11 run).
-
-**The game is not needed: `glxgears` is the same crash, in two seconds.**
-Measured 2026-08-20 in the guest that was still up from the crash session,
-against the compositor's own Xwayland (pid 7453, never restarted):
-
-- `glxgears` on `DISPLAY=:0` dumps core. `glxinfo -B` on the same display
-  succeeds and reports NVIDIA `4.6.0`, renderer `Leandro RTX 2070/PCIe/SSE2`,
-  8192 MB. The GL stack is up; only the second client dies.
-- `dmesg`: `glxgears[11477]: segfault at 8 ... in
-  libGLX_nvidia.so.610.57.04`, and beside it **four**
-  `FeralLinuxMessa[...]: segfault at 8` in the same library from the game
-  session. Number 23's signature, and the game's own launcher shares it.
-- The faulting instruction is `cmp %rcx,0x8(%rdx)` at
-  `libGLX_nvidia+0x83715`, inside `[0x836e0..0x8376f)`: a linked-list walk
-  (head at `container+0x10b0`, next at `+0x50`, hit cached at `+0x10b8`)
-  that dereferences `node->+8` for the comparison key. The core gives
-  `rdx == 0`, and **both** nodes in that list carry `+8 == NULL`.
-- The other branch of that same function calls **`0x83240`** -- the
-  function that produced the hollow object in the game's core. The two
-  crash sites are the fast and the slow path of one lookup over one
-  object type.
-- The faulting node reads `+0x28 = 9`, `+0x30 = 0xffffffff`, head zeroed:
-  **the same layout and the same values as the game's hollow object**. The
-  search keys match as well, `{1, self-pointer, 0x103, 0}` in both cores.
-
-So numbers 23, 33 and 44 are one defect: objects of this type are created
-with a NULL pointer at `+8`, and every consumer that walks them dies at
-address 8 -- glcore's array search for the game, libGLX_nvidia's list walk
-for `glxgears`.
-
-**And a sequence diff would not have found it.** The backend recorded
-exactly the same two failures for the client that WORKS and the client that
-CRASHES -- `0x2080012f` answering `NV_ERR_NOT_SUPPORTED`, twice each, which
-probe/README.md section 6 lists as benign. `NV_ESC_ATTACH_GPUS_TO_FD` did
-not fire during the `glxgears` crash at all, which retires the *Unverified*
-guess above instead of confirming it. The crash is invisible to a status
-comparison, exactly as number 32's failure class predicts; the core dump
-found it, the log could not.
-
-What the next measurement gets from this: a reproducer that takes two
-seconds, needs no Steam, no game and no Moonlight, runs over
-`showcase.sh ssh`, and comes with a WORKING control (`glxinfo`) in the same
-session on the same display. `LEA_DEBUG=2` across that pair is a diff of
-two clients that differ only in the outcome -- tighter than the native host
-run, which differs in compositor, resolution and kernel. Evidence under
-`vm/out-glxgears/`: the core (33 MB), the dmesg lines, the backend delta.
-
-**Number 29's discriminator holds on demand, and both arms were taken in
-the same minute.** In that same guest: `glxgears` on the compositor's
-Xwayland (`:0`) takes SIGSEGV at address 8, and `glxgears` on an Xwayland
-this session started itself (`:3`, an ordinary Wayland client of the same
-mutter) runs its full twelve seconds and reports 71.7 then 60.0 FPS, with
-`glxinfo` naming the same renderer on both. Same binary, same driver, same
-guest, same compositor underneath; the only variable is who started
-Xwayland. Per number 30 that FPS figure is a swap counter and NOT a claim
-that anything reached a screen -- what is measured here is only that the
-process does not die.
-
-That pair is the experiment number 44 has been waiting for: two clients
-that differ in outcome and in nothing else, both driven over
-`showcase.sh ssh`. `LEA_DEBUG=2` across it needs a backend restart, since
-the level is read once per process, and a restart costs the live crashed
-instance -- which is why the evidence above was written out first.
-
-**The restart was taken, and the crash did not come back.** Measured
-2026-08-20 on a guest brought up fresh with `LEA_DEBUG=2`:
-
-- `glxgears` on the compositor's Xwayland runs, 58.8 FPS. Six rounds of
-  client churn -- eight `glxinfo` and two `glxgears` each, then a test run
-  -- did not change that, and `dmesg` counted zero `segfault at 8`. So the
-  state number 33 calls self-poisoning is NOT reached by use: not by time,
-  not by client count, not by drawing.
-- A second fresh session, traced to 578_690 calls, is equally clean: no
-  crash, no refusal, and not one `ret -1` anywhere.
-
-So the reproducer of the section above is a reproducer only on an ALREADY
-poisoned instance. What poisons it is still unmeasured, and the two
-sessions that had it (the game's and the one `glxgears` was caught on) are
-both gone. Naming it needs a guest kept until it poisons itself, with the
-trace already running -- which is now cheap to arrange and was not before.
-
-**What the healthy instance did give is the missing half of the
-comparison.** Breaking at `libGLX_nvidia+0x836e0` in a healthy guest and
-walking the same list shows two nodes, exactly as the poisoned core had,
-and they differ from it in precisely two fields:
-
-| field | healthy | poisoned |
-|---|---|---|
-| `+0x30` | `0x14`, `0x13` | `0xffffffff` on both |
-| `+0x08` | a valid pointer | `NULL` on both |
-
-`+0x28` is `9` in both, the node count is 2 in both, and in the healthy
-case each node's backing object holds a pointer to ITSELF at `+8`, which
-is the identity token the search compares. `0xffffffff` is
-`NVRM_GPU_INVALID_ID` (`nvrm_wire.h`). So the object is not corrupted
-after the fact: it is BUILT for an id that is already the invalid one, and
-gets no backing because there is nothing to back it with. Whatever hands
-libGLX_nvidia that `-1` is the defect.
-
-The guest's library is the host's, now measured rather than argued:
-`/opt/nvrm-gl/lib/libGLX_nvidia.so.610.57.04` in the guest hashes
-`7ef1112f99de62db27670075e2dd1318235bbb3fe769850bf714b0c7e657784c`, the
-same sha256 as the host's copy.
-
-**Three of our own diagnostics were lying, and all three are fixed** --
-which is the fix this round earned, because it is the part that was
-measured:
-
-1. The `CROSS-SESSION` reader in
-   [`nvrm.rs`](../crates/vhost-user-nvrm/src/nvrm.rs) asked whether the
-   CALLER's mirror holds the token, which stopped being the right question
-   at protocol v6: the translation resolves through `fd_field_proc`. It
-   reported 20 misses in a session that refused nothing, reading exactly
-   like the bug it was added to find. It now fires only on the real
-   refusal condition -- field translated at all, device cannot resolve it,
-   caller's own mirror cannot either. A fresh traced session reports zero.
-2. A hard ioctl failure (`ret != 0`) logged no FD, and for a one-shot
-   escape the FD is the whole question. It now prints the host FD and
-   token beside the failure.
-3. The fd census printed `unaccounted` as `ctl - named - window.len()`,
-   subtracting three different units: nvidiactl-only FDs, session-held FDs
-   of every node type, and guest memory MAPPINGS. It read negative
-   always -- -21 on a bare boot, -203 on a desktop -- for a figure its own
-   doc calls "held outside every session". It is now `total - named` and
-   named `outside every session`.
-
-None of the three is the crash. They are the reason the crash was hunted
-in the wrong place for a session, which is worth the diff on its own.
-
-**And the second of those three immediately found a real defect: see 45,
-resolved the same day.** A signal arriving while the guest module waited
-for a reply it had ALREADY submitted made the kernel restart the whole
-ioctl, so a one-shot escape was issued twice and the second one refused.
-Xwayland was told an attach had failed that had succeeded. That is the
-right shape for what poisons a GL stack -- a device object built for an id
-its owner believes invalid, and `0xffffffff` is the value both the hollow
-libGLX nodes and eglcore's live `rax` carry at the fault. It is *not*
-proof: the crash of 23/33/44 has never been reproduced on a fresh guest,
-so nothing yet shows this fixes it. What it does remove is a real
-confound, and it makes the next attempt at reproducing 44 one variable
-simpler.
-
 ### 46. Sound continues while the picture hangs, and it is the CPU
 **Open, but named, and it is NOT a GPU question.** Under a real game the
 stream stalls: audio keeps playing, video stops. Measured 2026-08-20 while
@@ -1509,6 +1028,115 @@ backend held 3160 device descriptors and had created 2605 RM clients.
 Fixed, and the fix verified by rerunning the same session shape.
 Number 31 is a *different*, still open leak.
 
+### 22. `GL_OUT_OF_MEMORY` on EGLImage import under Xwayland
+**Resolved 2026-08-21, all three halves.** A is decided (number 25), B is
+fixed (number 28), and C is closed with the rest of the chain. The original
+reasoning is kept below. Steam's and CS2's
+windows exist and are mapped but are never drawn, and glamor reports
+`GL_OUT_OF_MEMORY — Failed to acquire the EGL Image memory`. Defect A is
+named (see 25); B is a 32-bit gap in GBM packaging; C is the import
+failure itself, which is now understood as the head of the chain in 35.
+
+---
+
+**ALL THREE HALVES ARE ACCOUNTED FOR, 2026-08-21:**
+
+  * **A** -- the displayless HAL. Number 25 is DECIDED: forcing it is the
+    route taken, `CAP_SYS_ADMIN` was measured to make the outcome worse, and
+    what remains is a resolution ceiling rather than a choice.
+  * **B** -- the 32-bit gap. Number 28 is FIXED: `nvrm-gl.conf` listed only
+    the 64-bit directory, so `ldconfig` knew `libGLX_nvidia.so.0` only as
+    x86-64. Its own note says *"the fix moved the failure rather than
+    removing it; see 35"* -- and 35 is closed now too.
+  * **C** -- the import failure itself, the head of the chain in 35.
+
+
+---
+
+**CLOSED 2026-08-21 BY THE RUN NUMBER 35 HAD BEEN WAITING FOR.** The full
+account is in number 35. The short version: the configuration that produced
+this defect was assembled completely for the first time, and the defect did
+not appear.
+
+  * GNOME **Wayland** session -- the path number 24 proved all of these hang
+    on;
+  * Sunshine `capture=kms` with `h264_nvenc`, its own log reading
+    *"Screencasting with KMS"*;
+  * **Moonlight connected** and decoding HEVC -- the leg that had never
+    worked, blocked by a Sunshine started without a Wayland environment
+    (fixed the same day);
+  * Shadow of the Tomb Raider running, 49 threads, with `steamwebhelper` on
+    `/dev/nvidia0` beside it -- number 44's exact pair, `WinMain` and the
+    overlay's renderer.
+
+**19 minutes 25 seconds** against the 15-20 SECONDS this defect took to
+appear, sampled every 20 s across 60 samples. `segfault at 8`: **0**.
+`Failed to acquire the EGL Image`: **0**, where the crashing session logged
+**744**. `GL_OUT_OF_MEMORY`: **0**. Xwayland never restarted, so the instance
+number 44 calls a consumable was the same one throughout.
+
+**The cause, as far as the evidence supports one: number 45.** A signal
+arriving while the guest module waited for a reply it had ALREADY submitted
+made the kernel restart the whole ioctl, so a one-shot escape was issued twice
+and the second was refused -- Xwayland was told an attach had failed that had
+succeeded. That is the right shape for a GL stack built around an id its owner
+believes invalid, it landed AFTER both sessions that crashed, and until this
+run it had never been tested against them.
+
+**What would reopen this**, stated so the closure is falsifiable: a
+`segfault at 8` in `libGLX_nvidia`, or `Failed to acquire the EGL Image`
+returning on a Wayland session. Both are one `dmesg` and one `journalctl`
+away, and both are in the crash-watch loop this run used.
+### 23. GLX clients segfault in the guest
+**Resolved 2026-08-21.** Not reproduced in the configuration that produced
+it, once that configuration could be assembled in full. The original reasoning
+is kept below. `glxgears` and Steam's
+`gldriverquery` both segfault at address 8 inside
+`libGLX_nvidia.so`. Number 33 established that the faulting pointer is
+exactly NULL rather than a wrongly mapped address, and that the crash
+depends on process state rather than on which client runs. Number 29
+narrowed it further: the same binary in a self-started Xwayland instance
+does not crash. Number 44 names the object (2026-08-20): the NULL is the
+`+8` field of a config object that libGLX_nvidia's list walk and glcore's
+array search both dereference, both dying at address 8, and the game's
+crash is the same defect rather than a neighbouring one.
+
+---
+
+**CLOSED 2026-08-21 BY THE RUN NUMBER 35 HAD BEEN WAITING FOR.** The full
+account is in number 35. The short version: the configuration that produced
+this defect was assembled completely for the first time, and the defect did
+not appear.
+
+  * GNOME **Wayland** session -- the path number 24 proved all of these hang
+    on;
+  * Sunshine `capture=kms` with `h264_nvenc`, its own log reading
+    *"Screencasting with KMS"*;
+  * **Moonlight connected** and decoding HEVC -- the leg that had never
+    worked, blocked by a Sunshine started without a Wayland environment
+    (fixed the same day);
+  * Shadow of the Tomb Raider running, 49 threads, with `steamwebhelper` on
+    `/dev/nvidia0` beside it -- number 44's exact pair, `WinMain` and the
+    overlay's renderer.
+
+**19 minutes 25 seconds** against the 15-20 SECONDS this defect took to
+appear, sampled every 20 s across 60 samples. `segfault at 8`: **0**.
+`Failed to acquire the EGL Image`: **0**, where the crashing session logged
+**744**. `GL_OUT_OF_MEMORY`: **0**. Xwayland never restarted, so the instance
+number 44 calls a consumable was the same one throughout.
+
+**The cause, as far as the evidence supports one: number 45.** A signal
+arriving while the guest module waited for a reply it had ALREADY submitted
+made the kernel restart the whole ioctl, so a one-shot escape was issued twice
+and the second was refused -- Xwayland was told an attach had failed that had
+succeeded. That is the right shape for a GL stack built around an id its owner
+believes invalid, it landed AFTER both sessions that crashed, and until this
+run it had never been tested against them.
+
+**What would reopen this**, stated so the closure is falsifiable: a
+`segfault at 8` in `libGLX_nvidia`, or `Failed to acquire the EGL Image`
+returning on a Wayland session. Both are one `dmesg` and one `journalctl`
+away, and both are in the crash-watch loop this run used.
 ### 24. The X11 counter-test: all three defects hang on the Wayland path
 **Resolved 2026-08-18.** One session switch answered three open questions.
 On real Xorg the GLX vendor is NVIDIA rather than SGI/glamor, `glxgears`
@@ -1649,6 +1277,96 @@ still. A client counts *swaps*; whether an image reaches the screen is not
 something it can know. This retracted an earlier conclusion of number 29.
 Since then, a presentation claim needs a reader that looks at pixels.
 
+### 32. Xwayland dies on SIGFPE inside NVIDIA's EGL core
+**Resolved 2026-08-21 with the chain it belongs to.** The faulting
+instruction is still named and the field still is not -- and the SIGFPE has not
+recurred in the configuration that produced it. The original reasoning is kept
+below. Twice, both
+times at the same instruction inside `libnvidia-eglcore`, Xwayland took a
+floating point exception and aborted. A division by zero means some value
+we supply is zero where the driver assumes it cannot be. Number 39 cleared
+three candidate controls, which answer completely and plausibly.
+
+---
+
+**CLOSED 2026-08-21 BY THE RUN NUMBER 35 HAD BEEN WAITING FOR.** The full
+account is in number 35. The short version: the configuration that produced
+this defect was assembled completely for the first time, and the defect did
+not appear.
+
+  * GNOME **Wayland** session -- the path number 24 proved all of these hang
+    on;
+  * Sunshine `capture=kms` with `h264_nvenc`, its own log reading
+    *"Screencasting with KMS"*;
+  * **Moonlight connected** and decoding HEVC -- the leg that had never
+    worked, blocked by a Sunshine started without a Wayland environment
+    (fixed the same day);
+  * Shadow of the Tomb Raider running, 49 threads, with `steamwebhelper` on
+    `/dev/nvidia0` beside it -- number 44's exact pair, `WinMain` and the
+    overlay's renderer.
+
+**19 minutes 25 seconds** against the 15-20 SECONDS this defect took to
+appear, sampled every 20 s across 60 samples. `segfault at 8`: **0**.
+`Failed to acquire the EGL Image`: **0**, where the crashing session logged
+**744**. `GL_OUT_OF_MEMORY`: **0**. Xwayland never restarted, so the instance
+number 44 calls a consumable was the same one throughout.
+
+**The cause, as far as the evidence supports one: number 45.** A signal
+arriving while the guest module waited for a reply it had ALREADY submitted
+made the kernel restart the whole ioctl, so a one-shot escape was issued twice
+and the second was refused -- Xwayland was told an attach had failed that had
+succeeded. That is the right shape for a GL stack built around an id its owner
+believes invalid, it landed AFTER both sessions that crashed, and until this
+run it had never been tested against them.
+
+**What would reopen this**, stated so the closure is falsifiable: a
+`segfault at 8` in `libGLX_nvidia`, or `Failed to acquire the EGL Image`
+returning on a Wayland session. Both are one `dmesg` and one `journalctl`
+away, and both are in the crash-watch loop this run used.
+### 33. The crash in 23 is a NULL pointer, and depends on state
+**Resolved 2026-08-21 with the chain it belongs to.** The original reasoning
+is kept below. All `segfault at 8` addresses of one boot were resolved back to
+two instructions in `libGLX_nvidia`, both dereferencing offset 8 of a base
+pointer that is exactly zero. That rules out the "wrongly mapped address"
+hypothesis. The crash follows process state rather than the client, and
+the instance appears to poison itself over time.
+
+---
+
+**CLOSED 2026-08-21 BY THE RUN NUMBER 35 HAD BEEN WAITING FOR.** The full
+account is in number 35. The short version: the configuration that produced
+this defect was assembled completely for the first time, and the defect did
+not appear.
+
+  * GNOME **Wayland** session -- the path number 24 proved all of these hang
+    on;
+  * Sunshine `capture=kms` with `h264_nvenc`, its own log reading
+    *"Screencasting with KMS"*;
+  * **Moonlight connected** and decoding HEVC -- the leg that had never
+    worked, blocked by a Sunshine started without a Wayland environment
+    (fixed the same day);
+  * Shadow of the Tomb Raider running, 49 threads, with `steamwebhelper` on
+    `/dev/nvidia0` beside it -- number 44's exact pair, `WinMain` and the
+    overlay's renderer.
+
+**19 minutes 25 seconds** against the 15-20 SECONDS this defect took to
+appear, sampled every 20 s across 60 samples. `segfault at 8`: **0**.
+`Failed to acquire the EGL Image`: **0**, where the crashing session logged
+**744**. `GL_OUT_OF_MEMORY`: **0**. Xwayland never restarted, so the instance
+number 44 calls a consumable was the same one throughout.
+
+**The cause, as far as the evidence supports one: number 45.** A signal
+arriving while the guest module waited for a reply it had ALREADY submitted
+made the kernel restart the whole ioctl, so a one-shot escape was issued twice
+and the second was refused -- Xwayland was told an attach had failed that had
+succeeded. That is the right shape for a GL stack built around an id its owner
+believes invalid, it landed AFTER both sessions that crashed, and until this
+run it had never been tested against them.
+
+**What would reopen this**, stated so the closure is falsifiable: a
+`segfault at 8` in `libGLX_nvidia`, or `Failed to acquire the EGL Image`
+returning on a Wayland session. Both are one `dmesg` and one `journalctl`
+away, and both are in the crash-watch loop this run used.
 ### 34. The host writes one `dmesg` line per ioctl
 **Named as a trap.** At `ResmanDebugLevel: 0` the driver still prints
 `NV_DBG_INFO`, which is one line per ioctl. The line looks like a
@@ -1656,6 +1374,194 @@ rejection and is not. The damage is real twice over: a kernel log write on
 a per-frame path costs time, and 2734 such lines had displaced every other
 diagnosis from the ring buffer.
 
+### 35. The EGLImage import failure is the head of the chain
+**Resolved 2026-08-21. The chain is closed and the measurement is taken.**
+The original reasoning is kept below. Xwayland's
+own backtrace shows the failure originating in `libnvidia-eglcore` and
+propagating up through glamor. Numbers 22-C, 23, 26, 32 and 33 all pointed
+at this without naming it. Fixing the import is expected to resolve the
+rest; nothing above it needs its own fix.
+
+---
+
+**BLOCKER FILED 2026-08-21. The next measurement this entry names was taken
+and the chain did not reproduce.** Recording what was tried and at what
+intensity, because a negative at a stated intensity is worth something and
+"we tried" is not.
+
+Number 44 says what it needs: *"Naming it needs a guest kept until it poisons
+itself, with the trace already running."* That guest was kept.
+
+**The session.** A GNOME **Wayland** desktop guest, the compositor's own
+Xwayland (the instance number 44 says poisons itself, never restarted), up
+~40 minutes, `bdf_mediation=1`, `display=1`, `vdisplay=1`, Sunshine capturing
+throughout. Deliberately WITHOUT `LEA_DEBUG=2`: the previous attempt at this
+ran under it, it sits on a per-frame path, and a state-dependent defect is
+exactly the kind that debug output can move.
+
+**What was driven at it:**
+
+  * repeated concurrent `glmark2` + `vkmark` + `vkcube` on the compositor's
+    Xwayland — a Vulkan client and an OpenGL client drawing at once under the
+    compositor, which is the shape of the game-plus-overlay case, with
+    Sunshine capturing as the third leg;
+  * **750 GL client lifecycles** (`glxinfo`) against that same never-restarted
+    Xwayland, plus repeated `glxgears`;
+  * 1, 2, 4, 8 and 32 concurrent CUDA processes, twice, at two very different
+    session states.
+
+**Every detector stayed at zero:**
+
+| detector | result |
+|---|---|
+| `segfault at 8` in `dmesg` | **0** |
+| `Failed to acquire the EGL Image` in the journal | **0** |
+| `glxgears` on the compositor's Xwayland | ran to its timeout every time |
+| `glxinfo` control on the same display | worked every time |
+| `NV_ESC_ATTACH_GPUS_TO_FD` answering `-1` | 0 |
+| `BDF mediation OFF` in the guest log | 0 |
+
+**And one confounder was removed on the way.** The first version of the
+segfault detector read `dmesg` without `sudo`; the guest has
+`kernel.dmesg_restrict=1`, so it failed with EPERM and `grep -c` reported 0 —
+a counter reading zero for a reason that had nothing to do with segfaults.
+Measured: plain `dmesg` 1 line (the error), `sudo dmesg` 709. Every zero above
+is from the privileged read.
+
+**Two code-side candidates were examined and neither fired.** The poisoned
+object is built for `0xffffffff`, and `bdf_to_guest` in `virtio_nvrm.c` has two
+ways to hand out an id the guest should not have: before `bdf_host_id` is
+learned it passes host ids through untranslated, and `bdf_disabled` can switch
+mediation off permanently mid-session — a path whose own comment records it
+happening "in the middle of an X server start" and leaving nvidia-drm with a
+half-mediated view, which is the right shape for this defect. On this session
+the learning window closed at t=24.9 s, just after NVKMS attached and before
+any graphics, and the `BDF mediation OFF` warning never fired. Also checked
+and wrong: the idea that the state is per-process. `bdf_host_id` lives in
+`struct nvrm_dev`, which is per virtio device, i.e. one per guest.
+
+**A caution for the next reader, because it is load-bearing.** Number 44 reads
+`0xffffffff` at `+0x30` as `NVRM_GPU_INVALID_ID`. The healthy values at that
+offset are `0x14` and `0x13` — small integers, where a gpu id on this rig is
+`0x2d00` natively and `0x6` in this guest. So `+0x30` is more likely an INDEX
+whose "not found" is `-1` than a gpu id, and the match with
+`NVRM_GPU_INVALID_ID` may be a coincidence of value. That matters because it
+is the link the whole "something hands libGLX_nvidia a -1" reading rests on.
+
+**What this run therefore establishes:** the poisoning is not reached by GL
+client churn at 750 lifecycles, not by concurrent GL and Vulkan load under the
+compositor, not by 40 minutes, and not by driving the backend to 2010 open
+descriptors. That is a much stronger negative than the previous one (48
+lifecycles, six rounds) and it points the same way.
+
+**What the next attempt needs, and it is now a short list.** The two sessions
+that DID poison had one thing this run could not reproduce: **a real game
+under Steam, with its overlay** — a Vulkan application and an OpenGL overlay
+inside one process tree, plus Moonlight actually connected. Everything else
+about those sessions has now been driven harder than they were. So either that
+combination is the variable, or the poisoning was removed by number 45's fix
+(the signal-restart double-submit that made a one-shot escape fail spuriously),
+which landed after both poisoned sessions and has never been tested against
+them. **Those two hypotheses are now the whole of this question**, and the
+first is one session with Steam away from being decided.
+
+**THE GAME WAS RUN, AND IT DID NOT CRASH.** The variable named above as the one
+this run could not reproduce was reproduced after all: the `desktop` rig was
+brought up with `--games --with-steam`, and **Shadow of the Tomb Raider — the
+exact title of number 44 — was launched under Steam** in the GNOME Wayland
+session.
+
+It rendered: **2100 MiB of device memory, 37 % GPU utilisation, 49 threads**,
+windows on the compositor's Xwayland, and `steamwebhelper` holding
+`/dev/nvidia0` beside it — so the Vulkan application and the OpenGL overlay
+were both live in one process tree, which is the configuration number 44
+describes. It ran for **about ten minutes** — `ps` read its elapsed time at 3:51 and a
+watcher sampled every 20 seconds for 360 s after that — where number 44 records
+the crash arriving **15–20 seconds after launch**. So it survived roughly
+**30× the interval in which it previously died**.
+
+Every detector stayed at zero throughout: `segfault at 8`, `Failed to acquire
+the EGL Image`, `GL_OUT_OF_MEMORY`, `ATTACH_GPUS_TO_FD` answering `-1`,
+`BDF mediation OFF`.
+
+**ONE DIFFERENCE REMAINS AND IT IS BLOCKED ON THE IMAGE, NOT ON THE
+QUESTION.** Number 44's session was being STREAMED — Sunshine on
+`capture=kms` with Moonlight connected. This rig's Sunshine came up
+`capture=portal`, and Moonlight is refused by it:
+
+    Launch response: status_code="503"
+    "Failed to initialize video capture/encoding. Is a display connected
+     and turned on?"
+
+which is the documented portal behaviour the rig warns about at boot
+(*"An unpatched Sunshine stops at the portal's permission dialog; bake with
+`--desktop-session xorg` for the path the numbers were taken on"*). So the
+streaming leg could not be added, and closing it needs a **rebake**, not
+another run of this one.
+
+**WHAT THIS LEAVES, and it is now two named things rather than a mystery:**
+
+1. **The stream is the last untested variable.** `--desktop-session xorg`,
+   `capture=kms`, Moonlight connected, then the game. That is one bake and one
+   run.
+2. **Or number 45 already fixed it.** The signal-restart double-submit that
+   made a one-shot escape fail spuriously landed AFTER both sessions that
+   poisoned, and has never been tested against them. Everything this run drove
+   at the defect — 750 GL client lifecycles, concurrent GL and Vulkan under the
+   compositor, 2010 open descriptors, and now the game itself — is consistent
+   with the defect no longer being there.
+
+**If the next run closes 1 and the game still does not crash, the honest
+reading is 2**, and 22-C, 23, 32, 33, 35 and 44 close together on that
+evidence. That is six entries on one measurement, which is why it is worth
+doing properly rather than quickly.
+
+---
+
+**THE MEASUREMENT THIS ENTRY EXISTED FOR, TAKEN 2026-08-21.** This entry said
+the chain was closed and the next measurement was not taken. It is now, and
+the chain closes with it: **22-C, 23, 32, 33, 35 and 44 together.**
+
+**What was assembled, and why it took this long.** Number 24 established that
+all of these hang on the Wayland path, so an Xorg run proves nothing --
+`glxgears` runs there and the display gate is 12/12. Number 44's crashing
+session was GNOME Wayland with Sunshine on `capture=kms` and Moonlight
+connected. Every earlier attempt at reproduction was missing the streaming
+leg, and the reason turned out to be a defect of ours rather than a choice:
+the GNOME branch started Sunshine with `env DISPLAY=$D XAUTHORITY=$XA` read
+out of gnome-shell's environ, and **under Wayland that environ carries
+neither**. Sunshine came up with no session, could not enumerate outputs even
+for KMS, and answered Moonlight with 503 *"Is a display connected and turned
+on?"* -- under `portal` and under `kms` alike. With the environment passed
+(`WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`) its log
+reads *"Screencasting with KMS"* and Moonlight decodes HEVC off it.
+
+**The run.** GNOME Wayland, `capture=kms`, Moonlight connected, Shadow of the
+Tomb Raider (49 threads) and `steamwebhelper` both holding `/dev/nvidia0`:
+
+    game runtime                      19m 25s   (defect appeared in 15-20s)
+    samples                           60, every 20 s
+    segfault at 8                      0
+    Failed to acquire the EGL Image    0        (crashing session: 744)
+    GL_OUT_OF_MEMORY                   0
+    Xwayland restarts                  0
+
+**The cause this points at is number 45**, and it is the one number 44 called
+"the right shape": the signal-restart double-submit that made a one-shot
+escape be issued twice and the second refused, so Xwayland was told an attach
+had failed that had succeeded. It landed after both sessions that crashed and
+had never been tested against them.
+
+**Honest about what this is.** It is a strong negative in the exact
+configuration, not a proof of mechanism -- nobody has shown the poisoned
+object being built, because it could not be produced again to watch. The
+closure is falsifiable and the test is cheap: a `segfault at 8` in
+`libGLX_nvidia`, or `Failed to acquire the EGL Image` on a Wayland session,
+reopens it. Both are one `dmesg` and one `journalctl` away.
+
+**Six entries closed on one measurement**, which is what this entry predicted
+when it said *"Fixing the import is expected to resolve the rest; nothing
+above it needs its own fix."* That prediction held.
 ### 36. Two traps of our own making
 **Named.** An empty `LEA_DEBUG` switches the firehose *on*, because an
 empty value is still a set variable; and a cleanup path deleted the
@@ -1964,6 +1870,364 @@ that named a real thing and pointed it at the neighbouring operation, and the
 only reason it survived is that both statements are true of *something*. When
 a piece of prose about this codebase disagrees with the code, check whether it
 is describing the step next door.
+### 44. A game and the compositor die at the same two addresses in NVIDIA's GL core
+**Resolved 2026-08-21.** It was the first stack the chain had, and the chain
+is closed. The original reasoning is kept below in full -- the core-dump work
+is the most detailed evidence this project has about the defect, and it stays
+whether or not the defect ever returns. Shadow of
+the Tomb Raider (the native Feral port, Vulkan) crashes 15-20 s after
+launch in a GNOME **Wayland** session. Two processes dump core at the SAME
+frame #0 and #1:
+
+    #0  libnvidia-glcore.so.610.57.04 + 0xd0a989
+    #1  libnvidia-glcore.so.610.57.04 + 0xf985b0
+    #2  ShadowOfTheTombRaider + 0x1df9535
+
+-- `WinMain`, the game's own process, and `WebViewRenderer`, the Steam
+overlay's CEF renderer. The game renders with Vulkan; the overlay with
+OpenGL. Both end in `libnvidia-glcore` at one address.
+
+Beside it, the compositor logs **744** EGL failures in the same session,
+with backtraces into `libnvidia-eglcore` -- the library number 35 names as
+the head of the chain -- and the visible symptom is the one number 10 had:
+windows go invisible while gnome-shell keeps running and the scanout
+buffer stops changing (`fbprobe`: STATIC, 0/9 polls, peak 1024/1024, so
+full rather than black).
+
+Measured 2026-08-20 on 610.57.04, guest module loaded, KMS capture. What
+is NEW here and was not available before:
+
+- a reproducer that takes 15-20 seconds rather than hours,
+- six core dumps kept under `vm/out-eglcrash/` (1.7 GB for the main one),
+  with `coredumpctl info` output beside them,
+- both crash sites at once: `glcore` for the clients, `eglcore` for the
+  compositor.
+
+**Hypothesis on the table, from the operator:** a missing or wrongly
+mediated ioctl in the GL/EGL path. What speaks for it: this is exactly
+where a mediated call would surface, in a library that assumes an answer
+it did not get. What speaks against it, so far: the backend's failure log
+for that session contains no unmediated call and no unknown class -- the
+failures it does record are `NV_ERR_NOT_SUPPORTED` on `0x2080012f` /
+`0x20800157` and `NV_ERR_OBJECT_NOT_FOUND` on `0x2080014b`, all three of
+which probe/README.md section 6 lists as occurring in the DIRECT run as
+well. The one group not on that list is the `0x73xxxx` family (NV0073,
+display controls), 30 calls answering `NV_ERR_OBJECT_NOT_FOUND` -- which
+is plausible for a display NVKMS invents and no physical monitor backs,
+and is worth ruling out rather than assuming.
+
+**The native counter-check is in, and it does not crash.** Measured
+2026-08-20 on this host: the same game, native, **under Wayland**
+(Hyprland), 1440p, about **100 FPS**, stable -- no crash, no EGL failures.
+So the two `glcore` addresses are not a place NVIDIA's driver dies on its
+own under a Wayland compositor, and whatever brings it there is on the
+guest side of the boundary.
+
+Two differences remain between the two runs and have to be closed before
+this is called proven: the host compositor is Hyprland (wlroots) and the
+guest's is mutter (GNOME), and the resolutions differ (1440p host, 1080p
+guest). A GNOME Wayland session on the host would remove the first one.
+
+What is therefore still open is the operator's hypothesis, and it is now
+the leading one: a missing or wrongly mediated call in the GL/EGL path.
+The remaining measurement is the last call before the crash --
+`LEA_DEBUG=2` logs every forwarded one, `LEA_CTRL_DUMP` dumps the ANSWER
+of a named control, and that second one matters because the failure class
+here may be "an answer that looks valid and is wrong" (number 32), which
+a status comparison cannot see and only the bytes can.
+
+Under X11 the same guest runs the same game; the `display` gate is 12/12
+green on that path (2026-08-20).
+
+**The crash site is read out of the core, and the bad value is a RETURN
+value.** Measured 2026-08-20 from `vm/out-eglcrash/winmain.core` -- which
+is the only core still kept in that directory -- against the host's
+libraries:
+
+- The two addresses are **not in one function**. `.eh_frame` FDEs put
+  `0xd0a989` at +0x139 of `[0xd0a850..0xd0aada)` and `0xf985b0` at +0x1e0
+  of `[0xf983d0..0xf98763)`. The second is the return address of
+  `call *0x110(%rax)`, so frame #1 calls frame #0 as a virtual method,
+  slot `0x110` of the vtable at `glcore+0x26fd1d0` -- confirmed in the
+  core, where `vtable[0x110]` is `glcore+0xd0a850` exactly.
+- The faulting instruction is `mov 0x8(%rdx),%rdx` with `rdx == 0`, so the
+  fault address is exactly **8**: the signature number 33 describes.
+- `rsi` is **not an argument**. It is the return value of the indirect
+  call at `glcore+0xd0a925`, and glcore checks it (`test %rax,%rax; je`)
+  and accepts it. The object is non-NULL and hollow: `+0x00..+0x27` are
+  all zero, including the `+8` pointer that faults, while `+0x28 = 9`,
+  `+0x30 = 0xffffffff`, `+0x50`, `+0x58 = 0x1d5`, `+0xa0` and
+  `+0xa8 = 0x20164010` are populated. A constructed object whose leading
+  fields were never filled -- not a fresh allocation, not a wild pointer.
+- The producer is **`libGLX_nvidia.so.610.57.04 + 0x83240`**, a function
+  entry (FDE `[0x83240..0x83449)`), reached through the dispatch table
+  `[[[this+0x5c8]+0x58]+0xba0] + 0x28da0`. It is called with the keys of
+  the enabled entries of `this+0x270` (4 of 4, stride 0x58), the count,
+  and a selector of **-1** -- and the object it hands back carries `-1`
+  at `+0x30`.
+- The loop then compares `key->+8` against `returned->+8->+8` and dies on
+  the **first** of the four entries.
+
+So the failure class is the one number 32 named and a status comparison
+cannot see: **an answer that looks valid and is wrong.** What is new is
+that the answer has an author -- `libGLX_nvidia`, the library numbers 23
+and 33 also end in -- and that glcore's own NULL check waves it through.
+
+The libraries are the host's bytes by construction: `lea_gl_stage` copies
+them out of `lea_nvidia_libdir` (here `/usr/lib`), pinned to
+`DRIVER_VERSION`. Recorded so a later run can check it directly rather
+than trusting that: `libnvidia-glcore.so.610.57.04` sha256
+`3a43bc796820f6ef4c102587db14284d90e9292a2b47d03ad4c1343cc8b3305a`,
+`libGLX_nvidia.so.610.57.04` sha256
+`7ef1112f99de62db27670075e2dd1318235bbb3fe769850bf714b0c7e657784c`.
+
+**The `0x73xxxx` group is ruled out, not assumed.** All of them -- 32 of
+them, not the 30 written above -- come from `nvidia-modeset`, and all fall
+in lines 9..66 of a 1410-line log, i.e. session startup. No process on the
+crash path (the game, `steamwebhelper`, `Xwayland`, `gnome-shell`) issues
+a single one.
+
+**The failure list above is incomplete.** That session records 263
+failures in 36 distinct (cmd, status, proc) combinations. Two of them come
+from crash-path processes and are NOT in probe/README.md section 6:
+
+- `NV_ESC_ATTACH_GPUS_TO_FD` (`nr 0xd4`, `NV_IOCTL_BASE + 12`) answering
+  **`ret -1`** to **Xwayland**, four times, during the game session (log
+  lines 321, 436, 463, 962).
+- `0x90960101` answering `0x80` to `steamwebhelper`, once.
+
+The first matters because the comment on `bdf_rewrite_attach_gpus()`
+([`guest-module/virtio_nvrm/virtio_nvrm.c`](../guest-module/virtio_nvrm/virtio_nvrm.c))
+describes exactly this `-1` as a bug found on 2026-08-15 and fixed there.
+Its guard needs `dev_tag == NVRM_DEV_CTL` and `bdf_on(dev)`; the log says
+`dev 0`, `NVRM_DEV_CTL` is `0`, and `provision.sh` turns `bdf_mediation`
+on for the display path this session used. The guard is therefore
+satisfied, the rewrite ran, and the call still fails. Unexplained -- and
+it is the only failure in the crash path that names the binding between a
+GPU and an fd.
+
+**A near miss, written down so it is not walked into twice: the
+cross-session fd tokens are NOT the cause.** The log shows 20
+`fd_field_token ... CROSS-SESSION` lines and zero `STALE` ones, which
+reads exactly like the chain the diagnostic in
+[`crates/vhost-user-nvrm/src/nvrm.rs`](../crates/vhost-user-nvrm/src/nvrm.rs)
+was added to prove. It is not: that diagnostic resolves against the
+CALLER's mirror, while the real translation uses `req.fd_field_proc`
+(protocol v6). The whole log contains **no refusal line at all**
+(`session N: ...`), so no `EBADF` on `fd_field_token` was ever returned.
+The diagnostic fires on the healthy v6 path too, and as written it invites
+the wrong conclusion.
+
+**Why this is still not the last call.** The `nvrm.log` kept beside the
+cores is not a `LEA_DEBUG=2` trace -- it holds failures, the fd census and
+events, 263 failure lines out of 1410. The last forwarded call before the
+SIGSEGV is therefore not in the evidence and cannot be recovered from it;
+it needs a re-run. What that re-run now has that the last one did not: a
+named producer (`libGLX_nvidia+0x83240`), a named suspect call
+(`NV_ESC_ATTACH_GPUS_TO_FD` on Xwayland), and two processes to filter to
+instead of a whole desktop session.
+
+*Unverified:* that the hollow object and the four failed
+`NV_ESC_ATTACH_GPUS_TO_FD` calls are one defect. Both sit on the
+Xwayland/GLX path and both concern which GPU an fd is bound to, but
+nothing measured so far links the crashing lookup to an fd whose attach
+failed. `LEA_DEBUG=2` together with `LEA_OBJLOG=1`, filtered to
+`Xwayland` and `steamwebhelper`, is the measurement that would decide it.
+
+Two side findings, not pursued here: the fd census ends the session at 799
+of 1021 process fds on `nvidiactl` with `unaccounted -201`, a negative
+number that should not be possible; and `Failed to acquire the EGL Image`
+stands at 744 occurrences after number 40 measured it down to zero, on a
+different session type (GNOME Wayland rather than the CS2/X11 run).
+
+**The game is not needed: `glxgears` is the same crash, in two seconds.**
+Measured 2026-08-20 in the guest that was still up from the crash session,
+against the compositor's own Xwayland (pid 7453, never restarted):
+
+- `glxgears` on `DISPLAY=:0` dumps core. `glxinfo -B` on the same display
+  succeeds and reports NVIDIA `4.6.0`, renderer `Leandro RTX 2070/PCIe/SSE2`,
+  8192 MB. The GL stack is up; only the second client dies.
+- `dmesg`: `glxgears[11477]: segfault at 8 ... in
+  libGLX_nvidia.so.610.57.04`, and beside it **four**
+  `FeralLinuxMessa[...]: segfault at 8` in the same library from the game
+  session. Number 23's signature, and the game's own launcher shares it.
+- The faulting instruction is `cmp %rcx,0x8(%rdx)` at
+  `libGLX_nvidia+0x83715`, inside `[0x836e0..0x8376f)`: a linked-list walk
+  (head at `container+0x10b0`, next at `+0x50`, hit cached at `+0x10b8`)
+  that dereferences `node->+8` for the comparison key. The core gives
+  `rdx == 0`, and **both** nodes in that list carry `+8 == NULL`.
+- The other branch of that same function calls **`0x83240`** -- the
+  function that produced the hollow object in the game's core. The two
+  crash sites are the fast and the slow path of one lookup over one
+  object type.
+- The faulting node reads `+0x28 = 9`, `+0x30 = 0xffffffff`, head zeroed:
+  **the same layout and the same values as the game's hollow object**. The
+  search keys match as well, `{1, self-pointer, 0x103, 0}` in both cores.
+
+So numbers 23, 33 and 44 are one defect: objects of this type are created
+with a NULL pointer at `+8`, and every consumer that walks them dies at
+address 8 -- glcore's array search for the game, libGLX_nvidia's list walk
+for `glxgears`.
+
+**And a sequence diff would not have found it.** The backend recorded
+exactly the same two failures for the client that WORKS and the client that
+CRASHES -- `0x2080012f` answering `NV_ERR_NOT_SUPPORTED`, twice each, which
+probe/README.md section 6 lists as benign. `NV_ESC_ATTACH_GPUS_TO_FD` did
+not fire during the `glxgears` crash at all, which retires the *Unverified*
+guess above instead of confirming it. The crash is invisible to a status
+comparison, exactly as number 32's failure class predicts; the core dump
+found it, the log could not.
+
+What the next measurement gets from this: a reproducer that takes two
+seconds, needs no Steam, no game and no Moonlight, runs over
+`showcase.sh ssh`, and comes with a WORKING control (`glxinfo`) in the same
+session on the same display. `LEA_DEBUG=2` across that pair is a diff of
+two clients that differ only in the outcome -- tighter than the native host
+run, which differs in compositor, resolution and kernel. Evidence under
+`vm/out-glxgears/`: the core (33 MB), the dmesg lines, the backend delta.
+
+**Number 29's discriminator holds on demand, and both arms were taken in
+the same minute.** In that same guest: `glxgears` on the compositor's
+Xwayland (`:0`) takes SIGSEGV at address 8, and `glxgears` on an Xwayland
+this session started itself (`:3`, an ordinary Wayland client of the same
+mutter) runs its full twelve seconds and reports 71.7 then 60.0 FPS, with
+`glxinfo` naming the same renderer on both. Same binary, same driver, same
+guest, same compositor underneath; the only variable is who started
+Xwayland. Per number 30 that FPS figure is a swap counter and NOT a claim
+that anything reached a screen -- what is measured here is only that the
+process does not die.
+
+That pair is the experiment number 44 has been waiting for: two clients
+that differ in outcome and in nothing else, both driven over
+`showcase.sh ssh`. `LEA_DEBUG=2` across it needs a backend restart, since
+the level is read once per process, and a restart costs the live crashed
+instance -- which is why the evidence above was written out first.
+
+**The restart was taken, and the crash did not come back.** Measured
+2026-08-20 on a guest brought up fresh with `LEA_DEBUG=2`:
+
+- `glxgears` on the compositor's Xwayland runs, 58.8 FPS. Six rounds of
+  client churn -- eight `glxinfo` and two `glxgears` each, then a test run
+  -- did not change that, and `dmesg` counted zero `segfault at 8`. So the
+  state number 33 calls self-poisoning is NOT reached by use: not by time,
+  not by client count, not by drawing.
+- A second fresh session, traced to 578_690 calls, is equally clean: no
+  crash, no refusal, and not one `ret -1` anywhere.
+
+So the reproducer of the section above is a reproducer only on an ALREADY
+poisoned instance. What poisons it is still unmeasured, and the two
+sessions that had it (the game's and the one `glxgears` was caught on) are
+both gone. Naming it needs a guest kept until it poisons itself, with the
+trace already running -- which is now cheap to arrange and was not before.
+
+**What the healthy instance did give is the missing half of the
+comparison.** Breaking at `libGLX_nvidia+0x836e0` in a healthy guest and
+walking the same list shows two nodes, exactly as the poisoned core had,
+and they differ from it in precisely two fields:
+
+| field | healthy | poisoned |
+|---|---|---|
+| `+0x30` | `0x14`, `0x13` | `0xffffffff` on both |
+| `+0x08` | a valid pointer | `NULL` on both |
+
+`+0x28` is `9` in both, the node count is 2 in both, and in the healthy
+case each node's backing object holds a pointer to ITSELF at `+8`, which
+is the identity token the search compares. `0xffffffff` is
+`NVRM_GPU_INVALID_ID` (`nvrm_wire.h`). So the object is not corrupted
+after the fact: it is BUILT for an id that is already the invalid one, and
+gets no backing because there is nothing to back it with. Whatever hands
+libGLX_nvidia that `-1` is the defect.
+
+The guest's library is the host's, now measured rather than argued:
+`/opt/nvrm-gl/lib/libGLX_nvidia.so.610.57.04` in the guest hashes
+`7ef1112f99de62db27670075e2dd1318235bbb3fe769850bf714b0c7e657784c`, the
+same sha256 as the host's copy.
+
+**Three of our own diagnostics were lying, and all three are fixed** --
+which is the fix this round earned, because it is the part that was
+measured:
+
+1. The `CROSS-SESSION` reader in
+   [`nvrm.rs`](../crates/vhost-user-nvrm/src/nvrm.rs) asked whether the
+   CALLER's mirror holds the token, which stopped being the right question
+   at protocol v6: the translation resolves through `fd_field_proc`. It
+   reported 20 misses in a session that refused nothing, reading exactly
+   like the bug it was added to find. It now fires only on the real
+   refusal condition -- field translated at all, device cannot resolve it,
+   caller's own mirror cannot either. A fresh traced session reports zero.
+2. A hard ioctl failure (`ret != 0`) logged no FD, and for a one-shot
+   escape the FD is the whole question. It now prints the host FD and
+   token beside the failure.
+3. The fd census printed `unaccounted` as `ctl - named - window.len()`,
+   subtracting three different units: nvidiactl-only FDs, session-held FDs
+   of every node type, and guest memory MAPPINGS. It read negative
+   always -- -21 on a bare boot, -203 on a desktop -- for a figure its own
+   doc calls "held outside every session". It is now `total - named` and
+   named `outside every session`.
+
+None of the three is the crash. They are the reason the crash was hunted
+in the wrong place for a session, which is worth the diff on its own.
+
+**And the second of those three immediately found a real defect: see 45,
+resolved the same day.** A signal arriving while the guest module waited
+for a reply it had ALREADY submitted made the kernel restart the whole
+ioctl, so a one-shot escape was issued twice and the second one refused.
+Xwayland was told an attach had failed that had succeeded. That is the
+right shape for what poisons a GL stack -- a device object built for an id
+its owner believes invalid, and `0xffffffff` is the value both the hollow
+libGLX nodes and eglcore's live `rax` carry at the fault. It is *not*
+proof: the crash of 23/33/44 has never been reproduced on a fresh guest,
+so nothing yet shows this fixes it. What it does remove is a real
+confound, and it makes the next attempt at reproducing 44 one variable
+simpler.
+
+---
+
+**CLOSED 2026-08-21, IN THE CONFIGURATION THIS ENTRY DESCRIBES.** Everything
+this entry asked for was finally present at once, which had never happened
+before -- each earlier attempt was missing at least one leg:
+
+| leg | earlier attempts | this run |
+|---|---|---|
+| GNOME Wayland session | yes | yes |
+| Sunshine capture | `portal` (refused Moonlight, 503) | **`kms`, "Screencasting with KMS"** |
+| Moonlight connected | never | **connected, decoding HEVC** |
+| the game | yes, once | yes |
+| Steam overlay on the GPU | yes | yes (`steamwebhelper` on `/dev/nvidia0`) |
+
+The reason the streaming leg had never worked is its own small defect, fixed
+the same day: the GNOME branch started Sunshine with `env DISPLAY=$D
+XAUTHORITY=$XA`, both read from gnome-shell's environ -- and under Wayland
+that environ carries NEITHER, so the `env` reduced to a bare `sunshine` with
+no session, and it cannot enumerate outputs even for the KMS path.
+
+**The result.** `ShadowOfTheTombRaider`, 49 threads, ran **19 minutes 25
+seconds** against the **15-20 seconds** recorded above, with `steamwebhelper`
+beside it. Sixty samples at 20-second intervals:
+
+    segfault at 8                     0
+    Failed to acquire the EGL Image   0     (this entry records 744)
+    GL_OUT_OF_MEMORY                  0
+    Xwayland restarts                 0
+
+**Why number 45 is the answer this points at**, and it is the hypothesis this
+entry already named as "the right shape": a signal arriving while the guest
+module waited for a reply it had already submitted made the kernel restart the
+whole ioctl, so `NV_ESC_ATTACH_GPUS_TO_FD` was issued twice and the second was
+refused. Xwayland was told an attach had failed that had succeeded -- which is
+exactly how a device object comes to be built for an id its owner believes
+invalid, and `0xffffffff` is the value both the hollow libGLX nodes and
+eglcore's live `rax` carry at the fault. That fix landed AFTER both sessions
+that crashed and had never been tested against them until now.
+
+**Two things in this entry that stay true and are worth keeping.** The
+`+0x30` caution -- healthy values there are `0x14` and `0x13`, small integers
+where a gpu id is `0x2d00`/`0x6`, so reading `0xffffffff` as
+`NVRM_GPU_INVALID_ID` may be a coincidence of value rather than an
+identification. And the three lying diagnostics this entry fixed on the way
+(`CROSS-SESSION`, the FD-less failure log, the negative `unaccounted`) were
+never the crash and are still the reason it was hunted in the wrong place for
+a session.
 ### 45. `NV_ESC_ATTACH_GPUS_TO_FD` answers `-1` to Xwayland
 **Resolved 2026-08-20, and the cause was ours rather than the ioctl's.** A
 signal interrupted the guest module's wait for the host's reply AFTER the
