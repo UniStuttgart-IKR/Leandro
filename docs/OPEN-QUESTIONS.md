@@ -892,10 +892,9 @@ held them there for ten minutes -- `probe/bin/vrampress --max` in each, with
 `vkcube-wayland` drawing on the GNOME session. Measured
 (`docs/measurements/vram-68/`):
 
-  * **12482 and 13240 refused allocations**,
-    guest free VRAM down to **2 MiB**, the backends logging refusals
-    throughout (259 / 278 lines, the log keeps the first eight and every
-    hundredth).
+  * **12 482 and 13 240 refused allocations**, guest free VRAM down to
+    **2 MiB**, the backends logging refusals throughout (259 and 278 lines,
+    the log keeps the first eight and every hundredth).
   * **No freeze.** `fbprobe` read `CONTENT` with the frame changing at three
     separate points in each guest, including with the guest at its limit,
     and after the load ended it was `GREEN` on all three readers.
@@ -915,8 +914,9 @@ question above (fill the host's card, fail a GEM allocation, free it, watch
 the HOST compositor) is still the run that would settle it.
 
 **And a calibration note for the host-side detector.** Under this load the
-healthy churn was **23-29 (medians 26 and 26, 17 windows per guest)** distinct per-backend values per 30 s,
-against the 29-43 measured with a game running. The frozen signature of 3-6
+healthy churn was **23-29** distinct per-backend values per 30 s -- medians
+26 and 26 over 17 windows per guest -- against the 29-43 measured with a
+game running. The frozen signature of 3-6
 was never approached, but the margin above the ~10 threshold is thinner than
 the game measurement suggests: the detector reads how much a workload
 ALLOCATES, so a quiet workload on a healthy guest sits closer to the line.
@@ -1063,35 +1063,34 @@ from a frozen guest.
 | per backend, peak | 2841 / 2842 | 3099 / 3096 | 3242 / 3101 |
 | card used, peak | 6664 MiB | 7178 MiB | -- |
 | card free, MINIMUM | **1108 MiB** | 595 MiB | **1 MiB** |
-| churn, distinct values per 30 s | 23-29 (medians 26 and 26, 17 windows per guest) | 20-29 (medians 25 and 26, 18 windows per guest) | 3-6 when frozen |
+| churn, distinct values per 30 s | 23-29, medians 26/26 | 20-29, medians 25/26 | 3-6 when frozen |
 | `fbprobe` under load | `CONTENT`, frame changing | `CONTENT`, frame changing | `STATIC`, 0/8 |
 | refusals logged by the backend | 259 / 278 | 268 / 258 | 29, one guest |
 | `Failed to allocate NVKMS memory` | 0 and 0 | 0 and 0 | both guests |
 
 **WHAT THE A/B SHOWS, and what it does not.** Both policies were given the
 same number, 3072, and only one of them kept to it: the accounting run cost
-the card **512 MiB more** than the reservation run and left
-**513 MiB less** free on the card, because under it the guest
-may allocate the whole 3072 and RM's own device memory is charged on top.
+the card **512 MiB more** than the reservation run and left **513 MiB less**
+free on it, because under that policy the guest may allocate the whole 3072
+and RM's own device memory is charged on top.
 Neither run reached the 1 MiB floor -- this load is lighter on the card than
 the recorded one, having no game and no Moonlight decoders -- so the floor
 clause of the criterion is met by both, and the clause that separates them is
 the arithmetic: 5674 inside 6144 against 6186 outside it.
 
 **THE OVERHEAD, MEASURED AGAIN AND MUCH SMALLER.** Peak charge per backend
-was 2841 and 2842 MiB against a guest framebuffer of
-2816 MiB -- about 25 MiB of RM's own device memory, where the
-game-plus-NVENC-plus-stream workload cost ~175. **The reservation is
+was 2841 and 2842 MiB against a guest framebuffer of 2816 MiB -- about
+25 MiB of RM's own device memory, where the game-plus-NVENC-plus-stream
+workload cost ~175. **The reservation is
 therefore a knob and not a constant**, 256 MiB covered both, and this run is
 the second data point rather than the answer.
 
-**WHAT DID NOT HAPPEN, and it is the more interesting half.** Both guests sat
-at their own limit for ten minutes -- 12482 and
-13240 refused allocations, guest free VRAM down to 2 MiB --
-and neither froze. `fbprobe` read `CONTENT` at three separate points in each
-guest, and both guest kernels logged ZERO `Failed to allocate NVKMS memory
-for GEM object`. See number 67: a refusal at the tenant cap is not by itself
-the latch.
+**WHAT DID NOT HAPPEN, and it is the more interesting half.** Both guests
+sat at their own limit for ten minutes -- 12 482 and 13 240 refused
+allocations, guest free VRAM down to 2 MiB -- and neither froze. `fbprobe`
+read `CONTENT` at three separate points in each guest, and both guest
+kernels logged ZERO `Failed to allocate NVKMS memory for GEM object`. See
+number 67: a refusal at the tenant cap is not by itself the latch.
 
 **WHAT THE RUNS DO NOT SETTLE, named rather than left to be discovered:**
 
@@ -1113,13 +1112,14 @@ the latch.
     RAM, bounded by `max_pin_mib`.
 
 **RESOLVED 2026-08-21**, on the four conditions fixed before the run: the
-combined charge stayed inside the sum of the profiles (5674 of 6144) where the
-old policy did not (6186); the card's free memory never approached the floor
-(1108 MiB against 1); the freeze detector never fired (23-29 distinct values per
-30 s against 3-6 when frozen); `fbprobe` read moving content in both guests
-under load; and the gates are green -- `test.sh check` 15 PASS (counted,
-not glanced at), `test.sh gpu` pass over its eight stages with the guest
-bitstream against the native one, `test.sh vdisplay` pass over its six.
+combined charge stayed inside the sum of the profiles (5674 of 6144) where
+the old policy did not (6186); the card's free memory never approached the
+floor (1108 MiB against 1); the freeze detector never fired (23-29 distinct
+values per 30 s against 3-6 when frozen); `fbprobe` read moving content in
+both guests under load; and the gates are green -- `test.sh check` 15 PASS
+(counted, not glanced at), `test.sh gpu` pass over its eight stages with the
+guest bitstream against the native one, `test.sh vdisplay` pass over its
+six.
 What is left of the mechanism is in `docs/FUTURE.md`, and the failure mode
 this was raised out of is number 67, which this run narrows rather than
 closes.
