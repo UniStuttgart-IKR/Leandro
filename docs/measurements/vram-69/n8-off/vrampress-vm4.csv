@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: MIT
+# the load's own log: t,held_mib,free_mib,total_mib,allocs,frees,fails (guest-side view) -- n8-off policy, 2026-08-21.
+vrampress: cuCtxCreate 2 -- no context, the card refused before any allocation

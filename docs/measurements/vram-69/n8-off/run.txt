@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MIT
+# run.txt, from the run -- n8-off policy, 2026-08-21.
+[22:19:56] policy=off count=8 mem=1536 cpus=2 load=120s host already holds 869 MiB of VRAM and 22916 MiB of RAM free
+[22:22:07] up: 8 of 8
+[22:22:07] backend pids: 3952164 3953080 3954047 3955367 3956699 3957643 3959029 3960365
+[22:22:07] load: vrampress --max in every guest

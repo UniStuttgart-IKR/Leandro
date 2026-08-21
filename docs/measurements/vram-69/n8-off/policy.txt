@@ -1,0 +1,2 @@
+# SPDX-License-Identifier: MIT
+# policy.txt, from the run -- n8-off policy, 2026-08-21.

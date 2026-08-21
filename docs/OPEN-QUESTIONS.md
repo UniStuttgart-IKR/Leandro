@@ -1274,10 +1274,35 @@ disagree -- `/proc/driver/nvidia/gpus/` is empty there (number 2) and
 `nvidia-smi -L` prints the new UUID happily. The objection is inside
 libcuda, and finding it means tracing libcuda.
 
-**WHAT WOULD CLOSE THIS ENTRY:** the density half -- 2, 6 and 8 guests
-under `RTX2070-1Q`, whose eight-instance row is what a catalogue buys that
-a per-VM number cannot -- and the admission demonstration, a fifth VM
-refused against `2Q`'s `maxInstance` of four.
+**THE DENSITY HALF, and it is where the catalogue earns its keep.** The
+same load, `RTX2070-1Q` (512 MiB of guest framebuffer, `maxInstance` 8),
+against the uncapped card at the same count:
+
+| VMs | policy | peak used | card free, MIN | combined | starved | held by each guest |
+|---|---|---|---|---|---|---|
+| 2 | `1Q` | 1882 | **5891** | 1008 | 0 | **384 x2** |
+| 6 | `1Q` | 3873 | **3899** | 2980 | 0 | **384 x6** |
+| 8 | `1Q` | 4738 | **3035** | 3966 | 0 | **384 x8** |
+| 8 | none | 7464 | **309** | 6592 | **4** | 256, 2176, 256, 3584, no ctx, 0, no ctx, 0 |
+
+**Every guest gets the same 384 MiB** -- its 512 minus the ~128 MiB a CUDA
+context costs -- at two, six and eight tenants alike, and the card still has
+3 GiB free at eight. Uncapped at the same count, **half the tenants got
+nothing**: two could not create a CUDA context at all, two more got zero
+bytes, while one took 3584 MiB and another 2176, and the card bottomed out
+at 309 MiB.
+
+So the case for a policy is not performance -- the three capped ones were
+within 1.5 % of each other -- it is whether the eighth tenant gets a GPU at
+all. And the case for the CATALOGUE over a per-VM number is that
+`RTX2070-1Q` is a promise the manager can check before the VM starts, from
+numbers the card itself gave.
+
+**WHAT WOULD CLOSE THIS ENTRY:** the admission demonstration -- a fifth VM
+refused against `2Q`'s `maxInstance` of four, and a sixth refused for being
+a different type on a card that is running `1Q` -- and an answer to the
+UUID question above, which needs libcuda traced rather than reasoned about.
+Neither needs a guest that is not already on this rig.
 
 ## Resolved and decided
 

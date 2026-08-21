@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+# run.txt, from the run -- n6-grid1q policy, 2026-08-21.
+[22:11:05] policy=grid:1Q count=6 mem=1536 cpus=2 load=120s host already holds 866 MiB of VRAM and 21233 MiB of RAM free
+[22:12:58] up: 6 of 6
+[22:12:58] backend pids: 3914343 3915234 3916128 3919239 3920887 3921933
+[22:12:58] load: vrampress --max in every guest
+[22:15:04] down
+[22:15:13] done -- /tmp/claude-1000/-home-silas-git-Leandro/f3fc191a-453c-4f97-8ba3-de299d29d9e3/scratchpad/bench/n6-grid1q
