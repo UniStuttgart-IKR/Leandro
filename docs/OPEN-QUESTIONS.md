@@ -529,6 +529,77 @@ the different stall, and recorded as suggestive only.
 
 Evidence bundle: 1 Hz host CSV (393 samples), 5 s guest samples, both backend
 logs, both guests' dmesg/journal/Sunshine tails, both `fbprobe` verdicts.
+
+---
+
+## 2026-08-21, second run: THE FREEZE LATCHES. It does not recover when the memory does.
+
+The 1080p run above was repeated with the game set to **720p** and everything
+else identical -- same two guests, same `--vram-limit 3072 --cpus 6 --mem
+8192`, same 1080p Sunshine streams. It froze again, **sooner** (~2 minutes
+rather than ~4), and this time the recovery behaviour was watched rather than
+the onset.
+
+**The exhaustion is transient. The freeze is permanent.** Host 1 Hz samples,
+churn measured as DISTINCT per-backend VRAM values per 30 s window:
+
+| window | `desktop` | `desktop2` | mean free VRAM |
+|---|---|---|---|
+| 18:59:02 | 30 | 26 | 1627 MiB |
+| 18:59:37 | 25 | 24 | 330 |
+| 19:00:13 | 22 | 23 | 395 |
+| **19:00:49** | **10** | **12** | **116** |
+| 19:02:00 | 9 | 7 | 462 |
+| 19:03:11 | **3** | **3** | **903** |
+| 19:04:57 | **3** | **3** | **915** |
+
+Free VRAM fell to **74 MiB** at 19:00:49, which is the second both guests
+logged `Failed to allocate NVKMS memory for GEM object`. It then **recovered
+to ~900 MiB and stayed there**, and five minutes later both guests were still
+frozen -- `fbprobe`, both: all three readers `STATIC`, `frame changed in 0/8
+polls`, and the games still resident at ~320% CPU with Steam, gnome-shell and
+Sunshine all alive.
+
+**So one failed allocation during a brief squeeze wedges the compositor for
+good.** Nothing retries successfully afterwards, with 900 MiB sitting free.
+That is a different and more useful statement than "it ran out of VRAM": the
+window that has to be survived is SECONDS, and surviving it is the whole
+problem. A headroom policy therefore has to be sized for the transient peak,
+not for the steady state -- the steady state here was comfortable.
+
+**One tell that this run was the milder case.** In the 1080p run `fbprobe`
+reported `cuda UNAVAILABLE -- cuCtxCreate: out of memory`; here it reported
+`cuda STATIC`. The CUDA context was created without trouble, so the card was
+NOT empty at probe time -- the compositor was simply already wedged. The two
+readings separate "the card is full now" from "the card was full once".
+
+**720p bought less than expected, and it is worth writing down why.**
+
+| | 1080p run | 720p run |
+|---|---|---|
+| minimum free VRAM | 1 MiB | **1 MiB** |
+| time to freeze | ~4 min | **~2 min** |
+| cap refusals | 9 / 29 | 3 / 15 |
+| peak temperature | 88 C | 85 C |
+| game CPU | ~290% | ~320% |
+
+The in-game setting shrinks the game's RENDER TARGETS and nothing else: the
+capture is still 1080p, NVENC's surfaces are still 1080p, the two Moonlight
+decoders still cost 612 MiB on the host, the per-backend overhead is still
+~175 MiB, and both guest desktops are still 1080p. It froze sooner because
+both games loaded in parallel this time instead of staggered, so the transient
+peaks coincided.
+
+**What this adds to the entry.** The VRAM cause now has a shape: a transient
+squeeze, a latching failure, and a recovery that never comes. It also gives a
+cheap host-side detector that needs nothing inside the guest -- churn under
+~10 distinct values per 30 s while the encoder still reports 58-60 fps -- and
+that detector fired here at 19:00:49, about two minutes before the operator
+reported the symptom.
+
+**Still open, and the CPU case is still untouched.** Nothing in either
+2026-08-21 run reproduces the 2026-08-20 CPU-starvation stall, and its two
+levers remain unmeasured.
 ### 56. The surface is tracked per run, and the question is per ioctl
 **Open, raised 2026-08-20.** Everything the matrix writes is keyed by the
 run that produced it: `catalog-<driver>.json` is one file per driver

@@ -101,6 +101,22 @@ command line, so the loop waits for itself. Wait on the pidfile:
 
     until ! lea_running vm/test-check.pid; do sleep 15; done
 
+The same trap bites `pkill -f`, and harder: it matches the killing command's
+own line and kills the shell that ran it. Measured twice on 2026-08-21, once
+against a soak script and once against a sampler. Kill by the pid you
+recorded when you started the thing, never by a pattern.
+
+**`pgrep -x cloud-hypervisor` never matches, and answers 0 forever.** A
+process's `comm` is capped at 15 characters (`TASK_COMM_LEN`), so the name
+the kernel stores is `cloud-hyperviso` and an exact-match query for the
+16-character spelling cannot hit it. On 2026-08-21 that check was used
+repeatedly to report "0 rigs up"; it was right by luck every time, because
+the rigs really were down, and it would have said exactly the same thing
+with two VMs running -- as it eventually did. Ask
+`scripts/showcase.sh status`, which reads the pidfiles, or match the
+truncated name deliberately. The same applies to any binary whose name is
+15 characters or longer.
+
 **A gate can kill another gate's backend.** A run once sent `SIGTERM` to a
 desktop instance's backend. cloud-hypervisor stayed up, so it did not look
 like a kill at all — the guest simply hung forever in the next RM call.
