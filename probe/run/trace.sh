@@ -56,6 +56,10 @@ _LEA_LIB=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib" && pwd) || exit
 source "$_LEA_LIB/config.sh"
 # shellcheck source=scripts/lib/common.sh
 source "$_LEA_LIB/common.sh"
+# The counting rule (lea_matrix_n_*) and the signature key live here, and
+# this file asks them rather than writing its own -- OPEN-QUESTIONS 47.
+# shellcheck source=scripts/lib/matrix.sh
+source "$_LEA_LIB/matrix.sh"
 
 usage() { lea_usage_from_header; exit "${1:-0}"; }
 
@@ -97,7 +101,12 @@ lea_trace_stage() {
     LEA_TRACE_FILE="$D/$tag.tsv" LD_PRELOAD="$LEA_TRACE_LIB" \
         "$@" > "$D/$tag.out" 2>&1
     tail -2 "$D/$tag.out"
-    strace -f -e trace=ioctl -o "$D/$tag.strace" "$@" >/dev/null 2>&1
+    # `-y` prints the PATH behind every fd, and the delta rule below cannot
+    # work without it: an ioctl is only ours if it is on an NVIDIA node, and
+    # the fd number alone does not say. Measured 2026-08-21 on the matrix
+    # traces, which have always had it -- see lea_matrix_n_strace and
+    # OPEN-QUESTIONS number 47.
+    strace -f -y -e trace=ioctl -o "$D/$tag.strace" "$@" >/dev/null 2>&1
     TAGS+=("$tag")
     return 0
 }
@@ -147,19 +156,55 @@ _lea_stages() {
 }
 
 # lea_trace_table -- the delta table over everything lea_trace_stage ran.
+#
+# THE COUNTING RULE LIVES IN ONE PLACE and this asks it: lea_matrix_n_* in
+# scripts/lib/matrix.sh, the same functions the matrix runner and the guest
+# half call. It used to write its own two expressions, and both were wrong in
+# the way OPEN-QUESTIONS number 47 describes:
+#
+#   * the tracer side counted EVERY node, the strace side counted the
+#     substring `_IOC` on every fd, and the two happened to agree only
+#     because nvprobe, torch and smi touch no DRM and no NVKMS node;
+#   * `_IOC` as a substring matches the NAMED requests strace does know:
+#     DRM_IOCTL_VERSION, DRM_IOCTL_GEM_CLOSE, DRM_IOCTL_AMDGPU_FENCE_TO_HANDLE.
+#
+# Measured 2026-08-21 over the committed matrix straces, `grep -c _IOC`
+# against the rule, per probe: vk-enum 1384 against 961 (423 phantom),
+# gl-enum 593/531, gles 624/568, egl-xlib 604/566 -- and cuda-core 433/433,
+# nvml 179/179, which is exactly why this file never saw it.
+#
+# The three nodes are three columns, never one total, for the reason the
+# NVKMS work established: added together, a passing row and a failing row
+# hide each other.
 lea_trace_table() {
-    local t a b nf
+    local t a b nf k kb dr
     echo
-    printf '%-14s %8s %8s %7s %6s\n' stage tracer strace delta NF
+    printf '%-14s %8s %8s %7s %6s %6s %6s\n' stage tracer strace delta NVKMS DRM NF
     for t in "${TAGS[@]}"; do
-        a=$(grep -c '^ioctl' "$(_lea_stream "$t")" 2>/dev/null) || a=0
-        b=$(grep -c '_IOC'   "$D/$t.strace" 2>/dev/null) || b=0
+        a=$(lea_matrix_n_tracer "$(_lea_stream "$t")" 2>/dev/null) || a=0
+        b=$(lea_matrix_n_strace "$D/$t.strace" 2>/dev/null) || b=0
+        k=$(lea_matrix_n_tracer_kms "$(_lea_stream "$t")" 2>/dev/null) || k=0
+        kb=$(lea_matrix_n_strace_kms "$D/$t.strace" 2>/dev/null) || kb=0
+        dr=$(lea_matrix_n_tracer_drm "$(_lea_stream "$t")" 2>/dev/null) || dr=0
         nf=$(awk -F'\t' '$1=="ioctl"{print NF; exit}' "$(_lea_stream "$t")" 2>/dev/null)
-        printf '%-14s %8s %8s %7s %6s\n' "$t" "$a" "$b" "$((b - a))" "${nf:-0}"
+        printf '%-14s %8s %8s %7s %6s %6s %6s\n' \
+            "$t" "$a" "$b" "$((b - a))" "$k/$kb" "$dr" "${nf:-0}"
     done
     echo
-    echo "delta must be 0. NF must be >=9 (the fd field); below that, an old"
-    echo "log.rs is in the tree."
+    echo "delta must be 0, and NVKMS must read n/n. NF must be >=9 (the fd"
+    echo "field); below that, an old log.rs is in the tree."
+    # An strace taken before 2026-08-21 has no `-y`, so it carries no fd
+    # paths and the node filter matches nothing. Say so rather than report a
+    # delta equal to the whole run: a wrong number that looks like a finding
+    # is worse than a stated gap.
+    for t in "${TAGS[@]}"; do
+        if [[ -s $D/$t.strace ]] && ! grep -q '</dev/' "$D/$t.strace" 2>/dev/null; then
+            echo
+            echo "NOTE: $t.strace was taken without 'strace -y', so it carries no fd"
+            echo "paths and the strace column above counts 0. Re-run the stage."
+            break
+        fi
+    done
 }
 
 lea_trace_prepare() {
@@ -246,9 +291,8 @@ do_smi() {
     echo
     echo "--- signatures new versus libcuda (needs lvl4blocking.tsv) ---"
     if [[ -f $D/lvl4blocking.tsv || -f $D/lvl4blocking.jsonl ]]; then
-        sig() { awk -F'\t' '$1=="ioctl"{print $2"\t"$3"\t"$4}' "$@" | sort -u; }
-        comm -13 <(sig "$(_lea_stream lvl4blocking)") \
-                 <(sig "$(_lea_stream smi)" "$(_lea_stream smi-q)")
+        comm -13 <(lea_trace_sig "$(_lea_stream lvl4blocking)") \
+                 <(lea_trace_sig "$(_lea_stream smi)" "$(_lea_stream smi-q)")
     else
         echo "  (lvl4blocking.tsv missing -- probe/run/trace.sh nvprobe first)"
     fi
@@ -322,7 +366,7 @@ do_analyse() {
     for t in "${SEEN[@]}"; do
         f="$(_lea_stream "$t")"
         calc=$(awk -F'\t' '$1=="ioctl"' "$f" | wc -l)
-        awk -F'\t' '$1=="ioctl"{print $2"\t"$3"\t"$4}' "$f" | sort -u > "$sigdir/$t"
+        lea_trace_sig "$f" > "$sigdir/$t"
         sigs=$(wc -l < "$sigdir/$t")
         if [[ -n $prev ]]; then new=$(comm -13 "$prev" "$sigdir/$t" | wc -l); else new=$sigs; fi
         printf '%-16s %8s %11s %6s\n' "$t" "$calc" "$sigs" "$new"
@@ -339,7 +383,13 @@ do_analyse() {
     for dev in ctl gpu uvm uvmtools event; do
         c=$(awk -F'\t' -v D="$dev" '$1=="ioctl" && $2==D' "$L" | wc -l)
         [[ $c -gt 0 ]] || continue
-        s=$(awk -F'\t' -v D="$dev" '$1=="ioctl" && $2==D{print $3"\t"$4}' "$L" | sort -u | wc -l)
+        # The same collapsed key as the curve above -- number 47 again, and
+        # this site had it too. The two agree by construction: on
+        # torch5conv the per-device column sums to 88+5+13 = 106 and the
+        # curve's last row is 106. Before the collapse both were internally
+        # consistent at 134 and both were 28 too high, which is the point --
+        # a wrong rule applied everywhere agrees with itself.
+        s=$(lea_trace_sig "$L" | awk -F'\t' -v D="$dev" '$1==D' | wc -l)
         printf '%-10s %9s %11s\n' "$dev" "$c" "$s"
     done
 

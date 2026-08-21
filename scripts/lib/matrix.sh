@@ -225,6 +225,36 @@ lea_matrix_n_strace_kms() {
     grep '_IOC(' "$1" 2>/dev/null | grep -c '/dev/nvidia-modeset' || true
 }
 
+# lea_trace_sig TRACE... -- the signature SET of one or more traces, sorted.
+#
+# The key is (device, nr, sub), and `sub` is the second DISPATCH level: the
+# cmd for RM_CONTROL, the hClass for RM_ALLOC. For NV_ESC_RM_MAP_MEMORY
+# (0x4e) it is NOT -- log.rs deliberately puts hMemory there so a mapping can
+# be matched to its allocation, and a handle is an INSTANCE, not a dimension
+# of the surface. Keyed on it, one escape becomes as many rows as the
+# workload made mappings.
+#
+# Measured 2026-08-21 on the traces OPEN-QUESTIONS number 47 names, raw key
+# against this one: lvl3 135 -> 107, lvl4blocking 135 -> 107, torch5conv
+# 134 -> 106, i.e. 28 of the 135 "signatures" were one escape wearing 29
+# handles. It is worse where more is mapped: nvenc 250 -> 135, vk-enum
+# 161 -> 123. A saturation curve built on the raw key therefore starts too
+# high and, on a mapping-heavy workload, never flattens.
+#
+# ioctlmatrix.collect_signatures collapses it the same way and cites the same
+# number; this is that rule for the shell consumers.
+# Several traces may be given; their signature sets are unioned, which is
+# what the "new versus libcuda" comparison asks for. lea_trace_stream takes
+# ONE file, so the loop is the caller's job and not an oversight.
+lea_trace_sig() {
+    local f
+    for f in "$@"; do
+        lea_trace_stream "$f"
+    done | awk -F'\t' '
+        $1=="ioctl" { s = ($3=="0x4e") ? "-" : ($4=="" ? "-" : $4)
+                      print $2"\t"$3"\t"s }' | sort -u
+}
+
 # ---- the serial queue -------------------------------------------------------
 # The GPU is a serial resource and these probes measure it. Two at once do not
 # corrupt anything, they corrupt the MEASUREMENT -- a trace taken while
