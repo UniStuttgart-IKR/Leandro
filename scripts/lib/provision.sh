@@ -1618,6 +1618,27 @@ EOC"
     # `sh -c` spelled out, and it is load-bearing: display-identity.sh runs
     # its argument list with exec "$@", so a string full of shell syntax
     # has to be handed to a shell explicitly.
+    # THE X SERVER ITSELF, on demand. Ubuntu has defaulted to Wayland since
+    # 24.04 and the cloud image ships no X server at all, so `--display` on a
+    # plain image failed with `nohup: failed to run command 'Xorg': No such
+    # file or directory` -- reported 2026-08-21. The matrix guest path has
+    # installed these two on demand all along (ioctl-matrix.sh); the function
+    # that actually STARTS Xorg never checked, so the one path whose whole job
+    # is the X server was the one that assumed it.
+    #
+    # Only when missing: a desktop-baked image already has it, and this must
+    # not reinstall on every display bring-up.
+    if ! lea_ssh "$ip" 'command -v Xorg >/dev/null'; then
+        info "  $name: no X server in the guest -- installing xserver-xorg-core"
+        lea_guest_apt "$name" xserver-xorg-core xauth || {
+            error "cannot install an X server in the guest.
+Ubuntu 24.04 defaults to Wayland and its cloud image ships no Xorg, so the
+display path has to add one. Either fix the guest's network (the apt error is
+above) or use an image that already has a desktop:
+  scripts/build.sh bake --with-desktop"
+            return 1
+        }
+    fi
     local home; home=$(lea_ssh "$ip" 'echo $HOME')
     lea_ssh "$ip" "sudo LEA_NVCFG=$home/.lea-nvcfg.bin sh -c '$home/display-identity.sh \
         sh -c \"setsid nohup Xorg $disp $conf_arg -logfile /tmp/lea-xorg.log \
