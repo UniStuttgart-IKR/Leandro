@@ -1169,7 +1169,18 @@ lea_rig_up() {
         local -a sopt=(); [[ $torch -eq 1 ]] && sopt+=(--with-torch)
         lea_guest_setup "$name" "${sopt[@]}" >"$dir/setup.log" 2>&1 \
             && info "  $name: provisioned" \
-            || { error "$name: provisioning failed -- $dir/setup.log"; tail -5 "$dir/setup.log" >&2; return 1; }
+            || { error "$name: provisioning failed -- $dir/setup.log"
+                 tail -5 "$dir/setup.log" >&2
+                 # SAY HOW TO GET OUT OF IT. The VM is still running and
+                 # `up` refuses a running instance, so the next thing anybody
+                 # types is the wrong thing. Reported 2026-08-21 by somebody
+                 # who was left with a booted guest, no modules, and no
+                 # obvious way forward.
+                 error "the VM is still UP and no modules are loaded, because
+loading is the step after this one. To retry provisioning:
+  scripts/showcase.sh down --name $name --force && scripts/showcase.sh up --name $name
+The disk is fine -- '--fresh' is only needed if you want to discard it."
+                 return 1; }
     fi
     if [[ $load -eq 1 ]]; then
         info "== $name: guest module (virtio_nvrm.ko) =="
