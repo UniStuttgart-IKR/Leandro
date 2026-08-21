@@ -1298,11 +1298,60 @@ all. And the case for the CATALOGUE over a per-VM number is that
 `RTX2070-1Q` is a promise the manager can check before the VM starts, from
 numbers the card itself gave.
 
+**WHY A GUEST GETS NOTHING WHEN NOTHING RESERVES, in the run's own
+numbers.** The uncapped eight-VM row is worth reading as a sequence rather
+than a total. The card went from **6887 MiB free to 373 in two seconds**
+(`22:22:07` to `22:22:09`), because all eight guests were told they had the
+whole 7771 MiB and all eight believed it. What each got depended on the
+millisecond it asked, and the failures came in FOUR levels:
+
+  * `vm1`, `vm3` started while 6558 MiB were free and took 2176 and 3584;
+  * `vm0` and `vm2` arrived at 690 and 1254 free and got 256 each;
+  * `vm5` and `vm7` arrived at 322 and 344 free and got **zero** -- a
+    context, but not one 128 MiB block;
+  * `vm4` and `vm6` got `cuCtxCreate 2` -- **no context at all**. A CUDA
+    context is itself ~100-128 MiB of device memory, so those two lost
+    before they could ask for a byte.
+
+That last level is the one no cap produces and a catalogue makes
+impossible: under `1Q` all eight had their 512 MiB waiting for them.
+
+**TWO OPEN SUB-QUESTIONS, both with a run that would settle them.**
+
+**(a) What does libcuda check after the mode answer?** Answering
+`GET_VIRTUALIZATION_MODE` with `VGX` gives `cuInit 100`; the per-VM UUID
+gives `cuInit 3`. Three routes were considered and only one is honest work.
+A FULL mock -- satisfying whatever libcuda looks for -- means being a vGPU
+guest: the RPC channel to a host plugin, `VGPU_STATIC_INFO`, the whole
+guest-side path, against a closed spec. That is a different program. A
+SELECTIVE mock -- `VGX` to processes that only display it, `NONE` to
+libcuda -- is technically possible (the backend has a session per guest
+process) and is rejected for the reason `vram.rs` already gives about the
+FB sizes: two processes on one card getting different answers is a card
+contradicting itself. What is left is to TRACE it: `crates/nvrm-trace`
+runs in the guest, so turn the mode answer on, run a CUDA program under it,
+and read which call follows `GET_VIRTUALIZATION_MODE` and what is done with
+the answer. That turns "the objection is inside libcuda" into a call.
+
+**(b) Is homogeneity ours or NVIDIA's?** `lea_vgpu_admit` refuses a second
+type on the card because this branch copied vGPU's homogeneous placement.
+**vGPU needs that constraint for a reason this design does not have**: its
+guest framebuffers are PLACED in VMMU segments at fixed placement ids,
+which is why its heterogeneous mode needs a recursive halving of the
+placement region and a hard-coded deny-list of combinations that overlap
+(`_kvgpumgrSetHeterogeneousResources`, `_kvgpumgrIsPlacementValid`,
+kernel_vgpu_mgr.c). Nothing is placed here -- the "placement" is a counter.
+So mixed profiles should be EASIER on this side, and the change is small
+but not free: admission becomes "sum of the profile sizes fits the usable
+card" instead of "same type, count below maxInstance", and the reservation
+arithmetic has to stop dividing the carve-out by `maxInstance` and divide
+it in proportion to each profile instead. **Unverified until measured**,
+and the run that would measure it is one 4Q beside two 2Q on this card.
+
 **WHAT WOULD CLOSE THIS ENTRY:** the admission demonstration -- a fifth VM
 refused against `2Q`'s `maxInstance` of four, and a sixth refused for being
-a different type on a card that is running `1Q` -- and an answer to the
-UUID question above, which needs libcuda traced rather than reasoned about.
-Neither needs a guest that is not already on this rig.
+a different type on a card that is running `1Q` -- plus (a) and (b) above.
+None of them needs a guest that is not already on this rig.
 
 ## Resolved and decided
 
