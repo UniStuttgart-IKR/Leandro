@@ -4130,6 +4130,10 @@ static bool vdisp_control(u8 *params)
 	u32 size = rd32(params, NVRM_NVOS54_PARAMSSIZE_OFF);
 	void *p = (void *)(uintptr_t)rd64(params, NVRM_NVOS54_PARAMS_OFF);
 	bool ours;
+	/* Snapshots for the diagnostic below, taken under the lock with the
+	 * decision they explain -- reading them again later would report a
+	 * pair that was never the one this call missed. */
+	u32 have_handle, have_client;
 
 	if (!vdisplay)
 		return false;
@@ -4138,6 +4142,8 @@ static bool vdisp_control(u8 *params)
 	 * foreign client's control on a same-numbered object of its own would
 	 * report a success RM never gave. */
 	ours = vdisp_handle && obj == vdisp_handle && client == vdisp_client;
+	have_handle = vdisp_handle;
+	have_client = vdisp_client;
 	mutex_unlock(&vdisp_lock);
 	if (!ours) {
 		/* A call addressed to the display object that was never
@@ -4193,6 +4199,37 @@ static bool vdisp_control(u8 *params)
 					cmd);
 			return true;
 		default:
+			/*
+			 * OPEN-QUESTIONS 16'S SIGNATURE, and this is the
+			 * instrument that would name it.
+			 *
+			 * An NVA083 control (0xa0830101..0106) that is NOT on
+			 * our recorded pair can only mean the record and the
+			 * caller have come apart: NVKMS still holds a
+			 * displayless handle whose (client, handle) we no
+			 * longer answer for. This function then returns false,
+			 * the call goes to a host RM that has never heard of
+			 * the object, and RM answers OBJECT_NOT_FOUND.
+			 *
+			 * That is exactly what number 16 looks like from the
+			 * other end: DisplaylessRmGetConnectedDpys
+			 * (nvkms-rm.c:2392) calls GET_NUM_HEADS, and on ANY
+			 * failure logs "Failed detecting connected displays
+			 * for displayless HW" and returns an EMPTY dpy list --
+			 * so the virtual connector reads as disconnected while
+			 * sysfs, which caches the last state, still says
+			 * connected.
+			 *
+			 * `vdisp_handle` is a SINGLE slot on purpose ("one
+			 * virtual display, one object"), and that assumption
+			 * is what this warning tests. It has never been seen
+			 * to fire; if it ever does, number 16 has its cause
+			 * and this line says which pair was expected.
+			 */
+			if ((cmd & 0xffff0000u) == 0xa0830000u)
+				pr_warn_ratelimited(
+					"virtio_nvrm: virtual display: NVA083 control %#x on object %#x of client %#x, but our pair is %#x/%#x -- forwarding to a host that does not have this object (OPEN-QUESTIONS 16)\n",
+					cmd, obj, client, have_client, have_handle);
 			return false;
 		}
 	}

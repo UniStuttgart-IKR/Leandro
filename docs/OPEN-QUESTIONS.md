@@ -201,7 +201,9 @@ own wording is the right one: "a fresh guest does not show it, which points at
 accumulated state rather than at concurrency itself". The descriptor count is
 now excluded from what that state can be.
 ### 16. Connector detect breaks after a session that really drew
-**Open, bounded, workaround holds.** After a compositor that was DRM
+**Open, and narrowed hard on 2026-08-21: the failing call is named, the code
+that answers it is ours, and an instrument is now in place that would say so.
+It did NOT reproduce.** After a compositor that was DRM
 master exits abnormally, the next `drmModeGetConnector` probe reports the
 virtual connector as disconnected, and nvidia-modeset logs `Failed
 detecting connected displays for displayless HW`. `sysfs` still says
@@ -210,16 +212,62 @@ again and that is what fails. Reloading `nvidia_drm` and `nvidia_modeset` (the d
 `lea_display_modules`) always recovers it, and has carried a full
 working day across six compositor sessions.
 
-### 18. Flip completions arrive in excess
-**Open, low priority.** Every compositor start produces two to five kernel
-warnings from `nv_drm_crtc_dequeue_flip` — nvidia-drm receives more flip
-completions than it has flips outstanding. It is most likely our invented
-vblank path reporting modeset commits as flips, or counting per plane so
-the cursor counts twice. It never occurs in steady state, and the
-dangerous inverse (a *lost* completion, which would freeze a compositor)
-has never been observed. Since 2026-08-18 it is understood as a signature
-of the same root as 22-A.
+---
 
+**THE FAILING CALL IS NAMED, 2026-08-21, out of the vendor source.** The
+message in this entry comes from exactly one place --
+`DisplaylessRmGetConnectedDpys`, `nvkms-rm.c:2392-2417`:
+
+    ret = nvRmApiControl(..., pDevEvo->displaylessHandle,
+                         NVA083_CTRL_CMD_VIRTUAL_DISPLAY_GET_NUM_HEADS, ...);
+    if (ret == NVOS_STATUS_SUCCESS) { ...build the dpy list from numHeads... }
+    else { nvEvoLogDisp(..., "Failed detecting connected displays for displayless HW");
+           return nvEmptyDpyIdList(); }
+
+So the whole symptom is one control failing. On **any** failure NVKMS returns
+an **empty** dpy list, which is why the connector reads disconnected -- and
+why `sysfs` disagrees: `sysfs` reports the last cached state and never re-asks.
+
+**AND THAT CONTROL IS ANSWERED BY THIS MODULE.** `NVA083_GRID_DISPLAYLESS`
+is the class the virtual display invents (`virtio_nvrm.c`, `vdisp_control`);
+the host RM has never heard of the object. The module recognises it by a
+**single** recorded `(client, handle)` pair, `vdisp_client`/`vdisp_handle`,
+on the stated assumption *"one virtual display, one object, and a call that
+names it either is ours or is a bug."* If a call ever names an NVA083 object
+that is not that pair, `vdisp_control` returns false, the call is forwarded
+to a host that does not have the object, RM answers `OBJECT_NOT_FOUND`, and
+NVKMS prints this entry's message. **That is a complete account of how the
+symptom could arise, and it is the only one.**
+
+**IT DID NOT REPRODUCE, which is why this stays open.** With `Xorg` as DRM
+master on `/dev/dri/card0`, SIGKILLed twice:
+
+| | `drmModeGetConnector` | `sysfs` |
+|---|---|---|
+| baseline, X running | connector 61, **connection 1 (connected)**, 2 modes | `connected` |
+| after SIGKILL round 1 | connector 61, **connection 1**, 2 modes | `connected` |
+| after SIGKILL round 2 | connector 61, **connection 1**, 2 modes | `connected` |
+
+No `Failed detecting connected displays` in `dmesg` at any point, and the
+NVA083 object count stayed at **exactly one** across both kills and the
+restarts -- the same object `0x1000d` of the same client throughout. So the
+orphaning that would explain it did not happen here. **The precondition this
+entry states was not met:** it says *"a compositor that was DRM master"* and
+*"a session that really drew"*, and an `Xorg` with nothing rendering into it
+is neither.
+
+**AN INSTRUMENT IS NOW IN PLACE.** `vdisp_control` warns, rate-limited, when
+an NVA083 control (`0xa08301xx`) names an object that is not the recorded
+pair, printing both the pair asked for and the pair held. It has never fired.
+If the symptom recurs, `dmesg` will say whether this is the cause instead of
+leaving it to be re-derived.
+
+**What would close it:** reproduce with a real compositor session that drew
+-- `lea_desktop_up`, something rendering, then an abnormal exit -- and read
+the new warning. If it fires, the single-slot record is the cause and the fix
+is a small table, the same lesson `vblank_free` (8 slots) and the semaphore
+waiters (64 slots) already learned. If it does not fire, the control is
+failing for a different reason and the warning will have ruled this one out.
 ### 31. The backend holds thousands of `nvidiactl` file descriptors
 **Open, and substantially narrowed 2026-08-21: it has an owner, a rate and
 a mechanism now, and it is not what this entry called it.** Measured on a
@@ -818,6 +866,90 @@ rule that is the only proof of presentation, and this is a pixel reader rather
 than a human. What is claimed is what the reader can support -- the scanout
 carries content, it changes when a client draws, and all three import paths
 agree about it.
+### 18. Flip completions arrive in excess
+**Resolved 2026-08-21: both halves are vendor code, and the counts were
+measured.** Originally recorded as: Every compositor start produces two to five kernel
+warnings from `nv_drm_crtc_dequeue_flip` — nvidia-drm receives more flip
+completions than it has flips outstanding. It is most likely our invented
+vblank path reporting modeset commits as flips, or counting per plane so
+the cursor counts twice. It never occurs in steady state, and the
+dangerous inverse (a *lost* completion, which would freeze a compositor)
+has never been observed. Since 2026-08-18 it is understood as a signature
+of the same root as 22-A.
+
+---
+
+## Resolved 2026-08-21. Two counters that disagree, both of them NVIDIA's.
+
+**THE MECHANISM, read out of the vendor source.**
+
+`nvidia-drm` decides how many flip-completion events to expect in
+`__will_generate_flip_event` (`nvidia-drm-modeset.c:117-135`). It walks the
+**old** plane state, **skips the cursor**, and counts a plane only if it was
+**already active with a framebuffer**:
+
+    if (old_crtc_state->active && old_plane_state->fb != NULL)
+        nv_new_crtc_state->nv_flip->pending_events++;
+
+with the comment stating the assumption outright: *"Hardware generates flip
+event for only those planes which were active previously."*
+
+The displayless HAL does not honour that assumption. `ProcessPendingFlips`
+(`nvkms-displayless.c:248-285`) sends one **unconditionally** for every flip
+it takes off its queue:
+
+    nvSendFlipOccurredEventEvo(pDispEvo, apiHead, NVKMS_MAIN_LAYER);
+
+no test on whether the plane was previously active, and always for
+`NVKMS_MAIN_LAYER`.
+
+**So on the first flip after a CRTC becomes active -- every modeset, every
+compositor start -- `nvidia-drm` expects 0 completions and NVKMS sends 1.**
+`nv_drm_crtc_dequeue_flip` finds an empty `flip_list`, `nv_flip` is NULL, and
+`WARN_ON(nv_flip == NULL)` fires (`nvidia-drm-crtc.h:355`). Once the planes
+are active the two counts agree and it stops.
+
+**MEASURED, and it matches exactly.** One guest, `Xorg` killed and restarted
+three times, counting the warnings in `dmesg`:
+
+| | warnings |
+|---|---|
+| after display bring-up | **2** |
+| after Xorg restart 1 | **4** |
+| after Xorg restart 2 | **6** |
+| after Xorg restart 3 | **8** |
+| after 20 s of steady state | **8** |
+
+**Exactly two per X start, and exactly zero in steady state** -- which is what
+this entry said from observation and can now say from a mechanism.
+
+**BOTH SIDES ARE VENDOR CODE.** `__will_generate_flip_event` is
+`nvidia-drm`'s; `ProcessPendingFlips` is NVKMS's displayless HAL. This project
+contributes only the fact that the virtual display makes NVKMS take the
+`displaylessHw` branch at all. The entry's two guesses -- *"our invented
+vblank path reporting modeset commits as flips, or counting per plane so the
+cursor counts twice"* -- are both **wrong**: our `NV9010` vblank path is not
+in this chain (the displayless HAL polls at 100 us and does not use the
+raster-generator callback, which is why `vdisp_event_on_missing_parent` can
+answer OK at all), and the cursor is explicitly skipped by the counting loop.
+
+**HARMLESS, by construction rather than by luck.** With an empty list
+`dequeue_flip` decrements nothing -- the decrement is inside
+`if (likely(nv_flip != NULL))` -- warns, and returns NULL; the caller then
+does nothing at all. **One risk is worth naming and is not observed:** an
+extra completion arriving while a *different* flip is outstanding would
+decrement that flip's `pending_events` early and complete it before its
+hardware event. That needs an inactive-plane activation to overlap a live
+flip, which a modeset does not normally do, and neither a premature nor a
+lost completion has ever been seen.
+
+**Why nothing should be done about it here.** Fixing it means either teaching
+`nvidia-drm` that the displayless HAL is not display hardware, or teaching the
+displayless HAL to suppress the first completion -- both are edits to vendor
+code that this project does not carry, for a warning that costs two lines of
+`dmesg` per compositor start. The `vdisplay` gate already counts warnings and
+reports them (`dmesg_warnings: 3`) rather than failing on them, which is the
+right treatment for a known, bounded, vendor-side noise source.
 ### 19. `GET_SURFACE_PHYS_PAGES` is refused with `INSUFFICIENT_PERMISSIONS`
 **Resolved 2026-08-21: the vendor source names the cause, a run confirms the
 mechanism live, and the scope is now computed on every catalogue run.**
