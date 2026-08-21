@@ -1626,8 +1626,24 @@ EOC"
     if lea_ssh "$ip" "pgrep -x Xorg >/dev/null"; then
         echo "Xorg on $disp is up  (log: /tmp/lea-xorg.log)"
     else
-        error "Xorg did not come up"
-        lea_ssh "$ip" "sudo grep -E '\(EE\)' /tmp/lea-xorg.log | head -10" >&2 || true
+        error "Xorg did not come up. Both paths below are IN THE GUEST:
+  scripts/showcase.sh ssh --name $name -- 'cat /tmp/lea-xorg.out'
+  scripts/showcase.sh ssh --name $name -- 'sudo cat /tmp/lea-xorg.log'"
+        # -logfile is written by Xorg ITSELF, so it does not exist when Xorg
+        # never started -- a missing binary, a config it refused, or
+        # display-identity.sh failing before the exec. In that case the only
+        # evidence is the redirected stdout/stderr, which this used to
+        # ignore: the operator saw "No such file or directory" for the log
+        # and had nothing else to look at. Report whichever exists, and say
+        # which one it was.
+        if lea_ssh "$ip" "test -s /tmp/lea-xorg.log"; then
+            error "the last (EE) lines of the guest's Xorg log:"
+            lea_ssh "$ip" "sudo grep -E '\(EE\)' /tmp/lea-xorg.log | head -10" >&2 || true
+        else
+            error "no Xorg log in the guest -- Xorg never started. Its output was:"
+            lea_ssh "$ip" "cat /tmp/lea-xorg.out 2>/dev/null | tail -20" >&2 || true
+            lea_ssh "$ip" "command -v Xorg >/dev/null || echo '  (Xorg is not installed in this guest)'" >&2 || true
+        fi
         return 1
     fi
 }
