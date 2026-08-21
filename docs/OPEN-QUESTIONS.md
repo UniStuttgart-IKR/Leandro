@@ -452,7 +452,8 @@ first cross-architecture evidence says the surface did not move — which is a
 prediction the per-ioctl index would be able to check properly, and cannot
 yet.
 ### 59. The probes are entry paths, and the class that can be missing is the one they do not reach
-**Raised 2026-08-20**, out of a design conversation rather than a run, and
+**Open, and the diff it asks for is now COMPUTED rather than wished for
+(2026-08-21).** Raised 2026-08-20, out of a design conversation rather than a run, and
 recorded because it is the direction with the largest measurable target in
 this tree.
 
@@ -510,6 +511,70 @@ Score such a day by class-coverage delta, not by probes added. That is the
 number that makes "did we find non-carryable ioctls" answerable instead of
 hopeful.
 
+---
+
+**THE COVERAGE DIFF IS COMPUTED, 2026-08-21.** This entry's operative
+sentence was: *"the yield of any new-workload effort is not a matter of
+taste: it is which of the untouched classes did we reach, and that is a diff
+that can be computed BEFORE choosing a workload rather than discovered
+afterwards."* `probe/python/classcoverage.py` computes it, and the first
+answer is:
+
+    descriptor table (checksum 0xad009afd): 128 allocation classes
+      allocated by some recorded run :  30  (23%)
+      never allocated by any run     :  98
+
+Both sides are derived. The table side is parsed out of the **serialised
+table stream the guest module is built against** (`nvrm-genhdr
+--dump-tables`), checksum and all, so it is the 128 classes the boundary
+really carries rather than a list re-typed out of `xlate.rs`. The touched
+side is read out of the trace JSONL of runs that happened, and a class counts
+only if an allocation of it was recorded.
+
+**This corrects the estimate in the paragraph above.** It says "the
+descriptor table holds 128 classes while the probes touch 39". The measured
+number is **30**, not 39 -- the 39 was the count of classes that can ever be
+reported `missing`, which is a different set. The gap is bigger than the
+entry thought.
+
+**AND THE 98 MUST BE READ WITH THE CARD IN MIND**, which is the part that
+makes the number usable instead of merely alarming. A large share of it is
+engine classes of other architectures -- the `0xc7`, `0xc9`, `0xcd` and
+`0xce` families are Ada, Hopper and Blackwell -- and a Turing card **cannot**
+allocate them at any workload. They are not workload targets on this machine;
+they are targets for a run on that silicon. So the honest reading is that 98
+is an upper bound on this host, the real workload target is the subset a
+Turing GPU can reach, and **the same number from a second machine is the
+cheapest way to separate the two.** The tool prints that caveat itself, so it
+cannot be quoted without it.
+
+**A SMALL FINDING FELL OUT OF IT.** Five classes are allocated by recorded
+runs and appear in **no** table entry, 190 allocations between them, **every
+one `NV_OK`**:
+
+| class | allocations | what it is |
+|---|---|---|
+| `0x0073` | 65 | NV04_DISPLAY_COMMON |
+| `0x9096` | 35 | GF100_ZBC_CLEAR |
+| `0x90e7` | 4 | GF100_SUBDEVICE_INFOROM |
+| `0xc361` | 47 | VOLTA_USERMODE_A |
+| `0xc461` | 39 | TURING_USERMODE_A |
+
+**This is not a defect**, and `xlate.rs` already says why: a class whose
+`resource_list.h` row is `RS_NONE` passes `pAllocParms = NULL`, so there is
+nothing to size and no entry is needed. Four of the five are named in that
+comment. **`0x9096` is not**, and it is allocated 35 times -- so the comment's
+list is incomplete by one, which is worth fixing when that file is next
+touched. The tool reports these separately rather than folding them into
+either column, because "allocated 190 times, carried fine, in no table" is a
+thing someone should be able to see.
+
+**What this does NOT do**, and the entry stays open for it: it aims a workload
+day, it does not run one. The three composition steps above are unchanged and
+in the same order, and the day itself is still to come. What has changed is
+that step 3 -- "only then new probes, aimed by the coverage diff" -- now has a
+diff to be aimed by, and a way to score the day afterwards by re-running one
+command.
 ### 64. The NVKMS commands are recorded and none of them has a name
 **Open, split out of number 48 on 2026-08-21**, which is resolved: the node
 is traced, counted and gated, and this is the half that was never anything
