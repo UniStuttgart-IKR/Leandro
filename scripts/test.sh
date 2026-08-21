@@ -395,14 +395,38 @@ edid_conformity() {
 
 shell_syntax() {
     local rc=0 f
+    local -a files=()
     # All .sh files plus the extensionless shebang scripts under scripts/.
     while IFS= read -r f; do
+        files+=("$f")
         if ! bash -n "$f"; then echo "syntax error: $f"; rc=1; fi
     done < <(git ls-files 'scripts/**' 'scripts/*' \
         | while IFS= read -r p; do
               [[ "$p" == *.sh ]] && { echo "$p"; continue; }
               [[ -f "$p" ]] && head -c 64 "$p" | head -1 | grep -qE '^#!.*(bash|sh)$' && echo "$p"
           done)
+
+    # ... AND SHELLCHECK, when this machine has it. `bash -n` parses; it
+    # does not think. The CI `shell` job holds scripts/lib and this file to
+    # severity `warning` and BLOCKS on it, and on 2026-08-21 that job went
+    # red on a duplicate `case` branch (SC2221) that `bash -n` accepts
+    # happily -- the same duplicate that made `showcase.sh up
+    # --vram-profile` die on "unknown option". A gate whose local half
+    # cannot see what its remote half blocks on is a gate that teaches
+    # people to push and wait.
+    #
+    # Not a step of its own, deliberately: the band is 15 steps and that
+    # number is quoted in DEVELOPMENT.md, docs/TESTING.md and in
+    # measurements taken against it. This is the same question -- is the
+    # shell code sound -- asked with a better instrument when one is
+    # installed.
+    if command -v shellcheck >/dev/null 2>&1; then
+        shellcheck -x -S error "${files[@]}" || rc=1
+        shellcheck -x -S warning scripts/lib/*.sh scripts/test.sh || rc=1
+    else
+        echo "note: shellcheck not installed -- only 'bash -n' ran here."
+        echo "      CI blocks on shellcheck -S warning for scripts/lib and test.sh."
+    fi
     return "$rc"
 }
 
