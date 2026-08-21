@@ -376,10 +376,35 @@ CS2 hit the wall at 129 mappings when it was 1 GiB. The point is the shape, not
 an imminent failure — the mappings are never reclaimed, so the headroom is
 consumed by how many GL clients a desktop has ever run rather than by how many
 are running.
-### 46. Sound continues while the picture hangs, and it is the CPU
-**Open. And on 2026-08-21 the same symptom was reproduced from a COMPLETELY
-DIFFERENT cause, which makes the title half wrong: sometimes it IS a GPU
-question. `fbprobe` tells the two apart in one run.** Under a real game the
+
+---
+
+**DECIDED 2026-08-21: the ownership model stays as it is.** The choice was
+between overriding RM's idea of who owns these descriptors and living with
+them. Decided against overriding, on asymmetric risk: `release_window_of` is
+CORRECT -- it is keyed on the guest process that owns the objects, and RM
+genuinely believes that owner is the X server. Freeing behind RM's back is
+what number 38 already cost once, as a guest-kernel use-after-free landing in
+`__slab_free`. Against that, not fixing costs 2 descriptors per GUI-app
+launch, bounded by one desktop session.
+
+**What replaces it as the next step, and it is much cheaper:** the two
+descriptors are one handle-mirror entry and one window mapping. **Find out
+whether a window-teardown signal already crosses the boundary.** If it does,
+this is a bookkeeping fix -- release on that signal -- and no ownership fight
+is needed at all. If it does not, the choice becomes "add a protocol message"
+versus "live with it", which is a far better-informed decision than the one
+this entry was holding.
+
+Until then it stays capped and observed: the fd census decomposes it exactly,
+so a regression is visible.
+### 46. Sound continues while the picture hangs -- the CPU half
+**Open, and SPLIT on 2026-08-21.** The 2026-08-21 runs reproduced this
+symptom from a completely different cause, so the VRAM half is now **number
+67** and this entry keeps the CPU-starvation case it was opened for. Its two
+levers are still unmeasured. The 2026-08-21 material is kept below because it
+is what established that there are two causes, and `fbprobe` is what tells
+them apart in one run. Under a real game the
 stream stalls: audio keeps playing, video stops. Measured 2026-08-20 while
 Shadow of the Tomb Raider ran in a `--session gnome --wayland` guest with
 Sunshine on `capture=kms encoder=nvenc`:
@@ -808,6 +833,157 @@ in the same order, and the day itself is still to come. What has changed is
 that step 3 -- "only then new probes, aimed by the coverage diff" -- now has a
 diff to be aimed by, and a way to score the day afterwards by re-running one
 command.
+### 67. A transient VRAM squeeze wedges the compositor permanently
+**Open, split out of number 46 on 2026-08-21**, which keeps the
+CPU-starvation case it was opened for. This is the other cause of the same
+symptom, and it is the actionable one.
+
+**THE DEFECT, in one sentence:** a single failed framebuffer allocation during
+a squeeze of a few seconds freezes the guest's scanout for good, and it does
+not recover when the memory does.
+
+**Measured 2026-08-21**, two guests streaming 1080p through Sunshine on one
+RTX 2070, `--vram-limit 3072` each. Churn = DISTINCT per-backend VRAM values
+per 30 s of 1 Hz host sampling:
+
+| window | `desktop` | `desktop2` | mean free VRAM |
+|---|---|---|---|
+| 18:59:02 | 30 | 26 | 1627 MiB |
+| **19:00:49** | **10** | **12** | **116** |
+| 19:03:11 | **3** | **3** | **903** |
+| 19:04:57 | **3** | **3** | **915** |
+
+Free VRAM touched **74 MiB** at 19:00:49, which is the second both guests
+logged
+
+    [drm:nv_drm_gem_alloc_nvkms_memory_ioctl] *ERROR*
+    Failed to allocate NVKMS memory for GEM object
+
+-- `nvKms->allocateMemory()` returning NULL
+(`nvidia-drm-gem-nvkms-memory.c:666`). Memory then recovered to **~900 MiB
+and stayed there**, and both guests were **still frozen five minutes later**:
+`fbprobe`, both, all three readers `STATIC`, `frame changed in 0/8 polls`,
+with the games still resident at ~320% CPU and Steam, gnome-shell and
+Sunshine all alive.
+
+**Two exhaustion events, one symptom.** In the earlier 1080p run `desktop2`
+froze while the CARD still had ~950 MiB free -- it was at its OWN cap, with 29
+`NV_ERR_NO_MEMORY` refusals -- while `desktop` froze on the card itself. A
+per-tenant cap and a full card are indistinguishable from the guest.
+
+**A HOST-SIDE DETECTOR that needs nothing inside the guest:** churn under ~10
+distinct values per 30 s while the encoder still reports 58-60 fps. It fired
+about two minutes before the operator noticed the symptom.
+
+**WHY THE CAP CANNOT FIX THIS.** Our refusal is already the correct RM error.
+Because the freeze latches, **a correct refusal at the wrong moment is
+fatal** -- so the answer is to never reach the moment, not to refuse more
+cleverly. That is what number 68 is about.
+
+**WHAT WOULD SETTLE OWNERSHIP, and it needs no guest:** fill the host's card,
+make a GEM allocation fail, free the memory, and see whether the HOST
+compositor recovers. If the host recovers and a guest does not, the latch is
+ours. If neither recovers, it is vendor behaviour we inherit and only
+reservation avoids it. One run, host only.
+### 68. The VRAM cap is accounting, not a reservation
+**Open, raised 2026-08-21** out of the two-guest streaming runs and a read of
+NVIDIA's own vGPU code. Number 67 is the failure this causes; this is the
+mechanism behind it.
+
+**WHAT WE DO NOW.** `LEA_VRAM_LIMIT_MIB` is a per-VM counter charged at
+allocation time: the backend adds up what the guest asks for through a memory
+class and answers `NV_ERR_NO_MEMORY` past the limit (`vram.rs`,
+`session.rs:2095`). Nothing is reserved, nothing is checked against the card,
+and the backend has **no view of the card's total, its free memory, or any
+sibling backend** -- one process serves one VM and there is no path to
+another.
+
+That produces two different failures from one mechanism, both measured on
+2026-08-21: `desktop2` hit ITS CAP while the card still had ~950 MiB free,
+and `desktop` hit THE CARD while under its cap. From the guest they are
+identical.
+
+**WHAT `vram.rs` ALREADY WARNED, before any of this was measured:**
+
+> *"this counts only what the guest asks for EXPLICITLY through a memory
+> class. RM's own device memory -- channel instance memory, USERD, context
+> buffers, the share of the GSP -- never crosses the boundary as an
+> allocation request and is therefore invisible here. The cap bounds the part
+> a workload can grow without limit, not the card's full occupancy."*
+
+**Measured 2026-08-21: that invisible part is ~175 MiB per backend and
+roughly CONSTANT**, not proportional -- host charge minus guest-reported, at
+peak `3101-2919 = 182` and `3242-3069 = 173`, and on a live mid-run sample
+`3016-2853 = 163`. So a cap of N costs the card about N+175, and two 3072
+caps were never 6144.
+
+**WHAT NVIDIA'S vGPU DOES INSTEAD, read out of the vendor tree.** A profile
+(`VGPU_TYPE`, `common_vgpu_mgr.h:95`) separates what we conflate:
+
+    NvU64 profileSize;      // what you buy
+    NvU64 fbLength;         // what the GUEST sees
+    NvU64 fbReservation;    // reserved FB that is NOT the guest's
+    NvU64 gspHeapSize;      // the GSP's heap for this vGPU
+    NvU32 encoderCapacity;  // NVENC share
+    NvU32 frlConfig, frlEnable;
+    NvU32 maxInstance;
+    NvU32 numHeads, maxResolutionX, maxResolutionY, maxPixels;
+
+Four things follow, and each is a lesson:
+
+  1. **`profileSize != fbLength`.** The overhead is a FIELD, computed up
+     front, not an emergent quantity discovered afterwards. Ours is a
+     warning; theirs is a number.
+  2. **Admission control at CREATION.** `kernel_vgpu_mgr.c:322` refuses with
+     `NV_ERR_INSUFFICIENT_RESOURCES` when `existingVgpus >= maxInstance` --
+     before the VM exists, rather than failing an allocation at minute two.
+  3. **The guest FB is quantised**, not arbitrary:
+     `vgpuFbLength = guestVmmuCount * gpuGetVmmuSegmentSize(pGpu)`
+     (`kernel_vgpu_mgr.c:2997`). Sizes are binary (`1024*1024*1024`), so the
+     "a 2 GiB profile gives less than 2 GiB" effect is reservation plus VMMU
+     quantisation, **not** a GiB/GB unit confusion.
+  4. **A profile bounds more than memory** -- `encoderCapacity`, `numHeads`,
+     `maxResolutionX/Y`, `maxPixels`, `frlEnable`. We bound VRAM and nothing
+     else, which is why setting a game to 720p barely moved the total on
+     2026-08-21: the capture, the NVENC surfaces and the guest desktop were
+     all still 1080p.
+
+**AND ONE THING WE CANNOT COPY.** `hostReservedFb` is not in the open source:
+`memmgrGetVgpuHostRmReservedFb_KERNEL` (`mem_mgr.c:3984`) forwards
+`NV2080_CTRL_CMD_INTERNAL_MEMMGR_GET_VGPU_CONFIG_HOST_RESERVED_FB` to the
+GSP and returns what the firmware says. So the number is closed. **Ours has
+to be measured, and it has been.**
+
+**ONE FIELD IS ALREADY BORROWED.** `LEA_FRL_HZ` in `waiters.rs` is vGPU's
+frame rate limiter, and its comment says so. The pattern is in the tree; it
+stopped at one field.
+
+**SCOPE, DECIDED 2026-08-21, and it is deliberately narrow:**
+
+  * **Equal-sized profiles are NOT a goal.** vGPU simplifies its arithmetic
+    by forcing one profile size per card; this project does not want that
+    constraint.
+  * **Cross-tenant admission control is OUT OF SCOPE HERE.** One backend
+    serves one VM and cannot see its siblings; giving it that view means a
+    daemon with an API, which is a different program. **Overprovisioning is
+    therefore ALLOWED and must be documented as allowed**, with the failure
+    mode named (number 67).
+  * **Scheduling is OUT OF SCOPE HERE** for the same reason. The vGPU
+    scheduler works because the host driver owns the runlists and preempts
+    between them; this backend forwards ioctls into the host's single RM
+    context and never sees a runlist. Its controls are at least reachable --
+    `NV2080_CTRL_CMD_FIFO_OBJSCHED_GET_STATE/SET_STATE` carry
+    `flags = 0x48 = ROUTE_TO_PHYSICAL | NON_PRIVILEGED`, so unlike numbers 19
+    and 25 they are not behind the kernel-privilege wall -- but reaching them
+    is not the same as owning scheduling.
+  * Both belong to a consumer of this project (MeisterStack), because **this
+    repo ships functionality, not a product.**
+
+**What would close THIS entry:** a reservation-based implementation on the
+`vram` branch that survives the number 67 reproduction -- the same two-guest
+1080p run that froze twice on 2026-08-21 -- with the reservation an explicit,
+configured, verified quantity rather than an emergent one. The A/B is exact,
+because the failing run is recorded.
 ## Resolved and decided
 
 ### 1. Does the descriptor table warrant a protocol change?
