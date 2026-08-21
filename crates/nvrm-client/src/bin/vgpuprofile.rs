@@ -225,6 +225,10 @@ fn main() {
                 println!("vgpu_segments={}", p.segments);
                 println!("vgpu_segment_mib={}", cat.segment >> 20);
                 println!("vgpu_encoder_cap={}", p.encoder_capacity);
+                // What admission is measured against: the card, not the
+                // heap. See `Catalogue::admits` -- every full-density row
+                // sums to exactly this.
+                println!("vgpu_available_mib={}", cat.available() >> 20);
                 return;
             }
             None => {

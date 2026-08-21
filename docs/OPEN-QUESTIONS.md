@@ -1316,42 +1316,104 @@ millisecond it asked, and the failures came in FOUR levels:
 That last level is the one no cap produces and a catalogue makes
 impossible: under `1Q` all eight had their 512 MiB waiting for them.
 
-**TWO OPEN SUB-QUESTIONS, both with a run that would settle them.**
+**BOTH SUB-QUESTIONS ARE NOW ANSWERED, and the admission demonstration is
+done. CLOSED 2026-08-21** (`docs/measurements/vram-69b/`).
 
-**(a) What does libcuda check after the mode answer?** Answering
-`GET_VIRTUALIZATION_MODE` with `VGX` gives `cuInit 100`; the per-VM UUID
-gives `cuInit 3`. Three routes were considered and only one is honest work.
-A FULL mock -- satisfying whatever libcuda looks for -- means being a vGPU
-guest: the RPC channel to a host plugin, `VGPU_STATIC_INFO`, the whole
-guest-side path, against a closed spec. That is a different program. A
-SELECTIVE mock -- `VGX` to processes that only display it, `NONE` to
-libcuda -- is technically possible (the backend has a session per guest
-process) and is rejected for the reason `vram.rs` already gives about the
-FB sizes: two processes on one card getting different answers is a card
-contradicting itself. What is left is to TRACE it: `crates/nvrm-trace`
-runs in the guest, so turn the mode answer on, run a CUDA program under it,
-and read which call follows `GET_VIRTUALIZATION_MODE` and what is done with
-the answer. That turns "the objection is inside libcuda" into a call.
+**(a) WHAT DOES libcuda CHECK AFTER THE MODE ANSWER? It does not check
+anything -- it ALLOCATES.** The tracer was pushed into a 2Q guest and the
+same CUDA binary run twice, once with `LEA_VGPU_MEDIATE=mode` and once with
+`none`. The two traces are **identical for 145 records**, through the mode
+answer itself, and part company at 146:
 
-**(b) Is homogeneity ours or NVIDIA's?** `lea_vgpu_admit` refuses a second
-type on the card because this branch copied vGPU's homogeneous placement.
-**vGPU needs that constraint for a reason this design does not have**: its
-guest framebuffers are PLACED in VMMU segments at fixed placement ids,
-which is why its heterogeneous mode needs a recursive halving of the
-placement region and a hard-coded deny-list of combinations that overlap
+| record | with the mode answered | without |
+|---|---|---|
+| 144 | `RM_CONTROL 0x800289` -> `0200000001000000` (mode 2 = VGX, `isGridBuild` 1) | the same control, mode 0 |
+| 146 | `NVOS64`: `hClass=0xa080`, parent = the subdevice | continues enumerating: `0x20810108` |
+| 148 | `NV_ESC_RM_ALLOC` (43) -> **`status=0x56` = `NV_ERR_NOT_SUPPORTED`** | `FB_GET_INFO_V2`, and 111 more controls |
+| 151 | `NV_ESC_RM_FREE` (41): it gives up | ... |
+| end | 164 records, `cuInit 100` | 4474 records, the run completes |
+
+Class `0xa080` is `NVA080_KERNEL_HOST_VGPU_DEVICE` -- **the guest's handle
+to its host vGPU device**, the near end of the RPC channel to the plugin in
+the host. Told it is on a vGPU, the first thing libcuda does is ask for
+that object, and the REAL RM in the guest answers NOT_SUPPORTED, because
+this guest's driver is an ordinary driver and has no such device behind it.
+Exactly TWO calls in the whole trace happen only when the mode is answered
+-- that alloc, and one UVM ioctl -- while **115 controls happen only when
+it is not**: the entire enumeration libcuda never reaches.
+
+So the reading in `grid.rs` was right and is now a call with a number
+rather than an inference. It also settles the three routes that entry
+listed: a FULL mock is not "answer one more control", it is supply an
+`NVA080` object and everything behind it, which is the vGPU guest path
+against a closed spec -- a different program, as suspected. `mode` stays
+off by default, and the reason is now citable.
+
+**(b) IS HOMOGENEITY OURS OR NVIDIA'S? IT WAS OURS, AND IT IS GONE.** vGPU
+needs the constraint for a reason this design does not have: its guest
+framebuffers are PLACED at fixed placement ids inside the VMMU region,
+which is why a heterogeneous vGPU card needs a recursive halving of the
+placement region and a deny-list of overlapping combinations
 (`_kvgpumgrSetHeterogeneousResources`, `_kvgpumgrIsPlacementValid`,
-kernel_vgpu_mgr.c). Nothing is placed here -- the "placement" is a counter.
-So mixed profiles should be EASIER on this side, and the change is small
-but not free: admission becomes "sum of the profile sizes fits the usable
-card" instead of "same type, count below maxInstance", and the reservation
-arithmetic has to stop dividing the carve-out by `maxInstance` and divide
-it in proportion to each profile instead. **Unverified until measured**,
-and the run that would measure it is one 4Q beside two 2Q on this card.
+kernel_vgpu_mgr.c). **Nothing is placed here** -- a guest framebuffer is a
+number in one backend's ledger and "placement" was a counter -- so the
+constraint bought nothing and cost the operator every mixed configuration.
+Two changes, and the first is smaller than this entry predicted:
 
-**WHAT WOULD CLOSE THIS ENTRY:** the admission demonstration -- a fifth VM
-refused against `2Q`'s `maxInstance` of four, and a sixth refused for being
-a different type on a card that is running `1Q` -- plus (a) and (b) above.
-None of them needs a guest that is not already on this rig.
+  * THE RESERVATION is now `carve_out * profile / available + overhead`
+    rather than `carve_out / maxInstance + overhead`. Those are **the same
+    number** whenever every instance is the same size, which is every row
+    of a homogeneous catalogue, so nothing measured above moves: 8Q still
+    reserves 1792 MiB, 4Q 1024, 2Q 768, 1Q 512. The identity is a test
+    (`a_proportional_reserve_equals_a_divided_one_when_all_are_equal`), so
+    the generalisation cannot silently change the tables it generalises.
+  * ADMISSION is now `sum(profile_size) <= totalAvailableFb`, mixed types
+    allowed. **The rule this entry originally proposed -- "sum of the
+    profile sizes fits the USABLE card" -- is wrong**, and arithmetic says
+    so without a run: a profile size already contains that instance's share
+    of the card's carve-out, so every full-density row sums to exactly the
+    card (eight 1Q, four 2Q and two 4Q all cost 8192 MiB) while the usable
+    heap is 6871. That rule would have refused the eight-guest 1Q run
+    measured above, which ran with 3 GiB to spare. It is now an assertion
+    in `full_density_saturates_the_card_exactly`, so it cannot be proposed
+    a second time.
+
+**THE ADMISSION DEMONSTRATION.** Both refusals happen before the VM exists,
+which is the whole point of admitting rather than failing later:
+
+| card state | asked for | answer |
+|---|---|---|
+| four 2Q running | a fifth 2Q | `4 instances of RTX2070-2Q are running and its maxInstance is 4` |
+| 4Q + 2Q + 2Q running | a 1Q | `the card is full. Live: vm0=RTX2070-4Q(4096) vm1=RTX2070-2Q(2048) vm2=RTX2070-2Q(2048), together 8192 MiB` |
+
+The second is the refusal the homogeneous rule could not phrase: not "wrong
+type", but "no room". maxInstance survives as a MESSAGE rather than as a
+second rule -- MAX instances of a type is exactly the card, so the sum
+produces vGPU's own error where vGPU would produce it.
+
+**AND THE MIXED CARD RUNS.** One 4Q beside two 2Q, admitted incrementally
+to exactly 8192 of 8192 MiB, then all three pressing on VRAM at once for
+120 s (120 samples):
+
+| guest | type | promised FB | held, max | held, median | its own verdict |
+|---|---|---|---|---|---|
+| vm0 | 4Q | 3072 | 3076 | 3002 | `free now 2979 MiB of 3072 MiB, recovery ok` |
+| vm1 | 2Q | 1280 | 1286 | 1208 | `free now 1187 MiB of 1280 MiB, recovery ok` |
+| vm2 | 2Q | 1280 | 1282 | 1214 | `free now 1187 MiB of 1280 MiB, recovery ok` |
+
+Combined charge peaked at **5582 MiB** against the 5632 MiB sum of the
+three guest framebuffers, and the card never fell below **1320 MiB free**.
+Each guest was refused at ITS OWN ceiling -- ~3140 allocations and ~2720
+refusals each -- and none of them was starved by a neighbour. (The few MiB
+above each profile are `nvidia-smi`'s per-process accounting counting
+context pages the ledger does not charge; the ledger's limit is the
+guest-visible number.)
+
+**WHAT THIS LEAVES.** Heterogeneous placement is EASIER here than on a
+vGPU, which is the one place this design is ahead of the thing it copies.
+What it does not buy is graceful degradation: number 70 measures what a
+tenant does when its profile is too small, and the answer does not depend
+on which policy set the number.
 
 ### 70. What a VRAM limit costs, and what happens at the edge
 **Open, raised 2026-08-21** on the `vram-grid` branch. Numbers 68 and 69

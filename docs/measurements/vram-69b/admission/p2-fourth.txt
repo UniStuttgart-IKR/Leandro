@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT
+# p2-fourth.txt, from the run -- 69b/admission policy, 2026-08-21.
+== vm3: host network ==
+  bridge br-poco and tap3: ready
+== vm3: backends ==
+  vm3: vGPU type RTX2070-1Q -- profile 1024 MiB, guest FB 512 MiB (2 x 256 MiB VMMU segments), encoder 12%
+ERROR: vm3: the card is full. Live: vm0=RTX2070-4Q(4096) vm1=RTX2070-2Q(2048) vm2=RTX2070-2Q(2048), together 8192 MiB;
+       RTX2070-1Q costs 1024 MiB more and the card is 8192 MiB.
+       Mixed types are allowed here -- the sum is not.

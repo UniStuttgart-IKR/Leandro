@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# run.txt, from the run -- 69b/admission policy, 2026-08-21.
+[23:47:19] catalogue: 4 types; available 8192 MiB
+[23:47:19] === P1: four 2Q, then a fifth ===
+[23:48:22] P1 up: 4 of 4
+[23:48:22]   vm0: Leandro RTX2070-2Q, 1280 MiB
+[23:48:23]   vm1: Leandro RTX2070-2Q, 1280 MiB
+[23:48:23]   vm2: Leandro RTX2070-2Q, 1280 MiB
+[23:48:23]   vm3: Leandro RTX2070-2Q, 1280 MiB
+[23:48:23] --- the fifth (expect NV_ERR_INSUFFICIENT_RESOURCES at maxInstance 4) ---
+[23:48:23]   fifth exit=1 :: ERROR: vm4: 4 instances of RTX2070-2Q are running and its maxInstance is 4.
+[23:48:28] === P2: one 4Q beside two 2Q ===
+[23:48:28]   up vm0 as 4Q
+      vm0: admitted -- 0 MiB live + 4096 MiB of 8192 MiB
+[23:48:44]   up vm1 as 2Q
+      vm1: admitted -- 4096 MiB live (vm0=RTX2070-4Q(4096)) + 2048 MiB of 8192 MiB
+[23:48:59]   up vm2 as 2Q
+      vm2: admitted -- 6144 MiB live (vm0=RTX2070-4Q(4096) vm1=RTX2070-2Q(2048)) + 2048 MiB of 8192 MiB
+[23:49:14]   vm0 (4Q): Leandro RTX2070-4Q, 3072 MiB
+[23:49:14]   vm1 (2Q): Leandro RTX2070-2Q, 1280 MiB
+[23:49:15]   vm2 (2Q): Leandro RTX2070-2Q, 1280 MiB
+[23:49:15] --- a fourth, 1Q, on a card that is already exactly full ---
+[23:49:15]   fourth exit=1 :: ERROR: vm3: the card is full. Live: vm0=RTX2070-4Q(4096) vm1=RTX2070-2Q(2048) vm2=RTX2070-2Q(2048), together 8192 MiB;
+[23:49:15] backend pids: 4107154 4108145 4109175
+[23:49:15] load: vrampress --max in all three for 120s
+[23:51:21] down
+[23:51:25] === hetero done ===

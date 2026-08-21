@@ -190,6 +190,13 @@ fn align_down(v: u64, a: u64) -> u64 {
     if a == 0 { v } else { (v / a) * a }
 }
 
+/// `a * b / c` without overflowing on the way through. The values here are
+/// byte counts of a framebuffer, so `a * b` is comfortably past 2^64.
+fn mul_div(a: u64, b: u64, c: u64) -> u64 {
+    if c == 0 { return 0; }
+    (a as u128 * b as u128 / c as u128) as u64
+}
+
 impl Catalogue {
     /// Derive the catalogue from what the card answered.
     ///
@@ -234,8 +241,16 @@ impl Catalogue {
             if profile_size % GIB != 0 || profile_size == 0 {
                 continue;
             }
-            let reservation =
-                align_up(carve_out / max_instance as u64 + overhead, segment);
+            // PROPORTIONAL, not divided by the instance count. vGPU
+            // writes `totalReservedFb / maxInstance` because every
+            // instance on its card is the same size, so the two are the
+            // same number; written this way the rule keeps meaning
+            // something when they are not (number 69(b)). The identity is
+            // a test below, not a hope.
+            let reservation = align_up(
+                mul_div(carve_out, profile_size, available) + overhead,
+                segment,
+            );
             if reservation >= profile_size {
                 continue;
             }
@@ -262,6 +277,39 @@ impl Catalogue {
             });
         }
         Catalogue { board: board.to_string(), total, usable, segment, overhead, profiles }
+    }
+
+    /// What the catalogue partitions: the card's total aligned up to eight
+    /// VMMU segments, which is vGPU's `totalAvailableFb`
+    /// (kernel_vgpu_mgr.c:3797).
+    ///
+    /// This -- not the usable heap -- is what profile sizes are measured
+    /// against, and the distinction is the whole of [`Catalogue::admits`]:
+    /// a `profile_size` already CONTAINS that instance's share of the
+    /// card's carve-out, so the sizes sum to the card, not to the heap.
+    pub fn available(&self) -> u64 {
+        if self.segment == 0 { self.total } else { align_up(self.total, 8 * self.segment) }
+    }
+
+    /// May a VM of `want` start beside these already-live profile sizes?
+    ///
+    /// **The rule is `sum(profile_size) <= available`,** and the tempting
+    /// wrong one is `<= usable`. Every homogeneous full-density row in this
+    /// catalogue sums to exactly `available` -- eight 1Q, four 2Q and two
+    /// 4Q all cost 8192 MiB on this card -- so a rule written against the
+    /// usable heap would refuse the very configurations that were measured
+    /// running (number 69: eight 1Q guests, every one of them holding its
+    /// 384 MiB, 3 GiB still free). The carve-out is already inside each
+    /// profile's reservation; charging it twice is what that rule does.
+    ///
+    /// vGPU needs more than arithmetic here because its framebuffers are
+    /// PLACED -- fixed placement ids in the VMMU region, a recursive
+    /// halving to find room, and a deny-list of combinations that overlap
+    /// (`_kvgpumgrSetHeterogeneousResources`, `_kvgpumgrIsPlacementValid`,
+    /// kernel_vgpu_mgr.c). Nothing is placed on this side; the sum is the
+    /// only constraint there is.
+    pub fn admits(&self, live: &[u64], want: u64) -> bool {
+        live.iter().copied().sum::<u64>() + want <= self.available()
     }
 
     /// Find a profile by the part after the board name (`2Q`) or by its
@@ -321,6 +369,81 @@ mod tests {
     /// FB_GET_INFO_V2 in a guest, and the same two indices natively).
     fn rtx2070(segment: u64) -> Catalogue {
         Catalogue::derive("RTX2070", 8192 * MIB, 7773 * MIB, segment, 256 * MIB)
+    }
+
+    /// The card as the launcher actually sees it: the heap MINUS what the
+    /// host desktop is holding, which is what `vgpuprofile` passes in and
+    /// is where the published 2Q = 1280 MiB comes from.
+    fn rtx2070_with_a_busy_host() -> Catalogue {
+        Catalogue::derive("RTX2070", 8192 * MIB, (7771 - 900) * MIB, 256 * MIB, 256 * MIB)
+    }
+
+    /// **The generalisation is free.** vGPU divides its reserve by the
+    /// instance count; this file multiplies it by the profile's share of
+    /// the card. Where every instance is the same size those are the same
+    /// number -- and every row of a homogeneous catalogue is that case, so
+    /// nothing in number 69's measured tables moves.
+    #[test]
+    fn a_proportional_reserve_equals_a_divided_one_when_all_are_equal() {
+        let cat = rtx2070_with_a_busy_host();
+        let available = cat.available();
+        let carve_out = cat.total - cat.usable;
+        for p in &cat.profiles {
+            let divided = align_up(carve_out / p.max_instance as u64 + cat.overhead, cat.segment);
+            assert_eq!(
+                p.reservation, divided,
+                "{}: proportional {} != divided {}",
+                p.name, p.reservation, divided
+            );
+            // and the reason they agree, stated so a change to either is
+            // caught here rather than in a guest
+            assert_eq!(p.profile_size, available / p.max_instance as u64);
+        }
+    }
+
+    /// **The rule is against the card, not against the heap.** Every
+    /// full-density row sums to exactly the available total; a rule written
+    /// against the usable heap would refuse all of them, including the
+    /// eight-guest 1Q run that number 69 measured working.
+    #[test]
+    fn full_density_saturates_the_card_exactly() {
+        let cat = rtx2070_with_a_busy_host();
+        for p in &cat.profiles {
+            assert_eq!(
+                p.profile_size * p.max_instance as u64,
+                cat.available(),
+                "{} x{} does not fill the card",
+                p.name,
+                p.max_instance
+            );
+            // the last one fits and one more does not
+            let live: Vec<u64> =
+                std::iter::repeat_n(p.profile_size, p.max_instance as usize - 1).collect();
+            assert!(cat.admits(&live, p.profile_size), "{}: the last instance was refused", p.name);
+            let full: Vec<u64> =
+                std::iter::repeat_n(p.profile_size, p.max_instance as usize).collect();
+            assert!(!cat.admits(&full, p.profile_size), "{}: one too many was admitted", p.name);
+            // and the rule the entry first proposed would have refused the
+            // whole row -- kept as a test so it is not proposed again
+            assert!(p.profile_size * p.max_instance as u64 > cat.usable);
+        }
+    }
+
+    /// The mixed case this branch could not previously express: one 4Q
+    /// beside two 2Q is exactly the card, and a further 1Q is not.
+    #[test]
+    fn one_4q_admits_two_2q_and_nothing_more() {
+        let cat = rtx2070_with_a_busy_host();
+        let p4 = cat.find("4Q").expect("4Q").clone();
+        let p2 = cat.find("2Q").expect("2Q").clone();
+        let p1 = cat.find("1Q").expect("1Q").clone();
+        assert!(cat.admits(&[p4.profile_size], p2.profile_size));
+        assert!(cat.admits(&[p4.profile_size, p2.profile_size], p2.profile_size));
+        assert!(!cat.admits(&[p4.profile_size, p2.profile_size, p2.profile_size], p1.profile_size));
+        // what the three of them actually ask the heap for, which is the
+        // number the run has to survive
+        let asked = p4.fb_length + 2 * p2.fb_length + 3 * cat.overhead;
+        assert!(asked <= cat.usable, "{} MiB asked of {} MiB", asked / MIB, cat.usable / MIB);
     }
 
     #[test]

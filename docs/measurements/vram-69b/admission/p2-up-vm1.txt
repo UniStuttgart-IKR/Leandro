@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# p2-up-vm1.txt, from the run -- 69b/admission policy, 2026-08-21.
+== vm1: host network ==
+  bridge br-poco and tap1: ready
+== vm1: backends ==
+  vm1: vGPU type RTX2070-2Q -- profile 2048 MiB, guest FB 1280 MiB (5 x 256 MiB VMMU segments), encoder 25%
+  vm1: admitted -- 4096 MiB live (vm0=RTX2070-4Q(4096)) + 2048 MiB of 8192 MiB
+  vm1: nvrm backend up
+== vm1: VM (ubuntu, ip) ==
+  vm1: VM starting (PID 4108241, IP 192.168.100.11), serial: /mnt/vmstore/leandro/vm/vm1/serial.log
+  vm1: SSH up (192.168.100.11)
+== vm1: provisioning (userspace, probes, nvrm_nodes.ko) ==
+  vm1: provisioned
+== vm1: guest module (virtio_nvrm.ko) ==
+  vm1: modules loaded
+  vm1 (192.168.100.11): up
+
+  log in:   scripts/showcase.sh ssh --name vm1
+  stop:     scripts/showcase.sh down --name vm1
+  console:  tail -f /mnt/vmstore/leandro/vm/vm1/serial.log

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+# p1-up.txt, from the run -- 69b/admission policy, 2026-08-21.
+== fleet of 4 (ubuntu, ip) ==
+  vm0 (192.168.100.10): up
+  vm1 (192.168.100.11): up
+  vm2 (192.168.100.12): up
+  vm3 (192.168.100.13): up
+NAME         IDX GUEST   TRANSP IP               TAP    VM    NVRM   INPUT  MODULE
+vm0          0   ubuntu  ip     192.168.100.10   tap0   up    up     down   loaded
+vm1          1   ubuntu  ip     192.168.100.11   tap1   up    up     down   loaded
+vm2          2   ubuntu  ip     192.168.100.12   tap2   up    up     down   loaded
+vm3          3   ubuntu  ip     192.168.100.13   tap3   up    up     down   loaded

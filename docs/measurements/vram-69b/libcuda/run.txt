@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# run.txt, from the run -- 69b/libcuda policy, 2026-08-21.
+[23:53:59] === mode-on: LEA_VGPU_MEDIATE=mode ===
+[23:54:13]   smi: Leandro RTX2070-2Q, 1280 MiB
+[23:54:14]   mode:     GPU Virtualization Mode         Virtualization Mode                            : VGPU         Host VGPU Mode                                 : N/A 
+[23:54:14]   tracer pushed to /tmp/libnvrm_trace.so (4099072 bytes)
+[23:54:14]   vrampress: vrampress: cuInit 100
+[23:54:14]   trace: 164 tsv lines, 164 jsonl
+[23:54:16] === mode-off: LEA_VGPU_MEDIATE=none ===
+[23:54:31]   smi: Leandro RTX2070-2Q, 1280 MiB
+[23:54:31]   mode:     GPU Virtualization Mode         Virtualization Mode                            : None         Host VGPU Mode                                 : N/A 
+[23:54:32]   tracer pushed to /tmp/libnvrm_trace.so (4099072 bytes)
+[23:54:34]   vrampress: vrampress: start free 1187 MiB of 1280 MiB, mode fill, chunk 128 MiB, churn 64 MiB, 2 s
+[23:54:35]   trace: 4474 tsv lines, 4474 jsonl
+[23:54:36] === cudatrace done ===

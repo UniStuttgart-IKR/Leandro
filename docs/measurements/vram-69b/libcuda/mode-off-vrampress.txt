@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+# mode-off-vrampress.txt, from the run -- 69b/libcuda policy, 2026-08-21.
+vrampress: start free 1187 MiB of 1280 MiB, mode fill, chunk 128 MiB, churn 64 MiB, 2 s
+vrampress: grown to 128 MiB held, 1059 MiB free of 1280 MiB
+t,held_mib,free_mib,total_mib,allocs,frees,fails
+0,184,1003,1280,2,0,0
+1,388,799,1280,50,42,0
+vrampress: done -- 97 allocations, 97 frees, 0 refusals, free now 1187 MiB of 1280 MiB, recovery ok

@@ -172,7 +172,7 @@ lea_inst_list() {
     done
 }
 
-# lea_vgpu_admit NAME TYPE MAX -- may another VM of this type start?
+# lea_vgpu_admit NAME TYPE MAX PROFILE_MIB AVAILABLE_MIB -- may this VM start?
 #
 # THIS IS THE PIECE THE BACKEND CANNOT DO, and the reason is the whole
 # architecture: one backend serves one VM, holds no RM client, and has no
@@ -184,38 +184,72 @@ lea_inst_list() {
 # that is the only place on this side of the boundary where the question
 # can be asked at all.
 #
-# Two rules, both vGPU's:
-#   * at most MAX instances of a type (its maxInstance);
-#   * HOMOGENEOUS -- every live VM on the card runs the same type. vGPU's
-#     default mode is homogeneous placement and its arithmetic assumes it;
-#     copying the arithmetic without the constraint would hand out
-#     framebuffer twice.
+# THE RULE IS THE SUM, and mixed types are allowed (number 69(b)).
+# Placement is why vGPU cannot say that: its guest framebuffers occupy
+# fixed placement ids inside the VMMU region, so a heterogeneous card needs
+# a recursive halving to find room and a deny-list of combinations that
+# overlap (_kvgpumgrSetHeterogeneousResources, _kvgpumgrIsPlacementValid).
+# NOTHING IS PLACED HERE -- the guest's framebuffer is an accounting limit
+# in one backend's ledger, and "placement" is this counter. So the only
+# constraint that has to hold is that the profiles fit the card:
+#
+#     sum(profile_size of every live VM) + this one <= totalAvailableFb
+#
+# measured against the CARD, not against the usable heap: a profile size
+# already contains that instance's share of the card's carve-out, and every
+# full-density row of the catalogue sums to exactly the card (eight 1Q,
+# four 2Q and two 4Q all cost 8192 MiB here). A rule written against the
+# heap would refuse the eight-guest 1Q run that number 69 measured working.
+# `Catalogue::admits` in crates/nvrm-abi/src/vgpu.rs holds the same rule
+# and the test that proves it.
+#
+# maxInstance is still reported, because it is vGPU's own error and it is
+# the one an operator will recognise -- but it is now a CONSEQUENCE of the
+# sum rather than a second rule: MAX instances of a type is exactly the
+# card.
+#
 # An instance whose backend is not running does not occupy a placement,
 # which is why this reads the pidfile rather than the type file alone.
 lea_vgpu_admit() {
-    local name=$1 want=$2 max=$3 n=0 other dir live
+    local name=$1 want=$2 max=$3 mine=$4 available=$5
+    local other dir sum=0 n=0 live lprof detail=""
     for other in $(lea_inst_list); do
         [[ $other == "$name" ]] && continue
         dir=$(lea_inst_dir "$other")
         [[ -f $dir/vgpu-type ]] || continue
         lea_running "$dir/nvrm.pid" || continue
         live=$(tr -d '[:space:]' < "$dir/vgpu-type")
-        if [[ $live != "$want" ]]; then
-            error "$name: this card already runs $live (instance $other) and vGPU
-       placement is homogeneous -- every VM on a card is the same type.
-       Take it down or start $name as $live."
-            return 1
+        # An older instance directory may predate the profile file; its
+        # type is still in the catalogue, so ask for the number rather
+        # than guessing one.
+        if [[ -f $dir/vgpu-profile-mib ]]; then
+            lprof=$(tr -d '[:space:]' < "$dir/vgpu-profile-mib")
+        else
+            lprof=$("$LEA_BIN_DIR/vgpuprofile" --select "$live" 2>/dev/null |
+                    sed -n 's/^vgpu_profile_mib=//p')
         fi
-        n=$((n + 1))
+        [[ $lprof =~ ^[0-9]+$ ]] || {
+            error "$name: instance $other runs $live and its profile size is
+       unreadable -- admission cannot be decided without it."
+            return 1; }
+        sum=$((sum + lprof))
+        detail="$detail $other=$live(${lprof})"
+        [[ $live == "$want" ]] && n=$((n + 1))
     done
-    if (( n >= max )); then
-        error "$name: $n instances of $want are running and its maxInstance is $max.
+    if (( sum + mine > available )); then
+        if (( n >= max )); then
+            error "$name: $n instances of $want are running and its maxInstance is $max.
        That is NV_ERR_INSUFFICIENT_RESOURCES, refused at creation the way
        kernel_vgpu_mgr.c:322 refuses it -- before the VM exists, rather than
        by failing an allocation at minute two."
+        else
+            error "$name: the card is full. Live:${detail:- none}, together ${sum} MiB;
+       $want costs ${mine} MiB more and the card is ${available} MiB.
+       Mixed types are allowed here -- the sum is not."
+        fi
         return 1
     fi
-    info "  $name: placement $((n + 1)) of $max for $want"
+    info "  $name: admitted -- ${sum} MiB live${detail:+ (${detail# })} + ${mine} MiB of $available MiB"
     return 0
 }
 
@@ -603,12 +637,16 @@ lea_backend_start() {
                     return 1; }
                 local vgpu_type="" vgpu_profile_mib="" vgpu_fb_mib="" vgpu_max_instance=""
                 local vgpu_segments="" vgpu_segment_mib="" vgpu_encoder_cap=""
+                local vgpu_available_mib=""
                 eval "$_vg"
                 vtype=$vgpu_type; vprof=$vgpu_profile_mib; vfb=$vgpu_fb_mib
                 venc=$vgpu_encoder_cap
                 info "  $name: vGPU type $vtype -- profile ${vprof} MiB, guest FB ${vfb} MiB ($vgpu_segments x ${vgpu_segment_mib} MiB VMMU segments), encoder ${venc}%"
-                lea_vgpu_admit "$name" "$vtype" "$vgpu_max_instance" || return 1
+                lea_vgpu_admit "$name" "$vtype" "$vgpu_max_instance" \
+                               "$vprof" "$vgpu_available_mib" || return 1
                 echo "$vtype" > "$dir/vgpu-type"
+                # what a sibling's admission has to add up
+                echo "$vprof" > "$dir/vgpu-profile-mib"
             fi
             [[ -n $cap ]] && info "  $name: VRAM cap ${cap} MiB (LEA_VRAM_LIMIT_MIB)"
             if [[ -n $prof ]]; then

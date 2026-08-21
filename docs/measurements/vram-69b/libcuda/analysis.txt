@@ -1,0 +1,99 @@
+# SPDX-License-Identifier: MIT
+# analysis.txt, from the run -- 69b/libcuda policy, 2026-08-21.
+mode ON : 164 records from /tmp/claude-1000/-home-silas-git-Leandro/f3fc191a-453c-4f97-8ba3-de299d29d9e3/scratchpad/cudatrace/mode-on.jsonl
+mode OFF: 4474 records from /tmp/claude-1000/-home-silas-git-Leandro/f3fc191a-453c-4f97-8ba3-de299d29d9e3/scratchpad/cudatrace/mode-off.jsonl
+
+=== mode ON: GET_VIRTUALIZATION_MODE at [144] of 164 ===
+  [144] ioctl ctl nr=0x2a sub=0x800289 size=32 ret=0 status=0x0
+    +1  ctrlout dev=None
+    +2  nvos64 dev=None
+    +3  allocout dev=ctl
+    +4  ioctl ctl nr=0x2b sub=0xa080 size=48 ret=0 status=0x56
+    +5  nvos64 dev=None
+    +6  allocout dev=ctl
+    +7  escout dev=ctl
+    +8  ioctl ctl nr=0x29 size=16 ret=0 status=None
+    +9  escout dev=ctl
+    +10 escout dev=ctl
+    +11 ioctl ctl nr=0x29 size=16 ret=0 status=None
+    +12 escout dev=ctl
+    +13 escout dev=ctl
+    +14 ioctl ctl nr=0x29 size=16 ret=0 status=None
+    +15 escout dev=ctl
+
+=== mode OFF: GET_VIRTUALIZATION_MODE at [144] of 4474 ===
+  [144] ioctl ctl nr=0x2a sub=0x800289 size=32 ret=0 status=0x0
+    +1  ctrlout dev=None
+    +2  ctrlout dev=None
+    +3  ioctl ctl nr=0x2a sub=0x20810108 size=32 ret=0 status=0x0
+    +4  ctrlout dev=None
+    +5  ctrlout dev=None
+    +6  ioctl ctl nr=0x2a sub=0x20801303 size=32 ret=0 status=0x0
+    +7  ctrlout dev=None
+    +8  ctrlout dev=None
+    +9  ioctl ctl nr=0x2a sub=0x20801701 size=32 ret=0 status=0x0
+    +10 ctrlout dev=None
+    +11 ctrlout dev=None
+    +12 ioctl ctl nr=0x2a sub=0x20801823 size=32 ret=0 status=0x0
+    +13 ctrlout dev=None
+    +14 ctrlout dev=None
+    +15 ioctl ctl nr=0x2a sub=0x20801801 size=32 ret=0 status=0x0
+
+=== first divergence ===
+  at record 146:
+      [142] ON  ctrlout dev=None
+           OFF ctrlout dev=None
+      [143] ON  ctrlout dev=None
+           OFF ctrlout dev=None
+      [144] ON  ioctl ctl nr=0x2a sub=0x800289 size=32 ret=0 status=0x0
+           OFF ioctl ctl nr=0x2a sub=0x800289 size=32 ret=0 status=0x0
+      [145] ON  ctrlout dev=None
+           OFF ctrlout dev=None
+   -> [146] ON  nvos64 dev=None
+   ->      OFF ctrlout dev=None
+   -> [147] ON  allocout dev=ctl
+   ->      OFF ioctl ctl nr=0x2a sub=0x20810108 size=32 ret=0 status=0x0
+   -> [148] ON  ioctl ctl nr=0x2b sub=0xa080 size=48 ret=0 status=0x56
+   ->      OFF ctrlout dev=None
+   -> [149] ON  nvos64 dev=None
+   ->      OFF ctrlout dev=None
+   -> [150] ON  allocout dev=ctl
+   ->      OFF ioctl ctl nr=0x2a sub=0x20801303 size=32 ret=0 status=0x0
+   -> [151] ON  escout dev=ctl
+   ->      OFF ctrlout dev=None
+   -> [152] ON  ioctl ctl nr=0x29 size=16 ret=0 status=None
+   ->      OFF ctrlout dev=None
+   -> [153] ON  escout dev=ctl
+   ->      OFF ioctl ctl nr=0x2a sub=0x20801701 size=32 ret=0 status=0x0
+   -> [154] ON  escout dev=ctl
+   ->      OFF ctrlout dev=None
+   -> [155] ON  ioctl ctl nr=0x29 size=16 ret=0 status=None
+   ->      OFF ctrlout dev=None
+   -> [156] ON  escout dev=ctl
+   ->      OFF ioctl ctl nr=0x2a sub=0x20801823 size=32 ret=0 status=0x0
+   -> [157] ON  escout dev=ctl
+   ->      OFF ctrlout dev=None
+
+=== control commands, by count ===
+  ON: 23 distinct; top: 0x202x3, 0x41x2, 0xd04x2, 0x205x2, 0x201x2, 0x20801303x2, 0x101x1, 0xcb33x1
+  OFF: 111 distinct; top: 0x40x112, 0xd01x29, 0x906f0101x28, 0x3ex26, 0xc46fx20, 0x80170dx20, 0xc5b5x20, 0xc36f0108x20
+
+=== only with the mode answered (2) ===
+    ('ioctl', 'ctl', '0x2b', '0xa080', 48) x1
+    ('ioctl', 'uvm', '0x30000002', None, 0) x1
+=== only without it (115) ===
+    ('ioctl', 'ctl', '0x2a', '0x20810108', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x20801701', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x20801823', 32) x2
+    ('ioctl', 'ctl', '0x2a', '0x20801801', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x20801803', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x2080182a', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x2080012f', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x20800170', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x20800119', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x27b', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x20800102', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x20801201', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x2080122a', 32) x1
+    ('ioctl', 'ctl', '0x2a', '0x2080122b', 32) x3
+    ('ioctl', 'ctl', '0x2a', '0x20801227', 32) x1

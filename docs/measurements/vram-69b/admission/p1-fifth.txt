@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# p1-fifth.txt, from the run -- 69b/admission policy, 2026-08-21.
+== vm4: host network ==
+  bridge br-poco and tap4: ready
+== vm4: backends ==
+  vm4: vGPU type RTX2070-2Q -- profile 2048 MiB, guest FB 1280 MiB (5 x 256 MiB VMMU segments), encoder 25%
+ERROR: vm4: 4 instances of RTX2070-2Q are running and its maxInstance is 4.
+       That is NV_ERR_INSUFFICIENT_RESOURCES, refused at creation the way
+       kernel_vgpu_mgr.c:322 refuses it -- before the VM exists, rather than
+       by failing an allocation at minute two.
