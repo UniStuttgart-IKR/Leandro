@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-21T00:32:52Z
-commit:  4a4ea07 (working tree modified)
+date:    2026-08-21T08:41:27Z
+commit:  dfd2f4d (working tree modified)
 ```
 
 One row per signature `(device, ioctl nr, sub)`. Names, descriptions,

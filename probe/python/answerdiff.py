@@ -488,6 +488,72 @@ def written_words(asked, calls):
     return out
 
 
+# THE ONE DECLARED CLASSIFICATION IN THIS FILE, AND IT IS NOT A MASK.
+#
+# Every mask here is DERIVED -- the gpu_id out of the trace's own cardinfo
+# line, the handles out of its own allocation lines, the pointer offsets out
+# of the descriptor stream, the written-ness out of the before-call sample.
+# That property is deliberate and this table does NOT spend it, because a mask
+# and a class are different things:
+#
+#   a MASK says "these bytes may differ" and the signature can still be
+#     VERIFIED. It is a claim about correctness.
+#   this CLASS says "these bytes DO differ, and here is the category". It
+#     never promotes. The signature is not verified and does not pretend to be.
+#
+# So the cost of being wrong here is bounded: a wrong entry moves a row from
+# `mismatch` to `host_assigned` and loses an alarm. It can never make
+# something count as verified that is not.
+#
+# WHY A DECLARATION AT ALL, when everything else is derived. For
+# FIFO_GET_CHANNELLIST the differing value is a hardware channel id, and the
+# only place it appears in the trace is inside the answer of the very command
+# under test -- checked 2026-08-21, the channel allocation (hClass 0xc46f, 376
+# bytes of answer) does not carry it. Deriving a mask from that would make the
+# instrument agree with what it is measuring, which is the same circularity
+# that stopped allocation dump lengths being taken from the table under test.
+#
+# THE CRITERION, so this cannot become a place to put anything inconvenient.
+# An entry belongs here only if ALL of these hold:
+#   1. the value is assigned by the HOST or by the hardware, not by the guest,
+#      and a guest cannot be expected to match it;
+#   2. it is STABLE on each side -- the control test has already had its say,
+#      and an unstable word never reaches this check;
+#   3. the difference is consistent across every probe that exercises it, not
+#      occasional;
+#   4. the entry names the evidence, below, in the row itself.
+# A value that merely looks plausible does not qualify. If in doubt it stays
+# in `mismatch`, which is the safe place for an open question.
+HOST_ASSIGNED = {
+    # NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST. The dump behind the two NvP64s is
+    # a handle followed by a channel id, 8 bytes per channel; the handle
+    # matches (the handle mask covers it) and the id does not.
+    #
+    # Measured 2026-08-21: in nvenc the first three channels are 0x35/0x36/0x37
+    # natively and 0x37/0x38/0x39 in the guest -- the native ids plus two,
+    # with IDENTICAL handles -- and the first channel is 0x35 against 0x37 in
+    # cuda-core, cuda-jit, nvdec, nvenc and opencl alike. A constant offset is
+    # what "the host has channels of its own that the guest does not" predicts.
+    ("ctl 0x2a 0x80170d", "nested", 4): (
+        "the hardware channel id, which RM assigns when a channel is "
+        "allocated. The host has channels of its own that the guest does not, "
+        "so the ids cannot coincide: measured 2026-08-21 as the native id "
+        "plus two, consistently, with the channel HANDLES identical"),
+}
+
+
+def host_assigned_hit(sig, off, params_bytes):
+    """Is this word a declared host-assigned value? -> the reason, or None.
+
+    `off` is into the whole dump; past the params buffer it is into what an
+    NvP64 pointed at, which is the "nested" buffer here -- the same split
+    `where_at` renders.
+    """
+    if params_bytes is not None and off >= params_bytes:
+        return HOST_ASSIGNED.get((sig, "nested", off - params_bytes))
+    return HOST_ASSIGNED.get((sig, "params", off))
+
+
 def where_at(fm, off, params_bytes):
     """Name the field at `off`, saying which BUFFER it is in.
 
@@ -502,7 +568,7 @@ def where_at(fm, off, params_bytes):
 
 
 def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
-                stab=None, nasked=(), gasked=()):
+                stab=None, nasked=(), gasked=(), sig=None):
     """One signature's verdict: verified, or the reason it is not.
 
     Returns `(ok, why, masked)`. With a mediation manifest for this command
@@ -640,6 +706,19 @@ def compare_cmd(cmd, ncalls, gcalls, native, guest, ptrs=(), fm=None, med=None,
                         f"populate some answers depending on the caller's "
                         f"state -- but the two sides reached this call in "
                         f"different states"), {}
+                # LAST, and only here. Everything above has had its say:
+                # the derived masks, the control test, the mediation manifest
+                # and the written-ness label. What reaches this point is a
+                # word both sides wrote, that is stable, that no mask
+                # explains -- i.e. a mismatch -- and the only question left is
+                # whether it is a value the guest could ever have matched.
+                ha = host_assigned_hit(sig, off, pb)
+                if ha is not None:
+                    return "host-assigned", (
+                        f"call {i}, {where_at(fm, off, pb)}: {nw:#010x} "
+                        f"natively, {gw:#010x} in the guest -- {ha}. NOT "
+                        f"masked and NOT verified: the bytes differ and this "
+                        f"says which category the difference is in"), {}
                 extra = (" -- this command IS mediated, and this byte is in "
                          "none of the fields the mediation declares"
                          if med else "")
@@ -713,6 +792,7 @@ def main():
     # the good half of exactly that case.
     ok_by_sig, bad_by_sig, evidence, sides, skipped = {}, {}, {}, {}, []
     abstained, unstable_by_sig, unwritten_by_sig = {}, {}, {}
+    host_assigned_by_sig = {}
     behind = {}
     for p in a.probes:
         n = read_side(traceread.trace_file(ndir, p))
@@ -754,7 +834,7 @@ def main():
                                           g["calls"].get(key, []), n, g,
                                           declared.get(cmd, ()), fm, med, st,
                                           n["asked"].get(key, []),
-                                          g["asked"].get(key, []))
+                                          g["asked"].get(key, []), sig=key)
             row = cat.get(tuple(key.split()), {})
             if ok == "abstain":
                 abstained.setdefault(key, []).append({"probe": p, "reason": why})
@@ -771,6 +851,18 @@ def main():
                     "probes": [], "reason": why,
                     "catalogue_status": row.get("status", ""),
                     "catalogue_notes": row.get("notes", []),
+                })["probes"].append(p)
+                continue
+            if ok == "host-assigned":
+                # Beside `unstable`, and for the same structural reason: not a
+                # pass and not a defect, so it disqualifies the signature from
+                # both verified classes without counting as evidence against
+                # the boundary. What it buys is that `mismatch` goes back to
+                # meaning "look at this".
+                host_assigned_by_sig.setdefault(key, {
+                    "signature": key, "name": row.get("name", ""),
+                    "probes": [], "reason": why,
+                    "catalogue_status": row.get("status", ""),
                 })["probes"].append(p)
                 continue
             if ok == "unstable":
@@ -957,6 +1049,11 @@ def main():
     # Reported ahead of a plain mismatch where a signature is both: "did not
     # answer" is the more specific statement and the more actionable one.
     unwritten = [unwritten_by_sig[k] for k in sorted(unwritten_by_sig)]
+    # Same precedence rule as `unstable`: a signature that also mismatches
+    # somewhere is reported as the mismatch, because that is the outcome a
+    # reader has to look at.
+    host_assigned = [host_assigned_by_sig[k] for k in sorted(host_assigned_by_sig)
+                     if k not in bad_by_sig]
 
     js = {
         "provenance": [x for x in a.provenance.split("|") if x],
@@ -1046,6 +1143,7 @@ def main():
         "answer_not_written": unwritten,
         "answer_behind_a_pointer": [behind[k] for k in sorted(behind)],
         "unstable": unstable,
+        "host_assigned": host_assigned,
         "stability_unknown": stability_unknown,
         "verdicts": {
             "mismatch": "the bytes differ, at a word that was constant across "
@@ -1070,6 +1168,15 @@ def main():
                                   "reached the call in different states; "
                                   "whether the boundary caused that is a "
                                   "separate question and needs a reproducer",
+            "host-assigned": "the bytes differ, at a word the HOST or the "
+                             "hardware assigns and a guest cannot be expected "
+                             "to match -- a channel id, and nothing else so "
+                             "far. NOT a mask and NOT verified: the signature "
+                             "joins neither verified class. It is the one "
+                             "DECLARED classification in answerdiff.py, and "
+                             "the criterion it has to meet is stated there. "
+                             "It exists so `mismatch` can go back to meaning "
+                             "look at this",
             "unstable": "the bytes differ, at a word that moves between two "
                         "calls of one native run, or between two native "
                         "runs of the same probe -- evidence for nothing, in "

@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-21T00:32:44Z",
-    "commit:  4a4ea07 (working tree modified)"
+    "date:    2026-08-21T08:41:19Z",
+    "commit:  dfd2f4d (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh verify",
   "method": "the tracer's ctrlout lines -- the params buffer sampled BEFORE and AFTER each call -- from the native trace against the guest trace, call by call, word by word",
@@ -7317,50 +7317,8 @@
       "stability": "some compared words are not constant across the calls one native run made; a match on those is not proof they are stable"
     }
   },
-  "not_verified": [
-    {
-      "signature": "ctl 0x2a 0x80170d",
-      "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
-      "probes": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "reason": "call 0, +4 in the buffer behind the NvP64: 0x00000035 natively, 0x00000037 in the guest -- this command IS mediated, and this byte is in none of the fields the mediation declares",
-      "catalogue_status": "implemented-unverified",
-      "catalogue_notes": [
-        "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16"
-      ],
-      "stability": "every word that differs was constant across the calls one native run made, so the difference is not volatility"
-    }
-  ],
-  "mismatch": [
-    {
-      "signature": "ctl 0x2a 0x80170d",
-      "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
-      "probes": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "nvdec",
-        "nvenc",
-        "opencl"
-      ],
-      "reason": "call 0, +4 in the buffer behind the NvP64: 0x00000035 natively, 0x00000037 in the guest -- this command IS mediated, and this byte is in none of the fields the mediation declares",
-      "catalogue_status": "implemented-unverified",
-      "catalogue_notes": [
-        "pointer field(s), offsets compiled: pChannelHandleList @8, pChannelList @16"
-      ],
-      "stability": "every word that differs was constant across the calls one native run made, so the difference is not volatility"
-    }
-  ],
+  "not_verified": [],
+  "mismatch": [],
   "answer_not_written": [
     {
       "signature": "ctl 0x2a 0x2080a079",
@@ -7990,11 +7948,30 @@
       "native_calls_compared": 10
     }
   ],
+  "host_assigned": [
+    {
+      "signature": "ctl 0x2a 0x80170d",
+      "name": "NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST",
+      "probes": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "nvdec",
+        "nvenc",
+        "opencl"
+      ],
+      "reason": "call 0, +4 in the buffer behind the NvP64: 0x00000035 natively, 0x00000037 in the guest -- the hardware channel id, which RM assigns when a channel is allocated. The host has channels of its own that the guest does not, so the ids cannot coincide: measured 2026-08-21 as the native id plus two, consistently, with the channel HANDLES identical. NOT masked and NOT verified: the bytes differ and this says which category the difference is in",
+      "catalogue_status": "implemented-unverified"
+    }
+  ],
   "stability_unknown": [],
   "verdicts": {
     "mismatch": "the bytes differ, at a word that was constant across the calls one native run made, and that BOTH sides wrote. A potential defect",
     "answer-behind-a-pointer": "the params buffer matched on both sides and the answer is not in it: the command declares an NvP64 and nothing dumps what it points at. NOT verified -- matching on the question is not the claim `verified` makes",
     "answer-not-written": "RM wrote this word natively and the guest left the caller's own value in place, with NV_OK on both sides. A DIFFERENCE, and no status fingerprint can see it because nothing failed -- but not by itself a defect: measured 2026-08-21, RM declines to populate some answers depending on the caller's state, and does so identically on both sides when asked identically. What this class says is that the two sides reached the call in different states; whether the boundary caused that is a separate question and needs a reproducer",
+    "host-assigned": "the bytes differ, at a word the HOST or the hardware assigns and a guest cannot be expected to match -- a channel id, and nothing else so far. NOT a mask and NOT verified: the signature joins neither verified class. It is the one DECLARED classification in answerdiff.py, and the criterion it has to meet is stated there. It exists so `mismatch` can go back to meaning look at this",
     "unstable": "the bytes differ, at a word that moves between two calls of one native run, or between two native runs of the same probe -- evidence for nothing, in either direction",
     "stability-unknown": "the bytes differ, and no native trace called the command twice, so the control test has nothing to say. Never to be read as stable"
   },
