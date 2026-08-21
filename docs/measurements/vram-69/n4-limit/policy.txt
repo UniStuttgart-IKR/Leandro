@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MIT
+# policy.txt, from the run -- n4-limit policy, 2026-08-21.
+vm0: vhost-user-nvrm: VRAM cap 1280 MiB for this VM (LEA_VRAM_LIMIT_MIB)
+vm1: vhost-user-nvrm: VRAM cap 1280 MiB for this VM (LEA_VRAM_LIMIT_MIB)
+vm2: vhost-user-nvrm: VRAM cap 1280 MiB for this VM (LEA_VRAM_LIMIT_MIB)
+vm3: vhost-user-nvrm: VRAM cap 1280 MiB for this VM (LEA_VRAM_LIMIT_MIB)

@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# catalogue.txt, from the run -- n4-limit policy, 2026-08-21.
+vmmu segment size: 268435456 bytes = 256 MiB (asked the card)
+fb total: 8192 MiB (TOTAL_RAM_SIZE), heap 7771 MiB (HEAP_SIZE), free now 6883 MiB
+host reserve: 888 MiB, which is what the HOST is holding right now (heap minus free). vGPU never has to allow for this -- its cards run nothing but guests.
+board: "NVIDIA GeForce RTX 2070"
+
+card RTX2070: 8192 MiB total, 6883 MiB usable heap, 1308 MiB carved out by the card, 256 MiB VMMU segment
+per-VM host overhead assumed: 256 MiB
+
+type          max  profile   reserved   guest FB   segments   encoder%   all instances
+RTX2070-8Q      1     8192       1792       6400         25       100          6400
+RTX2070-4Q      2     4096       1024       3072         12        50          6144
+RTX2070-2Q      4     2048        768       1280          5        25          5120
+RTX2070-1Q      8     1024        512        512          2        12          4096
+

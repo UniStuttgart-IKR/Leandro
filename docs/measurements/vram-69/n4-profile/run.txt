@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+# run.txt, from the run -- n4-profile policy, 2026-08-21.
+[21:53:37] policy=profile:1536 count=4 mem=1536 cpus=2 load=120s host already holds 886 MiB of VRAM and 21044 MiB of RAM free
+[21:54:40] up: 4 of 4
+[21:54:40] backend pids: 3864058 3864965 3865880 3866872
+[21:54:40] load: vrampress --max in every guest
+[21:56:46] down
+[21:56:51] done -- /tmp/claude-1000/-home-silas-git-Leandro/f3fc191a-453c-4f97-8ba3-de299d29d9e3/scratchpad/bench/n4-profile

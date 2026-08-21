@@ -139,10 +139,7 @@ fn switches() -> &'static (bool, bool, bool) {
 /// answered as `VGX` and `isGridBuild` set: `nvidia-smi` was entirely
 /// happy -- it printed `Leandro RTX2070-2Q`, 1280 MiB, `Virtualization
 /// Mode: VGPU` -- and **libcuda would not start at all**:
-///
-///     vrampress: cuInit 100
-///
-/// which is `CUDA_ERROR_NO_DEVICE`. Every guest, every row of the
+/// `vrampress: cuInit 100`, which is `CUDA_ERROR_NO_DEVICE`. Every guest, every row of the
 /// benchmark that had it on. The card is visible, named, sized, and has no
 /// CUDA device on it.
 ///
@@ -166,10 +163,8 @@ pub fn mediate_mode() -> bool {
 /// Measured 2026-08-21, one guest under `RTX2070-2Q`, this answer alone:
 /// `nvidia-smi` printed the new UUID (`GPU-68f65e19-4ec5-46d4-8b4f-...`,
 /// derived from the VM's name, and DIFFERENT per VM as intended), and
-///
-///     vrampress: cuInit 3
-///
-/// which is `CUDA_ERROR_NOT_INITIALIZED` -- not "no device" but "this
+/// `vrampress: cuInit 3`, which is
+/// `CUDA_ERROR_NOT_INITIALIZED` -- not "no device" but "this
 /// device did not come up". So libcuda does more with the UUID than print
 /// it, and something it cross-checks no longer agrees.
 ///

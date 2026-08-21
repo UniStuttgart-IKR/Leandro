@@ -1215,13 +1215,69 @@ was derived is not available to guests. `vgpuprofile` reads `HEAP_FREE` and
 subtracts it, which is why the 2Q row gives the guest 1280 MiB and not the
 1536 it gave before that was accounted for.
 
-**WHAT WOULD CLOSE THIS ENTRY:** a density benchmark that says whether the
-catalogue's numbers hold when several guests press at once -- and, above
-all, whether the admission it adds does what number 68 could not: keep a
-tenant from being starved by a neighbour. The uncapped baseline is already
-recorded (four VMs, `vrampress --max` in each): the four guests held
-**0, 128, 1920 and 4096 MiB**, one of them could not allocate a single
-block, and the card fell to **319 MiB free**.
+**THE BENCHMARK, 2026-08-21** (`docs/measurements/vram-69/`). Four fleet
+members, `vrampress --max` in every guest at once, 1536 MiB of guest RAM
+and 2 vCPU each, host sampled at 1 Hz. All three capped rows show the guest
+the SAME 1280 MiB, so what differs is the policy and not the budget:
+
+| policy | peak used | card free, MIN | combined | starved | held by each guest |
+|---|---|---|---|---|---|
+| none | 7454 | **319** | 6574 | **1** | 0, 1920, 128, 4096 |
+| `--vram-limit 1280` | 5881 | **1891** | 5136 | 0 | 1152, 1152, 1152, 1152 |
+| `--vram-profile 1536` | 5952 | **1821** | 5086 | 0 | 1152, 1152, 1152, 1152 |
+| `--vgpu-type 2Q` | 5964 | **1808** | 5036 | 0 | 1152, 1152, 1152, 1152 |
+
+**The three capped policies are within 1.5 % of each other on every
+column**, and the uncapped one is the outlier: it gave one guest 4 GiB,
+gave another 128 MiB, **starved a third completely** -- `cuInit` returned
+before a single block -- and left the card at 319 MiB. So the choice
+between a cap, a profile and a vGPU-shaped type is NOT a performance
+question. It is a question of what the operator's number means and what can
+be promised before the VM starts.
+
+**AND THE THING THAT DOES NOT SHOW UP IN THAT TABLE.** The first attempt at
+the `2Q` row failed outright: four guests up, `nvidia-smi` perfectly happy,
+and every one of them answering
+
+    vrampress: cuInit 100
+
+`CUDA_ERROR_NO_DEVICE`. The three vGPU-shaped ANSWERS were made
+individually switchable (`LEA_VGPU_MEDIATE`) and one guest was brought up
+six times, once per combination (`docs/measurements/vram-69/bisect/`):
+
+| `LEA_VGPU_MEDIATE` | UUID the guest shows | virtualization mode | CUDA |
+|---|---|---|---|
+| `none` | the host's | None | works, 512 MiB held |
+| `enc` | the host's | None | works, 512 MiB held |
+| `uuid` | its own | None | **`cuInit 3`** (NOT_INITIALIZED) |
+| `uuid,enc` | its own | None | **`cuInit 3`** |
+| `mode` | the host's | **VGPU** | **`cuInit 100`** (NO_DEVICE) |
+| `all` | its own | **VGPU** | **`cuInit 100`** |
+
+**Two of the three break CUDA and neither breaks `nvidia-smi`.** The
+default is now `enc` alone, which is a measurement rather than a
+preference.
+
+The mode answer is the answer to the question this entry was opened with. A
+vGPU guest's userspace reaches the GPU through a path that exists BECAUSE
+the guest driver is a vGPU guest driver -- an RPC channel to a plugin in
+the host. Tell an ordinary driver's userspace it is on a vGPU and it looks
+for that path; there is none here, and libcuda reports no device at all.
+**Saying it is a vGPU and being one are different things, and libcuda knows
+the difference even though nvidia-smi does not.**
+
+The UUID answer fails differently and is not understood. Two candidates
+were excluded: the flags are not it (libcuda asks twice, both times
+`FORMAT_BINARY`, and the rewrite answers the 16 bytes RM would with a
+matching `length`), and nothing in the guest holds a second copy to
+disagree -- `/proc/driver/nvidia/gpus/` is empty there (number 2) and
+`nvidia-smi -L` prints the new UUID happily. The objection is inside
+libcuda, and finding it means tracing libcuda.
+
+**WHAT WOULD CLOSE THIS ENTRY:** the density half -- 2, 6 and 8 guests
+under `RTX2070-1Q`, whose eight-instance row is what a catalogue buys that
+a per-VM number cannot -- and the admission demonstration, a fifth VM
+refused against `2Q`'s `maxInstance` of four.
 
 ## Resolved and decided
 

@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# bisect.txt, from the run -- bisect policy, 2026-08-21.
+=== LEA_VGPU_MEDIATE=none ===
+  smi:  Leandro RTX2070-2Q, 1280 MiB, GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d
+  virt:  Virtualization Mode : None
+  cuda: vrampress: start free 1187 MiB of 1280 MiB, mode fill, chunk 128 MiB, churn 64 MiB, 3 s vrampress: grown to 512 MiB held, 675 MiB free of 1280 MiB 
+=== LEA_VGPU_MEDIATE=uuid,enc ===
+  smi:  Leandro RTX2070-2Q, 1280 MiB, GPU-68f65e19-4ec5-46d4-8b4f-ebd96af35d6b
+  virt:  Virtualization Mode : None
+  cuda: vrampress: cuInit 3 
+=== LEA_VGPU_MEDIATE=mode ===
+  smi:  Leandro RTX2070-2Q, 1280 MiB, GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d
+  virt:  Virtualization Mode : VGPU
+  cuda: vrampress: cuInit 100 
+=== LEA_VGPU_MEDIATE=enc ===
+  smi:  Leandro RTX2070-2Q, 1280 MiB, GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d
+  virt:  Virtualization Mode : None
+  cuda: vrampress: start free 1187 MiB of 1280 MiB, mode fill, chunk 128 MiB, churn 64 MiB, 3 s vrampress: grown to 512 MiB held, 675 MiB free of 1280 MiB 
+=== LEA_VGPU_MEDIATE=uuid ===
+  smi:  Leandro RTX2070-2Q, 1280 MiB, GPU-68f65e19-4ec5-46d4-8b4f-ebd96af35d6b
+  virt:  Virtualization Mode : None
+  cuda: vrampress: cuInit 3 
+=== LEA_VGPU_MEDIATE=all ===
+  smi:  Leandro RTX2070-2Q, 1280 MiB, GPU-68f65e19-4ec5-46d4-8b4f-ebd96af35d6b
+  virt:  Virtualization Mode : VGPU
+  cuda: vrampress: cuInit 100 
+=== bisect done ===

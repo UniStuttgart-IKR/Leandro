@@ -1,0 +1,2 @@
+# SPDX-License-Identifier: MIT
+# policy.txt, from the run -- uncapped policy, 2026-08-21.

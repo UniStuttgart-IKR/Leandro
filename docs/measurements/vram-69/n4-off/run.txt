@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+# run.txt, from the run -- uncapped policy, 2026-08-21.
+[21:46:56] policy=off count=4 mem=1536 cpus=2 load=120s host already holds 891 MiB of VRAM and 20710 MiB of RAM free
+[21:47:58] up: 4 of 4
+[21:47:58] backend pids: 3844357 3845216 3846039 3846989
+[21:47:58] load: vrampress --max in every guest
+[21:50:04] down
+[21:50:19] done -- /tmp/claude-1000/-home-silas-git-Leandro/f3fc191a-453c-4f97-8ba3-de299d29d9e3/scratchpad/bench/n4-off
