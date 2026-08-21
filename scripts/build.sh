@@ -176,38 +176,68 @@ do_ch() {
     # cumulatively -- as soon as a later patch touches the context of an
     # earlier one, it fails in every order. Instead: apply the series to a
     # throwaway index and compare the blobs of the affected files.
+    # series_applied N -- is the working tree exactly the first N patches?
+    #
+    # N is a PREFIX length, and it is what makes adding a patch to the series
+    # survivable. A checkout that built before carries the OLD series, so once
+    # a patch is added it is neither clean nor congruent with the full series,
+    # and the honest-looking answer ("save your own changes") is wrong: that
+    # tree holds no handwork at all, only an earlier prefix of this same
+    # series. Measured 2026-08-21 on a second machine, which hit exactly that
+    # on the first pull after 0003 was added.
     series_applied() {
-        local idx rc=0 f a b p
+        local n=$1 idx rc=0 f a b i
+        local -a pre=("${abs[@]:0:$n}")
+        [[ ${#pre[@]} -gt 0 ]] || return 1
         idx=$(mktemp)
         GIT_INDEX_FILE="$idx" git -C "$dir" read-tree HEAD 2>/dev/null || { rm -f "$idx"; return 1; }
-        for p in "${abs[@]}"; do
-            GIT_INDEX_FILE="$idx" git -C "$dir" apply --cached "$p" 2>/dev/null \
+        for i in "${pre[@]}"; do
+            GIT_INDEX_FILE="$idx" git -C "$dir" apply --cached "$i" 2>/dev/null \
                 || { rm -f "$idx"; return 1; }
         done
         [[ "$(git -C "$dir" diff --name-only | sort -u)" \
-           == "$(git -C "$dir" apply --numstat "${abs[@]}" | cut -f3 | sort -u)" ]] || rc=1
+           == "$(git -C "$dir" apply --numstat "${pre[@]}" | cut -f3 | sort -u)" ]] || rc=1
         while read -r f; do
             [[ -n $f ]] || continue
             a=$(git -C "$dir" hash-object "$f" 2>/dev/null || true)
             b=$(GIT_INDEX_FILE="$idx" git -C "$dir" rev-parse ":$f" 2>/dev/null || true)
             [[ -n $a && $a == "$b" ]] || rc=1
-        done < <(git -C "$dir" apply --numstat "${abs[@]}" | cut -f3 | sort -u)
+        done < <(git -C "$dir" apply --numstat "${pre[@]}" | cut -f3 | sort -u)
         rm -f "$idx"
         return $rc
     }
-    if git -C "$dir" diff --quiet && git -C "$dir" diff --cached --quiet; then
+    apply_series() {
+        local i
         for i in "${!abs[@]}"; do
             git -C "$dir" apply "${abs[$i]}" \
                 || { error "$(basename "${patches[$i]}") does not apply to $want."; return 1; }
             echo "applied: $(basename "${patches[$i]}")"
         done
-    elif series_applied; then
+    }
+    if git -C "$dir" diff --quiet && git -C "$dir" diff --cached --quiet; then
+        apply_series || return 1
+    elif series_applied "${#abs[@]}"; then
         echo "series already fully applied (${#patches[@]} patches)."
     else
-        error "$dir is modified, but not congruent with patches/.
-Either save your own changes, or discard them with:
+        # An OLDER prefix of this same series is not handwork. Prove it, then
+        # heal it -- longest prefix first, so the message names what was there.
+        local k found=0
+        for (( k=${#abs[@]}-1; k>=1; k-- )); do
+            if series_applied "$k"; then
+                echo "tree carries the first $k of ${#abs[@]} patches -- reapplying the series."
+                git -C "$dir" checkout -- . || return 1
+                apply_series || return 1
+                found=1
+                break
+            fi
+        done
+        if [[ $found -eq 0 ]]; then
+            error "$dir is modified, and the changes are not this patch series
+(neither the whole of it nor any earlier part of it), so they are somebody's
+own work and this will not throw them away. Either save them, or discard:
   git -C $dir checkout -- . && $0 ch"
-        return 1
+            return 1
+        fi
     fi
     cargo build --release --manifest-path "$dir/Cargo.toml" --bin cloud-hypervisor || return 1
     # Counter-check on the built tree: the patch brings exactly ONE
