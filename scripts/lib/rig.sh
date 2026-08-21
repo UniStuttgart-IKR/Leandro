@@ -528,7 +528,6 @@ lea_backend_start() {
         case $1 in
             --vram-limit)   cap=$2; shift 2 ;;
             --vram-profile) prof=$2; shift 2 ;;
-            --vram-profile) prof=$2; shift 2 ;;
             *) die "lea_backend_start: unknown option $1" ;;
         esac
     done
@@ -1166,6 +1165,7 @@ lea_rig_up() {
             --no-provision) provision=0; shift ;;
             --no-load)      load=0; shift ;;
             --vram-limit)   cap=$2; shift 2 ;;
+            --vram-profile) prof=$2; shift 2 ;;
             --max-pin-mib)  pin=$2; shift 2 ;;
             --wayland)      wayland=1; shift ;;
             --games)        gameopt=(--games); shift ;;
