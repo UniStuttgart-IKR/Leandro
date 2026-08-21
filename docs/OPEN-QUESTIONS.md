@@ -582,39 +582,6 @@ are IDENTICAL on the two architectures (`0xad009afd`,
 first cross-architecture evidence says the surface did not move — which is a
 prediction the per-ioctl index would be able to check properly, and cannot
 yet.
-### 57. A vendor manifest is registered nowhere, and a knob depends on it
-**Open, measured 2026-08-20.** Found while generalising number 53's rule.
-Of the ten host files that name an NVIDIA library, eight are written into
-the guest now. The ninth and tenth are the two halves of
-`/usr/share/vulkan/implicit_layer.d/nvidia_layers.json`, and neither is
-written:
-
-  * `VK_LAYER_NV_optimus` names `libGLX_nvidia.so.0`, which IS staged. The
-    library is reachable anyway — the Vulkan ICD manifest names it — so
-    this is not the "absent library that costs disk" shape. What is absent
-    is the LAYER.
-  * `VK_LAYER_NV_present` names `libnvidia-present.so.610.57.04`, which is
-    NOT staged and is one of the seven libraries whose staging is a
-    person's decision (`TASKS-<drv>.md`, task 3). Writing the file whole
-    would point the loader at a library that is not there, which is the
-    failure mode number 53 is about, in the other direction.
-
-The consequence is small and exact, and it is why this is written down
-rather than fixed: `/usr/local/bin/nvidia-run`, which `lea_gl_stage
---system` installs, runs its program with `__NV_PRIME_RENDER_OFFLOAD=1` and
-`__VK_LAYER_NV_optimus=NVIDIA_only`. The first of those is precisely the
-`enable_environment` of a layer that is registered nowhere in the guest, so
-**the variable is inert** — the wrapper does on a guest a strictly smaller
-thing than its name and its comment claim.
-
-Not fixed, and the reason is that it cannot be fixed by half without a
-measurement: registering the optimus half alone changes ICD selection on a
-guest that has exactly one GPU, and nothing in this tree exercises a layer
-today. Unverified, and testable: register the optimus half only, run
-`vk-enum` in a guest, and compare the signature set against this baseline.
-If it does not move, the layer is inert in both directions and the honest
-fix is to drop the two variables from `nvidia-run` instead.
-
 ### 58. NVIDIA's xcb EGL platform declines in a guest, and its xlib platform does not
 **Open, measured 2026-08-20.** Split out of number 53, whose hypothesis for
 this half — a missing registration, "the same shape one platform further
@@ -3082,6 +3049,80 @@ keeping as a caution: *"verified, 16 of 16 bytes"* said the whole answer was
 compared and meant the whole question was. Reach and criterion are separate
 claims, and a percentage of bytes compared is only as good as the question
 of which bytes count.
+### 57. A vendor manifest is registered nowhere, and a knob depends on it
+**Resolved 2026-08-21.** The layer is inert, measured, and the two variables
+it justified are gone. The original reasoning is kept below. Found while generalising number 53's rule.
+Of the ten host files that name an NVIDIA library, eight are written into
+the guest now. The ninth and tenth are the two halves of
+`/usr/share/vulkan/implicit_layer.d/nvidia_layers.json`, and neither is
+written:
+
+  * `VK_LAYER_NV_optimus` names `libGLX_nvidia.so.0`, which IS staged. The
+    library is reachable anyway — the Vulkan ICD manifest names it — so
+    this is not the "absent library that costs disk" shape. What is absent
+    is the LAYER.
+  * `VK_LAYER_NV_present` names `libnvidia-present.so.610.57.04`, which is
+    NOT staged and is one of the seven libraries whose staging is a
+    person's decision (`TASKS-<drv>.md`, task 3). Writing the file whole
+    would point the loader at a library that is not there, which is the
+    failure mode number 53 is about, in the other direction.
+
+The consequence is small and exact, and it is why this is written down
+rather than fixed: `/usr/local/bin/nvidia-run`, which `lea_gl_stage
+--system` installs, runs its program with `__NV_PRIME_RENDER_OFFLOAD=1` and
+`__VK_LAYER_NV_optimus=NVIDIA_only`. The first of those is precisely the
+`enable_environment` of a layer that is registered nowhere in the guest, so
+**the variable is inert** — the wrapper does on a guest a strictly smaller
+thing than its name and its comment claim.
+
+Not fixed, and the reason is that it cannot be fixed by half without a
+measurement: registering the optimus half alone changes ICD selection on a
+guest that has exactly one GPU, and nothing in this tree exercises a layer
+today. Unverified, and testable: register the optimus half only, run
+`vk-enum` in a guest, and compare the signature set against this baseline.
+If it does not move, the layer is inert in both directions and the honest
+fix is to drop the two variables from `nvidia-run` instead.
+
+---
+
+**THE TEST THIS ENTRY SPECIFIED WAS RUN, 2026-08-21, AND IT DID NOT MOVE.**
+Its words: *"register the optimus half only, run `vk-enum` in a guest, and
+compare the signature set against this baseline. If it does not move, the
+layer is inert in both directions and the honest fix is to drop the two
+variables from `nvidia-run` instead."*
+
+`vulkaninfo --summary` in a guest, traced, in three states:
+
+| state | ioctls | signatures |
+|---|---|---|
+| no `nvidia_layers.json` at all | 893 | 111 |
+| `VK_LAYER_NV_optimus` half registered | 893 | 111 |
+| registered **and** `__NV_PRIME_RENDER_OFFLOAD=1` set | 893 | 111 |
+
+The signature sets are byte-identical across all three (`diff` empty), and
+`vulkaninfo` lists the device in every one. Registering the layer changes
+nothing, and neither does setting the variable that enables it.
+
+**So the fix is the one the entry named**, and it is done:
+`/usr/local/bin/nvidia-run` no longer exports `__NV_PRIME_RENDER_OFFLOAD=1`
+or `__VK_LAYER_NV_optimus=NVIDIA_only`. What stays is
+`__GLX_VENDOR_LIBRARY_NAME=nvidia`, which is the one that does something here
+-- it picks NVIDIA's GLX vendor through GLVND.
+
+A wrapper whose name promises offload and whose variables do nothing is worse
+than a shorter one: it invites the reader to believe a mechanism is in play.
+That was the entry's complaint -- *"the wrapper does on a guest a strictly
+smaller thing than its name and its comment claim"* -- and the wrapper now
+claims only what it does.
+
+**The ninth and tenth manifests stay unwritten, and that is now a decision
+rather than an omission.** `VK_LAYER_NV_optimus` is measured inert, so writing
+it would add a file that changes nothing. `VK_LAYER_NV_present` names
+`libnvidia-present.so`, which is not staged and is one of the seven libraries
+whose staging is a person's call -- writing it would point the loader at
+something absent, which is number 53's failure mode in the other direction.
+Both halves therefore stay out for stated reasons, which is what this entry
+asked for.
 ### 60. One answer survived every mask, and it was memory nobody wrote
 **Resolved 2026-08-21, and it is not a defect.** The entry below predicted
 its own test: *"if it is zero on entry on both sides and non-zero on return

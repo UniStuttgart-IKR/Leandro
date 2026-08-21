@@ -528,11 +528,25 @@ ENV
         fi
         sudo tee /usr/local/bin/nvidia-run >/dev/null <<'RUN'
 #!/bin/sh
-# Run ONE program on the NVIDIA card (PRIME render offload).
+# Run ONE program on the NVIDIA card.
 #   nvidia-run glxgears
 #   nvidia-run glmark2
-exec env __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia \
-         __VK_LAYER_NV_optimus=NVIDIA_only \"\$@\"
+#
+# ONE variable, and it is the one that does something here:
+# __GLX_VENDOR_LIBRARY_NAME picks NVIDIA's GLX vendor through GLVND.
+#
+# __NV_PRIME_RENDER_OFFLOAD and __VK_LAYER_NV_optimus USED TO BE HERE and are
+# gone, because they were measured inert (OPEN-QUESTIONS number 57). The first
+# is the enable_environment of VK_LAYER_NV_optimus; the second configures that
+# layer. The layer is not registered in this guest -- and registering it
+# changes nothing either: measured 2026-08-21, vulkaninfo --summary in a guest
+# gave 893 ioctls and 111 signatures with the layer absent, with it registered,
+# and with it registered AND __NV_PRIME_RENDER_OFFLOAD=1 set. The signature
+# sets were byte-identical in all three.
+#
+# A wrapper whose name promises offload and whose variables do nothing is worse
+# than a shorter one: it invites the reader to believe a mechanism is in play.
+exec env __GLX_VENDOR_LIBRARY_NAME=nvidia \"\$@\"
 RUN
         sudo chmod +x /usr/local/bin/nvidia-run
         ldconfig -p | grep -c libEGL_nvidia >/dev/null && echo '  libEGL_nvidia is on the loader path'"
