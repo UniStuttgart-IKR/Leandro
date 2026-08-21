@@ -110,6 +110,66 @@ crash is the same defect rather than a neighbouring one.
 refused — a privilege question, not a capability one. Three routes out
 exist and the choice is a design decision, not a measurement.
 
+---
+
+**DECISION MEMO, written 2026-08-21. This entry is blocked on a person, not
+on a measurement, and nothing below decides it.** The routes are named here
+because this entry said "three routes exist" without naming them, and a
+choice cannot be made from a count.
+
+What is measured and is not in dispute: the EVO path is REFUSED, not
+missing. `NV0073_CTRL_CMD_SPECIFIC_GET_ALL_HEAD_MASK` returns
+`NV_ERR_INSUFFICIENT_PERMISSIONS` and nvidia-modeset stops with *"Failed to
+get head configuration"*.
+
+**Option 1 — carry `CAP_SYS_ADMIN` (`LEA_ADMIN_PRIV=1`).** The mechanism
+exists: `settle_admin_privilege` in
+[`crates/vhost-user-nvrm/src/main.rs`](../crates/vhost-user-nvrm/src/main.rs)
+drops the capability unless that variable says otherwise, so this is one
+environment variable and a `setcap`.
+*Cost:* the sentence "the only boundary the host enforces is the VM" stops
+being true — this process takes guest input apart, and `CAP_SYS_ADMIN` is
+the almost-root capability.
+*What it changes downstream:* **measured 2026-08-08, it makes the outcome
+WORSE.** With the capability NVKMS gets past the head mask and then dies on
+`GET_PCLK_LIMIT`, which is kernel-privileged and admin does not reach, so
+nvidia-drm answers "Failed to allocate NvKmsKapiDevice" and `/dev/dri/card1`
+disappears entirely. Without it the earlier failure is harmless and the
+render node is there. This option is not "more privilege, more display" —
+it is measured to be strictly worse, and it would have to be paired with
+something for `GET_PCLK_LIMIT` to be worth anything.
+
+**Option 2 — keep forcing the displayless HAL.** This is the status quo and
+it works: `vdisplay=1` swaps `NV04_DISPLAY_COMMON` for
+`NVA083_GRID_DISPLAYLESS` in the answer to `GET_CLASSLIST` (one out, one in,
+so `numClasses` does not change), and the guest module answers the class
+itself — nothing reaches the host, because there is no host state behind an
+invented monitor.
+*Cost:* the mode is an INVENTION and the tree says so at load time; the
+ceiling is NVIDIA's own displayless limit, 2560x1600 and 4096000 pixels
+(`objgriddisplayless.c:38-39,54`), so 1080p fits and 4K does not. Whoever
+raises one raises both.
+*What it changes downstream:* nothing. The display gate is 12/12 green on
+this path.
+
+**Option 3 — virtualise the real display engine.** The road
+[`DISPLAY.md`](DISPLAY.md) explicitly does not take.
+*Cost:* a project, not a change, and it is the one route for which no
+measurement here exists at all.
+*What it changes downstream:* it is the only route that removes the
+resolution ceiling and the invention, and the only one that would make
+number 16's connector-detect breakage a real question rather than a property
+of a display nothing backs.
+
+**Recommendation, and it IS a recommendation.** Take **2** — that is, close
+this by deciding to keep the displayless HAL, and re-scope what remains as
+the resolution ceiling rather than as an open choice. Option 1 is measured
+worse; option 3 has no measurement and no demand behind it. The reason to
+DECIDE rather than leave it open is that the entry currently reads as though
+three live routes are being weighed, and only one of them has ever produced
+a working display.
+
+**A person answers this with one word:** `1`, `2`, `3`, or `leave-open`.
 ### 31. The backend holds thousands of `nvidiactl` file descriptors
 **Open.** Measured on a running rig: after 4 h 20 min the backend held
 **2003** open `/dev/nvidiactl` descriptors while exactly one guest process
@@ -150,6 +210,66 @@ field is never a real fd on this path, or the entry is missing and a MIG
 guest would hand the host a number from its own table. Deciding it needs a
 workload that allocates the class, not more reading.
 
+---
+
+**DECISION MEMO, written 2026-08-21. Nothing below decides it — but this
+entry's PREMISE has changed and that part is a measurement.**
+
+**The premise "no measured workload allocates that class" is false.** Class
+`0xc640` is `AMPERE_SMC_MONITOR_SESSION`, and `nvidia-smi -q` allocates it —
+once, natively, in the `nvml` probe. From the native trace:
+
+    nvos64  hRoot=0xc1d5363e hParent=0xc1d5363e hNew=0xa55a0010
+            hClass=0xc640 paramsSize=0x0 flags=0x0 status=0x0
+
+**And it passes no parameters at all.** `paramsSize=0x0`, so
+`NVC640_ALLOCATION_PARAMETERS { NvU64 capDescriptor }` (clc640.h:38, 8
+bytes, `xlate.rs:812`) is not supplied on this path. The tracer's before and
+after dumps of that buffer are byte-identical (`0d 00 00 00 00 00 00 00` on
+both), so RM neither read a meaningful value out of it nor wrote one into
+it — the bytes are the caller's own leftovers, which is what the
+written-ness mask exists to recognise.
+
+So the field this entry asks about is **not exercised by the one workload
+that reaches the class**, and it is exercised by nothing in a guest at all:
+the class is never allocated there (number 65). That narrows the question
+without answering it — it is still "is `capDescriptor` an fd", and there is
+still no observation of it carrying one.
+
+**Option 1 — leave it untranslated (status quo).** No entry in
+`alloc_fd_field`.
+*Cost:* nothing today, now better founded than when this entry was written:
+the only observed allocation supplies no `capDescriptor` at all.
+*Downstream:* a MIG guest that did supply one would hand the host a number
+from its own fd table. This card is Turing and has no MIG, so that guest
+cannot be built here.
+
+**Option 2 — add the `alloc_fd_field` entry now.**
+*Cost:* one table row, and a real risk in the other direction: if the field
+is not an fd on some path, translating it corrupts a valid value. The two
+event classes that ARE in that table needed an `alloc_fd_guard` for exactly
+this reason, because `NV0005_ALLOC_PARAMETERS` reuses `data` for an fd and
+for a callback pointer. There is no observation here to build a guard from.
+*Downstream:* a wrong translation of a field nothing supplies is invisible
+until the first MIG guest, which is the worst place to find it.
+
+**Option 3 — decide it by reading, not by workload.** `capDescriptor` is an
+`NvU64` and the question is whether RM's `0xc640` constructor calls
+`osUserHandleToKernelPtr` on it, the way the event path does. That is a read
+of open-gpu-kernel-modules, and it is exactly the kind of statement the
+`attested` column discussed in the design conversation is FOR — a human
+statement with a citation, which is not the same claim as `verified` and
+must not share a column with it.
+*Cost:* an hour of reading and a citation.
+*Downstream:* it answers the question permanently and without MIG hardware,
+and it is the only option that produces evidence rather than a bet.
+
+**Recommendation.** Take **3**, and keep **1** until 3 says otherwise. The
+measurement above removes the urgency (nothing supplies the field) without
+removing the question, and reading the constructor is the only route
+available on hardware that has no MIG.
+
+**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
 ### 43. Which FD does the driver require the mapping ioctl on?
 **Open; the code works and the documentation used to disagree with it.**
 [`crates/nvrm-client/src/mem.rs`](../crates/nvrm-client/src/mem.rs) issues
@@ -160,6 +280,76 @@ the two arrangements have never been compared against a real libcuda
 trace, which is what would settle it. Until then the code is the
 statement, not the prose.
 
+---
+
+**DECISION MEMO, written 2026-08-21. The FACTUAL question is settled by the
+measurement this entry itself named; what is left for a person is what to do
+about it.**
+
+This entry says the two arrangements "have never been compared against a
+real libcuda trace, which is what would settle it". There are 41 such traces
+under `matrix/traces/610.57.04/` now. Read out of them:
+
+**`NV_ESC_RM_MAP_MEMORY` is issued on a `ctl` fd, in every probe, without
+exception** — and never on a `gpu` fd:
+
+| probe | 0x4e issued on | calls |
+|---|---|---|
+| `cuda-core`, `cuda-jit`, `cuda-launch` | `ctl` fd 10 | 29 each |
+| `nvdec` | `ctl` fd 11, `ctl` fd 42 | 29, 13 |
+| `nvenc` | `ctl` fd 11, `ctl` fd 41 | 29, 87 |
+| `opencl` | `ctl` fd 7 | 29 |
+
+**And the prose was wrong because it conflated two different fds.** The
+mapping protocol uses two, and the trace shows them plainly, in order:
+
+    open  ctl fd=10
+    ...
+    MAP_MEMORY  on ctl fd=10   (hMemory 0x5c000006)
+    open  ctl fd=16
+    mmap  ctl fd=16 len=4096
+
+The **ioctl** goes to the process's primary `ctl` fd every time. The
+**mmap** goes to a FRESHLY OPENED fd, one per mapping, opened immediately
+before it. "It must go to the freshly opened fd" is true of the `mmap` and
+false of the `ioctl`.
+
+**This is what `mem.rs` already does.** The ioctl is
+`rm.ctl().ioctl_raw(sys::NV_ESC_RM_MAP_MEMORY_DMA, &mut p)`
+([`crates/nvrm-client/src/mem.rs:221`](../crates/nvrm-client/src/mem.rs)) and
+the map target is `gpu.open_for_mapping(rm.ctl())` at :314. Its own module
+doc has said so since it was written — *"Exactly one mmap context per fd"*
+and *"Traces show a fresh `open` before every NV_ESC_RM_MAP_MEMORY"*. The
+code was right, the doc beside the code was right, and only the prose
+elsewhere was wrong.
+
+**Option 1 — close this as resolved.** The code is confirmed by libcuda's
+own behaviour over 41 traces and 6 independent userspaces (CUDA, NVDEC,
+NVENC, OpenCL).
+*Cost:* none.
+*Downstream:* one fewer open question, and the measurement is on record so
+the doubt cannot come back without new evidence.
+
+**Option 2 — close it and also record WHY the prose went wrong**, i.e. that
+the two-fd protocol has a fresh fd in it and it is the mmap target.
+*Cost:* two sentences.
+*Downstream:* this is the failure mode that produced the doubt in the first
+place, and it will produce it again for the next reader who sees
+`open_for_mapping` and remembers "fresh fd".
+
+**Option 3 — leave open** and require a counter-test that issues the ioctl
+on the fresh fd to see whether RM also accepts it.
+*Cost:* a probe.
+*Downstream:* it would answer "what does RM tolerate", which is a different
+and less useful question than "what does the driver require" — and this
+entry asks the second.
+
+**Recommendation.** Take **2**. The entry's own criterion is met: it asked
+for a comparison against a real libcuda trace and that comparison is above.
+It is left open here only because this run was asked not to decide the
+entries in this group.
+
+**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
 ### 44. A game and the compositor die at the same two addresses in NVIDIA's GL core
 **Open, and this is the first stack the chain in 32/35 has.** Shadow of
 the Tomb Raider (the native Feral port, Vulkan) crashes 15-20 s after
@@ -862,6 +1052,62 @@ direction of error that `manifest_answered` exists to prevent for controls.
 Moving it changes what the catalogue counts, which is why it is a question
 here and not a commit.
 
+---
+
+**DECISION MEMO, written 2026-08-21. Nothing below decides it: this changes
+what the catalogue counts, which is a person's call.**
+
+The exact state, read out of the two artefacts:
+
+| | says |
+|---|---|
+| `catalog-610.57.04.json` | `ctl 0xc8 -`, kind `escape`, status **`passthrough`**, flags `none`, 44 calls, seen in 20 probes |
+| `verified-610.57.04.json` | 26 calls compared, **2304 of 2304 bytes**, masked `mediated:bdf-address` ×26 and `gpuId` ×26, every compared word stable |
+
+and the mediation it names five fields for: `pci_info.domain @4`,
+`pci_info.bus @8`, `pci_info.slot @9`, `pci_info.function @10`,
+`gpu_id @16`. So one file masks it as mediated over its whole answer while
+the other calls it carried-unchanged.
+
+**Option 1 — reclassify it as mediated.**
+*Cost:* the catalogue's headline counts move: `passthrough` 182 → **181**,
+and it lands in `implemented-verified-mediated`, 1 → **2**. Every artefact
+quoting "182 passthrough" becomes stale, including three handoffs and this
+document.
+*Downstream:* the counts start meaning what a reader takes them to mean. It
+also sets the rule for the next case: an escape the module rewrites by hand
+counts as implemented, whether or not a descriptor-table row exists.
+
+**Option 2 — leave `passthrough` and add a note to the row.**
+*Cost:* nothing moves; the note carries the caveat.
+*Downstream:* the headline count keeps understating what is built, which is
+the error direction this entry objects to, and `manifest_answered` exists
+precisely to prevent that direction for controls. A note is a footnote on a
+number people quote without the footnote.
+
+**Option 3 — give it a descriptor-table row, so the classification follows
+from the table rather than from a judgement.**
+*Cost:* real work, and it changes the guest module: the rewrite currently
+happens by hand in `virtio_nvrm.c`, and the table would have to be able to
+express an inline block, which is not the shape `nested_ptrs` has.
+*Downstream:* this is the only option that makes the two files agree by
+construction instead of by decision, which is the property the rest of this
+pipeline has and the reason the disagreement was visible at all. It is also
+the largest.
+
+**Recommendation.** Take **1** now and put **3** on the list. The
+disagreement is a classification error today and 1 fixes it in one place;
+3 is right and is a different size of job. Reporting a mediated call as
+passthrough understates what has been built, and this project's rule
+everywhere else is that the honest direction of error is the conservative
+one — which here means calling it mediated, not calling it carried.
+
+**Note the counts are load-bearing:** whichever option is taken, the
+catalogue must be regenerated and the handoffs' "182 passthrough" lines
+become historical. That is the whole reason this is a question and not a
+commit.
+
+**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
 ### 63. Two answers behind an NvP64 differ, and both look like the hardware saying so
 **Open, measured 2026-08-21.** They became visible the moment the tracer
 started following a control's `NvP64` — before that, `ctrlout` dumped the
@@ -911,6 +1157,93 @@ them to sit while the question is open.
 
 ---
 
+---
+
+**DECISION MEMO, written 2026-08-21. Nothing below decides it: option 2
+would add the first declared mask in this tree, which is a person's call.**
+
+**HALF OF THIS ENTRY HAS ALREADY ANSWERED ITSELF, and by the method this
+project prefers.** `BUS_GET_INFO`'s PCIe generation field is **no longer a
+mismatch**. In `verified-610.57.04.json` as it stands it is classified
+`unstable`, with the reason *"call 1, +4 in the buffer behind the NvP64:
+0x00222000 natively, 0x00202000 in the guest -- and this word is NOT STABLE
+between two native runs"*. Note the guest value: this entry recorded
+`0x00212000` and the artefact now says `0x00202000`. **The field moved
+between runs, which is what "unstable" means**, and the control test
+classified it out without anybody deciding anything.
+
+So the PCIe field needs no mask at all. It needed a second native run, and
+it got one. That is worth keeping as the general lesson: the answer to *"is
+this difference real?"* was not a mask, it was a control.
+
+**What is left is one row.** `NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST`
+(`ctl 0x2a 0x80170d`), the sole surviving `mismatch` in the evidence file,
+in eight probes, `stability: every word that differs was constant across the
+calls one native run made`.
+
+**Re-measured 2026-08-21, and it is sharper than the entry states.** The
+dump behind the two `NvP64`s is a handle followed by a channel id, 8 bytes
+per channel. In `nvenc`, the first three channels:
+
+| | handle | channel id |
+|---|---|---|
+| native | `0x5c000019`, `0x5c00001f`, `0x5c000023` | `0x35`, `0x36`, `0x37` |
+| guest | `0x5c000019`, `0x5c00001f`, `0x5c000023` | `0x37`, `0x38`, `0x39` |
+
+**The handles are identical and the ids are the native ones + 2**, and the
+first channel is `0x35` natively against `0x37` in the guest in all five
+probes checked individually (`cuda-core`, `cuda-jit`, `nvdec`, `nvenc`,
+`opencl`). A constant offset is what "the host has channels of its own that
+the guest does not" predicts.
+
+**AND A DERIVED MASK IS NOT AVAILABLE, which is the decisive new fact.**
+The handle mask works because a handle is observed being ASSIGNED in the
+trace's own allocation lines. A channel id is not: the channel allocation
+(`hClass 0xc46f`, 376 bytes of answer) does not carry it — checked in both
+the native and the guest `nvenc` traces, zero occurrences in the guest's
+allocation answers. The only place the id appears is inside the answer of
+the very command under test, so deriving the mask from it would make the
+instrument agree with what it is measuring — the same circularity that
+stopped allocation dump lengths being taken from the table under test.
+
+**Option 1 — leave it reported as a mismatch (status quo).**
+*Cost:* the `mismatch` class is never empty, so "mismatch is empty" stops
+being a usable one-line health statement for the sweep.
+*Downstream:* the safe direction. A real defect appearing later in this
+class is still visible, just alongside a known row.
+
+**Option 2 — declare a channel-id mask.**
+*Cost:* **the first declared mask in the tree.** All five existing masks are
+derived from what a run produced, and the handoffs record that property as
+deliberate and worth keeping. Declaring one spends it.
+*Downstream:* `mismatch` becomes empty and stays a meaningful alarm. But the
+next plausible-looking difference has a precedent to point at, and that
+precedent is the thing this project has refused on purpose.
+
+**Option 3 — a new class, beside `unstable` and `mismatch`:
+`host-assigned`.** Not masked, not a defect, listed separately: values the
+HOST or the hardware assigns that a guest cannot be expected to match.
+`workSubmitToken` on `0xc36f0108` is already the same shape and is likewise
+unmasked, so this class would have two members on the day it is created.
+*Cost:* a class and its criterion — and the criterion must be stated so it
+cannot become a place to put anything inconvenient.
+*Downstream:* `mismatch` becomes empty and stays an alarm, WITHOUT declaring
+a mask. The claim moves from "these bytes are equal" to "these bytes differ
+and here is the category", which is what the evidence actually supports.
+
+**Recommendation.** Take **3**. It is the only option that gets `mismatch`
+back to being a usable alarm without spending the derived-mask property, and
+the honest statement about a channel id is not "ignore this word" but "this
+word is assigned by the host". Option 2 buys the same alarm for a principle
+this project has held on purpose; option 1 keeps the principle and loses the
+alarm.
+
+**Whichever is taken, the constant +2 deserves one more measurement first:**
+it should be checked on a rig where the host has a DIFFERENT number of
+channels open, because if the offset tracks that count the category is
+proven rather than inferred. That is a cheap run and it is not blocking.
+
+**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
 ### 64. The NVKMS commands are recorded and none of them has a name
 **Open, split out of number 48 on 2026-08-21**, which is resolved: the node
 is traced, counted and gated, and this is the half that was never anything

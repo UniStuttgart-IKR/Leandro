@@ -728,7 +728,19 @@ impl NvrmDevice {
     /// This reads a directory, and PROC_GONE is hot enough that it must not
     /// be free either.
     fn fd_census(&self) {
-        if std::env::var_os("LEA_FD_CENSUS").is_none() {
+        // `is_some_and(|v| !v.is_empty())`, NOT `is_some()`. An EMPTY value is
+        // still a SET variable, and the shell that starts this backend passes
+        // `LEA_FD_CENSUS="${LEA_FD_CENSUS:-}"` (rig.sh) -- the careful-looking
+        // idiom llm.md names as a trap -- so `is_some()` switched the census
+        // on for every rig anybody ever brought up, whether or not they asked.
+        // Measured 2026-08-21: a desktop guest nobody had set the variable for
+        // was writing census lines into nvrm.log, and this is a PROC_GONE
+        // path, which the doc above says must not be free.
+        //
+        // LEA_OBJLOG, three lines of code away in session.rs, has always had
+        // the correct test. This was one missed site and not a pattern -- the
+        // other six switches compare against a value or parse one.
+        if !std::env::var_os("LEA_FD_CENSUS").is_some_and(|v| !v.is_empty()) {
             return;
         }
         let mut t = [0usize; 7];
