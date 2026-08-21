@@ -999,10 +999,15 @@ privilege made the outcome **worse**. So this is the same structural family as
 number 25, which is decided.
 
 **CONFIRMED LIVE, on a sibling command, 2026-08-21.** A display session was
-brought up and four concurrent Vulkan clients run. `0x3e0102` did **not**
-reappear -- in this configuration `nvidia_drm` registers no DRM node
-(both `card0` and `renderD128` are `virtio-pci`, which is number 52's
-structural finding), so `__nv_drm_nvkms_gem_obj_init` is never reached. But
+brought up and four concurrent Vulkan clients run. `0x3e0102` did **not** reappear. **The reason first written here was wrong**
+and is corrected: it said `nvidia_drm` registers no DRM node, reading
+`virtio-pci` out of `/sys/class/drm/card0/device/driver` -- which names the
+PCI bus driver. `nvidia-drm` **does** register, as `card0` on minor 0 (see
+the correction appended to number 52). Re-checked afterwards against the
+FULL guest `dmesg` and the full backend log, with nothing cleared: **zero**
+occurrences of the `GetMemoryPages` complaint and **zero** of `0x3e010x`.
+So the sysmem-GEM path was simply not exercised by these sessions, which is
+consistent with the bound stated below rather than evidence against it. But
 the mechanism reproduced 40+ times on another command:
 
     vhost-user-nvrm: dev 0 nr 0x2a cmd 0x20803d03 ret 0 status 0x1b (proc 1 nvidia-modeset)
@@ -3043,6 +3048,60 @@ BOTH modes would exercise the six signatures in a guest on every sweep instead
 of relying on `egl-gbm` and `rm-direct` for them. That is a probe-harness
 change and belongs to whoever next touches the sweep's shape; it is recorded
 here so it is not rediscovered.
+
+---
+
+## CORRECTION, 2026-08-21 (same day): the DRM claim in this entry is WRONG.
+
+Both the original text and the resolution above say the guest's DRM node is
+the virtio-gpu. **It is not.** Measured directly:
+
+| | without the display path | with the display path |
+|---|---|---|
+| `/dev/dri` | **does not exist at all** | `card0`, `renderD128` |
+| `virtio_gpu` module | not loaded | **not loaded** |
+| kernel says | -- | `[drm] Initialized nvidia-drm 0.0.0 for 0000:00:05.0 on minor 0` |
+| the `vdisplay` gate says | -- | `vdisp-frame node=/dev/dri/card0 driver=nvidia-drm` |
+
+`card0` and `renderD128` are **nvidia-drm**, bound to the virtio-pci device
+that is this project's own `virtio_nvrm`. The `virtio-pci` in the tables above
+was read out of `/sys/class/drm/card0/device/driver`, which names the **PCI
+bus driver**, not the DRM driver. There is no virtio-gpu in this guest at all;
+the module is never loaded.
+
+**WHAT SURVIVES, which is the conclusion and all of its evidence.** None of it
+depended on the identity of the DRM node:
+
+  * the same rig, same probe script, same `vulkaninfo` binary, with and
+    without `--display :7`: 0 of the six against all six;
+  * `egl-gbm` and `vk-enum` on the same rig in the same minute, one asking all
+    six and the other none;
+  * natively, the six are asked with no `DISPLAY`, with X on `:0`, and against
+    `Xvfb :9`;
+  * the mount-namespace test, where a native run with `/dev/dri` emptied still
+    asked them.
+
+So **the X connection is what suppresses the six, and the boundary is
+exonerated** -- unchanged.
+
+**WHAT IS WITHDRAWN** is the *mechanism* sentence: "the suppression needs an X
+server that is on a FOREIGN DRM device." The guest's X server is on
+**nvidia-drm**, so there is no foreign vendor's driver anywhere in the story,
+and the "one cell this host cannot fill" paragraph is answered by there being
+no such cell to fill.
+
+**WHAT REPLACES IT, stated no more strongly than it was measured.** The
+discriminator is whether the client talks to an X server **in the guest** --
+and the A/B is cleaner than first described, because in the no-display run
+`Xorg` was still running on `:7` and `nvidia-drm` still loaded; only the
+probe's `DISPLAY` was unset. So one guest, one moment, one variable: the
+client's X connection.
+
+What is different about that X server is not its vendor but its hardware: it
+is driven by the **virtual display**, which puts NVKMS on its `displaylessHw`
+branch (`nvkms-displayless.c`) -- the same branch number 18 resolved against,
+and the same one number 16 turns on. That is now the leading candidate and it
+is **not measured**; it is written here as a direction, not a finding.
 ### 53. Two libraries are staged into the guest and registered with nobody
 **Resolved 2026-08-21.** One half was fixed and measured, the other was
 falsified and rehomed, and what is left of the rule belongs to two other
