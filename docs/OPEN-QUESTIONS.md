@@ -447,6 +447,60 @@ signatures are predicted to be carried and are exercised by nothing in a
 guest**, so for them `predicted-green` remains untested no matter how many
 guest runs pass.
 
+**THE PROBE THIS ENTRY ASKED FOR WAS RUN, 2026-08-21, AND IT CAME BACK
+EMPTY -- WHICH IS THE RESULT.** The entry names it: *"The probe that would
+narrow it further compares the guest's and the host's `openat`/`stat` sets
+around the discovery path, not their ioctls."* The matrix straces already
+carry `openat` (`strace -f -y -e trace=ioctl,openat`), so it needed no new
+run.
+
+Filtered to what discovery actually reads -- the NVIDIA nodes, `/proc/driver`
+and `/sys` -- the two sides are IDENTICAL, in `gl-enum`, `vk-enum` and
+`egl-gbm` alike:
+
+    /dev/nvidia-modeset   /dev/nvidia0   /dev/nvidiactl   /proc/driver/nvidia/params
+
+Four paths on each side, no difference in the set, and every one of them opens
+SUCCESSFULLY on both. And `/proc/driver/nvidia/params` is byte-identical --
+45 parameters, `diff` empty -- so the one file whose CONTENT userspace could
+branch on says the same thing to both.
+
+**So the filesystem inputs to discovery are the same, and the branch is
+decided by an ioctl answer.** That eliminates a class rather than finding the
+cause, which is what this probe was for.
+
+**AND THE BRANCH POINT IS NOW NAMED, which is new.** Walking the two ioctl
+sequences from the first call, `vk-enum` diverges at step 4 and the three
+before it are identical:
+
+| # | native | guest |
+|---|---|---|
+| 0 | `NV_ESC_CHECK_VERSION_STR` | same |
+| 1 | `NV_ESC_SYS_PARAMS` | same |
+| 2 | **`NV_ESC_CARD_INFO`** | same |
+| 3 | alloc root client (`0x41`) | same |
+| 4 | **`GPU_GET_PROBED_IDS` (0x214)** | **`GPU_GET_DEVICE_IDS` (0x204)** |
+
+**It is not "a different question" -- it is ONE OF TWO OMITTED.** Counted
+across probes:
+
+| probe | native | guest |
+|---|---|---|
+| `vk-enum`, `gl-enum` | PROBED_IDS 1, DEVICE_IDS 1 | PROBED_IDS **0**, DEVICE_IDS 1 |
+| `egl-gbm` | PROBED_IDS 1, DEVICE_IDS 1 | PROBED_IDS 1, DEVICE_IDS 1 |
+| `nvml` | PROBED_IDS 2, DEVICE_IDS 0 | PROBED_IDS 2, DEVICE_IDS 0 |
+
+The native GL/Vulkan path asks BOTH; the guest asks only `GET_DEVICE_IDS`.
+`egl-gbm` asks both on both sides -- which is exactly why it never appeared in
+the skip list -- and `nvml` asks neither differently.
+
+**What that leaves, and it is a much smaller space.** The last thing both
+sides do identically before the branch is `NV_ESC_CARD_INFO`, and that is the
+one call in the sequence this project MEDIATES: the guest module rewrites its
+BDF and gpuId in place (number 62). So the leading candidate is now specific
+enough to test -- answer `CARD_INFO` unmediated to one run and see whether
+`GET_PROBED_IDS` comes back. That is the same experiment number 65 wants for
+the same reason, and one run could answer both.
 ### 56. The surface is tracked per run, and the question is per ioctl
 **Open, raised 2026-08-20.** Everything the matrix writes is keyed by the
 run that produced it: `catalog-<driver>.json` is one file per driver
