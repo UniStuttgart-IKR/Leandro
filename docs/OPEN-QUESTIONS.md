@@ -34,6 +34,38 @@ because that is the fallback timer. The `events` stage of the display gate
 counts how many waits took the fallback, so a regression is visible rather
 than merely slow. It has not been traced to a cause.
 
+**REPRODUCED 2026-08-21, and it is a minority of waits rather than a mode.**
+One instrumented soak, shared with numbers 15 and 31 so all three carry the
+same session: a GNOME **Wayland** desktop guest, up ~30 minutes, under
+repeated `glmark2` + `vkmark` + `vkcube` load on the compositor's own
+Xwayland, `LEA_DEBUG` deliberately UNSET (it sits on a per-frame path and
+would be measuring itself).
+
+`fencetime`, four runs of ten waits, **40 samples**:
+
+    3.03  1.52  0.22  0.30  0.06  0.06  0.05  0.05  0.05  0.05
+   10.09  0.33  0.25  0.08  0.07  0.13  0.07  0.06  0.06  0.06
+   10.08  0.22  1.03  0.22  4.57  0.23  1.94  0.23  0.08  4.49
+    4.78  0.21  1.82  0.22  4.73  0.22  0.07 10.07  0.22  3.35
+
+- **median 0.220 ms**, and 27 of 40 waits under 1 ms — the guest is woken,
+  not polling;
+- **3 of 40 (7.5%) at the fallback timer**, and they land on it exactly:
+  10.07, 10.08, 10.09 ms against the documented 10.07;
+- `stat_vblank_fired` 88652, `stat_semsurf_fired` 426710,
+  `stat_semsurf_waiters` 0 at the end.
+
+Two things this session adds. The fallback is **not** merely a warm-up
+artefact: it is the first sample in two runs and the **eighth** in the third,
+after seven sub-millisecond waits. And it is not a majority in any run, so
+the `events` gate's own criterion — median under 1 ms, fewer than half at the
+poll — passes while the defect is present, which is what that gate was
+designed to do (an isolated fallback is counted and reported, not failed on).
+
+Still not traced to a cause. What this measurement adds to the next attempt
+is that the fallback is reachable within a 30-minute session under ordinary
+compositor load, so reproducing it does not need a long soak — 40 samples
+found three.
 ### 15. Concurrent CUDA processes failed on a long-running guest
 **Open, seen once on 2026-08-16, not reproduced since.** On a desktop
 guest after a long probing session, two simultaneous `nvprobe 3` runs
@@ -43,6 +75,39 @@ at once got one through. A fresh guest does not show it, which points at
 accumulated state rather than at concurrency itself. Possibly the same
 root as number 31.
 
+**NOT REPRODUCED 2026-08-21, under conditions that include the suspected
+root.** Same single instrumented session as numbers 14 and 31: GNOME Wayland
+desktop guest, up ~30 minutes, after repeated `glmark2`/`vkmark`/`vkcube`
+load and dozens of GL client lifecycles.
+
+`nvprobe 3` run concurrently, all launched together and waited on:
+
+| concurrent | succeeded | errors |
+|---|---|---|
+| 1 | 1/1 | none |
+| 2 | 2/2 | none |
+| 4 | 4/4 | none |
+| 8 | 8/8 | none |
+| **32** | **32/32** | none |
+
+Not one `cuCtxCreate: out of memory` and not one `cuInit: no CUDA-capable
+device`. This entry records two becoming unreliable, four "hopeless", and
+thirty-two getting exactly one through; here thirty-two all completed and
+verified their result.
+
+**The suspected shared root was PRESENT and did not reproduce it.** This
+entry says number 31 is "a strong candidate for the root". At the time of
+this measurement the backend held **442** open `/dev/nvidiactl` descriptors —
+the number-31 condition, well advanced (it starts at 68 on a fresh boot). The
+32-way run drove it to a peak of **1152** and it fell back to its baseline
+exactly. So a high descriptor count does not by itself make concurrent CUDA
+unreliable, which weakens the shared-root hypothesis rather than settling it:
+the original observation stood at 2003 descriptors, and this session reached
+442.
+
+What is still owed, and it is now specific: the same concurrency ladder on a
+session that has reached four figures of descriptors. Number 31's measured
+rate makes that arrangeable on purpose rather than by waiting — see there.
 ### 16. Connector detect breaks after a session that really drew
 **Open, bounded, workaround holds.** After a compositor that was DRM
 master exits abnormally, the next `drmModeGetConnector` probe reports the
@@ -171,12 +236,87 @@ a working display.
 
 **A person answers this with one word:** `1`, `2`, `3`, or `leave-open`.
 ### 31. The backend holds thousands of `nvidiactl` file descriptors
-**Open.** Measured on a running rig: after 4 h 20 min the backend held
+**Open, and substantially narrowed 2026-08-21: it has an owner, a rate and
+a mechanism now, and it is not what this entry called it.** Measured on a
+running rig: after 4 h 20 min the backend held
 **2003** open `/dev/nvidiactl` descriptors while exactly one guest process
 (`gnome-shell`) had the GPU open. It is the first hard, monotonically
 growing resource leak on our own side. It is not the leak number 26 was
 looking for, and it is a strong candidate for the root of number 15.
 
+**MEASURED 2026-08-21. The count has an owner, a rate, and a composition,
+and "monotonically growing leak" is the wrong description.** One instrumented
+soak, shared with numbers 14 and 15: GNOME Wayland desktop guest, backend
+from a fresh boot at **68** `/dev/nvidiactl` descriptors.
+
+**It is not monotonic, and it is not per client.** Over 91 fd-census samples
+the count fell in 14 of 90 steps. The decisive test is a controlled cycle:
+
+| workload | baseline | peak | settled | residual |
+|---|---|---|---|---|
+| 16 concurrent `nvprobe` (CUDA) | 338 | **1152** | **338** | **0** |
+| 10 sequential `nvprobe` (CUDA) | 442 | — | 442 | **0** |
+| 10 `glxinfo` (GL, via Xwayland) | 362 | — | 382 | **+20** |
+| 10 `glxinfo` again | 382 | — | 402 | **+20** |
+| 20 `glxinfo` | 402 | — | 442 | **+40** |
+
+So **a CUDA client lifecycle retains nothing** — sixteen at once took it to
+1152 and it returned to its baseline exactly — and **a GL client lifecycle
+retains exactly 2.0 descriptors**, reproduced three times at two batch sizes.
+
+**What the two are.** The fd census decomposes it exactly. Twenty `glxinfo`
+runs, before against after:
+
+    sessions hold   280 -> 300   +20
+    mirror          275 -> 295   +20      (mirror_ever 1219 -> 1359, +140)
+    window maps     230 -> 250   +20
+    outside session 247 -> 267   +20
+    nvidiactl       442 -> 482   +40
+
+One descriptor per client in a **session's handle mirror**, and one per
+client for a **window mapping**, which is what the "outside every session"
+figure counts — window and outside move together, +20 and +20. Seven mirror
+entries are created per client and one is kept.
+
+**And the owner is the X server, proved by killing one.** A private
+`Xwayland :3` was started in the same session (number 29's other arm), ten
+`glxinfo` were run against it, and it was killed:
+
+    before Xwayland :3 started        482
+    after it started                  528
+    after 11 glxinfo on :3            580
+    after killing Xwayland :3         506     -- 74 descriptors released at once
+
+**So this is not a leak in the backend.** `release_window_of` works and is
+keyed on the guest process; the process it is keyed on is the X server, and
+on a desktop the X server never exits. Every GL client hands its mapping and
+its mirrored handle to a session that outlives it, and they are correctly
+held for exactly as long as that session lives — which is the whole session.
+That is why the original observation found 2003 descriptors while "exactly
+one guest process (`gnome-shell`) had the GPU open": the one process was the
+owner, not a bystander.
+
+**Why it still matters, and it matters more than a descriptor count.** The
+comment on `release_window_of` says it: each leftover costs a duplicated
+`/dev/nvidia*` FD *and its slice of the host-visible window*, and running out
+of holes in that window is what killed CS2 at its 129th mapping. At **one
+window mapping per GL client lifecycle** against an 8 GiB window, this is the
+same wall with a slow fuse, and the fuse is lit by ordinary desktop use.
+
+**What is now decidable rather than open**, and it is a design question, not
+a measurement:
+
+1. Is a mapping placed by a client that has exited still the X server's, or
+   should it be released when the CLIENT goes rather than when its owner
+   does? The answer decides whether this is correct behaviour or a defect,
+   and the code cannot decide it — RM's ownership is the X server's.
+2. If it is correct, the window needs reclamation that is not keyed on
+   process exit, because on a desktop the owner never exits.
+
+**And it makes number 15 arrangeable.** At 2.0 descriptors per GL client, a
+session can be driven to four figures on purpose in minutes instead of
+waited for over hours — which is exactly what number 15's remaining test
+needs.
 ### 32. Xwayland dies on SIGFPE inside NVIDIA's EGL core
 **Open; the faulting instruction is named, the field is not.** Twice, both
 times at the same instruction inside `libnvidia-eglcore`, Xwayland took a
