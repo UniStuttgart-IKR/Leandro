@@ -25,9 +25,10 @@
 #                                  the NixOS guest and the probe binaries
 #   scripts/build.sh check-driver  running driver == DRIVER_VERSION == vendor/ tag
 #
-# ALL runs preflight, then vendor, ch, cargo, probes, image, and bakes an
-# image (--minimal skips the bake; --full also installs the torch venv in
-# the guest, +~2.5 GB). It ends with the GPU-free check band. The host
+# ALL runs preflight, then vendor, ch, cargo, probes, image, the host's
+# native torch reference (vendor/hostvenv -- the gpu gate compares the guest
+# against it), and bakes an image (--minimal skips the bake; --full also
+# installs the torch venv in the GUEST, +~2.5 GB). It ends with the GPU-free check band. The host
 # network is NOT part of a build (it is runtime state; `showcase.sh net up`
 # -- or the NixOS module -- provides it).
 #
@@ -49,6 +50,7 @@
 #   this workspace's crates          ~200 MB   + a full release build
 #   Ubuntu cloud image + kernel      641 MB
 #   guest apt (build tools, headers) ~300 MB   (bake)
+#   host torch venv (hostvenv)      ~2500 MB   (the gate's native reference)
 #   guest torch venv                ~2500 MB   (--full only)
 #
 # WARNING -- the one that bites on foreign hardware: the guest `libcuda` and
@@ -1287,12 +1289,12 @@ do_all() {
   3  cargo     this workspace, release
   4  probes    the C probes and the PTX
   5  image     Ubuntu cloud image + kernel/initrd      ~641 MB
+  6  hostvenv  the gate's native torch reference      ~2.5 GB
 PLAN
     case $mode in
-      minimal) echo "  6  (skipped: image bake -- --minimal)" ;;
-      full)    echo "  6  bake --with-torch   provisioned image + torch   ~2.8 GB"
-               echo "  7  hostvenv  the gate's native torch reference    ~2.5 GB" ;;
-      *)       echo "  6  bake                provisioned image           ~300 MB" ;;
+      minimal) echo "  7  (skipped: image bake -- --minimal)" ;;
+      full)    echo "  7  bake --with-torch   provisioned image + torch   ~2.8 GB" ;;
+      *)       echo "  7  bake                provisioned image           ~300 MB" ;;
     esac
     echo
     dim "Downloads dominate on a fast CPU; the cloud-hypervisor build dominates otherwise."
@@ -1302,16 +1304,22 @@ PLAN
         echo; read -rp "proceed? [Y/n] " a; [[ ${a:-y} =~ ^[Yy]?$ ]] || { echo "aborted."; exit 1; }
     fi
     export CARGO_BUILD_JOBS=$jobs
-    step "1/6  NVIDIA headers @ $pinned"   do_vendor || exit 1
-    step "2/6  cloud-hypervisor + patches" do_ch     || exit 1
-    step "3/6  build the workspace"        do_cargo  || exit 1
-    step "4/6  build the probes"           do_probes || exit 1
-    step "5/6  guest image"                do_image  || exit 1
+    step "1/7  NVIDIA headers @ $pinned"   do_vendor   || exit 1
+    step "2/7  cloud-hypervisor + patches" do_ch       || exit 1
+    step "3/7  build the workspace"        do_cargo    || exit 1
+    step "4/7  build the probes"           do_probes   || exit 1
+    step "5/7  guest image"                do_image    || exit 1
+    # Not behind --full. The gpu gate's torch stage measures the guest
+    # against this and can do nothing without it, so a build that leaves it
+    # out does not deliver what this script's own header promises: "a rig
+    # that can run showcase.sh AND THE GATES". It was --full for one commit
+    # and that was the wrong call -- the operator's words were "there are no
+    # extras required".
+    step "6/7  native torch reference"     do_hostvenv || exit 1
     case $mode in
-      minimal) echo; dim "6/6  image bake skipped (--minimal)" ;;
-      full)    step "6/7  bake image (+torch)" do_bake --with-torch || exit 1
-               step "7/7  native torch reference" do_hostvenv || exit 1 ;;
-      *)       step "6/6  bake image"          do_bake              || exit 1 ;;
+      minimal) echo; dim "7/7  image bake skipped (--minimal)" ;;
+      full)    step "7/7  bake image (+torch)" do_bake --with-torch || exit 1 ;;
+      *)       step "7/7  bake image"          do_bake              || exit 1 ;;
     esac
     # The baked image is only useful if the scripts actually pick it up. It
     # may also be one from an earlier run -- say which.
