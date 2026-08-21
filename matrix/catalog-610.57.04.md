@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-21T08:41:27Z
-commit:  dfd2f4d (working tree modified)
+date:    2026-08-21T09:26:01Z
+commit:  8c0c627 (working tree modified)
 ```
 
 One row per signature `(device, ioctl nr, sub)`. Names, descriptions,
@@ -73,10 +73,10 @@ the two places a size is not self-describing -- they agree.
 
 | status | signatures |
 |---|---:|
-| `passthrough` | 182 |
+| `passthrough` | 181 |
 | `implemented-unverified` | 17 |
 | `implemented-verified` | 58 |
-| `implemented-verified-mediated` | 1 |
+| `implemented-verified-mediated` | 2 |
 | `not-governed` | 32 |
 | **total** | **290** |
 
@@ -213,9 +213,6 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answer bytes compared against a native run: 9 call(s), 48 of 48 bytes, masked {'not-written': 9}* | | | | | |
 | ctl | `0x5e` | `-` | `NV_ESC_RM_UPDATE_DEVICE_MAPPING_INFO` | &mdash; | `src/nvidia/arch/nvalloc/unix/include/nv_escape.h:52` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 29 call(s), 40 of 40 bytes, masked {'not-written': 106}; NOT paired in vk-offscreen, which judged nothing either way* | | | | | |
-| ctl | `0xc8` | `-` | `NV_ESC_CARD_INFO` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:35` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
-| | | | | *answer bytes compared against a native run: 26 call(s), 2304 of 2304 bytes, masked {'mediated:bdf-address': 26, 'gpuId': 26}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
-| | | | | *MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (pci_info.domain (bdf-address) @4; pci_info.bus (bdf-address) @8; pci_info.slot (bdf-address) @9; pci_info.function (bdf-address) @10; gpu_id (bdf-scalar) @16) and in no other byte. That is a different claim from byte equality* | | | | | |
 | ctl | `0xd6` | `-` | `NV_ESC_SYS_PARAMS` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:44` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
 | | | | | *answer bytes compared against a native run: 26 call(s), 8 of 8 bytes; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | gpu | `0xd7` | `-` | `unknown -- not in public headers` | unknown -- not in public headers | `&mdash;` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
@@ -628,6 +625,10 @@ the two places a size is not self-describing -- they agree.
 | | | | | *answered by the backend itself: gpuNameString @4 (identity-string, mediation.txt)* | | | | | |
 | | | | | *answer bytes compared against a native run: 20 call(s), 68 of 68 bytes, masked {'mediated:identity-string': 120}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
 | | | | | *MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (gpuNameString (identity-string) @4) and in no other byte. That is a different claim from byte equality* | | | | | |
+| ctl | `0xc8` | `-` | `NV_ESC_CARD_INFO` | &mdash; | `kernel-open/common/inc/nv-ioctl-numbers.h:35` | `&mdash;` | &mdash; | none | cuda-core, cuda-hostreg, cuda-jit, cuda-launch, cuda-managed, cuda-torch, egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, nvdec, nvenc, nvml, opencl, vk-enum, vk-offscreen, vk-rt |
+| | | | | *no descriptor row and mediated anyway: the guest module rewrites pci_info.domain @4 (bdf-address); pci_info.bus @8 (bdf-address); pci_info.slot @9 (bdf-address); pci_info.function @10 (bdf-address); gpu_id @16 (bdf-scalar) in the inline block (mediation.txt, generated from mediate.rs)* | | | | | |
+| | | | | *answer bytes compared against a native run: 26 call(s), 2304 of 2304 bytes, masked {'mediated:bdf-address': 26, 'gpuId': 26}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way* | | | | | |
+| | | | | *MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (pci_info.domain (bdf-address) @4; pci_info.bus (bdf-address) @8; pci_info.slot (bdf-address) @9; pci_info.function (bdf-address) @10; gpu_id (bdf-scalar) @16) and in no other byte. That is a different claim from byte equality* | | | | | |
 
 ## not-governed
 

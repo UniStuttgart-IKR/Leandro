@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-21T08:41:27Z",
-    "commit:  dfd2f4d (working tree modified)"
+    "date:    2026-08-21T09:26:01Z",
+    "commit:  8c0c627 (working tree modified)"
   ],
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -3330,51 +3330,6 @@
       ],
       "notes": [
         "answer bytes compared against a native run: 29 call(s), 40 of 40 bytes, masked {'not-written': 106}; NOT paired in vk-offscreen, which judged nothing either way"
-      ],
-      "status": "passthrough",
-      "xlate_size": null
-    },
-    {
-      "device": "ctl",
-      "nr": "0xc8",
-      "sub": "-",
-      "kind": "escape",
-      "name": "NV_ESC_CARD_INFO",
-      "description": "",
-      "header": "kernel-open/common/inc/nv-ioctl-numbers.h:35",
-      "params_struct": "",
-      "params_size": null,
-      "observed_params_size": [],
-      "seen_in": [
-        "cuda-core",
-        "cuda-hostreg",
-        "cuda-jit",
-        "cuda-launch",
-        "cuda-managed",
-        "cuda-torch",
-        "egl-gbm",
-        "egl-wayland",
-        "egl-xcb",
-        "egl-xlib",
-        "gl-enum",
-        "gl-render",
-        "gles",
-        "nvdec",
-        "nvenc",
-        "nvml",
-        "opencl",
-        "vk-enum",
-        "vk-offscreen",
-        "vk-rt"
-      ],
-      "calls": 44,
-      "rm_status": {},
-      "flags": [
-        "none"
-      ],
-      "notes": [
-        "answer bytes compared against a native run: 26 call(s), 2304 of 2304 bytes, masked {'mediated:bdf-address': 26, 'gpuId': 26}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way",
-        "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (pci_info.domain (bdf-address) @4; pci_info.bus (bdf-address) @8; pci_info.slot (bdf-address) @9; pci_info.function (bdf-address) @10; gpu_id (bdf-scalar) @16) and in no other byte. That is a different claim from byte equality"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -12186,6 +12141,52 @@
           "offset": 4,
           "size": 64
         }
+      ],
+      "status": "implemented-verified-mediated",
+      "xlate_size": null
+    },
+    {
+      "device": "ctl",
+      "nr": "0xc8",
+      "sub": "-",
+      "kind": "escape",
+      "name": "NV_ESC_CARD_INFO",
+      "description": "",
+      "header": "kernel-open/common/inc/nv-ioctl-numbers.h:35",
+      "params_struct": "",
+      "params_size": null,
+      "observed_params_size": [],
+      "seen_in": [
+        "cuda-core",
+        "cuda-hostreg",
+        "cuda-jit",
+        "cuda-launch",
+        "cuda-managed",
+        "cuda-torch",
+        "egl-gbm",
+        "egl-wayland",
+        "egl-xcb",
+        "egl-xlib",
+        "gl-enum",
+        "gl-render",
+        "gles",
+        "nvdec",
+        "nvenc",
+        "nvml",
+        "opencl",
+        "vk-enum",
+        "vk-offscreen",
+        "vk-rt"
+      ],
+      "calls": 44,
+      "rm_status": {},
+      "flags": [
+        "none"
+      ],
+      "notes": [
+        "no descriptor row and mediated anyway: the guest module rewrites pci_info.domain @4 (bdf-address); pci_info.bus @8 (bdf-address); pci_info.slot @9 (bdf-address); pci_info.function @10 (bdf-address); gpu_id @16 (bdf-scalar) in the inline block (mediation.txt, generated from mediate.rs)",
+        "answer bytes compared against a native run: 26 call(s), 2304 of 2304 bytes, masked {'mediated:bdf-address': 26, 'gpuId': 26}; NOT paired in gl-enum, gl-render, vk-enum, vk-offscreen, vk-rt, which judged nothing either way",
+        "MEDIATED: the answer differs from the native one in exactly the fields the mediation manifest declares (pci_info.domain (bdf-address) @4; pci_info.bus (bdf-address) @8; pci_info.slot (bdf-address) @9; pci_info.function (bdf-address) @10; gpu_id (bdf-scalar) @16) and in no other byte. That is a different claim from byte equality"
       ],
       "status": "implemented-verified-mediated",
       "xlate_size": null

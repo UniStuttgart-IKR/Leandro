@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-21T08:41:27Z
-commit:  dfd2f4d (working tree modified)
+date:    2026-08-21T09:26:01Z
+commit:  8c0c627 (working tree modified)
 ```
 
 Probes against status. This is the compatibility statement: a probe
@@ -23,33 +23,33 @@ Guest evidence: `matrix/guest-610.57.04.json`, 10 FAIL, 2 blocked, 9 guest-valid
 
 | probe | group | result | guest | ioctls | catalogued | missing | passthrough | governed | NVKMS | libraries seen |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|---|
-| `cuda-core` | compute | predicted-green | **guest-validated** | 433 | 100 | 0 | 61 | 39 | 0 | libcuda |
+| `cuda-core` | compute | predicted-green | **guest-validated** | 433 | 100 | 0 | 60 | 40 | 0 | libcuda |
 | `cuda-gdb` | compute | ungated: none -- strace cannot follow a process that is itself ptracing * | not run | 743 | &mdash; | 0 | 0 | 0 | 0 | &mdash; |
-| `cuda-hostreg` | compute | predicted-green | **guest-validated** | 650 | 107 | 0 | 64 | 43 | 0 | libcuda |
-| `cuda-jit` | compute | predicted-green | **guest-validated** | 630 | 107 | 0 | 64 | 43 | 0 | libcuda |
-| `cuda-launch` | compute | predicted-green | **guest-validated** | 630 | 107 | 0 | 64 | 43 | 0 | libcuda |
-| `cuda-managed` | compute | predicted-green | FAIL * | 439 | 103 | 0 | 61 | 42 | 0 | libcuda |
-| `cuda-torch` | compute | predicted-green | blocked * | 517 | 106 | 0 | 66 | 40 | 0 | libcuda |
-| `egl-gbm` | egl | predicted-green | **guest-validated** | 564 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
-| `egl-wayland` | egl | predicted-green | blocked * | 566 | 114 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
-| `egl-xcb` | egl | predicted-green | FAIL * | 566 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
-| `egl-xlib` | egl | predicted-green | FAIL * | 566 | 113 | 0 | 68 | 33 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `cuda-hostreg` | compute | predicted-green | **guest-validated** | 650 | 107 | 0 | 63 | 44 | 0 | libcuda |
+| `cuda-jit` | compute | predicted-green | **guest-validated** | 630 | 107 | 0 | 63 | 44 | 0 | libcuda |
+| `cuda-launch` | compute | predicted-green | **guest-validated** | 630 | 107 | 0 | 63 | 44 | 0 | libcuda |
+| `cuda-managed` | compute | predicted-green | FAIL * | 439 | 103 | 0 | 60 | 43 | 0 | libcuda |
+| `cuda-torch` | compute | predicted-green | blocked * | 517 | 106 | 0 | 65 | 41 | 0 | libcuda |
+| `egl-gbm` | egl | predicted-green | **guest-validated** | 564 | 113 | 0 | 67 | 34 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `egl-wayland` | egl | predicted-green | blocked * | 566 | 114 | 0 | 67 | 34 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `egl-xcb` | egl | predicted-green | FAIL * | 566 | 113 | 0 | 67 | 34 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `egl-xlib` | egl | predicted-green | FAIL * | 566 | 113 | 0 | 67 | 34 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
 | `gl-32bit` | compat | blocked: needs kernel-side trace point | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `gl-enum` | gl | predicted-green | FAIL * | 531 | 121 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
-| `gl-render` | gl | predicted-green | FAIL * | 522 | 119 | 0 | 68 | 33 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
-| `gles` | gl | predicted-green | FAIL * | 568 | 117 | 0 | 68 | 34 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
+| `gl-enum` | gl | predicted-green | FAIL * | 531 | 121 | 0 | 67 | 34 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
+| `gl-render` | gl | predicted-green | FAIL * | 522 | 119 | 0 | 67 | 34 | 6 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-gpucomp<br>libnvidia-tls |
+| `gles` | gl | predicted-green | FAIL * | 568 | 117 | 0 | 67 | 35 | 6 | libEGL_nvidia<br>libnvidia-egl-gbm<br>libnvidia-egl-wayland<br>libnvidia-egl-wayland2<br>libnvidia-egl-xcb<br>libnvidia-egl-xlib<br>libnvidia-eglcore<br>libnvidia-glsi<br>libnvidia-gpucomp |
 | `kms-nvkms` | kms | blocked: needs kernel-side trace point | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `nvdec` | video | predicted-green | **guest-validated** | 996 | 131 | 0 | 81 | 50 | 0 | libcuda<br>libnvcuvid |
-| `nvenc` | video | predicted-green | **guest-validated** | 1600 | 135 | 0 | 84 | 51 | 0 | libcuda<br>libnvcuvid<br>libnvidia-encode |
+| `nvdec` | video | predicted-green | **guest-validated** | 996 | 131 | 0 | 80 | 51 | 0 | libcuda<br>libnvcuvid |
+| `nvenc` | video | predicted-green | **guest-validated** | 1600 | 135 | 0 | 83 | 52 | 0 | libcuda<br>libnvcuvid<br>libnvidia-encode |
 | `nvfbc` | video | declared-unsupported: workload not procurable in this environment | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `nvml` | nvml | predicted-green | FAIL * | 179 | 105 | 0 | 87 | 18 | 0 | libcuda<br>libnvidia-ml |
+| `nvml` | nvml | predicted-green | FAIL * | 179 | 105 | 0 | 86 | 19 | 0 | libcuda<br>libnvidia-ml |
 | `nvofa` | video | declared-unsupported: workload not procurable in this environment | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
-| `opencl` | compute | predicted-green | **guest-validated** | 620 | 107 | 0 | 64 | 43 | 0 | libcuda<br>libnvidia-nvvm<br>libnvidia-opencl |
+| `opencl` | compute | predicted-green | **guest-validated** | 620 | 107 | 0 | 63 | 44 | 0 | libcuda<br>libnvidia-nvvm<br>libnvidia-opencl |
 | `pkcs11` | compat | declared-unsupported: no workload exists | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
 | `rm-direct` | direct | predicted-green | **guest-validated** | 12 | 11 | 0 | 8 | 3 | 0 | &mdash; |
-| `vk-enum` | vulkan | predicted-green | FAIL * | 961 | 123 | 0 | 73 | 35 | 405 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
-| `vk-offscreen` | vulkan | predicted-green | FAIL * | 5568 | 117 | 0 | 73 | 37 | 2 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-tls |
-| `vk-rt` | vulkan | predicted-green | FAIL * | 1289 | 155 | 0 | 102 | 46 | 2 | libGLX_nvidia<br>libcuda<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
+| `vk-enum` | vulkan | predicted-green | FAIL * | 961 | 123 | 0 | 72 | 36 | 405 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
+| `vk-offscreen` | vulkan | predicted-green | FAIL * | 5568 | 117 | 0 | 72 | 38 | 2 | libGLX_nvidia<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-tls |
+| `vk-rt` | vulkan | predicted-green | FAIL * | 1289 | 155 | 0 | 101 | 47 | 2 | libGLX_nvidia<br>libcuda<br>libnvidia-allocator<br>libnvidia-glcore<br>libnvidia-glsi<br>libnvidia-glvkspirv<br>libnvidia-gpucomp<br>libnvidia-rtcore<br>libnvidia-tls |
 | `vk-sc` | vulkan | declared-unsupported: no workload exists | not run | &mdash; | &mdash; | 0 | 0 | 0 | &mdash; | &mdash; |
 
 - \* `cuda-gdb`: ungated: none -- strace cannot follow a process that is itself ptracing. Measured: under `strace -f` cuda-gdb records zero ioctls, because its own ptrace of the inferior is the one strace has already taken. There is no second instrument here that could count the same calls, so this probe's CRITERION stands and its signatures do NOT enter the catalogue. The instrument that would gate it is the same kernel-side trace point the 32-bit set needs.

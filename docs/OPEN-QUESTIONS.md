@@ -1229,87 +1229,6 @@ relative to each other and to their devices, the fd each client was opened on,
 or a property RM keeps per client that no traced call reads back. The first two
 are in the traces already. The third is not, and would need the kernel-side
 trace point (number 59's third lever) to see at all.
-### 62. An escape the guest module rewrites is not in the descriptor table
-**Open, measured 2026-08-21.** `NV_ESC_CARD_INFO` carries the BDF and the
-gpuId in its own inline block, and the guest module rewrites both of them by
-hand (`virtio_nvrm.c`, at offsets this tree generates). It has no descriptor-
-table row, so `catalog-<driver>.json` calls it **`passthrough`** while
-`verified-<driver>.json` calls it **mediated** -- "26 calls, differs only in
-bdf-address". Both files are right as each defines its words, and a reader
-who takes `passthrough` to mean "carried unchanged" is misled by an artefact
-of which table was asked.
-
-It surfaced the moment escape payloads were dumped at all: a `MISMATCH` of
-`0x2d` natively against `0x05` in the guest, which is this rig's PCI bus
-number against the guest's slot number, and the mediation working exactly as
-designed while nothing declared it. The mediation manifest is keyed by the
-catalogue's signature now and names the five fields, so the comparison is
-correct; what is open is the CLASSIFICATION.
-
-The question is whether an escape the module rewrites by hand should be
-`implemented` rather than `passthrough`, and it is not cosmetic: the
-catalogue's headline counts are what a reader takes away, and reporting a
-mediated call as passthrough understates what has been built -- the same
-direction of error that `manifest_answered` exists to prevent for controls.
-Moving it changes what the catalogue counts, which is why it is a question
-here and not a commit.
-
----
-
-**DECISION MEMO, written 2026-08-21. Nothing below decides it: this changes
-what the catalogue counts, which is a person's call.**
-
-The exact state, read out of the two artefacts:
-
-| | says |
-|---|---|
-| `catalog-610.57.04.json` | `ctl 0xc8 -`, kind `escape`, status **`passthrough`**, flags `none`, 44 calls, seen in 20 probes |
-| `verified-610.57.04.json` | 26 calls compared, **2304 of 2304 bytes**, masked `mediated:bdf-address` ×26 and `gpuId` ×26, every compared word stable |
-
-and the mediation it names five fields for: `pci_info.domain @4`,
-`pci_info.bus @8`, `pci_info.slot @9`, `pci_info.function @10`,
-`gpu_id @16`. So one file masks it as mediated over its whole answer while
-the other calls it carried-unchanged.
-
-**Option 1 — reclassify it as mediated.**
-*Cost:* the catalogue's headline counts move: `passthrough` 182 → **181**,
-and it lands in `implemented-verified-mediated`, 1 → **2**. Every artefact
-quoting "182 passthrough" becomes stale, including three handoffs and this
-document.
-*Downstream:* the counts start meaning what a reader takes them to mean. It
-also sets the rule for the next case: an escape the module rewrites by hand
-counts as implemented, whether or not a descriptor-table row exists.
-
-**Option 2 — leave `passthrough` and add a note to the row.**
-*Cost:* nothing moves; the note carries the caveat.
-*Downstream:* the headline count keeps understating what is built, which is
-the error direction this entry objects to, and `manifest_answered` exists
-precisely to prevent that direction for controls. A note is a footnote on a
-number people quote without the footnote.
-
-**Option 3 — give it a descriptor-table row, so the classification follows
-from the table rather than from a judgement.**
-*Cost:* real work, and it changes the guest module: the rewrite currently
-happens by hand in `virtio_nvrm.c`, and the table would have to be able to
-express an inline block, which is not the shape `nested_ptrs` has.
-*Downstream:* this is the only option that makes the two files agree by
-construction instead of by decision, which is the property the rest of this
-pipeline has and the reason the disagreement was visible at all. It is also
-the largest.
-
-**Recommendation.** Take **1** now and put **3** on the list. The
-disagreement is a classification error today and 1 fixes it in one place;
-3 is right and is a different size of job. Reporting a mediated call as
-passthrough understates what has been built, and this project's rule
-everywhere else is that the honest direction of error is the conservative
-one — which here means calling it mediated, not calling it carried.
-
-**Note the counts are load-bearing:** whichever option is taken, the
-catalogue must be regenerated and the handoffs' "182 passthrough" lines
-become historical. That is the whole reason this is a question and not a
-commit.
-
-**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
 ### 64. The NVKMS commands are recorded and none of them has a name
 **Open, split out of number 48 on 2026-08-21**, which is resolved: the node
 is traced, counted and gated, and this is the half that was never anything
@@ -2773,6 +2692,144 @@ and `0x2080a097` (offset 8: `0x00000014` natively, `0x00000007` in one guest
 sweep and `0x00000023` in the next — which is two-run evidence that it is
 volatile, obtained by accident, and exactly what the second-native-trace
 variant would establish on purpose).
+### 62. An escape the guest module rewrites is not in the descriptor table
+**Resolved 2026-08-21: option 3, the classification follows from a table.**
+The original reasoning is kept below. `NV_ESC_CARD_INFO` carries the BDF and the
+gpuId in its own inline block, and the guest module rewrites both of them by
+hand (`virtio_nvrm.c`, at offsets this tree generates). It has no descriptor-
+table row, so `catalog-<driver>.json` calls it **`passthrough`** while
+`verified-<driver>.json` calls it **mediated** -- "26 calls, differs only in
+bdf-address". Both files are right as each defines its words, and a reader
+who takes `passthrough` to mean "carried unchanged" is misled by an artefact
+of which table was asked.
+
+It surfaced the moment escape payloads were dumped at all: a `MISMATCH` of
+`0x2d` natively against `0x05` in the guest, which is this rig's PCI bus
+number against the guest's slot number, and the mediation working exactly as
+designed while nothing declared it. The mediation manifest is keyed by the
+catalogue's signature now and names the five fields, so the comparison is
+correct; what is open is the CLASSIFICATION.
+
+The question is whether an escape the module rewrites by hand should be
+`implemented` rather than `passthrough`, and it is not cosmetic: the
+catalogue's headline counts are what a reader takes away, and reporting a
+mediated call as passthrough understates what has been built -- the same
+direction of error that `manifest_answered` exists to prevent for controls.
+Moving it changes what the catalogue counts, which is why it is a question
+here and not a commit.
+
+---
+
+**DECISION MEMO, written 2026-08-21. Nothing below decides it: this changes
+what the catalogue counts, which is a person's call.**
+
+The exact state, read out of the two artefacts:
+
+| | says |
+|---|---|
+| `catalog-610.57.04.json` | `ctl 0xc8 -`, kind `escape`, status **`passthrough`**, flags `none`, 44 calls, seen in 20 probes |
+| `verified-610.57.04.json` | 26 calls compared, **2304 of 2304 bytes**, masked `mediated:bdf-address` ×26 and `gpuId` ×26, every compared word stable |
+
+and the mediation it names five fields for: `pci_info.domain @4`,
+`pci_info.bus @8`, `pci_info.slot @9`, `pci_info.function @10`,
+`gpu_id @16`. So one file masks it as mediated over its whole answer while
+the other calls it carried-unchanged.
+
+**Option 1 — reclassify it as mediated.**
+*Cost:* the catalogue's headline counts move: `passthrough` 182 → **181**,
+and it lands in `implemented-verified-mediated`, 1 → **2**. Every artefact
+quoting "182 passthrough" becomes stale, including three handoffs and this
+document.
+*Downstream:* the counts start meaning what a reader takes them to mean. It
+also sets the rule for the next case: an escape the module rewrites by hand
+counts as implemented, whether or not a descriptor-table row exists.
+
+**Option 2 — leave `passthrough` and add a note to the row.**
+*Cost:* nothing moves; the note carries the caveat.
+*Downstream:* the headline count keeps understating what is built, which is
+the error direction this entry objects to, and `manifest_answered` exists
+precisely to prevent that direction for controls. A note is a footnote on a
+number people quote without the footnote.
+
+**Option 3 — give it a descriptor-table row, so the classification follows
+from the table rather than from a judgement.**
+*Cost:* real work, and it changes the guest module: the rewrite currently
+happens by hand in `virtio_nvrm.c`, and the table would have to be able to
+express an inline block, which is not the shape `nested_ptrs` has.
+*Downstream:* this is the only option that makes the two files agree by
+construction instead of by decision, which is the property the rest of this
+pipeline has and the reason the disagreement was visible at all. It is also
+the largest.
+
+**Recommendation.** Take **1** now and put **3** on the list. The
+disagreement is a classification error today and 1 fixes it in one place;
+3 is right and is a different size of job. Reporting a mediated call as
+passthrough understates what has been built, and this project's rule
+everywhere else is that the honest direction of error is the conservative
+one — which here means calling it mediated, not calling it carried.
+
+**Note the counts are load-bearing:** whichever option is taken, the
+catalogue must be regenerated and the handoffs' "182 passthrough" lines
+become historical. That is the whole reason this is a question and not a
+commit.
+
+**A person answers with one word:** `1`, `2`, `3`, or `leave-open`.
+
+---
+
+**DECIDED 2026-08-21 by the operator: option 3** -- make the classification
+follow from a table rather than from a judgement. Built, and the counts moved
+exactly as the memo predicted:
+
+    before   182 passthrough, 1 implemented-verified-mediated
+    after    181 passthrough, 2 implemented-verified-mediated
+
+**But not the table the memo assumed, and that is the useful part.** Option 3
+was written as "give it a descriptor-table row", and that would have been
+dishonest: an `ioctl` row in the descriptor table carries TRANSLATION offsets
+-- an fd field, an embedded pointer, an XFER wrapper -- and `NV_ESC_CARD_INFO`
+needs none of them. It carries its answer in the inline block and the guest
+module rewrites it in place. A row with no translation fields would have said
+"this escape needs translation of kind X" where X does not exist, to make a
+count come out right.
+
+**The table that already knows this fact is the mediation manifest**, and it
+is generated from `crates/nvrm-abi/src/mediate.rs` -- the SAME table the guest
+module's BDF header is generated from, so a field the module rewrites and the
+manifest does not know about cannot exist. `ioctlmatrix` classifies an escape
+from the descriptor table OR the manifest now, and the row says which:
+
+    no descriptor row and mediated anyway: the guest module rewrites
+    pci_info.domain @4 (bdf-address); pci_info.bus @8 (bdf-address);
+    pci_info.slot @9 (bdf-address); pci_info.function @10 (bdf-address);
+    gpu_id @16 (bdf-scalar) in the inline block (mediation.txt, generated
+    from mediate.rs)
+
+So the requirement is met -- derived from a generated table, no judgement in
+the loop -- and nothing had to be invented to meet it.
+
+**The catalogue had ALREADY WRITTEN DOWN this contradiction as a fact**, in
+`manifest_answered`'s docstring: *"an escape carries its mediation under `sub`
+of '-' and is classified from the descriptor table like any other escape --
+NV_ESC_CARD_INFO is passthrough and mediated at once, which is exactly what
+the evidence file says about it."* A comment that explains why two artefacts
+disagree is a bug report with nobody assigned; that one is now wrong and
+removed.
+
+**Descriptor-table kinds are deliberately not counted** by the new reader --
+a pointer or an fd field is the descriptor table's business and `gi` already
+classifies from it. Counting them in both places would say nothing new and
+would let the two readers disagree.
+
+**It landed in `implemented-verified-mediated`, not `implemented-unverified`**,
+because `verify` had already judged its bytes: 26 calls, 2304 of 2304, differing
+in exactly the five declared fields and no other byte. The classification was
+the only thing missing.
+
+**Still true and still worth doing, from option 3's original wording:** if a
+future escape needs real translation, that IS a descriptor-table row and this
+change does not remove the need for one. What it removes is the assumption
+that the descriptor table is the only table a classification may come from.
 ### 63. Two answers behind an NvP64 differ, and both look like the hardware saying so
 **Resolved 2026-08-21: option 3, a `host_assigned` class.** One half answered
 itself before the decision was taken. The original reasoning is kept below.

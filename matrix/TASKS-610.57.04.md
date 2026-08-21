@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-21T08:41:27Z
-commit:  dfd2f4d (working tree modified)
+date:    2026-08-21T09:26:01Z
+commit:  8c0c627 (working tree modified)
 ```
 
 Generated from the catalogue. One task per missing-command GROUP,

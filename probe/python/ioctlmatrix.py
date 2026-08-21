@@ -431,15 +431,62 @@ def manifest_answered(path):
         if f[8] not in ("backend-answered", "identity-string"):
             continue
         # This map is keyed by CONTROL COMMAND, because that is what the row
-        # it annotates is keyed by. An escape carries its mediation under
-        # `sub` of "-" and is classified from the descriptor table like any
-        # other escape -- NV_ESC_CARD_INFO is passthrough and mediated at
-        # once, which is exactly what the evidence file says about it.
+        # it annotates is keyed by. Escapes carry their mediation under `sub`
+        # of "-" and are read by manifest_mediated_escapes instead -- which
+        # exists because this comment used to end "NV_ESC_CARD_INFO is
+        # passthrough and mediated at once", stating a contradiction between
+        # two artefacts as though it were a property of the world. It was
+        # OPEN-QUESTIONS number 62, and it is fixed.
         if f[1] != "ctl" or f[2] != "0x2a" or f[3] == "-":
             continue
         cmd = int(f[3], 16)
         what = f"{' '.join(f[9:])} @{f[4]} ({f[8]}, mediation.txt)"
         out[cmd] = f"{out[cmd]}; {what}" if cmd in out else what
+    return out
+
+
+def manifest_mediated_escapes(path):
+    """nr -> what is mediated, for ESCAPES the manifest declares fields on.
+
+    THE GAP THIS CLOSES, and the code above used to state it as a fact rather
+    than fix it: an escape was classified from the DESCRIPTOR TABLE alone, so
+    `NV_ESC_CARD_INFO` -- whose BDF and gpuId the guest module rewrites in
+    every entry of its inline block -- came out `passthrough`, while the
+    evidence file called it mediated over the whole of its answer. Both files
+    were right as each defined its words, and a reader who took `passthrough`
+    to mean "carried unchanged" was misled by which table had been asked
+    (OPEN-QUESTIONS number 62).
+
+    So ask the other table. The mediation manifest is generated from
+    `crates/nvrm-abi/src/mediate.rs`, the SAME table the guest module's BDF
+    header comes from -- so a field the module rewrites and the manifest does
+    not know about cannot exist. That makes this a classification derived
+    from a table, which is what the descriptor-table route was wanted for;
+    the descriptor table simply is not the table that knows this fact.
+
+    Descriptor-table kinds are deliberately NOT counted here: a pointer or an
+    fd field is the descriptor table's business and `gi` already classifies
+    from it. Counting them twice would say nothing new and would make this
+    reader disagree with that one.
+    """
+    out = {}
+    p = pathlib.Path(path)
+    if not p.is_file():
+        return out
+    for ln in p.read_text(errors="replace").splitlines():
+        f = ln.split()
+        if f[:1] != ["mediated"] or len(f) < 10:
+            continue
+        # An escape: sub is "-". Anything else is a control and belongs to
+        # manifest_answered above.
+        if f[3] != "-":
+            continue
+        if f[8] not in ("bdf-address", "bdf-scalar", "identity-string",
+                        "backend-answered"):
+            continue
+        nr = int(f[2], 16)
+        what = f"{' '.join(f[9:])} @{f[4]} ({f[8]})"
+        out[nr] = f"{out[nr]}; {what}" if nr in out else what
     return out
 
 
@@ -872,9 +919,10 @@ UNKNOWN = "unknown -- not in public headers"
 MAP_MEMORY_NR = "0x4e"
 
 
-def resolve(sigs, gov, hdr, sizes, mediated, drm):
+def resolve(sigs, gov, hdr, sizes, mediated, drm, esc_mediated=None):
     """One catalogue row per signature. Every field is either read from a
     header or explicitly unknown."""
+    esc_mediated = esc_mediated or {}
     rows = []
     # First pass: work out which struct sizes are wanted, then compile them
     # all in one go rather than one process per row.
@@ -1013,7 +1061,21 @@ def resolve(sigs, gov, hdr, sizes, mediated, drm):
             # So an escape with no row is passthrough, not missing. Ten of
             # the 35 escapes in the headers have a row; the rest are flat
             # blocks that need nobody's help.
-            row["status"] = "implemented-unverified" if gi else "passthrough"
+            # The descriptor table OR the mediation manifest. An escape the
+            # guest module rewrites is implemented whether or not it needed a
+            # descriptor row to do it -- CARD_INFO carries its answer inline
+            # and needs no translation entry, and is mediated all the same.
+            me = esc_mediated.get(nr)
+            if gi:
+                row["status"] = "implemented-unverified"
+            elif me:
+                row["status"] = "implemented-unverified"
+                row["notes"].append(
+                    f"no descriptor row and mediated anyway: the guest module "
+                    f"rewrites {me} in the inline block (mediation.txt, "
+                    f"generated from mediate.rs)")
+            else:
+                row["status"] = "passthrough"
         else:
             row["status"] = "not-governed"
             if dev == "modeset":
@@ -1314,7 +1376,8 @@ def main():
     probes = read_probes(tdir)
     inv = read_inventory(tdir)
     sigs = collect_signatures(tdir, probes)
-    rows = resolve(sigs, gov, hdr, sizes, mediated, drm)
+    rows = resolve(sigs, gov, hdr, sizes, mediated, drm,
+                   manifest_mediated_escapes(tdir / "mediation.txt"))
     if a.fieldmap:
         write_fieldmap(pathlib.Path(a.fieldmap), hdr, sizes, prov)
 

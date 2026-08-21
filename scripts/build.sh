@@ -249,7 +249,32 @@ own work and this will not throw them away. Either save them, or discard:
 }
 
 # ---- cargo / probes -----------------------------------------------------------
-do_cargo()  { cargo build --release; }
+# The workspace binaries, and then their mtimes brought up to now.
+#
+# WHY THE TOUCH IS NOT CHEATING. lea_require_built compares the OLDEST binary
+# against the NEWEST source anywhere in the workspace, deliberately coarse so
+# that a gate cannot measure yesterday's backend. But cargo relinks only what
+# actually changed: nvrm-genhdr lives in nvrm-abi, so an edit to
+# vhost-user-nvrm never touches it, its mtime stays where it was, and the
+# gate skips with "run: scripts/build.sh cargo" -- which is THIS command, and
+# which could not fix it. Measured 2026-08-21: two consecutive runs of the
+# gpu gate skipped for a binary that was already correct.
+#
+# A check whose prescribed remedy does not work is the one shape that teaches
+# people to defeat it, and the comment on lea_require_built says exactly that
+# about `touch`. So the remedy is made to work, and only where it is TRUE: a
+# successful `cargo build --release` means every one of these is up to date
+# against its real dependency graph, which is finer than any mtime sweep. The
+# check keeps its whole point -- edit and do not build, and the mtimes still
+# flag it.
+do_cargo()  {
+    cargo build --release || return 1
+    local b
+    for b in "$LEA_ROOT"/target/release/*; do
+        [[ -f $b && -x $b ]] && touch "$b"
+    done
+    return 0
+}
 do_probes() { make -C "$LEA_ROOT/probe" all-probes; }
 
 # ---- image ----------------------------------------------------------------
