@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-21T10:46:00Z",
-    "commit:  aed491d (working tree modified)"
+    "date:    2026-08-21T11:50:56Z",
+    "commit:  47345fb (working tree modified)"
   ],
   "provenance_fields": {
     "driver": "610.57.04",
@@ -13,9 +13,9 @@
     "arch": "Turing",
     "compute_cap": "7.5",
     "kernel": "7.1.8-arch1-3",
-    "date": "2026-08-21T10:46:00Z",
+    "date": "2026-08-21T11:50:56Z",
     "tree_modified": true,
-    "commit": "aed491d"
+    "commit": "47345fb"
   },
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -3555,7 +3555,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1044}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1060}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7770,7 +7770,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "answer bytes compared against a native run: 4 call(s), 32908 of 32908 bytes"
+      ],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -9514,7 +9516,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: pDriverVersionBuffer @8, pVersionBuffer @16, pTitleBuffer @24",
-        "answer bytes compared against a native run: 10 call(s), 280 of 280 bytes, masked {'not-written': 54}"
+        "answer bytes compared against a native run: 10 call(s), 280 of 280 bytes, masked {'not-written': 51}"
       ],
       "fields": [
         {
@@ -11826,7 +11828,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 6 call(s), 22 of 22 bytes, masked {'not-written': 11}"
+        "answer bytes compared against a native run: 6 call(s), 22 of 22 bytes, masked {'not-written': 12}"
       ],
       "fields": [
         {
@@ -12023,7 +12025,7 @@
       "notes": [
         "params struct name not in the finn: comment; convention (_CMD_ dropped, _PARAMS appended), typedef present and sizeof compiled",
         "pointer field(s), offsets compiled: biosInfoList @8",
-        "answer bytes compared against a native run: 1 call(s), 32 of 32 bytes, masked {'not-written': 2}"
+        "answer bytes compared against a native run: 1 call(s), 32 of 32 bytes, masked {'not-written': 1}"
       ],
       "fields": [
         {
@@ -12070,7 +12072,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: engineList @8",
-        "answer bytes compared against a native run: 3 call(s), 52 of 52 bytes, masked {'nested-ptr': 5}"
+        "answer bytes compared against a native run: 3 call(s), 52 of 52 bytes, masked {'nested-ptr': 6}"
       ],
       "fields": [
         {

@@ -1050,6 +1050,25 @@ do_guest() {
         fi
         local gp gres ga gb gam gmset gcrit
         IFS=$'\t' read -r _ gp gres ga gb gam gmset gcrit <<<"$line"
+        # THE GUEST CONTROL TRACE: the same probe, run a SECOND time in the
+        # guest. The mirror of the native control run above, and it exists
+        # because that one only ever proved half of what it looked like it
+        # proved -- OPEN-QUESTIONS number 66.
+        #
+        # Both native variants compare native against native, so a word that
+        # is steady on the host and moves between two GUEST runs is
+        # indistinguishable from one the boundary got wrong. Measured
+        # 2026-08-21: `ctl 0x2a 0x2080a0a8` was `verified` in one sweep and
+        # `mismatch` in the next, with the two native runs agreeing exactly
+        # both times and nothing in the tree changed between them.
+        #
+        # Same rules as the native control: only after a PASS, not gated, not
+        # counted, and it can never fail a probe or enter the catalogue. Its
+        # whole use is to stop a difference from being called a defect.
+        if [[ $gres == PASS* ]]; then
+            lea_ssh "$ip" "cd ~/matrix && ./probe/run/matrix-guest.sh $gp \
+                --out ~/matrix/out-control $dispopt" >/dev/null 2>&1 || true
+        fi
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$gp" "$gres" "$ga" "$gb" "$gam" "$gmset" "$gcrit" >> "$rows"
         printf '%-16s %8s %8s %7s %7s  %s\n' "$gp" "$ga" "$gb" "$gam" \
@@ -1062,6 +1081,13 @@ do_guest() {
     # nobody can re-derive is an assertion.
     lea_ssh "$ip" 'cd ~/matrix/out 2>/dev/null && tar -cf - .' | tar -C "$gdir" -xf - \
         || warn "could not fetch the guest traces from $vm"
+    # The guest control traces, into <guest>/control/ -- the same layout the
+    # native control run uses, so answerdiff's read_control works on either
+    # directory without knowing which side it is looking at.
+    mkdir -p "$gdir/control"
+    lea_ssh "$ip" 'cd ~/matrix/out-control 2>/dev/null && tar -cf - .' \
+        | tar -C "$gdir/control" -xf - 2>/dev/null \
+        || warn "no guest control traces -- the guest-side stability test will have nothing to say" 
     {
         lea_matrix_provenance '#'
         printf '#vm: %s (%s)\n' "$vm" "$ip"

@@ -772,13 +772,29 @@ def main():
     # Used in one direction only, like each of them alone: it can stop a
     # difference from being called a defect and it never promotes anything.
     stability = read_stability(traceread.all_traces(ndir))
-    control_seen = read_control(ndir, a.probes)
-    for sig, st in control_seen.items():
-        cur = stability.get(sig, {"repeats": 0, "unstable": []})
-        stability[sig] = {
-            "repeats": max(cur["repeats"], st["repeats"]),
-            "unstable": sorted(set(cur["unstable"]) | set(st["unstable"])),
-        }
+    # THREE VARIANTS NOW, all unioned, none replacing another.
+    #
+    # The third is the GUEST control run, and it exists because the first two
+    # only ever proved half of what they looked like they proved: both compare
+    # NATIVE against NATIVE, so a word that is steady on the host and moves
+    # between two GUEST runs was indistinguishable from one the boundary got
+    # wrong. Measured 2026-08-21 (OPEN-QUESTIONS number 66):
+    # `ctl 0x2a 0x2080a0a8` was `verified` in one sweep and `mismatch` in the
+    # next, with the two native runs agreeing exactly both times and nothing
+    # in the tree changed between them.
+    #
+    # `read_control` takes a DIRECTORY and compares `<dir>/control/` against
+    # `<dir>/`, so it works on either side without knowing which it is looking
+    # at. Still one direction only: any of the three can stop a difference
+    # being called a defect, and none of them promotes anything.
+    n_ctrl, g_ctrl = read_control(ndir, a.probes), read_control(gdir, a.probes)
+    for src in (n_ctrl, g_ctrl):
+        for sig, st in src.items():
+            cur = stability.get(sig, {"repeats": 0, "unstable": []})
+            stability[sig] = {
+                "repeats": max(cur["repeats"], st["repeats"]),
+                "unstable": sorted(set(cur["unstable"]) | set(st["unstable"])),
+            }
     cat = {}
     catf = outdir / f"catalog-{a.driver}.json"
     if catf.is_file():
@@ -1136,7 +1152,13 @@ def main():
             "GPU_GET_INFO_V2 and GR_GET_INFO ask for a different index each "
             "call), so this flags more words than are genuinely volatile. The "
             "variant without that weakness is a second native trace of the "
-            "same probe, where call i is the same question on both sides"),
+            "same probe, where call i is the same question on both sides. "
+            "THIRD VARIANT since 2026-08-21: the same comparison on the GUEST "
+            "side (<guest>/control/), because the two native variants both "
+            "compare native against native, so a word that moves only between "
+            "two GUEST runs was indistinguishable from a difference the "
+            "boundary caused -- OPEN-QUESTIONS number 66. All three are "
+            "unioned and none replaces another"),
         "verified": verified,
         "verified_mediated": verified_mediated,
         "evidence": evidence,

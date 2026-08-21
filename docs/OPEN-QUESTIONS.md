@@ -794,57 +794,6 @@ in those terms.
    it, and it is the one step that does not depend on guessing NVML's
    reasoning.
 
-### 66. The control test proves stability on one side of the boundary only
-**Open, measured 2026-08-21.** A signature moved from `verified` to
-`mismatch` on a re-run that changed nothing but the guest traces, and the
-reason is a gap in the instrument rather than a change in the boundary.
-
-`ctl 0x2a 0x2080a0a8`, `unknown -- not in public headers`, in `nvml`, 32908
-bytes of answer, at offset 1064:
-
-| trace | word @1064 |
-|---|---|
-| native run | `0x001cd6d0` |
-| native CONTROL run (the second native trace) | `0x001cd6d0` |
-| guest run, 2026-08-21 sweep | `0x001d1168` |
-| guest run, previous sweep | matched the native value -- the signature was `verified` in the committed artefact |
-
-**So the word is STABLE across two native runs and VARIES across two guest
-runs**, and the control test cannot see that, because both of its variants
-compare native against native:
-
-  * the within-trace variant compares calls of one native run;
-  * the second-native-run variant compares call *i* of native run A against
-    call *i* of native run B.
-
-There is no guest-side variant, so a value that moves between guest runs is
-indistinguishable from a value the boundary got wrong. It lands in
-`mismatch`, which is the safe place for it, and it is why the mismatch class
-is not empty today after being empty yesterday.
-
-**What this is NOT.** It is not the `unstable` class doing its job -- that
-class means "native-against-native moved", and this did not. It is not a
-regression either: nothing in `xlate.rs`, the backend or the guest module
-changed between the two sweeps that produced the two guest values.
-
-**What would settle it**, and it is the exact mirror of what number 55 asked
-for on the native side: **a second GUEST run per probe**, unioned with the
-native control the same way. `trace` already takes a second native run for
-this reason (`<traces>/control/`); the guest phase takes one. A word that
-moves between two guest runs of the same probe is evidence for nothing, in
-either direction, and should be classified out rather than reported as a
-difference.
-
-The cost is one extra guest sweep per run -- about two minutes, measured --
-and the guest phase already loops over probes, so it is the same change
-`trace` took.
-
-**Until then, read a lone `mismatch` in this namespace with suspicion.** The
-`0x2080axxx` unknowns are where the counter-shaped values live: `0x2080a079`
-and `0x2080a097` are already recorded as moving between runs, and this is a
-third of the same shape. That is a hint about what the value is and it is not
-evidence -- which is the whole reason the class exists.
-
 ## Resolved and decided
 
 ### 1. Does the descriptor table warrant a protocol change?
@@ -3583,3 +3532,100 @@ taken from the table under test.
 constant +2 on this rig. On a rig where the host has a different number of
 channels open it should differ by that count instead, and if it does the
 category is proven rather than inferred.
+### 66. The control test proves stability on one side of the boundary only
+**Resolved 2026-08-21: the third variant exists.** The original reasoning is
+kept below. A signature moved from `verified` to
+`mismatch` on a re-run that changed nothing but the guest traces, and the
+reason is a gap in the instrument rather than a change in the boundary.
+
+`ctl 0x2a 0x2080a0a8`, `unknown -- not in public headers`, in `nvml`, 32908
+bytes of answer, at offset 1064:
+
+| trace | word @1064 |
+|---|---|
+| native run | `0x001cd6d0` |
+| native CONTROL run (the second native trace) | `0x001cd6d0` |
+| guest run, 2026-08-21 sweep | `0x001d1168` |
+| guest run, previous sweep | matched the native value -- the signature was `verified` in the committed artefact |
+
+**So the word is STABLE across two native runs and VARIES across two guest
+runs**, and the control test cannot see that, because both of its variants
+compare native against native:
+
+  * the within-trace variant compares calls of one native run;
+  * the second-native-run variant compares call *i* of native run A against
+    call *i* of native run B.
+
+There is no guest-side variant, so a value that moves between guest runs is
+indistinguishable from a value the boundary got wrong. It lands in
+`mismatch`, which is the safe place for it, and it is why the mismatch class
+is not empty today after being empty yesterday.
+
+**What this is NOT.** It is not the `unstable` class doing its job -- that
+class means "native-against-native moved", and this did not. It is not a
+regression either: nothing in `xlate.rs`, the backend or the guest module
+changed between the two sweeps that produced the two guest values.
+
+**What would settle it**, and it is the exact mirror of what number 55 asked
+for on the native side: **a second GUEST run per probe**, unioned with the
+native control the same way. `trace` already takes a second native run for
+this reason (`<traces>/control/`); the guest phase takes one. A word that
+moves between two guest runs of the same probe is evidence for nothing, in
+either direction, and should be classified out rather than reported as a
+difference.
+
+The cost is one extra guest sweep per run -- about two minutes, measured --
+and the guest phase already loops over probes, so it is the same change
+`trace` took.
+
+**Until then, read a lone `mismatch` in this namespace with suspicion.** The
+`0x2080axxx` unknowns are where the counter-shaped values live: `0x2080a079`
+and `0x2080a097` are already recorded as moving between runs, and this is a
+third of the same shape. That is a hint about what the value is and it is not
+evidence -- which is the whole reason the class exists.
+
+---
+
+**BUILT THE SAME DAY.** `ioctl-matrix.sh guest` now takes a SECOND guest run
+of every probe that passes, into `<traces>/guest/control/`, exactly as `trace`
+has taken a second native run since number 55 asked for one. Same rules: not
+gated, not counted, never able to fail a probe or enter the catalogue.
+
+The reader needed almost nothing, and that is the pleasant part:
+`answerdiff.read_control` already took a DIRECTORY and compared
+`<dir>/control/` against `<dir>/`, so pointing it at the guest side works
+without it knowing which side it is looking at. Three variants are unioned
+now, and none replaces another.
+
+**WHAT IT ACTUALLY ADDS, measured rather than assumed:**
+
+    native control : 251 signatures with a second run, 24 carrying unstable words
+    guest  control : 244 signatures with a second run, 20 carrying unstable words
+    found ONLY by the guest pair: 2
+
+        ctl 0x2a 0x2080018d   word at offset 16
+        ctl 0x2a 0x2080a081   word at offset 84
+
+Two signatures carry a word that moves between two GUEST runs and never
+between two native ones. That is precisely the class this entry describes,
+and before today nothing could see it. `0x2080018d` is one of the seven
+commands the BACKEND answers itself, which makes it the least surprising
+possible member: a value this project computes is a value this project can
+compute differently twice.
+
+**AND AN HONEST LIMIT, because the signature that motivated this entry was
+NOT re-caught.** `ctl 0x2a 0x2080a0a8` came back `verified` on this sweep:
+all four traces -- native, native control, guest, guest control -- read
+`0x001cd6d0`. Its previous guest value was `0x001d1168`. So that word varies
+**between sweeps** and was steady **within** one, and two guest runs minutes
+apart cannot see that. `mismatch` is 0 again, but it is 0 because the value
+happened to agree, not because the new test classified it out.
+
+So this closes the gap it was written about -- a word that moves only on the
+guest side is now visible -- and it does not close the harder case underneath:
+a value that is steady within a session and moves across sessions. Whether
+`0x2080a0a8` is that, or something about a fresh guest boot, is unanswered and
+deliberately left so: it is one signature, in the `0x2080axxx` unknowns where
+the counter-shaped values live, and nothing rests on it. If it reappears as a
+`mismatch` the same reasoning applies and the sweep-to-sweep variant is the
+next instrument.
