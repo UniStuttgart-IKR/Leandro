@@ -29,9 +29,12 @@ one.**
 The same CUDA binary in the same 2Q guest, traced by `crates/nvrm-trace`
 twice: `LEA_VGPU_MEDIATE=mode` and `none`. The traces are identical for 145
 records and diverge at 146, where libcuda -- having been told the GPU is a
-vGPU -- tries to ALLOCATE class `0xa080`
-(`NVA080_KERNEL_HOST_VGPU_DEVICE`, the guest's handle to its host vGPU
-device) and the guest's real RM answers `NV_ERR_NOT_SUPPORTED`.
+vGPU -- tries to ALLOCATE class `0xa080` (`KEPLER_DEVICE_VGPU`,
+`class/cla080.h:31`) and RM answers `NV_ERR_NOT_SUPPORTED` because
+`vgpuapiConstruct_IMPL` refuses it on `!IS_VIRTUAL(pGpu)`
+(`kernel/vgpu/vgpuapi.c:43`). The call site is `queryVirtMode`,
+`rmapi/nv_gpu_ops.c:7117`, which is the nvUvmInterface layer -- the CUDA
+path -- and is why `nvidia-smi` was unaffected.
 
 `analysis.txt` is `tracediff.py` over the two, computed on the COMPLETE
 traces. The shipped `mode-off.jsonl` is TRUNCATED to its first 400 records:

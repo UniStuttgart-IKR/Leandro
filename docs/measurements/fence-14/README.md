@@ -10,7 +10,7 @@ every syscall took, and the fallback is a syscall that TOOK 10 ms.
 
   * `plain.txt` -- six untraced runs. The slow wait is almost always the
     FIRST of the ten.
-  * `y1..y4.strace.gz` -- `strace -f -y -T`. `-y` names the FD, `-f` follows
+  * `y1..y4-fence.strace.txt` -- `strace -f -y -T`, filtered to the fence path. `-y` names the FD, `-f` follows
     the driver's threads. NOTE that `-f` SPLITS a blocking call into
     `<unfinished ...>` and `<... poll resumed>`, so the timing-out polls are
     on the *resumed* lines; a grep for `poll(...) = 0` on whole lines finds

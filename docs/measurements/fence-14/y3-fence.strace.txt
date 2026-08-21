@@ -1,0 +1,283 @@
+# SPDX-License-Identifier: MIT
+# y3.strace, filtered -- OPEN-QUESTIONS 14, 2026-08-22.
+# strace -f -y -T on fencetime in the display guest.
+# FILTERED to the fence-wait path: every poll, and every
+# <unfinished>/<resumed> line (which is where -f puts the
+# duration of a blocking call, and therefore where the 10 ms
+# timeouts are). Full trace was 6428 lines, 61 of them polls;
+# the counts in README.md and in the entry are from the full file.
+1867:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000008>
+1870:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.077129>
+1873:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000008>
+1875:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000011>
+1877:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000010>
+1879:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000010>
+1882:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1884:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000007>
+1887:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1889:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000235>
+1893:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1895:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000012>
+1900:7295  poll([{fd=3<socket:[30766]>, events=0}], 1, 0) = 0 (Timeout) <0.000007>
+1901:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1903:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000007>
+1907:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1909:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000007>
+1913:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1915:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000007>
+1919:7295  poll([{fd=3<socket:[30766]>, events=0}], 1, 0) = 0 (Timeout) <0.000007>
+1920:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1922:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000007>
+1926:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1928:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000007>
+1932:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1934:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000007>
+1952:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000008>
+1954:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000007>
+1958:7295  poll([{fd=3<socket:[30766]>, events=0}], 1, 0) = 0 (Timeout) <0.000007>
+1959:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1961:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000007>
+1967:7295  poll([{fd=3<socket:[30766]>, events=0}], 1, 0) = 0 (Timeout) <0.000007>
+1968:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1970:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000007>
+1977:7295  poll([{fd=3<socket:[30766]>, events=0}], 1, 0) = 0 (Timeout) <0.000008>
+1978:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+1980:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000007>
+3802:7295  poll([{fd=8<socket:[29148]>, events=POLLOUT}], 1, 0) = 1 ([{fd=8, revents=POLLOUT}]) <0.000008>
+3805:7295  poll([{fd=8<socket:[29148]>, events=POLLIN}], 1, -1) = 1 ([{fd=8, revents=POLLIN}]) <0.000008>
+3807:7295  poll([{fd=8<socket:[29148]>, events=POLLOUT}], 1, -1) = 1 ([{fd=8, revents=POLLOUT}]) <0.000009>
+3809:7295  poll([{fd=8<socket:[29148]>, events=POLLIN}], 1, -1) = 1 ([{fd=8, revents=POLLIN}]) <0.000007>
+3811:7295  poll([{fd=8<socket:[29148]>, events=POLLOUT}], 1, -1) = 1 ([{fd=8, revents=POLLOUT}]) <0.000007>
+3813:7295  poll([{fd=8<socket:[29148]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=8, revents=POLLOUT}]) <0.000007>
+3815:7295  poll([{fd=8<socket:[29148]>, events=POLLIN}], 1, 25000) = 1 ([{fd=8, revents=POLLIN}]) <0.000191>
+3821:7295  poll([{fd=8<socket:[29148]>, events=POLLIN}], 1, 25000) = 1 ([{fd=8, revents=POLLIN}]) <0.000036>
+5065:7295  mmap(NULL, 8392704, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0 <unfinished ...>
+5066:7302  rseq(0x7726c80fffe0, 0x20, 0, 0x53053053 <unfinished ...>
+5067:7295  <... mmap resumed>)               = 0x7726c70fe000 <0.000011>
+5068:7302  <... rseq resumed>)               = 0 <0.000011>
+5069:7295  mprotect(0x7726c70ff000, 8388608, PROT_READ|PROT_WRITE <unfinished ...>
+5070:7302  set_robust_list(0x7726c80ff9a0, 24 <unfinished ...>
+5071:7295  <... mprotect resumed>)           = 0 <0.000011>
+5072:7302  <... set_robust_list resumed>)    = 0 <0.000011>
+5073:7295  rt_sigprocmask(SIG_BLOCK, ~[],  <unfinished ...>
+5074:7302  rt_sigprocmask(SIG_SETMASK, [],  <unfinished ...>
+5075:7295  <... rt_sigprocmask resumed>[], 8) = 0 <0.000009>
+5076:7295  clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7726c78fe990, parent_tid=0x7726c78fe990, exit_signal=0, stack=0x7726c70fe000, stack_size=0x7fff80, tls=0x7726c78fe6c0} <unfinished ...>
+5077:7302  <... rt_sigprocmask resumed>NULL, 8) = 0 <0.000022>
+5078:7302  mmap(NULL, 134217728, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 <unfinished ...>
+5079:7295  <... clone3 resumed> => {parent_tid=[7303]}, 88) = 7303 <0.000027>
+5081:7302  <... mmap resumed>)               = 0x7726bf000000 <0.000045>
+5082:7295  openat(AT_FDCWD</home/leandro>, "/proc/self/task/7303/comm", O_RDWR <unfinished ...>
+5083:7302  munmap(0x7726bf000000, 16777216 <unfinished ...>
+5085:7302  <... munmap resumed>)             = 0 <0.000023>
+5086:7295  <... openat resumed>)             = 14</proc/7295/task/7303/comm> <0.000031>
+5087:7303  set_robust_list(0x7726c78fe9a0, 24 <unfinished ...>
+5088:7302  munmap(0x7726c4000000, 50331648 <unfinished ...>
+5089:7295  write(14</proc/7295/task/7303/comm>, "[vkcf] Analysis", 15 <unfinished ...>
+5090:7303  <... set_robust_list resumed>)    = 0 <0.000029>
+5091:7302  <... munmap resumed>)             = 0 <0.000030>
+5092:7295  <... write resumed>)              = 15 <0.000011>
+5093:7295  close(14</proc/7295/task/7303/comm> <unfinished ...>
+5094:7303  rt_sigprocmask(SIG_SETMASK, [],  <unfinished ...>
+5095:7302  mprotect(0x7726c0000000, 135168, PROT_READ|PROT_WRITE <unfinished ...>
+5096:7295  <... close resumed>)              = 0 <0.000021>
+5097:7303  <... rt_sigprocmask resumed>NULL, 8) = 0 <0.000019>
+5098:7295  ioctl(4</dev/nvidiactl>, _IOC(_IOC_READ|_IOC_WRITE, 0x46, 0x4a, 0xb8) <unfinished ...>
+5099:7303  futex(0x7726d47e68c8, FUTEX_WAIT_PRIVATE, 2, NULL <unfinished ...>
+5100:7302  <... mprotect resumed>)           = 0 <0.000040>
+5102:7303  <... futex resumed>)              = 0 <0.000059>
+5103:7302  openat(AT_FDCWD</home/leandro>, "/proc/stat", O_RDONLY <unfinished ...>
+5104:7295  <... ioctl resumed>, 0x7fff4cba70c0) = 0 <0.000088>
+5105:7303  mmap(NULL, 134217728, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 <unfinished ...>
+5106:7295  ioctl(4</dev/nvidiactl>, _IOC(_IOC_READ|_IOC_WRITE, 0x46, 0x2a, 0x20) <unfinished ...>
+5107:7303  <... mmap resumed>)               = 0x7726b8000000 <0.000015>
+5108:7302  <... openat resumed>)             = 14</proc/stat> <0.000029>
+5109:7303  munmap(0x7726bc000000, 67108864 <unfinished ...>
+5110:7302  read(14</proc/stat>,  <unfinished ...>
+5111:7303  <... munmap resumed>)             = 0 <0.000024>
+5112:7295  <... ioctl resumed>, 0x7fff4cba5ed0) = 0 <0.000048>
+5113:7295  openat(AT_FDCWD</home/leandro>, "/dev/nvidiactl", O_RDWR|O_CLOEXEC <unfinished ...>
+5114:7303  mprotect(0x7726b8000000, 135168, PROT_READ|PROT_WRITE <unfinished ...>
+5115:7302  <... read resumed>"cpu  1423 0 1192 90710 435 0 126"..., 299) = 299 <0.000030>
+5116:7303  <... mprotect resumed>)           = 0 <0.000023>
+5117:7302  close(14</proc/stat> <unfinished ...>
+5118:7295  <... openat resumed>)             = 15</dev/nvidiactl> <0.000057>
+5119:7303  futex(0x7726d47e68c8, FUTEX_WAKE_PRIVATE, 1 <unfinished ...>
+5120:7295  ioctl(4</dev/nvidiactl>, _IOC(_IOC_READ|_IOC_WRITE, 0x46, 0x4e, 0x38) <unfinished ...>
+5121:7303  <... futex resumed>)              = 0 <0.000009>
+5122:7302  <... close resumed>)              = 0 <0.000046>
+5123:7303  futex(0x7726b8000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, NULL, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5124:7302  futex(0x7726c0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350362, tv_nsec=363871000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5125:7295  <... ioctl resumed>, 0x7fff4cba6f70) = 0 <0.000063>
+5272:7305  rseq(0x7726c6f3dfe0, 0x20, 0, 0x53053053 <unfinished ...>
+5273:7295  openat(AT_FDCWD</home/leandro>, "/proc/self/task/7305/comm", O_RDWR <unfinished ...>
+5274:7305  <... rseq resumed>)               = 0 <0.000017>
+5276:7295  <... openat resumed>)             = 22</proc/7295/task/7305/comm> <0.000029>
+5277:7305  rt_sigprocmask(SIG_SETMASK, [],  <unfinished ...>
+5278:7295  write(22</proc/7295/task/7305/comm>, "[vkrt] Analysis", 15 <unfinished ...>
+5279:7305  <... rt_sigprocmask resumed>NULL, 8) = 0 <0.000012>
+5280:7295  <... write resumed>)              = 15 <0.000014>
+5281:7305  futex(0x61326aa85ea8, FUTEX_WAIT_PRIVATE, 2, NULL <unfinished ...>
+5284:7305  <... futex resumed>)              = 0 <0.000067>
+5285:7295  mmap(NULL, 8392704, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0 <unfinished ...>
+5286:7305  futex(0x61326aa85ea8, FUTEX_WAKE_PRIVATE, 1 <unfinished ...>
+5287:7295  <... mmap resumed>)               = 0x7726c5f3c000 <0.000012>
+5288:7305  <... futex resumed>)              = 0 <0.000012>
+5289:7295  mprotect(0x7726c5f3d000, 8388608, PROT_READ|PROT_WRITE <unfinished ...>
+5290:7305  mmap(0x7726bc000000, 67108864, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 <unfinished ...>
+5291:7295  <... mprotect resumed>)           = 0 <0.000015>
+5292:7305  <... mmap resumed>)               = 0x7726bc000000 <0.000015>
+5293:7295  rt_sigprocmask(SIG_BLOCK, ~[],  <unfinished ...>
+5294:7305  mprotect(0x7726bc000000, 135168, PROT_READ|PROT_WRITE <unfinished ...>
+5295:7295  <... rt_sigprocmask resumed>[], 8) = 0 <0.000012>
+5296:7305  <... mprotect resumed>)           = 0 <0.000018>
+5297:7295  clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7726c673c990, parent_tid=0x7726c673c990, exit_signal=0, stack=0x7726c5f3c000, stack_size=0x7fff80, tls=0x7726c673c6c0} <unfinished ...>
+5298:7305  futex(0x7726bc000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=489316000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5299:7295  <... clone3 resumed> => {parent_tid=[7306]}, 88) = 7306 <0.000038>
+5300:7295  rt_sigprocmask(SIG_SETMASK, [],  <unfinished ...>
+5301:7306  rseq(0x7726c673cfe0, 0x20, 0, 0x53053053 <unfinished ...>
+5302:7295  <... rt_sigprocmask resumed>NULL, 8) = 0 <0.000013>
+5303:7306  <... rseq resumed>)               = 0 <0.000012>
+5304:7295  openat(AT_FDCWD</home/leandro>, "/proc/self/task/7306/comm", O_RDWR <unfinished ...>
+5305:7306  set_robust_list(0x7726c673c9a0, 24 <unfinished ...>
+5306:7295  <... openat resumed>)             = 22</proc/7295/task/7306/comm> <0.000019>
+5307:7306  <... set_robust_list resumed>)    = 0 <0.000022>
+5308:7295  write(22</proc/7295/task/7306/comm>, "[vkps] Update", 13 <unfinished ...>
+5309:7306  rt_sigprocmask(SIG_SETMASK, [],  <unfinished ...>
+5310:7295  <... write resumed>)              = 13 <0.000013>
+5311:7306  <... rt_sigprocmask resumed>NULL, 8) = 0 <0.000013>
+5312:7295  close(22</proc/7295/task/7306/comm> <unfinished ...>
+5313:7306  futex(0x61326aa86238, FUTEX_WAIT_PRIVATE, 2, NULL <unfinished ...>
+5314:7295  <... close resumed>)              = 0 <0.000009>
+5316:7306  <... futex resumed>)              = 0 <0.000033>
+5317:7295  ioctl(4</dev/nvidiactl>, _IOC(_IOC_READ|_IOC_WRITE, 0x46, 0x4a, 0xb8) <unfinished ...>
+5320:7306  munmap(0x7726b4000000, 67108864 <unfinished ...>
+5321:7295  <... ioctl resumed>, 0x7fff4cba72e0) = 0 <0.000065>
+5322:7306  <... munmap resumed>)             = 0 <0.000023>
+5323:7295  ioctl(4</dev/nvidiactl>, _IOC(_IOC_READ|_IOC_WRITE, 0x46, 0x4a, 0xb8) <unfinished ...>
+5325:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=396647000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5326:7295  <... ioctl resumed>, 0x7fff4cba7120) = 0 <0.000061>
+5355:7295  mmap(NULL, 131072, PROT_READ|PROT_WRITE, MAP_SHARED, 23</dev/nvidiactl>, 0 <unfinished ...>
+5356:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007063>
+5358:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=403826000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5359:7295  <... mmap resumed>)               = 0x7726c8c18000 <0.000195>
+5404:7295  ioctl(10</dev/dri/renderD128>, DRM_IOCTL_AMDGPU_FENCE_TO_HANDLE <unfinished ...>
+5405:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007042>
+5407:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=410948000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5408:7295  <... ioctl resumed>, 0x7fff4cba71c0) = 0 <0.000769>
+5431:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007073>
+5432:7295  ioctl(4</dev/nvidiactl>, _IOC(_IOC_READ|_IOC_WRITE, 0x46, 0x4a, 0xb8) <unfinished ...>
+5434:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=418081000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5435:7295  <... ioctl resumed>, 0x7fff4cba6da0) = 0 <0.000053>
+5464:7295  ioctl(4</dev/nvidiactl>, _IOC(_IOC_READ|_IOC_WRITE, 0x46, 0x2b, 0x30) <unfinished ...>
+5465:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007077>
+5467:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=425222000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5468:7295  <... ioctl resumed>, 0x7fff4cba7040) = 0 <0.000403>
+5504:7295  ioctl(4</dev/nvidiactl>, _IOC(_IOC_READ|_IOC_WRITE, 0x46, 0x2a, 0x20) <unfinished ...>
+5505:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007071>
+5507:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=432350000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5508:7295  <... ioctl resumed>, 0x7fff4cba5e20) = 0 <0.000147>
+5555:7295  ioctl(4</dev/nvidiactl>, _IOC(_IOC_READ|_IOC_WRITE, 0x46, 0x2b, 0x30) <unfinished ...>
+5556:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007068>
+5558:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=439486000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5559:7295  <... ioctl resumed>, 0x7fff4cba7350) = 0 <0.001188>
+5591:7308  set_robust_list(0x7726c5b1b9a0, 24 <unfinished ...>
+5592:7295  ioctl(4</dev/nvidiactl>, _IOC(_IOC_READ|_IOC_WRITE, 0x46, 0x4a, 0xb8) <unfinished ...>
+5593:7308  <... set_robust_list resumed>)    = 0 <0.000016>
+5597:7308  futex(0x7726b4000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=446123000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5598:7295  <... ioctl resumed>, 0x7fff4cba6f60) = 0 <0.000150>
+5604:7295  poll([{fd=22</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10) = 1 ([{fd=22, revents=POLLIN|POLLPRI}]) <0.000014>
+5605:7295  poll([{fd=22</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10 <unfinished ...>
+5606:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007070>
+5608:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=446616000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5609:7295  <... poll resumed>)               = 1 ([{fd=22, revents=POLLIN|POLLPRI}]) <0.004738>
+5788:7308  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.010063>
+5789:7295  getpid( <unfinished ...>
+5790:7308  futex(0x61326a811610, FUTEX_WAKE_PRIVATE, 1 <unfinished ...>
+5791:7295  <... getpid resumed>)             = 7295 <0.000014>
+5792:7308  <... futex resumed>)              = 0 <0.000012>
+5793:7295  getpid( <unfinished ...>
+5794:7308  futex(0x7726b4000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=456233000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5795:7295  <... getpid resumed>)             = 7295 <0.000008>
+5813:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007063>
+5815:7306  futex(0x61326aa86130, FUTEX_WAKE_PRIVATE, 1 <unfinished ...>
+5816:7295  getpid( <unfinished ...>
+5817:7306  <... futex resumed>)              = 0 <0.000016>
+5818:7295  <... getpid resumed>)             = 7295 <0.000012>
+5819:7295  getpid( <unfinished ...>
+5820:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=453753000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+5821:7295  <... getpid resumed>)             = 7295 <0.000010>
+6089:7295  getpid( <unfinished ...>
+6090:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007055>
+6091:7295  <... getpid resumed>)             = 7295 <0.000009>
+6092:7295  getpid( <unfinished ...>
+6093:7306  futex(0x61326aa86130, FUTEX_WAKE_PRIVATE, 1 <unfinished ...>
+6094:7295  <... getpid resumed>)             = 7295 <0.000008>
+6095:7306  <... futex resumed>)              = 0 <0.000009>
+6097:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=460875000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6165:7295  poll([{fd=23</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10 <unfinished ...>
+6166:7308  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.010059>
+6168:7308  futex(0x7726b4000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=466341000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6169:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007065>
+6171:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=468006000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6172:7295  <... poll resumed>)               = 1 ([{fd=23, revents=POLLIN|POLLPRI}]) <0.006094>
+6175:7295  poll([{fd=23</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10 <unfinished ...>
+6176:7308  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.010072>
+6178:7308  futex(0x7726b4000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=476482000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6179:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007082>
+6181:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=475180000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6182:7295  <... poll resumed>)               = 1 ([{fd=23, revents=POLLIN|POLLPRI}]) <0.006797>
+6184:7295  poll([{fd=23</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10 <unfinished ...>
+6185:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007068>
+6187:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=482308000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6188:7295  <... poll resumed>)               = 1 ([{fd=23, revents=POLLIN|POLLPRI}]) <0.006904>
+6190:7295  poll([{fd=23</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10 <unfinished ...>
+6191:7308  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.010060>
+6193:7308  futex(0x7726b4000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=486586000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6194:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007079>
+6196:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=489455000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6197:7295  <... poll resumed>)               = 1 ([{fd=23, revents=POLLIN|POLLPRI}]) <0.006880>
+6199:7295  poll([{fd=23</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10 <unfinished ...>
+6200:7308  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.010077>
+6202:7308  futex(0x7726b4000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=496729000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6203:7305  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.100066>
+6205:7305  futex(0x7726bc000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=589433000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6206:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007073>
+6208:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=496580000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6209:7295  <... poll resumed>)               = 1 ([{fd=23, revents=POLLIN|POLLPRI}]) <0.006775>
+6211:7295  poll([{fd=23</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10 <unfinished ...>
+6212:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007090>
+6214:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=503731000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6215:7308  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.010077>
+6217:7308  futex(0x7726b4000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=506883000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6218:7295  <... poll resumed>)               = 0 (Timeout) <0.010106>
+6220:7295  poll([{fd=23</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10) = 1 ([{fd=23, revents=POLLIN|POLLPRI}]) <0.000195>
+6223:7295  poll([{fd=23</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10) = 1 ([{fd=23, revents=POLLIN|POLLPRI}]) <0.000015>
+6225:7295  poll([{fd=23</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10 <unfinished ...>
+6226:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007087>
+6228:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=510881000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6229:7308  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.010078>
+6231:7308  futex(0x7726b4000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=517028000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6232:7295  <... poll resumed>)               = 0 (Timeout) <0.010172>
+6233:7306  <... futex resumed>)              = -1 ETIMEDOUT (Connection timed out) <0.007081>
+6235:7306  futex(0x7726b0000d48, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 0, {tv_sec=1787350360, tv_nsec=518044000}, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6239:7295  poll([{fd=22</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10) = 1 ([{fd=22, revents=POLLIN|POLLPRI}]) <0.000016>
+6240:7295  poll([{fd=22</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10) = 1 ([{fd=22, revents=POLLIN|POLLPRI}]) <0.000147>
+6242:7308  <... futex resumed>)              = 0 <0.005476>
+6243:7295  futex(0x7726c5b1b990, FUTEX_WAIT_BITSET|FUTEX_CLOCK_REALTIME, 7308, NULL, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6250:7295  <... futex resumed>)              = 0 <0.000175>
+6256:7295  futex(0x7726c673c990, FUTEX_WAIT_BITSET|FUTEX_CLOCK_REALTIME, 7306, NULL, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6257:7306  <... futex resumed>)              = 0 <0.002185>
+6263:7295  <... futex resumed>)              = 0 <0.000162>
+6266:7295  futex(0x7726c78fe990, FUTEX_WAIT_BITSET|FUTEX_CLOCK_REALTIME, 7303, NULL, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6267:7303  <... futex resumed>)              = 0 <0.149584>
+6273:7295  <... futex resumed>)              = 0 <0.000119>
+6308:7295  futex(0x7726c6f3d990, FUTEX_WAIT_BITSET|FUTEX_CLOCK_REALTIME, 7305, NULL, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6309:7305  <... futex resumed>)              = 0 <0.026863>
+6315:7295  <... futex resumed>)              = 0 <0.000127>
+6375:7295  futex(0x7726c80ff990, FUTEX_WAIT_BITSET|FUTEX_CLOCK_REALTIME, 7302, NULL, FUTEX_BITSET_MATCH_ANY <unfinished ...>
+6376:7302  <... futex resumed>)              = 0 <0.158937>
+6382:7295  <... futex resumed>)              = 0 <0.000172>
+6418:7295  poll([{fd=3<socket:[30766]>, events=0}], 1, 0) = 0 (Timeout) <0.000009>
+6419:7295  poll([{fd=3<socket:[30766]>, events=POLLIN|POLLOUT}], 1, -1) = 1 ([{fd=3, revents=POLLOUT}]) <0.000007>
+6421:7295  poll([{fd=3<socket:[30766]>, events=POLLIN}], 1, -1) = 1 ([{fd=3, revents=POLLIN}]) <0.000013>

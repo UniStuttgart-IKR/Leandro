@@ -359,6 +359,49 @@ the new warning. If it fires, the single-slot record is the cause and the fix
 is a small table, the same lesson `vblank_free` (8 slots) and the semaphore
 waiters (64 slots) already learned. If it does not fire, the control is
 failing for a different reason and the warning will have ruled this one out.
+**THE NVKMS HALF IS CONFIRMED FROM THE VENDOR SOURCE, 2026-08-22, and the
+warning this entry installed can tell TWO causes apart -- which it was not
+written to do.**
+
+`DisplaylessRmGetConnectedDpys` (`src/nvidia-modeset/src/nvkms-rm.c:2391`)
+is exactly as this entry describes it, and the failing call has a name:
+
+```c
+ret = nvRmApiControl(..., pDevEvo->displaylessHandle,
+                     NVA083_CTRL_CMD_VIRTUAL_DISPLAY_GET_NUM_HEADS, ...);
+if (ret == NVOS_STATUS_SUCCESS) { ...build the mask... }
+else { nvEvoLogDisp(..., "Failed detecting connected displays for
+                          displayless HW"); return nvEmptyDpyIdList(); }
+```
+
+**ANY** failure of that one control yields an EMPTY dpy list -- not a
+retry, not a partial answer -- which is why the connector reads
+disconnected while `sysfs` still reports the cached `connected`.
+
+**AND THE TWO OUTCOMES THE WARNING CAN NOW SEPARATE.** `vdisp_handle` and
+`vdisp_client` are a single global pair, set on alloc (:4083) and zeroed on
+free (:4108), and the warning at :4229 prints the pair it expected. There
+are two ways that pair can stop matching, and they need different fixes:
+
+  * **it prints a DIFFERENT non-zero pair** -- a second `NVA083` is live
+    while the first is still being used. That is the case this entry
+    predicted, and the fix is the small table it names.
+  * **it prints `0x0/0x0`** -- the slot was ZEROED while the object was
+    still live. That happens if a stale free carries the same
+    (client, handle) numbers as the current pair, which is not
+    hypothetical here: the comment at :4058 records that NVKMS core and
+    nvidia-drm's KAPI client both hand out handles from 0x10001, and that
+    handle recycling across clients has already caused one measured bug on
+    this exact object. A table does NOT fix this one; it needs the free to
+    be matched against the object's identity rather than against a
+    recycled number.
+
+So the reproduction this entry asks for is unchanged -- a compositor that
+drew, then an abnormal exit -- but its OUTCOME is now more informative than
+"the single-slot record is the cause": the pair printed in the warning
+picks which of the two it is, and they do not share a fix. Nothing else
+needs to be added before the run.
+
 ### 31. The backend holds thousands of `nvidiactl` file descriptors
 **Open, and substantially narrowed 2026-08-21: it has an owner, a rate and
 a mechanism now, and it is not what this entry called it.** Measured on a
@@ -1480,9 +1523,8 @@ answer itself, and part company at 146:
 | 151 | `NV_ESC_RM_FREE` (41): it gives up | ... |
 | end | 164 records, `cuInit 100` | 4474 records, the run completes |
 
-Class `0xa080` is `NVA080_KERNEL_HOST_VGPU_DEVICE` -- **the guest's handle
-to its host vGPU device**, the near end of the RPC channel to the plugin in
-the host. Told it is on a vGPU, the first thing libcuda does is ask for
+Class `0xa080` is `KEPLER_DEVICE_VGPU` (corrected below from the vendor
+headers -- it was first named wrongly here). Told it is on a vGPU, the first thing libcuda does is ask for
 that object, and the REAL RM in the guest answers NOT_SUPPORTED, because
 this guest's driver is an ordinary driver and has no such device behind it.
 Exactly TWO calls in the whole trace happen only when the mode is answered
@@ -1495,6 +1537,75 @@ listed: a FULL mock is not "answer one more control", it is supply an
 `NVA080` object and everything behind it, which is the vGPU guest path
 against a closed spec -- a different program, as suspected. `mode` stays
 off by default, and the reason is now citable.
+
+**CORRECTED AND COMPLETED 2026-08-22 FROM NVIDIA'S OWN SOURCE.** The trace
+above is right about every number and **wrong about the class's name**:
+`0xa080` is `KEPLER_DEVICE_VGPU` (`class/cla080.h:31`), not the host-side
+object it was first called here. That matters, because the correct name
+leads to the code, and the code turns out to contain this whole entry.
+
+`queryVirtMode()` -- `src/nvidia/src/kernel/rmapi/nv_gpu_ops.c:7117` -- is
+the traced sequence, verbatim:
+
+```c
+*virtMode = UVM_VIRT_MODE_NONE;
+Control(hDevice, NV0080_CTRL_CMD_GPU_GET_VIRTUALIZATION_MODE, &params);
+if (params.virtualizationMode != NV0080_CTRL_GPU_VIRTUALIZATION_MODE_VGX)
+    return status;                                       // the mode-OFF path
+NV_ASSERT_OK_OR_RETURN(Alloc(..., KEPLER_DEVICE_VGPU, NULL, 0));
+Control(vgpuHandle, NVA080_CTRL_CMD_VGPU_GET_CONFIG, &cparams);
+... SRIOV caps -> SRIOV_HEAVY / SRIOV_STANDARD, else LEGACY
+cleanup_handle: Free(vgpuHandle);
+```
+
+Every field of the trace is in that fragment: the control is 0x800289; the
+early return on "not VGX" is why the mode-off run simply keeps enumerating;
+the alloc passes `NULL, 0`, which is the `paramsSize:"0x0"` the trace
+recorded; and `NV_ASSERT_OK_OR_RETURN` is why one refused allocation ends
+CUDA rather than being retried.
+
+**AND THE REFUSAL HAS ITS OWN LINE**, `vgpuapiConstruct_IMPL`
+(`kernel/vgpu/vgpuapi.c:43`), NVIDIA's typo included:
+
+```c
+// KEPLER_DEVICE_VGPU is only supported for virtaul GPU
+if (!IS_VIRTUAL(pGpu)) { return NV_ERR_NOT_SUPPORTED; }
+```
+
+`IS_VIRTUAL` is `pGpu->isVirtual` (`g_gpu_nvoc.h:5948`), a property the
+driver sets about ITSELF at init. **It is not derived from the control we
+rewrite.** So mediating the mode does not make a driver virtual; it makes
+the driver's userspace believe something its kernel half knows to be false,
+and the first place the two meet is this allocation.
+
+**WHY nvidia-smi WAS HAPPY AND libcuda WAS NOT, finally.** `nv_gpu_ops.c` is
+the nvUvmInterface layer -- the CUDA/UVM path specifically. `nvidia-smi`
+never calls `queryVirtMode`, so it printed the mediated name, size and mode
+without ever touching the object that does not exist.
+
+**AND THE "FULL MOCK" IS NOW MEASURED RATHER THAN GUESSED, which reverses
+the cheap reading of it.** The call site is BOUNDED -- one alloc, one
+control, then `Free` -- so the temptation is obvious: answer two messages
+and be done. **It does not work, and the next line says so.** With the
+SR-IOV caps bit clear, `virtMode` becomes `UVM_VIRT_MODE_LEGACY`, and UVM
+refuses at initialisation (`uvm_gpu.c:1494`):
+
+```c
+if (parent_gpu->virt_mode == UVM_VIRT_MODE_LEGACY) {
+    UVM_ERR_PRINT("Failed to init GPU %s. UVM is not supported in legacy
+                   virtualization mode\n", ...);
+    return NV_ERR_NOT_SUPPORTED;
+}
+```
+
+So a mock must claim SR-IOV to get past init at all -- and SR-IOV is not a
+label, it is a promise UVM keeps collecting on for the life of the process:
+`uvm_channel.c` builds its channels differently, `uvm_ampere_ce.c` and
+`uvm_ampere_host.c` program the copy engines differently,
+`uvm_gpu_non_replayable_faults.c` routes faults differently. **That is why
+this is a different program and not two more messages**, and it is now a
+statement about named files rather than an inference about a closed spec.
+`mode` stays off, and the reason is a line number in three of them.
 
 **(b) IS HOMOGENEITY OURS OR NVIDIA'S? IT WAS OURS, AND IT IS GONE.** vGPU
 needs the constraint for a reason this design does not have: its guest
