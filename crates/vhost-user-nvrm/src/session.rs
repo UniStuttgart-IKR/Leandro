@@ -2506,6 +2506,14 @@ impl Session {
                             profile.vgpu_type
                         );
                     }
+                } else if cmd == crate::grid::CMD_GPU_GET_GID_INFO {
+                    let uuid = crate::grid::rewrite_gid_info(
+                        &mut self.aux,
+                        crate::grid::identity(),
+                    );
+                    if debug_level() >= 1 {
+                        eprintln!("vhost-user-nvrm: uuid -> {uuid:?}");
+                    }
                 } else if cmd == crate::grid::CMD_GPU_GET_ENCODER_CAPACITY {
                     let pct = crate::grid::rewrite_encoder_capacity(
                         &mut self.aux,

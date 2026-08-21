@@ -18,7 +18,9 @@
 
 use nvrm_abi::mediate;
 
-pub use nvrm_abi::mediate::{CMD_GPU_GET_ENCODER_CAPACITY, CMD_GPU_GET_VIRTUALIZATION_MODE};
+pub use nvrm_abi::mediate::{
+    CMD_GPU_GET_ENCODER_CAPACITY, CMD_GPU_GET_GID_INFO, CMD_GPU_GET_VIRTUALIZATION_MODE,
+};
 
 /// Answer `NV0080_CTRL_CMD_GPU_GET_VIRTUALIZATION_MODE` the way a vGPU
 /// guest's RM answers it.
@@ -82,6 +84,151 @@ pub fn rewrite_encoder_capacity(aux: &mut [u8], percent: u32) -> Option<u32> {
     Some(percent)
 }
 
+
+// ===========================================================================
+// The VM's own identity
+// ===========================================================================
+// MEASURED 2026-08-21, four guests of one fleet, all four asked at once:
+//
+//   vm0: GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d, Leandro RTX 2070, 8192 MiB
+//   vm1: GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d, ...
+//   vm2: GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d, ...
+//   vm3: GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d, ...
+//
+// One UUID for four machines, and it is the HOST card's. `nvidia-smi
+// --query-gpu=uuid` is what a scheduler keys a GPU on -- Kubernetes'
+// device plugin, Slurm's generic resources, `docker --gpus` -- so today
+// four of these VMs are one GPU as far as any of them can tell. It is the
+// same class of leak as the host PID table (vram.rs) and the host BDF
+// (the guest module's bdf_mediation), one namespace further out.
+//
+// A vGPU guest does not have this problem: its UUID is the mdev device's,
+// not the board's, and two vGPUs on one card differ.
+
+/// The name of the VM this process serves, for the UUID below.
+///
+/// Set once at startup from the SOCKET PATH -- `vm/<name>/nvrm.sock` --
+/// because that is the only per-VM name this process is given. It needs no
+/// new knob and it cannot drift from the instance the rig thinks it
+/// started: it IS the instance directory.
+static IDENTITY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The instance name inside a socket path, as a pure function -- a
+/// `OnceLock` can be set once per PROCESS and tests share one.
+pub fn name_from_socket(socket: &str) -> String {
+    std::path::Path::new(socket)
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| socket.to_string())
+}
+
+/// Remember which VM this is. Called once, from `serve`.
+pub fn set_identity(socket: &str) {
+    let _ = IDENTITY.set(name_from_socket(socket));
+}
+
+/// What this VM is called, or `"lea"` if nobody said.
+pub fn identity() -> &'static str {
+    IDENTITY.get().map(String::as_str).unwrap_or("lea")
+}
+
+/// FNV-1a, 64 bit, over the bytes given.
+///
+/// NOT a cryptographic hash and it does not need to be: what is wanted is
+/// a value that is STABLE for a VM across restarts and DIFFERENT between
+/// VMs on one card. A UUID's job here is to be a key, not a secret, and a
+/// SHA-1 would mean a dependency for a property nothing rests on. The
+/// constants are FNV's own (offset basis and prime).
+fn fnv1a(seed: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in seed {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Sixteen bytes derived from the VM's name, shaped as a version-4 UUID.
+///
+/// EVERY byte comes from the name and NONE from the host's own UUID. The
+/// host's would have been the easier mix -- keep the card's prefix, change
+/// the tail -- and it would have handed the guest a piece of the host's
+/// identity to reconstruct. The card is already named in the product
+/// string; it does not need to be in the UUID as well.
+///
+/// The version and variant nibbles are set because a reader (and NVML's
+/// own formatting) expects a UUID and not sixteen arbitrary bytes.
+pub fn vm_uuid(name: &str) -> [u8; 16] {
+    let a = fnv1a(name.as_bytes());
+    // A second, differently seeded pass for the other half: FNV over the
+    // same bytes twice would give the same eight.
+    let b = fnv1a(&[name.as_bytes(), b"/leandro-vgpu"].concat());
+    let mut out = [0u8; 16];
+    out[..8].copy_from_slice(&a.to_be_bytes());
+    out[8..].copy_from_slice(&b.to_be_bytes());
+    out[6] = (out[6] & 0x0f) | 0x40; // version 4
+    out[8] = (out[8] & 0x3f) | 0x80; // variant 1
+    out
+}
+
+/// The ASCII form RM answers with: `GPU-` and then 8-4-4-4-12 hex.
+pub fn format_uuid(u: &[u8; 16]) -> String {
+    let hex = |r: &[u8]| r.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    format!(
+        "GPU-{}-{}-{}-{}-{}",
+        hex(&u[0..4]),
+        hex(&u[4..6]),
+        hex(&u[6..8]),
+        hex(&u[8..10]),
+        hex(&u[10..16])
+    )
+}
+
+/// Replace the card's UUID with this VM's, in whichever format was asked
+/// for.
+///
+/// `flags` bit 1 picks the format (`..._FORMAT_BINARY`, ctrl2080gpu.h:1768);
+/// ASCII is the zero value, which is why this is a mask test. `length` is
+/// an OUTPUT and is rewritten with it -- a length that still describes RM's
+/// answer beside data that does not is how a reader ends up parsing past
+/// the end.
+///
+/// Returns what was written, for the log line.
+pub fn rewrite_gid_info(aux: &mut [u8], name: &str) -> Option<String> {
+    if aux.len() < mediate::GID_LEN {
+        return None;
+    }
+    let flags = u32::from_le_bytes(
+        aux[mediate::GID_FLAGS_OFF..mediate::GID_FLAGS_OFF + 4].try_into().unwrap(),
+    );
+    let u = vm_uuid(name);
+    let d = mediate::GID_DATA_OFF;
+    let written;
+    if flags & mediate::GID_FLAGS_FORMAT_BINARY != 0 {
+        aux[d..d + mediate::GID_SHA1_BINARY_LEN].copy_from_slice(&u);
+        // Zero the rest of the buffer: RM's answer is still in there, and
+        // a caller that reads past `length` would read the host's.
+        for b in aux[d + mediate::GID_SHA1_BINARY_LEN..d + mediate::GID_DATA_MAX].iter_mut() {
+            *b = 0;
+        }
+        written = mediate::GID_SHA1_BINARY_LEN;
+    } else {
+        let text = format_uuid(&u);
+        let bytes = text.as_bytes();
+        let n = bytes.len().min(mediate::GID_DATA_MAX - 1);
+        aux[d..d + n].copy_from_slice(&bytes[..n]);
+        for b in aux[d + n..d + mediate::GID_DATA_MAX].iter_mut() {
+            *b = 0;
+        }
+        // RM counts the NUL in the ASCII length.
+        written = n + 1;
+    }
+    aux[mediate::GID_LENGTH_OFF..mediate::GID_LENGTH_OFF + 4]
+        .copy_from_slice(&(written as u32).to_le_bytes());
+    Some(format_uuid(&u))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,4 +280,59 @@ mod tests {
         assert_eq!(rewrite_encoder_capacity(&mut v, 0), None);
         assert_eq!(rewrite_encoder_capacity(&mut v, 101), None);
     }
+
+    #[test]
+    fn two_vms_on_one_card_get_two_uuids() {
+        let a = vm_uuid("vm0");
+        let b = vm_uuid("vm1");
+        assert_ne!(a, b, "four guests sharing one UUID is the bug this fixes");
+        assert_eq!(a, vm_uuid("vm0"), "and it is the same one after a restart");
+    }
+
+    #[test]
+    fn it_is_shaped_like_a_uuid() {
+        let s = format_uuid(&vm_uuid("desktop"));
+        assert!(s.starts_with("GPU-"), "{s}");
+        let hex: Vec<&str> = s.trim_start_matches("GPU-").split('-').collect();
+        assert_eq!(hex.iter().map(|p| p.len()).collect::<Vec<_>>(), vec![8, 4, 4, 4, 12]);
+        assert!(hex.iter().all(|p| p.chars().all(|c| c.is_ascii_hexdigit())), "{s}");
+        // Version 4, variant 1, where NVML's readers expect them.
+        let u = vm_uuid("desktop");
+        assert_eq!(u[6] >> 4, 4);
+        assert_eq!(u[8] >> 6, 0b10);
+    }
+
+    /// The host's UUID must not survive in the answer -- neither in the
+    /// bytes past the new one nor in a length that still describes it.
+    #[test]
+    fn the_hosts_uuid_does_not_survive_either_format() {
+        for (flags, want_len) in [(0u32, 41usize), (mediate::GID_FLAGS_FORMAT_BINARY, 16)] {
+            let mut v = vec![0xAAu8; mediate::GID_LEN];
+            v[mediate::GID_FLAGS_OFF..mediate::GID_FLAGS_OFF + 4]
+                .copy_from_slice(&flags.to_le_bytes());
+            // RM's answer: the host card's UUID, filling the buffer.
+            for b in v[mediate::GID_DATA_OFF..].iter_mut() {
+                *b = 0x5A;
+            }
+            let written = rewrite_gid_info(&mut v, "vm2").expect("rewritten");
+            assert!(written.starts_with("GPU-"));
+            let len = u32::from_le_bytes(
+                v[mediate::GID_LENGTH_OFF..mediate::GID_LENGTH_OFF + 4].try_into().unwrap(),
+            ) as usize;
+            assert_eq!(len, want_len);
+            let tail = &v[mediate::GID_DATA_OFF + len - usize::from(flags == 0)..];
+            assert!(tail.iter().all(|&b| b == 0), "the host's bytes are still there");
+        }
+    }
+
+    #[test]
+    fn the_identity_is_the_instance_directory() {
+        // Not the socket file, and not the whole path: the directory is
+        // what the rig calls the instance.
+        assert_eq!(name_from_socket("/mnt/vmstore/leandro/vm/desktop2/nvrm.sock"), "desktop2");
+        assert_eq!(name_from_socket("vm/vm7/nvrm.sock"), "vm7");
+        // A path with no directory at all still yields something stable.
+        assert_eq!(name_from_socket("nvrm.sock"), "nvrm.sock");
+    }
+
 }

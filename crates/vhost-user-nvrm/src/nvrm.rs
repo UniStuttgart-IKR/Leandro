@@ -1452,6 +1452,9 @@ impl VhostUserBackendMut for NvrmDevice {
 
 /// Serve as a vhost-user device on `socket` until the VMM hangs up.
 pub fn serve(socket: &str) -> anyhow::Result<()> {
+    // Which VM this process serves, taken from the socket path, for the
+    // UUID the vGPU-shaped policy hands the guest (grid.rs).
+    crate::grid::set_identity(socket);
     let backend = Arc::new(RwLock::new(NvrmDevice::new()?));
     backend.write().unwrap().register_waiter_notify();
     let mut daemon = VhostUserDaemon::new(

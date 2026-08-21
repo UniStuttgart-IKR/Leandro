@@ -319,6 +319,31 @@ pub const ENCCAP_OFF: usize =
 pub const ENCCAP_LEN: usize =
     size_of::<sys::NV2080_CTRL_GPU_GET_ENCODER_CAPACITY_PARAMS>();
 
+/// `NV2080_CTRL_CMD_GPU_GET_GID_INFO` (ctrl2080gpu.h:1749) -- the card's
+/// UUID, which is what every orchestrator keys a GPU on.
+///
+/// Measured 2026-08-21 on a running fleet of four guests: **all four
+/// answered `GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d`**, the host card's
+/// own UUID, because the control is forwarded. Four VMs that a scheduler
+/// cannot tell apart is the same class of leak as the host PID table, one
+/// namespace further out.
+pub const CMD_GPU_GET_GID_INFO: u32 = 0x2080_014a;
+
+/// `NV2080_CTRL_GPU_GET_GID_INFO_PARAMS`: `index` @0, `flags` @4,
+/// `length` @8 (out), `data[256]` @12 (out).
+pub const GID_FLAGS_OFF: usize = offset_of!(sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS, flags);
+pub const GID_LENGTH_OFF: usize = offset_of!(sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS, length);
+pub const GID_DATA_OFF: usize = offset_of!(sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS, data);
+pub const GID_DATA_MAX: usize = 256;
+pub const GID_LEN: usize = size_of::<sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS>();
+
+/// `NV2080_GPU_CMD_GPU_GET_GID_FLAGS_FORMAT_*` (ctrl2080gpu.h:1768). The
+/// format lives in bit 1, and ASCII is the ZERO value -- so this is a mask
+/// test and not a comparison against a named constant.
+pub const GID_FLAGS_FORMAT_BINARY: u32 = 0x2;
+/// `NV2080_GPU_MAX_SHA1_BINARY_GID_LENGTH` (ctrl2080gpu.h:1755).
+pub const GID_SHA1_BINARY_LEN: usize = 16;
+
 /// `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` (ctrl2080gpu.h:325).
 pub const CMD_GPU_GET_NAME_STRING: u32 = 0x2080_0110;
 
@@ -506,6 +531,21 @@ pub fn manifest() -> Vec<Mediated> {
         off: VIRTMODE_GRIDBUILD_OFF as u32, len: 1, stride: 0, count: 0,
         kind: Kind::BackendAnswered, field: "isGridBuild",
         why: "the boolean beside the mode, kept consistent with it",
+    });
+    out.push(Mediated {
+        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_GID_INFO, off: GID_DATA_OFF as u32,
+        len: GID_DATA_MAX as u32, stride: 0, count: 0,
+        kind: Kind::IdentityString, field: "data",
+        why: "this VM's own UUID under the vGPU-shaped policy. Forwarded, \
+              every guest on the card answers with the CARD's UUID and no \
+              scheduler can tell them apart",
+    });
+    out.push(Mediated {
+        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_GID_INFO, off: GID_LENGTH_OFF as u32,
+        len: 4, stride: 0, count: 0,
+        kind: Kind::BackendAnswered, field: "length",
+        why: "the length of the UUID the backend wrote, which is not \
+              necessarily the length RM would have written",
     });
     out.push(Mediated {
         nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_ENCODER_CAPACITY,
