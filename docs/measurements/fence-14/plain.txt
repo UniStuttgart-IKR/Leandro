@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT
+# plain.txt, from the run -- fence-14 policy, 2026-08-21.
+-rwxrwxr-x 1 leandro leandro 16440 Aug 21 06:15 /home/leandro/fencetime
+8.18 0.22 0.32 0.06 0.08 0.14 0.07 0.07 0.06 0.06  ms  (empty submit to fence, 10x)
+5.89 0.20 0.06 0.06 0.05 0.05 0.05 0.05 0.05 0.05  ms  (empty submit to fence, 10x)
+5.09 0.21 0.06 0.35 0.05 0.06 0.06 0.05 0.05 0.05  ms  (empty submit to fence, 10x)
+10.08 0.21 0.01 0.08 0.07 0.11 0.07 0.34 0.07 0.05  ms  (empty submit to fence, 10x)
+7.68 0.24 0.26 0.08 0.07 0.08 0.07 0.07 0.06 0.06  ms  (empty submit to fence, 10x)
+10.08 0.21 0.06 0.06 0.06 0.05 0.05 0.05 0.07 0.05  ms  (empty submit to fence, 10x)

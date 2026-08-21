@@ -127,6 +127,70 @@ but it is a consistency and not a measurement, and it is written here as one.
 it is neither `semsurf` nor the counted event registration -- and put a
 counter on it. Then the same before/after method used above says in one run
 whether the wake-up arrives late or never arrives.
+**THE PATH IS NAMED, 2026-08-22** (`docs/measurements/fence-14/`). This
+entry ended with *"naming that path is the next step: it cannot be
+instrumented until it is identified"*. It is identified, and it took no new
+instrument -- `strace -T` reports how long each syscall took, and the
+fallback is a syscall that TOOK 10 ms:
+
+    poll([{fd=23</dev/nvidia0>, events=POLLIN|POLLPRI}], 1, 10) = 0 (Timeout) <0.010172>
+
+**A 10 ms `poll(2)` on a `/dev/nvidia0` FD, in the guest, issued by NVIDIA's
+own userspace.** The third argument IS the 10.07 ms this entry has been
+chasing. When the wake-up arrives the same call returns `= 1` in tens of
+microseconds; when it does not, it returns `= 0 (Timeout)` at 10.10-10.17 ms
+and the fence wait is reported as 10.2 ms.
+
+**The correspondence is exact, in four runs:**
+
+| run | waits >= 10 ms reported by `fencetime` | 10 ms polls that timed out |
+|---|---|---|
+| 1 | 0 | 0 |
+| 2 | 0 | 0 |
+| 3 | **2** | **2** |
+| 4 | 0 | 0 |
+
+So it is neither the counted event registration nor the semaphore surface --
+both correctly excluded by counter above -- and it is not an RM internal at
+all. **It is a poll on the device FD, and OUR module answers it**
+(`nvrm_node_poll`, virtio_nvrm.c:1621): sleep on `ctx->events_wq`, return
+`EPOLLIN|EPOLLPRI` if `atomic_xchg(&ctx->events_pending, 0)` found the flag
+set, otherwise sleep until the host's `KIND_EVENT_FIRED` sets it and wakes
+the queue. A timeout means **no EVENT_FIRED arrived within 10 ms of that
+poll**.
+
+**AND THAT RECONCILES THE COUNTERS ABOVE**, which is what makes this
+credible rather than merely new. `stat_events_delivered` moving by 276-438
+per ten waits was never in conflict with a lost wake-up: the channel is busy
+and works, and what fails is one particular poll not being satisfied in
+time. Nor is an EARLY event a problem -- the flag is sticky, so an
+EVENT_FIRED that lands before the poll makes the poll return immediately.
+
+**TWO CANDIDATES, both now checkable, and the second is visible in the code
+rather than inferred:**
+
+  * the host posted no EVENT_FIRED for that completion at all; or
+  * **the wake-up was consumed by a different poll.** `events_pending` is
+    ONE flag per `nvrm_ctx`, and `atomic_xchg` CLEARS it -- deliberately,
+    for the reason the comment above it gives (NVIDIA's Vulkan never drains
+    with `0x52`, so a sticky flag would spin). With eight event FDs and
+    several threads on one context, a poll that is not the one waiting can
+    take the flag, and the waiter that needed it then sleeps its full 10 ms.
+
+**WHAT WOULD SETTLE IT is now a small counter rather than a search**: count,
+in `nvrm_node_poll`, entries / immediate returns with the flag already set /
+sleeps ended by a wake / sleeps ended by timeout; and on the host,
+EVENT_FIRED posts per token. If timeouts equal missing posts, it is the
+first; if posts outnumber the wakes that reached a waiter, it is the second.
+
+**AND ONE MORE THING THE RUNS SAY.** Without strace the slow wait is almost
+always the FIRST of the ten -- 8.18, 5.89, 5.09, 10.08, 7.68, 10.08 ms
+across six runs, with iterations 2-10 all near 0.06 ms. Under strace the
+distribution moves (its overhead changes the timing the race depends on),
+which is itself consistent with a race. A first-submit effect was not
+something this entry knew, and it narrows where to look: the first wait on a
+freshly created fence, before the channel has carried anything for it.
+
 ### 15. Concurrent CUDA processes failed on a long-running guest
 **Open, seen once on 2026-08-16, not reproduced since.** On a desktop
 guest after a long probing session, two simultaneous `nvprobe 3` runs
@@ -200,6 +264,33 @@ What is left is genuinely accumulated state of some OTHER kind, and the entry's
 own wording is the right one: "a fresh guest does not show it, which points at
 accumulated state rather than at concurrency itself". The descriptor count is
 now excluded from what that state can be.
+**NARROWED 2026-08-22, and the symptom SPLITS.** This entry reports two
+error strings from one incident -- `cuCtxCreate: out of memory` and
+`cuInit: no CUDA-capable device` -- and has treated them as one failure.
+Number 69's density runs produced both strings from causes that are now
+named, and **they are not the same cause**:
+
+| string | code | where it was reproduced | cause |
+|---|---|---|---|
+| `cuCtxCreate: out of memory` | `cuCtxCreate 2` | eight uncapped guests on one card (`vram-69/n8-off/`) | **VRAM exhaustion.** A CUDA context is ~128 MiB of device memory; two guests arrived at 322 and 344 MiB free and could not create one at all |
+| `cuInit: no CUDA-capable device` | `cuInit 100` | only ever under `LEA_VGPU_MEDIATE=mode` (`vram-69/bisect/`, `vram-69b/libcuda/`) | **never VRAM.** Every occurrence in this tree comes from the virtualization-mode answer, where libcuda asks for `NVA080` and is refused |
+
+So the first string now has a measured mechanism and the second does not --
+and searching the whole measurement tree finds `cuInit 100` in exactly three
+files, all of them mode-mediation runs. That is worth knowing before the
+next reproduction attempt: **VRAM exhaustion explains the `cuCtxCreate` half
+of this entry and cannot explain the `cuInit` half.**
+
+**AND THE INSTRUMENT NOW EXISTS.** When this entry was raised there was no
+way to see the card's free memory beside a failing guest. There is now: the
+1 Hz host sampler with per-process accounting (`vram-69/`, `vram-69b/`), and
+a backend that says `NV_ERR_NO_MEMORY` with the knob that refused. A single
+repeat of the original conditions -- desktop guest, long probing session,
+four concurrent `nvprobe 3` -- with that sampler running would say in one
+run whether the card was out of memory at the moment of the failure. That is
+a much sharper experiment than the one this entry has been waiting for, and
+it does not need the failure to be understood in advance.
+
 ### 16. Connector detect breaks after a session that really drew
 **Open, and narrowed hard on 2026-08-21: the failing call is named, the code
 that answers it is ours, and an instrument is now in place that would say so.
@@ -398,6 +489,53 @@ this entry was holding.
 
 Until then it stays capped and observed: the fd census decomposes it exactly,
 so a regression is visible.
+**ANSWERED 2026-08-22 BY READING THE PROTOCOL, and the answer is neither of
+the two this entry expected.** The step it named was *"find out whether a
+window-teardown signal already crosses the boundary"*, with the consequence
+spelled out both ways: if it does, a bookkeeping fix; if it does not, a
+choice between a new message and living with it. **It does -- and it already
+fires correctly, which makes it a third answer: nothing is missing and
+nothing is leaking.**
+
+Both retained descriptors have a release path, and both paths are wired:
+
+| what is retained | the signal | where it fires |
+|---|---|---|
+| the window mapping | `NVRM_KIND_MAP_RELEASE` (kind 7) | `winmap_release` off a `kref`, reached from `nvrm_win_vm_ops.close` -- the VMA's own teardown |
+| the handle-mirror entry | `Kind::Close` (kind 2) | `on_close` -> `self.mirror.remove(token)` |
+
+The mapping is REFERENCE-COUNTED in the guest module: `nvrm_win_vm_open`
+takes a reference on a VMA split, `close` drops one, and the release --
+which sends `MAP_RELEASE` and then `win_free`s the window space -- runs when
+the last one goes. The comment above it states the intent exactly: *"without
+them the host mapping would stay behind when the client munmaps or dies --
+and the window would fill up."*
+
+So a mapping that is still held is a mapping whose VMA is still open, and a
+mirrored handle that is still held is an FD the guest has not closed. **The
+X server has not closed them, because the X server has not exited.** That is
+not a missing signal; it is the correct answer to a question about a process
+that is still running.
+
+**And this entry's own measurement already proved the paths work**: killing
+a private `Xwayland :3` released **74 descriptors at once**. If either
+release path were broken, that number would have been zero.
+
+**WHAT THIS MEANS FOR THE ENTRY.** The title is wrong and has been since the
+2026-08-21 census: the backend does not hold thousands of descriptors
+because it leaks them, it holds them because a long-lived X server legitimately
+owns one mapping and one mirrored handle per GL client it has ever served,
+and gives all of them back when it dies. There is no bookkeeping fix to make
+and no protocol message to add. What remains is a QUESTION ABOUT THE X
+SERVER, not about this boundary: whether the vendor's GLX path could close
+its FD and unmap its window when the client goes rather than when the server
+does. That is not ours to change, and it is bounded -- 2.0 descriptors per
+GL client, released in full at session end.
+
+**The cap and the census stay** for the reason they were added: they are
+what turns "thousands of descriptors" from an alarm into a number with an
+owner, and they would catch a real leak if one ever appeared.
+
 ### 46. Sound continues while the picture hangs -- the CPU half
 **Open, and SPLIT on 2026-08-21.** The 2026-08-21 runs reproduced this
 symptom from a completely different cause, so the VRAM half is now **number
@@ -833,6 +971,15 @@ in the same order, and the day itself is still to come. What has changed is
 that step 3 -- "only then new probes, aimed by the coverage diff" -- now has a
 diff to be aimed by, and a way to score the day afterwards by re-running one
 command.
+**ONE ITEM OFF THIS ENTRY'S LIST, 2026-08-22.** It ends by noting that
+`xlate.rs`'s `RS_NONE` comment names four of the five classes the coverage
+diff found allocated-but-untabled, and that `0x9096` (GF100_ZBC_CLEAR, 35
+allocations, every one `NV_OK`) is missing "which is worth fixing when that
+file is next touched". It is fixed: the comment now names it, and says that
+the RUN is what found it rather than the header. The other four were already
+there. **The workload day itself is unchanged and still to come** -- this
+was the one piece of it that needed no rig.
+
 ### 67. A transient VRAM squeeze wedges the compositor permanently
 **Open, split out of number 46 on 2026-08-21**, which keeps the
 CPU-starvation case it was opened for. This is the other cause of the same

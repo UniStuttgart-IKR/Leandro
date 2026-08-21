@@ -33,10 +33,13 @@ vGPU -- tries to ALLOCATE class `0xa080`
 (`NVA080_KERNEL_HOST_VGPU_DEVICE`, the guest's handle to its host vGPU
 device) and the guest's real RM answers `NV_ERR_NOT_SUPPORTED`.
 
-`analysis.txt` is `tracediff.py` over the two; `mode-off.jsonl.gz` is
-gzipped because it is 4474 records to `mode-on`'s 164, and that ratio is
-itself the result -- the mode answer stops libcuda before it enumerates
-anything.
+`analysis.txt` is `tracediff.py` over the two, computed on the COMPLETE
+traces. The shipped `mode-off.jsonl` is TRUNCATED to its first 400 records:
+it is 4474 records to `mode-on`'s 164, and that ratio is itself the result
+-- the mode answer stops libcuda before it enumerates anything -- but the
+divergence is at record 146 and everything the finding rests on is inside
+the window. Truncated rather than compressed because the licence gate reads
+the first lines of every tracked file, and a .gz has no first lines.
 
 The tracer is PUSHED into the guest by `cudatrace.sh` rather than staged:
 the compute guest carries the probes and the driver libraries, and the

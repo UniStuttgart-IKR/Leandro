@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+# run.txt, from the run -- fence-14 policy, 2026-08-21.
+[00:08:43] display --keep-vm (the full gate: it stages the probes and runs the events stage)
+[00:11:25]   gate exit=0, 0
+0 PASS, 0
+0 FAIL
+[00:11:25] the gate did not leave a guest up

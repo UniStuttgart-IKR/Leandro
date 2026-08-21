@@ -772,9 +772,16 @@ pub fn alloc_class_verified(hclass: u32) -> bool {
 /// Classes with `RS_NONE` need no entry at all — their `pAllocParms` is NULL
 /// and `embedded_ptr` bails out before asking. That covers `0x73`
 /// (NV04_DISPLAY_COMMON, resource_list.h:1197), `0x90e7`
-/// (GF100_SUBDEVICE_INFOROM, :815) and the USERMODE doorbell classes of
-/// Volta/Turing/Ampere (:884, :895, :906) — but NOT the Hopper and Blackwell
-/// doorbells, which do take params; see their entry below.
+/// (GF100_SUBDEVICE_INFOROM, :815), `0x9096` (GF100_ZBC_CLEAR) and the
+/// USERMODE doorbell classes of Volta/Turing/Ampere (:884, :895, :906) —
+/// but NOT the Hopper and Blackwell doorbells, which do take params; see
+/// their entry below.
+///
+/// `0x9096` joined this list on 2026-08-22 rather than being found in the
+/// header: number 59's coverage diff reported it allocated **35 times, every
+/// one NV_OK, and named in no table entry**, which is what a class that is
+/// RS_NONE and undocumented here looks like from the outside. The list was
+/// incomplete by exactly one, and the run is what said so.
 ///
 /// WARNING: a class is listed here only if `resource_list.h` names ONE
 /// unambiguous param struct AND that struct carries no NvP64 the host does
