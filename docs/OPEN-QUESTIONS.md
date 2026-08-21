@@ -1306,6 +1306,51 @@ status fingerprint cannot see, and a statement that the two sides reached the
 call in different states. Not by itself a defect. That is weaker than the
 class first claimed and it is what the measurement supports.
 
+**PULLED ON THE EXTRA CLIENT, 2026-08-21, AND IT IS NOT ONE.** This entry's
+last line points at the handle gap — *"the guest allocates one extra client
+between the two (the handles differ by 2 rather than by 1)"*. Read out of the
+traces, `nvdec` allocates **four** `hClass=0x41` clients on each side:
+
+| | clients allocated | the two that call `GR_GET_CAPS_V2` |
+|---|---|---|
+| native | `…d7 …d8 …dc …dd` | `…dc`, `…dd` (differ by 1) |
+| guest | `…d8 …d9 …df …e1` | `…df`, `…e1` (differ by 2) |
+
+**The same number of clients, four, on both sides.** The gap is not an extra
+client of `nvdec`'s. And the handle the gap implies, `0xc1d53ae0`, **appears
+nowhere in the guest trace at all** — not as an allocation, not as an
+`hclient`, not as an `hObject`.
+
+**Which means the handle gap is not evidence, and this entry should stop
+treating it as a lead.** RM hands these out from one sequence shared by every
+client on the machine, so a gap records what ELSE was allocating at that
+moment, not what the traced process did. The native side has a gap too, and a
+bigger one — `…d8` to `…dc` skips three — which nobody proposed as three extra
+clients. On the guest side the extra consumer is most likely the guest module
+itself, which allocates on its own behalf and is invisible to an LD_PRELOAD
+tracer by construction.
+
+**And the sharper question was asked and came back identical.** The object
+graph was compared per CALLING CLIENT rather than globally — what each of the
+four clients owned at the moment it issued the call:
+
+    native  call 0  client …dc  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
+    native  call 1  client …dd  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
+    guest   call 0  client …df  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
+    guest   call 1  client …e1  owns 5: 0x80 0x2080 0x70 0xc361 0x3e
+
+Same count, same classes, same order, for the client that is answered and the
+client that is not. So the difference is not what the caller owns, and it is
+not what the process has allocated globally (already measured: 120 objects,
+identical). Two levels of the object graph have now been excluded.
+
+**What is left to look at**, and it is deliberately not another mask: the
+difference is per-client and is not in the object graph, so it is in something
+the graph does not record — the ORDER in which the four clients were created
+relative to each other and to their devices, the fd each client was opened on,
+or a property RM keeps per client that no traced call reads back. The first two
+are in the traces already. The third is not, and would need the kernel-side
+trace point (number 59's third lever) to see at all.
 ### 62. An escape the guest module rewrites is not in the descriptor table
 **Open, measured 2026-08-21.** `NV_ESC_CARD_INFO` carries the BDF and the
 gpuId in its own inline block, and the guest module rewrites both of them by
