@@ -77,6 +77,25 @@ per-frame path — 86 645 waiter lines and 35 759 ioctl status lines in one
 session — and every measurement taken before the fix included that cost.
 Test with `is_some_and(|v| !v.is_empty())`.
 
+**And it was in a second switch until 2026-08-21.** `LEA_FD_CENSUS` was read
+with `var_os(..).is_none()`, so the fd census ran on **every rig anybody ever
+brought up** — `rig.sh` passes `LEA_FD_CENSUS="${LEA_FD_CENSUS:-}"` like the
+other seven, and the census hangs off `PROC_GONE`, once per guest process
+exit, doing a `read_dir` of `/proc/self/fd` and a `read_link` per fd. Its own
+doc says the switch exists because that path "must not be free either".
+Measured in both directions before it was believed: old binary with the
+variable unset, 70 census lines on a desktop rig; new binary unset, 0; new
+binary with `LEA_FD_CENSUS=1`, 6 on the same workload — the third row is the
+one that proves the path still runs.
+
+When you find this trap, **sweep the neighbours**: of the eight `LEA_`
+variables `rig.sh` passes with that idiom, that was the only remaining one.
+The others compare against `"1"`, parse a value, or already test for
+emptiness — `LEA_OBJLOG`, the nearest neighbour in intent, always had it
+right. The lesson is not "the idiom is banned"; it is that the shell's
+`${X:-}` and the reader's `is_some()` are a matched pair of mistakes and you
+have to check the reader, one switch at a time.
+
 **Never wait on `pgrep -f`.** The pattern stands in the waiting shell's own
 command line, so the loop waits for itself. Wait on the pidfile:
 
