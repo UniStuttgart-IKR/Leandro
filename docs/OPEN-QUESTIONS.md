@@ -108,6 +108,37 @@ the original observation stood at 2003 descriptors, and this session reached
 What is still owed, and it is now specific: the same concurrency ladder on a
 session that has reached four figures of descriptors. Number 31's measured
 rate makes that arrangeable on purpose rather than by waiting — see there.
+
+**AND THE OWED TEST WAS TAKEN THE SAME DAY, AT FOUR FIGURES.** Number 31's
+measured rate (2.0 descriptors per GL client lifecycle) makes the descriptor
+count something to arrange rather than wait for. 750 `glxinfo` lifecycles
+against the compositor's Xwayland took the backend to **2010** open
+`/dev/nvidiactl` descriptors — the level of this entry's own suspected root,
+where it was first observed at 2003 — and the ladder was re-run there:
+
+| concurrent | succeeded at 2010 descriptors |
+|---|---|
+| 1 | 1/1 |
+| 2 | 2/2 |
+| 4 | 4/4 |
+| 8 | 8/8 |
+| **32** | **32/32** |
+
+No `cuCtxCreate: out of memory`, no `cuInit: no CUDA-capable device`, at any
+level.
+
+**So the shared-root hypothesis is falsified at the descriptor count that
+motivated it.** This entry says number 31 "is a strong candidate for the root"
+and number 31 says this one is a strong candidate for its consequence. At 2010
+descriptors — 30× a fresh boot's 68, and the same figure as the original
+observation — thirty-two concurrent CUDA processes all completed and verified
+their results. Whatever made two unreliable on 2026-08-16, it is not the
+descriptor count.
+
+What is left is genuinely accumulated state of some OTHER kind, and the entry's
+own wording is the right one: "a fresh guest does not show it, which points at
+accumulated state rather than at concurrency itself". The descriptor count is
+now excluded from what that state can be.
 ### 16. Connector detect breaks after a session that really drew
 **Open, bounded, workaround holds.** After a compositor that was DRM
 master exits abnormally, the next `drmModeGetConnector` probe reports the
@@ -317,6 +348,32 @@ a measurement:
 session can be driven to four figures on purpose in minutes instead of
 waited for over hours — which is exactly what number 15's remaining test
 needs.
+
+**The rate holds at scale, and it is the lever.** 750 `glxinfo` lifecycles
+against the compositor's Xwayland moved the backend from 506 to **2010**
+descriptors — **2.01 per client**, the same figure as the 10- and 20-client
+batches, with zero client failures and the GL stack healthy throughout. 300 of
+them took 46 seconds.
+
+Two things follow. The 2003 of the original observation is **reachable on
+purpose in about two minutes** rather than over 4 h 20 min, which is what made
+number 15's owed test possible the same day (it is there, and it falsified the
+shared root). And the linearity across three orders of batch size says this is
+a per-lifecycle retention with no cliff and no saturation — nothing reclaims,
+and nothing gets worse either.
+
+**And the window occupancy is the number that matters.** At 2012 descriptors
+the census reads `5 sessions hold 1065 (mirror 1060 of 6704 ever) | window
+**1015 maps** | 2097 fds, 2012 of them nvidiactl | outside every session
+1032`. So **1015 window mappings are held for clients that exited long ago**,
+one per GL client lifecycle, against the 8 GiB window — and it grew from 13 at
+boot in step with the descriptor count throughout.
+
+No `window full` was reached and none is claimed: the window is 8 GiB now and
+CS2 hit the wall at 129 mappings when it was 1 GiB. The point is the shape, not
+an imminent failure — the mappings are never reclaimed, so the headroom is
+consumed by how many GL clients a desktop has ever run rather than by how many
+are running.
 ### 32. Xwayland dies on SIGFPE inside NVIDIA's EGL core
 **Open; the faulting instruction is named, the field is not.** Twice, both
 times at the same instruction inside `libnvidia-eglcore`, Xwayland took a
@@ -338,6 +395,88 @@ propagating up through glamor. Numbers 22-C, 23, 26, 32 and 33 all pointed
 at this without naming it. Fixing the import is expected to resolve the
 rest; nothing above it needs its own fix.
 
+---
+
+**BLOCKER FILED 2026-08-21. The next measurement this entry names was taken
+and the chain did not reproduce.** Recording what was tried and at what
+intensity, because a negative at a stated intensity is worth something and
+"we tried" is not.
+
+Number 44 says what it needs: *"Naming it needs a guest kept until it poisons
+itself, with the trace already running."* That guest was kept.
+
+**The session.** A GNOME **Wayland** desktop guest, the compositor's own
+Xwayland (the instance number 44 says poisons itself, never restarted), up
+~40 minutes, `bdf_mediation=1`, `display=1`, `vdisplay=1`, Sunshine capturing
+throughout. Deliberately WITHOUT `LEA_DEBUG=2`: the previous attempt at this
+ran under it, it sits on a per-frame path, and a state-dependent defect is
+exactly the kind that debug output can move.
+
+**What was driven at it:**
+
+  * repeated concurrent `glmark2` + `vkmark` + `vkcube` on the compositor's
+    Xwayland — a Vulkan client and an OpenGL client drawing at once under the
+    compositor, which is the shape of the game-plus-overlay case, with
+    Sunshine capturing as the third leg;
+  * **750 GL client lifecycles** (`glxinfo`) against that same never-restarted
+    Xwayland, plus repeated `glxgears`;
+  * 1, 2, 4, 8 and 32 concurrent CUDA processes, twice, at two very different
+    session states.
+
+**Every detector stayed at zero:**
+
+| detector | result |
+|---|---|
+| `segfault at 8` in `dmesg` | **0** |
+| `Failed to acquire the EGL Image` in the journal | **0** |
+| `glxgears` on the compositor's Xwayland | ran to its timeout every time |
+| `glxinfo` control on the same display | worked every time |
+| `NV_ESC_ATTACH_GPUS_TO_FD` answering `-1` | 0 |
+| `BDF mediation OFF` in the guest log | 0 |
+
+**And one confounder was removed on the way.** The first version of the
+segfault detector read `dmesg` without `sudo`; the guest has
+`kernel.dmesg_restrict=1`, so it failed with EPERM and `grep -c` reported 0 —
+a counter reading zero for a reason that had nothing to do with segfaults.
+Measured: plain `dmesg` 1 line (the error), `sudo dmesg` 709. Every zero above
+is from the privileged read.
+
+**Two code-side candidates were examined and neither fired.** The poisoned
+object is built for `0xffffffff`, and `bdf_to_guest` in `virtio_nvrm.c` has two
+ways to hand out an id the guest should not have: before `bdf_host_id` is
+learned it passes host ids through untranslated, and `bdf_disabled` can switch
+mediation off permanently mid-session — a path whose own comment records it
+happening "in the middle of an X server start" and leaving nvidia-drm with a
+half-mediated view, which is the right shape for this defect. On this session
+the learning window closed at t=24.9 s, just after NVKMS attached and before
+any graphics, and the `BDF mediation OFF` warning never fired. Also checked
+and wrong: the idea that the state is per-process. `bdf_host_id` lives in
+`struct nvrm_dev`, which is per virtio device, i.e. one per guest.
+
+**A caution for the next reader, because it is load-bearing.** Number 44 reads
+`0xffffffff` at `+0x30` as `NVRM_GPU_INVALID_ID`. The healthy values at that
+offset are `0x14` and `0x13` — small integers, where a gpu id on this rig is
+`0x2d00` natively and `0x6` in this guest. So `+0x30` is more likely an INDEX
+whose "not found" is `-1` than a gpu id, and the match with
+`NVRM_GPU_INVALID_ID` may be a coincidence of value. That matters because it
+is the link the whole "something hands libGLX_nvidia a -1" reading rests on.
+
+**What this run therefore establishes:** the poisoning is not reached by GL
+client churn at 750 lifecycles, not by concurrent GL and Vulkan load under the
+compositor, not by 40 minutes, and not by driving the backend to 2010 open
+descriptors. That is a much stronger negative than the previous one (48
+lifecycles, six rounds) and it points the same way.
+
+**What the next attempt needs, and it is now a short list.** The two sessions
+that DID poison had one thing this run could not reproduce: **a real game
+under Steam, with its overlay** — a Vulkan application and an OpenGL overlay
+inside one process tree, plus Moonlight actually connected. Everything else
+about those sessions has now been driven harder than they were. So either that
+combination is the variable, or the poisoning was removed by number 45's fix
+(the signal-restart double-submit that made a one-shot escape fail spuriously),
+which landed after both poisoned sessions and has never been tested against
+them. **Those two hypotheses are now the whole of this question**, and the
+first is one session with Steam away from being decided.
 ### 42. Is `capDescriptor` on 0xc640 really an fd that needs no translation?
 **Open, and deliberately left as it is.** `NV0080_CTRL_CMD_FIFO_...` class
 0xc640 carries a `capDescriptor` in its alloc parameters, which is an fd in
