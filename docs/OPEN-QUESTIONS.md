@@ -575,36 +575,6 @@ in the same order, and the day itself is still to come. What has changed is
 that step 3 -- "only then new probes, aimed by the coverage diff" -- now has a
 diff to be aimed by, and a way to score the day afterwards by re-running one
 command.
-### 64. The NVKMS commands are recorded and none of them has a name
-**Open, split out of number 48 on 2026-08-21**, which is resolved: the node
-is traced, counted and gated, and this is the half that was never anything
-but a decoder.
-
-NVKMS carries its whole interface under a single ioctl number —
-`_IOWR('m', 0, struct NvKmsIoctlParams)` (`nvkms-ioctl.h`) — so `nr` is 0 on
-every line and the real command is a field of that 16-byte struct. The
-tracer reads it there and puts it in `sub`, with the size of the block it
-points at in `psize`. Across the matrix probes that is **451 calls in 14
-commands**, 405 of them from `vulkaninfo --summary` alone.
-
-**Nothing is named.** NVKMS command numbers are their own namespace and
-resolve against no `ctrl*.h`, so the raw number is the honest catalogue
-entry until a reader for `nvkms-api.h` exists. `matrix/catalog-<drv>.md`
-carries the count and the node and invents nothing, which is the right
-behaviour and not a workaround.
-
-**The criterion**, unchanged from 48 and from `matrix/TASKS-<drv>.md` task
-2: every row in the catalogue's NVKMS section carries a name and a params
-struct out of `nvkms-api.h`, the way an RM_CONTROL row carries one out of
-`ctrl*.h`. The one number a decoder can be checked against before it is
-trusted is already recorded — `psize`, the size of the block each command
-points at, measured per call.
-
-**Deliberately not next.** The raw numbers cost nobody anything today: the
-node is gated, the counts are honest, and no verdict anywhere rests on
-knowing what command 7 is. This is a reader to be written when something
-needs the names, not a gap that is currently misleading anyone.
-
 ## Resolved and decided
 
 ### 1. Does the descriptor table warrant a protocol change?
@@ -4002,6 +3972,117 @@ taken from the table under test.
 constant +2 on this rig. On a rig where the host has a different number of
 channels open it should differ by that count instead, and if it does the
 category is proven rather than inferred.
+### 64. The NVKMS commands are recorded and none of them has a name
+**Resolved 2026-08-21: the decoder exists, and its names are checked against a
+measurement rather than believed.** Split out of number 48 on 2026-08-21, which is resolved: the node
+is traced, counted and gated, and this is the half that was never anything
+but a decoder.
+
+NVKMS carries its whole interface under a single ioctl number —
+`_IOWR('m', 0, struct NvKmsIoctlParams)` (`nvkms-ioctl.h`) — so `nr` is 0 on
+every line and the real command is a field of that 16-byte struct. The
+tracer reads it there and puts it in `sub`, with the size of the block it
+points at in `psize`. Across the matrix probes that is **451 calls in 14
+commands**, 405 of them from `vulkaninfo --summary` alone.
+
+**Nothing is named.** NVKMS command numbers are their own namespace and
+resolve against no `ctrl*.h`, so the raw number is the honest catalogue
+entry until a reader for `nvkms-api.h` exists. `matrix/catalog-<drv>.md`
+carries the count and the node and invents nothing, which is the right
+behaviour and not a workaround.
+
+**The criterion**, unchanged from 48 and from `matrix/TASKS-<drv>.md` task
+2: every row in the catalogue's NVKMS section carries a name and a params
+struct out of `nvkms-api.h`, the way an RM_CONTROL row carries one out of
+`ctrl*.h`. The one number a decoder can be checked against before it is
+trusted is already recorded — `psize`, the size of the block each command
+points at, measured per call.
+
+**Deliberately not next.** The raw numbers cost nobody anything today: the
+node is gated, the counts are honest, and no verdict anywhere rests on
+knowing what command 7 is. This is a reader to be written when something
+needs the names, not a gap that is currently misleading anyone.
+
+---
+
+## Resolved 2026-08-21. `probe/python/nvkmsdecode.py`, and 14 of 14 agree.
+
+**The criterion is met verbatim.** It read: *"every row in the catalogue's
+NVKMS section carries a name and a params struct out of `nvkms-api.h`, the way
+an RM_CONTROL row carries one out of `ctrl*.h`."* Every modeset row in
+`matrix/catalog-610.57.04.md` now does.
+
+**AND THE CHECK THE ENTRY NAMED WAS RUN, which is the part that makes it a
+decode instead of a label.** The entry said: *"The one number a decoder can be
+checked against before it is trusted is already recorded -- `psize`, the size
+of the block each command points at, measured per call."* So each name's
+parameter struct is **compiled** out of `nvkms-api.h`, and that size is
+compared against the `psize` the tracer measured:
+
+| command | name | calls | measured | `sizeof` |
+|---|---|---:|---|---:|
+| `0x00` | `NVKMS_IOCTL_ALLOC_DEVICE` | 35 | `0x5a0` | 1440 |
+| `0x01` | `NVKMS_IOCTL_FREE_DEVICE` | 35 | `0x8` | 8 |
+| `0x02` | `NVKMS_IOCTL_QUERY_DISP` | 18 | `0xac` | 172 |
+| `0x03` | `NVKMS_IOCTL_QUERY_CONNECTOR_STATIC_DATA` | 126 | `0x2c` | 44 |
+| `0x04` | `NVKMS_IOCTL_QUERY_CONNECTOR_DYNAMIC_DATA` | 54 | `0x14` | 20 |
+| `0x05` | `NVKMS_IOCTL_QUERY_DPY_STATIC_DATA` | 36 | `0x60` | 96 |
+| `0x06` | `NVKMS_IOCTL_QUERY_DPY_DYNAMIC_DATA` | 126 | `0x9130` | 37168 |
+| `0x07` | `NVKMS_IOCTL_VALIDATE_MODE_INDEX` | 302 | `0x2e0` | 736 |
+| `0x10` | `NVKMS_IOCTL_DECLARE_DYNAMIC_DPY_INTEREST` | 72 | `0x14` | 20 |
+| `0x11` | `NVKMS_IOCTL_REGISTER_SURFACE` | 32 | `0x98` | 152 |
+| `0x12` | `NVKMS_IOCTL_UNREGISTER_SURFACE` | 32 | `0x10` | 16 |
+| `0x14` | `NVKMS_IOCTL_ACQUIRE_SURFACE` | 18 | `0xc` | 12 |
+| `0x15` | `NVKMS_IOCTL_RELEASE_SURFACE` | 18 | `0xc` | 12 |
+| `0x17` | `NVKMS_IOCTL_GET_DPY_ATTRIBUTE` | 72 | `0x18` | 24 |
+| `0x2c` | `NVKMS_IOCTL_REGISTER_DEFERRED_REQUEST_FIFO` | 8 | `0xc` | 12 |
+| `0x2d` | `NVKMS_IOCTL_UNREGISTER_DEFERRED_REQUEST_FIFO` | 8 | `0xc` | 12 |
+| `0x3c` | `NVKMS_IOCTL_ENABLE_VBLANK_SEM_CONTROL` | 24 | `0x20` | 32 |
+| `0x3d` | `NVKMS_IOCTL_DISABLE_VBLANK_SEM_CONTROL` | 24 | `0x10` | 16 |
+
+**18 commands, 1040 calls, every single one agrees.** The catalogue's own
+section reports the same for the 14 that appear in native probe traces:
+**14 of 14**. The two numbers are independent by construction -- one comes out
+of a run, the other out of a header compiled by `gcc` -- so a wrong name shows
+up as a disagreement instead of as a plausible label.
+
+**HOW THE NAMES ARE DERIVED, since "derived, never declared" is the rule this
+pipeline lives by:**
+
+  * The command NUMBER is its POSITION in `enum NvKmsIoctlCommand`. The enum
+    carries no explicit initialisers -- and that is **checked, not assumed**:
+    an entry with an `=` makes the tool stop rather than silently misnumber
+    everything after it. So a renumbering upstream moves these with it.
+  * The parameter struct comes from the header's own convention,
+    `NVKMS_IOCTL_FOO_BAR` -> `struct NvKmsFooBarParams`, and is then
+    **checked against the structs the header actually declares**. The match
+    is case-insensitive because the casing of acronyms is nobody's written
+    rule (`FrameLock`, `CRC32`, `3DVision`) while the sequence of words is.
+    That lifted 58 of 66 to 64 of 66 without hardcoding a single exception.
+  * Sizes are **compiled**, never parsed.
+
+**Two commands are still not named, and that is the correct output rather
+than a gap.** `NVKMS_IOCTL_GET_3DVISION_DONGLE_PARAM_BYTES` (0x23) and
+`NVKMS_IOCTL_SET_3DVISION_AEGIS_PARAMS` (0x24) have **no params struct
+declared anywhere in `nvkms-api.h`** -- they are legacy entries whose
+structures the header no longer carries. Nothing is invented for them; the
+catalogue row says why it has no name. **Neither is issued by any probe**, so
+they cost nothing today. If the vendor tree ever declares them, they resolve
+with no change to this code.
+
+**`matrix/TASKS-<drv>.md` now reflects this by construction.** The NVKMS task
+is emitted only for commands that are still unnamed OR whose compiled size
+disagrees with the measurement, so it disappeared from the task list on this
+tree rather than being deleted by hand -- and it will come back on its own if
+a future driver introduces a command this decoder cannot account for. The
+task's criterion was tightened to include the size check, because a name that
+fails it is a label and not a decode.
+
+**Scope, stated plainly.** This names the commands and sizes their parameter
+blocks. It does not decode the CONTENTS of those blocks, and nothing in this
+tree needs that yet -- the entry's own judgement that *"no verdict anywhere
+rests on knowing what command 7 is"* was right, and it is now `0x07`
+`NVKMS_IOCTL_VALIDATE_MODE_INDEX`, 302 calls, 736 bytes.
 ### 65. NVML allocates an SMC monitor session natively and never in a guest
 **Resolved 2026-08-21, both halves measured.**
 Split out of number 51 on 2026-08-21, which is resolved. It was

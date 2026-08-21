@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-21T11:50:56Z
-commit:  47345fb (working tree modified)
+date:    2026-08-21T14:28:33Z
+commit:  b730495 (working tree modified)
 ```
 
 Generated from the catalogue. One task per missing-command GROUP,
@@ -44,37 +44,7 @@ produces an answer that looks valid.
   gets a note saying so), or the command joins the mediation table and
   the status diff against the native trace stays 0.
 
-## Task 2: 451 ioctls on /dev/nvidia-modeset, 14 command(s), none of them named
-
-| probe | calls |
-|---|---:|
-| `vk-enum` | 405 |
-| `egl-gbm` | 6 |
-| `egl-wayland` | 6 |
-| `egl-xcb` | 6 |
-| `egl-xlib` | 6 |
-| `gl-enum` | 6 |
-| `gl-render` | 6 |
-| `gles` | 6 |
-| `vk-offscreen` | 2 |
-| `vk-rt` | 2 |
-
-The node is traced since 2026-08-20 and gated against strace like every
-other, so the count above is the tracer's own and the 14 command(s)
-behind it are catalogue rows. What is left is the second half of the work:
-
-A decoder for the NVKMS command namespace. These are NOT RM_CONTROL
-commands and resolve against no `ctrl*.h`; the enum that names them is
-`nvkms-api.h`, and nothing here reads it. Until something does, each row
-carries its raw command number, the size of the block the command points
-at, and the probes that issued it -- which is enough to price the work and
-not enough to implement it.
-
-- **Criterion:** every command in the catalogue's NVKMS section carries a
-  name and a params struct out of `nvkms-api.h`, the way an RM_CONTROL row
-  carries one out of `ctrl*.h`.
-
-## Task 3: decide 7 staging question(s)
+## Task 2: decide 7 staging question(s)
 
 | library | where it is |
 |---|---|
@@ -93,7 +63,7 @@ never gets it.
   `scripts/lib/provision.sh` with a probe that exercises it, or gets a line
   saying why it is deliberately absent. Either way the row stops being open.
 
-## Task 4: 7 library group(s) with no measurement
+## Task 3: 7 library group(s) with no measurement
 
 | probe | libraries | reason |
 |---|---|---|

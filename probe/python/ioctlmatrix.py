@@ -40,6 +40,7 @@ import sys
 import tempfile
 
 # The one reader of a trace, whatever format it is in.
+import nvkmsdecode
 import traceread
 
 # ---------------------------------------------------------------------------
@@ -960,6 +961,29 @@ UNKNOWN = "unknown -- not in public headers"
 MAP_MEMORY_NR = "0x4e"
 
 
+_NVKMS_TABLE = None
+
+
+def nvkms_table(root):
+    """The NVKMS command table, compiled once per run.
+
+    OPEN-QUESTIONS number 64. Cached because resolving it compiles a sizeof
+    probe, and there is one modeset row per command. A failure here is
+    REPORTED and then tolerated: the catalogue's other 270-odd rows do not
+    depend on NVKMS, and a vendor tree without `nvkms-api.h` should still
+    produce a catalogue -- with the raw numbers it used to carry.
+    """
+    global _NVKMS_TABLE
+    if _NVKMS_TABLE is None:
+        try:
+            _NVKMS_TABLE = nvkmsdecode.table(str(root))
+        except (SystemExit, OSError) as e:
+            print(f"  nvkms: no decoder ({e}) -- modeset rows keep their raw numbers",
+                  file=sys.stderr)
+            _NVKMS_TABLE = {}
+    return _NVKMS_TABLE
+
+
 def resolve(sigs, gov, hdr, sizes, mediated, drm, esc_mediated=None):
     """One catalogue row per signature. Every field is either read from a
     header or explicitly unknown."""
@@ -1126,17 +1150,43 @@ def resolve(sigs, gov, hdr, sizes, mediated, drm, esc_mediated=None):
                 # -- read by the tracer out of that struct, whose offsets are
                 # a compiled layout guard in nvrm-sys.
                 #
-                # The command NAMESPACE is deliberately not resolved. These
-                # are not RM_CONTROL commands, they resolve against no
-                # `ctrl*.h`, and the enum that does name them (nvkms-api.h)
-                # is a decoder this pipeline does not have. The raw number IS
-                # the honest catalogue entry until it does.
+                # The command namespace IS resolved now (number 64):
+                # `nvkmsdecode` reads `enum NvKmsIoctlCommand` out of
+                # nvkms-api.h, derives each command's parameter struct by the
+                # header's own naming convention, and COMPILES its size. The
+                # size is then checked against `psize` -- the block size the
+                # tracer measured per call -- so a wrong name is caught by a
+                # measurement rather than believed.
                 row["header"] = "kernel-open/nvidia-modeset/nvkms-ioctl.h"
                 row["params_struct"] = "NvKmsIoctlParams"
-                row["description"] = (
-                    "NVKMS, not RM: a second userspace boundary, one ioctl number for "
-                    "the whole interface, and the command in the `sub` column. The "
-                    "name needs a decoder for the NVKMS namespace (TASKS)")
+                nk = nvkms_table(hdr.root).get(sub) if sub is not None else None
+                if nk and nk["params_struct"]:
+                    row["name"] = nk["name"]
+                    row["params_struct"] = nk["params_struct"]
+                    row["params_size"] = nk["params_size"]
+                    row["header"] = "src/nvidia-modeset/interface/nvkms-api.h"
+                    row["description"] = (
+                        "NVKMS, not RM: a second userspace boundary, one ioctl number "
+                        "for the whole interface, and the command in the `sub` column")
+                    # The check number 64 named. `observed_params_size` is the
+                    # measured psize; disagreeing with the compiled size means
+                    # the name is wrong, and that is worth a note on the row
+                    # rather than a silent mapping.
+                    obs = [hexint(o) for o in row.get("observed_params_size", [])]
+                    if obs and any(o != nk["params_size"] for o in obs):
+                        row["notes"].append(
+                            f"NVKMS name unverified: measured params size "
+                            f"{row['observed_params_size']} against "
+                            f"sizeof({nk['params_struct']}) = {nk['params_size']}")
+                    elif obs:
+                        row["notes"].append(
+                            f"NVKMS name checked against the measured params size "
+                            f"({nk['params_size']} bytes)")
+                else:
+                    why = nk["unresolved"] if nk else "command not in enum NvKmsIoctlCommand"
+                    row["description"] = (
+                        "NVKMS, not RM: a second userspace boundary, one ioctl number "
+                        f"for the whole interface. Not named: {why}")
             if dev in ("drm", "render") and nr is not None:
                 n = drm.get(nr)
                 if n:
@@ -1697,9 +1747,14 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
                 "One ioctl number carries the whole interface\n"
                 "(`_IOWR('m', 0, struct NvKmsIoctlParams)`, nvkms-ioctl.h), so `nr` is\n"
                 "0 in every row and the command is the `sub` column, read out of that\n"
-                "struct. The command NAMESPACE is not decoded: these are not RM_CONTROL\n"
-                "commands, they resolve against no `ctrl*.h`, and the raw number is the\n"
-                "honest entry until a decoder for `nvkms-api.h` exists (TASKS).\n\n"
+                "struct. The command NAMESPACE is decoded (OPEN-QUESTIONS 64): these are\n"
+                "not RM_CONTROL commands and resolve against no `ctrl*.h`, so the names\n"
+                "come from `enum NvKmsIoctlCommand` in `nvkms-api.h`, which carries no\n"
+                "explicit initialisers -- a command's number IS its position, read at\n"
+                "generation time. The parameter struct follows the header's own naming\n"
+                "convention and is then checked against the structs the header actually\n"
+                "declares; a command whose struct is not declared is left unnamed rather\n"
+                "than guessed at.\n\n"
                 "| probe | ioctls on /dev/nvidia-modeset |\n|---|---:|\n")
             for pr in sorted(ms, key=lambda x: -int(x["modeset"])):
                 fh.write(f"| `{pr['probe']}` | {pr['modeset']} |\n")
@@ -1708,16 +1763,27 @@ def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpat
                 "client makes more calls to NVKMS from userspace than the entire NVML\n"
                 "path makes to RM.\n\n"
                 f"### The {len(km)} command(s) behind that count\n\n"
-                "| command (`sub`) | calls | params size | seen in |\n|---|---:|---|---|\n")
+                "| command (`sub`) | name | calls | measured | `sizeof` | seen in |\n"
+                "|---|---|---:|---|---:|---|\n")
+            agree = 0
             for r in sorted(km, key=lambda x: -x["calls"]):
-                fh.write("| `{sub}` | {calls} | {ps} | {seen} |\n".format(
-                    sub=r["sub"], calls=r["calls"],
-                    ps=", ".join(r["observed_params_size"]) or "&mdash;",
+                meas = ", ".join(r["observed_params_size"]) or "&mdash;"
+                want = r["params_size"]
+                ok = (want is not None
+                      and all(hexint(o) == want for o in r["observed_params_size"]))
+                agree += 1 if ok else 0
+                fh.write("| `{sub}` | `{name}` | {calls} | {meas} | {want} | {seen} |\n".format(
+                    sub=r["sub"], name=r["name"], calls=r["calls"], meas=meas,
+                    want=want if want is not None else "&mdash;",
                     seen=", ".join(r["seen_in"])))
             fh.write(
-                "\n`params size` is the size NVKMS was handed for the block the command\n"
-                "points at, not the size of the 16-byte indirection struct. It is the\n"
-                "one number a decoder can be checked against before it is trusted.\n")
+                "\n`measured` is the size NVKMS was handed for the block the command\n"
+                "points at, taken per call by the tracer -- not the size of the 16-byte\n"
+                "indirection struct. `sizeof` is that command's parameter struct compiled\n"
+                "out of `nvkms-api.h`. **They are independent**, which is what makes the\n"
+                "comparison worth anything: the first comes from a run, the second from a\n"
+                "header, and a wrong name shows up as a disagreement rather than as a\n"
+                f"plausible label. Here **{agree} of {len(km)}** agree.\n")
         else:
             fh.write("No probe issued an ioctl on `/dev/nvidia-modeset` in this run.\n")
 
@@ -1921,11 +1987,20 @@ def write_tasks(outdir, driver, prov, rows, probes, inv, ev, evpath):
 
         ms = [pr for pr in probes if (pr["modeset"] or "0") not in ("", "0")]
         kmds = [r for r in rows if r["device"] == "modeset"]
-        if ms:
+        # A command counts as DONE when it has a name out of nvkms-api.h AND
+        # the compiled size of its params struct matches every params size
+        # the tracer measured for it. Naming without that check would be a
+        # label; the check is what makes it a decode. OPEN-QUESTIONS 64.
+        unnamed = [r for r in kmds
+                   if not (r["name"] or "").startswith("NVKMS_IOCTL_")
+                   or r["params_size"] is None
+                   or any(hexint(o) != r["params_size"]
+                          for o in r["observed_params_size"])]
+        if ms and unnamed:
             n += 1
             total = sum(int(pr["modeset"]) for pr in ms)
             fh.write(f"## Task {n}: {total} ioctls on /dev/nvidia-modeset, "
-                     f"{len(kmds)} command(s), none of them named\n\n")
+                     f"{len(unnamed)} of {len(kmds)} command(s) still unnamed\n\n")
             fh.write("| probe | calls |\n|---|---:|\n")
             for pr in sorted(ms, key=lambda x: -int(x["modeset"])):
                 fh.write(f"| `{pr['probe']}` | {pr['modeset']} |\n")
@@ -1934,15 +2009,19 @@ def write_tasks(outdir, driver, prov, rows, probes, inv, ev, evpath):
                 f"every\nother, so the count above is the tracer's own and the "
                 f"{len(kmds)} command(s)\nbehind it are catalogue rows. What is left "
                 "is the second half of the work:\n\n"
-                "A decoder for the NVKMS command namespace. These are NOT RM_CONTROL\n"
-                "commands and resolve against no `ctrl*.h`; the enum that names them "
-                "is\n`nvkms-api.h`, and nothing here reads it. Until something does, "
-                "each row\ncarries its raw command number, the size of the block the "
-                "command points\nat, and the probes that issued it -- which is enough "
-                "to price the work and\nnot enough to implement it.\n\n"
-                "- **Criterion:** every command in the catalogue's NVKMS section "
+                "The NVKMS decoder EXISTS (`probe/python/nvkmsdecode.py`) and names "
+                "the\nrest, so what is listed here is the remainder it cannot account "
+                "for:\n\n")
+            for r in sorted(unnamed, key=lambda x: -x["calls"]):
+                why = (r["description"] or "").split("Not named: ")[-1]
+                fh.write(f"- `{r['sub']}`, {r['calls']} call(s): {why}\n")
+            fh.write(
+                "\n- **Criterion:** every command in the catalogue's NVKMS section "
                 "carries a\n  name and a params struct out of `nvkms-api.h`, the way "
-                "an RM_CONTROL row\n  carries one out of `ctrl*.h`.\n\n")
+                "an RM_CONTROL row\n  carries one out of `ctrl*.h`, AND the compiled "
+                "size of that struct equals\n  every params size the tracer measured "
+                "for the command. A name that fails\n  the second half is a label, not "
+                "a decode.\n\n")
 
         ns = inv.get("notstaged", [])
         if ns:

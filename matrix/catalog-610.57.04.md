@@ -7,8 +7,8 @@ driver:  610.57.04
 gpu:     NVIDIA GeForce RTX 2070
 arch:    Turing (compute 7.5)
 kernel:  7.1.8-arch1-3
-date:    2026-08-21T11:50:56Z
-commit:  47345fb (working tree modified)
+date:    2026-08-21T14:28:33Z
+commit:  b730495 (working tree modified)
 ```
 
 One row per signature `(device, ioctl nr, sub)`. Names, descriptions,
@@ -634,12 +634,18 @@ the two places a size is not self-describing -- they agree.
 
 | device | nr | sub | name | description | header | params | size | flags | seen in |
 |---|---|---|---|---|---|---|---:|---|---|
-| modeset | `0x0` | `0x0` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
-| modeset | `0x0` | `0x1` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
-| modeset | `0x0` | `0x11` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
-| modeset | `0x0` | `0x12` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
-| modeset | `0x0` | `0x3c` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
-| modeset | `0x0` | `0x3d` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
+| modeset | `0x0` | `0x0` | `NVKMS_IOCTL_ALLOC_DEVICE` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsAllocDeviceParams` | 1440 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *NVKMS name checked against the measured params size (1440 bytes)* | | | | | |
+| modeset | `0x0` | `0x1` | `NVKMS_IOCTL_FREE_DEVICE` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsFreeDeviceParams` | 8 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| | | | | *NVKMS name checked against the measured params size (8 bytes)* | | | | | |
+| modeset | `0x0` | `0x11` | `NVKMS_IOCTL_REGISTER_SURFACE` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsRegisterSurfaceParams` | 152 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
+| | | | | *NVKMS name checked against the measured params size (152 bytes)* | | | | | |
+| modeset | `0x0` | `0x12` | `NVKMS_IOCTL_UNREGISTER_SURFACE` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsUnregisterSurfaceParams` | 16 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
+| | | | | *NVKMS name checked against the measured params size (16 bytes)* | | | | | |
+| modeset | `0x0` | `0x3c` | `NVKMS_IOCTL_ENABLE_VBLANK_SEM_CONTROL` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsEnableVblankSemControlParams` | 32 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
+| | | | | *NVKMS name checked against the measured params size (32 bytes)* | | | | | |
+| modeset | `0x0` | `0x3d` | `NVKMS_IOCTL_DISABLE_VBLANK_SEM_CONTROL` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsDisableVblankSemControlParams` | 16 | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
+| | | | | *NVKMS name checked against the measured params size (16 bytes)* | | | | | |
 | render | `0x0` | `-` | `DRM_VERSION` | DRM, not RM: a different namespace and a different boundary (probe/run/drmtrace.sh) | `libdrm drm.h` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | render | `0x43` | `-` | `DRM_NVIDIA_GET_DEV_INFO` | DRM, not RM: a different namespace and a different boundary (probe/run/drmtrace.sh) | `kernel-open/nvidia-drm/nv_drm_common_ioctl.h` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
 | render | `0x4f` | `-` | `DRM_NVIDIA_DMABUF_SUPPORTED` | DRM, not RM: a different namespace and a different boundary (probe/run/drmtrace.sh) | `kernel-open/nvidia-drm/nv_drm_common_ioctl.h` | `&mdash;` | &mdash; | none | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
@@ -658,14 +664,22 @@ the two places a size is not self-describing -- they agree.
 | render | `0x2e` | `-` | `DRM_PRIME_FD_TO_HANDLE` | DRM, not RM: a different namespace and a different boundary (probe/run/drmtrace.sh) | `libdrm drm.h` | `&mdash;` | &mdash; | none | gles |
 | render | `0x49` | `-` | `DRM_NVIDIA_GEM_EXPORT_NVKMS_MEMORY` | DRM, not RM: a different namespace and a different boundary (probe/run/drmtrace.sh) | `kernel-open/nvidia-drm/nv_drm_common_ioctl.h` | `&mdash;` | &mdash; | none | gles |
 | render | `0x4e` | `-` | `DRM_NVIDIA_GEM_IDENTIFY_OBJECT` | DRM, not RM: a different namespace and a different boundary (probe/run/drmtrace.sh) | `kernel-open/nvidia-drm/nv_drm_common_ioctl.h` | `&mdash;` | &mdash; | none | gles |
-| modeset | `0x0` | `0x10` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | vk-enum |
-| modeset | `0x0` | `0x17` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | vk-enum |
-| modeset | `0x0` | `0x2` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | vk-enum |
-| modeset | `0x0` | `0x3` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | vk-enum |
-| modeset | `0x0` | `0x4` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | vk-enum |
-| modeset | `0x0` | `0x5` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | vk-enum |
-| modeset | `0x0` | `0x6` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | vk-enum |
-| modeset | `0x0` | `0x7` | `unknown -- not in public headers` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS) | `kernel-open/nvidia-modeset/nvkms-ioctl.h` | `NvKmsIoctlParams` | &mdash; | none | vk-enum |
+| modeset | `0x0` | `0x10` | `NVKMS_IOCTL_DECLARE_DYNAMIC_DPY_INTEREST` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsDeclareDynamicDpyInterestParams` | 20 | none | vk-enum |
+| | | | | *NVKMS name checked against the measured params size (20 bytes)* | | | | | |
+| modeset | `0x0` | `0x17` | `NVKMS_IOCTL_GET_DPY_ATTRIBUTE` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsGetDpyAttributeParams` | 24 | none | vk-enum |
+| | | | | *NVKMS name checked against the measured params size (24 bytes)* | | | | | |
+| modeset | `0x0` | `0x2` | `NVKMS_IOCTL_QUERY_DISP` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsQueryDispParams` | 172 | none | vk-enum |
+| | | | | *NVKMS name checked against the measured params size (172 bytes)* | | | | | |
+| modeset | `0x0` | `0x3` | `NVKMS_IOCTL_QUERY_CONNECTOR_STATIC_DATA` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsQueryConnectorStaticDataParams` | 44 | none | vk-enum |
+| | | | | *NVKMS name checked against the measured params size (44 bytes)* | | | | | |
+| modeset | `0x0` | `0x4` | `NVKMS_IOCTL_QUERY_CONNECTOR_DYNAMIC_DATA` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsQueryConnectorDynamicDataParams` | 20 | none | vk-enum |
+| | | | | *NVKMS name checked against the measured params size (20 bytes)* | | | | | |
+| modeset | `0x0` | `0x5` | `NVKMS_IOCTL_QUERY_DPY_STATIC_DATA` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsQueryDpyStaticDataParams` | 96 | none | vk-enum |
+| | | | | *NVKMS name checked against the measured params size (96 bytes)* | | | | | |
+| modeset | `0x0` | `0x6` | `NVKMS_IOCTL_QUERY_DPY_DYNAMIC_DATA` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsQueryDpyDynamicDataParams` | 37168 | none | vk-enum |
+| | | | | *NVKMS name checked against the measured params size (37168 bytes)* | | | | | |
+| modeset | `0x0` | `0x7` | `NVKMS_IOCTL_VALIDATE_MODE_INDEX` | NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column | `src/nvidia-modeset/interface/nvkms-api.h` | `NvKmsValidateModeIndexParams` | 736 | none | vk-enum |
+| | | | | *NVKMS name checked against the measured params size (736 bytes)* | | | | | |
 
 ## The NVKMS userspace node
 
@@ -682,9 +696,14 @@ against strace that the RM nodes do.
 One ioctl number carries the whole interface
 (`_IOWR('m', 0, struct NvKmsIoctlParams)`, nvkms-ioctl.h), so `nr` is
 0 in every row and the command is the `sub` column, read out of that
-struct. The command NAMESPACE is not decoded: these are not RM_CONTROL
-commands, they resolve against no `ctrl*.h`, and the raw number is the
-honest entry until a decoder for `nvkms-api.h` exists (TASKS).
+struct. The command NAMESPACE is decoded (OPEN-QUESTIONS 64): these are
+not RM_CONTROL commands and resolve against no `ctrl*.h`, so the names
+come from `enum NvKmsIoctlCommand` in `nvkms-api.h`, which carries no
+explicit initialisers -- a command's number IS its position, read at
+generation time. The parameter struct follows the header's own naming
+convention and is then checked against the structs the header actually
+declares; a command whose struct is not declared is left unnamed rather
+than guessed at.
 
 | probe | ioctls on /dev/nvidia-modeset |
 |---|---:|
@@ -705,26 +724,30 @@ path makes to RM.
 
 ### The 14 command(s) behind that count
 
-| command (`sub`) | calls | params size | seen in |
-|---|---:|---|---|
-| `0x7` | 151 | 0x2e0 | vk-enum |
-| `0x6` | 63 | 0x9130 | vk-enum |
-| `0x3` | 63 | 0x2c | vk-enum |
-| `0x10` | 36 | 0x14 | vk-enum |
-| `0x17` | 36 | 0x18 | vk-enum |
-| `0x4` | 27 | 0x14 | vk-enum |
-| `0x5` | 18 | 0x60 | vk-enum |
-| `0x0` | 10 | 0x5a0 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
-| `0x1` | 10 | 0x8 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
-| `0x2` | 9 | 0xac | vk-enum |
-| `0x11` | 7 | 0x98 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
-| `0x3c` | 7 | 0x20 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
-| `0x12` | 7 | 0x10 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
-| `0x3d` | 7 | 0x10 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
+| command (`sub`) | name | calls | measured | `sizeof` | seen in |
+|---|---|---:|---|---:|---|
+| `0x7` | `NVKMS_IOCTL_VALIDATE_MODE_INDEX` | 151 | 0x2e0 | 736 | vk-enum |
+| `0x6` | `NVKMS_IOCTL_QUERY_DPY_DYNAMIC_DATA` | 63 | 0x9130 | 37168 | vk-enum |
+| `0x3` | `NVKMS_IOCTL_QUERY_CONNECTOR_STATIC_DATA` | 63 | 0x2c | 44 | vk-enum |
+| `0x10` | `NVKMS_IOCTL_DECLARE_DYNAMIC_DPY_INTEREST` | 36 | 0x14 | 20 | vk-enum |
+| `0x17` | `NVKMS_IOCTL_GET_DPY_ATTRIBUTE` | 36 | 0x18 | 24 | vk-enum |
+| `0x4` | `NVKMS_IOCTL_QUERY_CONNECTOR_DYNAMIC_DATA` | 27 | 0x14 | 20 | vk-enum |
+| `0x5` | `NVKMS_IOCTL_QUERY_DPY_STATIC_DATA` | 18 | 0x60 | 96 | vk-enum |
+| `0x0` | `NVKMS_IOCTL_ALLOC_DEVICE` | 10 | 0x5a0 | 1440 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| `0x1` | `NVKMS_IOCTL_FREE_DEVICE` | 10 | 0x8 | 8 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles, vk-enum, vk-offscreen, vk-rt |
+| `0x2` | `NVKMS_IOCTL_QUERY_DISP` | 9 | 0xac | 172 | vk-enum |
+| `0x11` | `NVKMS_IOCTL_REGISTER_SURFACE` | 7 | 0x98 | 152 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
+| `0x3c` | `NVKMS_IOCTL_ENABLE_VBLANK_SEM_CONTROL` | 7 | 0x20 | 32 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
+| `0x12` | `NVKMS_IOCTL_UNREGISTER_SURFACE` | 7 | 0x10 | 16 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
+| `0x3d` | `NVKMS_IOCTL_DISABLE_VBLANK_SEM_CONTROL` | 7 | 0x10 | 16 | egl-gbm, egl-wayland, egl-xcb, egl-xlib, gl-enum, gl-render, gles |
 
-`params size` is the size NVKMS was handed for the block the command
-points at, not the size of the 16-byte indirection struct. It is the
-one number a decoder can be checked against before it is trusted.
+`measured` is the size NVKMS was handed for the block the command
+points at, taken per call by the tracer -- not the size of the 16-byte
+indirection struct. `sizeof` is that command's parameter struct compiled
+out of `nvkms-api.h`. **They are independent**, which is what makes the
+comparison worth anything: the first comes from a run, the second from a
+header, and a wrong name shows up as a disagreement rather than as a
+plausible label. Here **14 of 14** agree.
 
 ## Libraries that are not staged into the guest
 

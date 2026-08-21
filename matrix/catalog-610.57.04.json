@@ -4,8 +4,8 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-21T11:50:56Z",
-    "commit:  47345fb (working tree modified)"
+    "date:    2026-08-21T14:28:33Z",
+    "commit:  b730495 (working tree modified)"
   ],
   "provenance_fields": {
     "driver": "610.57.04",
@@ -13,9 +13,9 @@
     "arch": "Turing",
     "compute_cap": "7.5",
     "kernel": "7.1.8-arch1-3",
-    "date": "2026-08-21T11:50:56Z",
+    "date": "2026-08-21T14:28:33Z",
     "tree_modified": true,
-    "commit": "47345fb"
+    "commit": "b730495"
   },
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
@@ -12206,11 +12206,11 @@
       "nr": "0x0",
       "sub": "0x0",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_ALLOC_DEVICE",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsAllocDeviceParams",
+      "params_size": 1440,
       "observed_params_size": [
         "0x5a0"
       ],
@@ -12231,7 +12231,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (1440 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -12240,11 +12242,11 @@
       "nr": "0x0",
       "sub": "0x1",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_FREE_DEVICE",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsFreeDeviceParams",
+      "params_size": 8,
       "observed_params_size": [
         "0x8"
       ],
@@ -12265,7 +12267,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (8 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -12274,11 +12278,11 @@
       "nr": "0x0",
       "sub": "0x11",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_REGISTER_SURFACE",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsRegisterSurfaceParams",
+      "params_size": 152,
       "observed_params_size": [
         "0x98"
       ],
@@ -12296,7 +12300,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (152 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -12305,11 +12311,11 @@
       "nr": "0x0",
       "sub": "0x12",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_UNREGISTER_SURFACE",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsUnregisterSurfaceParams",
+      "params_size": 16,
       "observed_params_size": [
         "0x10"
       ],
@@ -12327,7 +12333,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (16 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -12336,11 +12344,11 @@
       "nr": "0x0",
       "sub": "0x3c",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_ENABLE_VBLANK_SEM_CONTROL",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsEnableVblankSemControlParams",
+      "params_size": 32,
       "observed_params_size": [
         "0x20"
       ],
@@ -12358,7 +12366,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (32 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -12367,11 +12377,11 @@
       "nr": "0x0",
       "sub": "0x3d",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_DISABLE_VBLANK_SEM_CONTROL",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsDisableVblankSemControlParams",
+      "params_size": 16,
       "observed_params_size": [
         "0x10"
       ],
@@ -12389,7 +12399,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (16 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -12869,11 +12881,11 @@
       "nr": "0x0",
       "sub": "0x10",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_DECLARE_DYNAMIC_DPY_INTEREST",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsDeclareDynamicDpyInterestParams",
+      "params_size": 20,
       "observed_params_size": [
         "0x14"
       ],
@@ -12885,7 +12897,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (20 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -12894,11 +12908,11 @@
       "nr": "0x0",
       "sub": "0x17",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_GET_DPY_ATTRIBUTE",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsGetDpyAttributeParams",
+      "params_size": 24,
       "observed_params_size": [
         "0x18"
       ],
@@ -12910,7 +12924,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (24 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -12919,11 +12935,11 @@
       "nr": "0x0",
       "sub": "0x2",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_QUERY_DISP",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsQueryDispParams",
+      "params_size": 172,
       "observed_params_size": [
         "0xac"
       ],
@@ -12935,7 +12951,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (172 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -12944,11 +12962,11 @@
       "nr": "0x0",
       "sub": "0x3",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_QUERY_CONNECTOR_STATIC_DATA",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsQueryConnectorStaticDataParams",
+      "params_size": 44,
       "observed_params_size": [
         "0x2c"
       ],
@@ -12960,7 +12978,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (44 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -12969,11 +12989,11 @@
       "nr": "0x0",
       "sub": "0x4",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_QUERY_CONNECTOR_DYNAMIC_DATA",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsQueryConnectorDynamicDataParams",
+      "params_size": 20,
       "observed_params_size": [
         "0x14"
       ],
@@ -12985,7 +13005,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (20 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -12994,11 +13016,11 @@
       "nr": "0x0",
       "sub": "0x5",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_QUERY_DPY_STATIC_DATA",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsQueryDpyStaticDataParams",
+      "params_size": 96,
       "observed_params_size": [
         "0x60"
       ],
@@ -13010,7 +13032,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (96 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -13019,11 +13043,11 @@
       "nr": "0x0",
       "sub": "0x6",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_QUERY_DPY_DYNAMIC_DATA",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsQueryDpyDynamicDataParams",
+      "params_size": 37168,
       "observed_params_size": [
         "0x9130"
       ],
@@ -13035,7 +13059,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (37168 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     },
@@ -13044,11 +13070,11 @@
       "nr": "0x0",
       "sub": "0x7",
       "kind": "other",
-      "name": "unknown -- not in public headers",
-      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column. The name needs a decoder for the NVKMS namespace (TASKS)",
-      "header": "kernel-open/nvidia-modeset/nvkms-ioctl.h",
-      "params_struct": "NvKmsIoctlParams",
-      "params_size": null,
+      "name": "NVKMS_IOCTL_VALIDATE_MODE_INDEX",
+      "description": "NVKMS, not RM: a second userspace boundary, one ioctl number for the whole interface, and the command in the `sub` column",
+      "header": "src/nvidia-modeset/interface/nvkms-api.h",
+      "params_struct": "NvKmsValidateModeIndexParams",
+      "params_size": 736,
       "observed_params_size": [
         "0x2e0"
       ],
@@ -13060,7 +13086,9 @@
       "flags": [
         "none"
       ],
-      "notes": [],
+      "notes": [
+        "NVKMS name checked against the measured params size (736 bytes)"
+      ],
       "status": "not-governed",
       "xlate_size": null
     }
