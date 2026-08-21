@@ -106,6 +106,17 @@ own line and kills the shell that ran it. Measured twice on 2026-08-21, once
 against a soak script and once against a sampler. Kill by the pid you
 recorded when you started the thing, never by a pattern.
 
+**Never edit a shell script while it is running.** `bash` reads a script
+incrementally and remembers its byte OFFSET, not its text, so a change to an
+earlier part of the file moves the ground under the interpreter: it resumes
+at the old offset in the new bytes, mid-token. Measured 2026-08-21 during
+the number 68 acceptance run -- a runner mid-way through a ten-minute load
+was edited to fix a later step, and it died with `line 159: unexpected EOF
+while looking for matching quote` while sitting in a `sleep`. The rig stayed
+up, the load and both guests carried on, and the run lost its remaining
+readings and its own teardown, which had to be finished by a second script.
+Copy the file, edit the copy, and start the next run from that.
+
 **`pgrep -x cloud-hypervisor` never matches, and answers 0 forever.** A
 process's `comm` is capped at 15 characters (`TASK_COMM_LEN`), so the name
 the kernel stores is `cloud-hyperviso` and an exact-match query for the
@@ -177,6 +188,7 @@ code says so at the point it constrains.
 | `max_pin_mib` | guest module | 1024 MiB | total across all pins |
 | `LEA_MAX_PIN_MIB` | host backend | 256 MiB | **one** pin |
 | `LEA_VRAM_LIMIT_MIB` | host backend | off | per VM, device memory only |
+| `LEA_VRAM_PROFILE_MIB` | host backend | off | per VM, and the number is the CARD's |
 
 The smaller limit is the host one, and its error reads like a refusal:
 `cudaHostRegister` past either returns 304 (`cudaErrorOperatingSystem`).
@@ -191,6 +203,17 @@ Under a 4096 MiB cap the books track the card to within **214 MiB**, and
 that remainder is device memory RM allocates itself behind a channel
 (context buffers, USERD — a channel's doorbell page) which never crosses
 the boundary as a request.
+
+Measured again on 2026-08-21, three ways on two 3072 MiB VMs: host charge
+minus guest-reported was `3101-2919 = 182`, `3242-3069 = 173` and, on a
+live mid-run sample, `3016-2853 = 163`. So the invisible part is **~175 MiB
+per backend and roughly CONSTANT**, not proportional — a cap of N costs the
+card about N+175, and two 3072 caps were never 6144. That number is what
+`LEA_VRAM_PROFILE_MIB`'s reservation is sized against (256 MiB by default,
+deliberately more than the measurement): under that policy the configured
+number is what the VM may cost the card, the reservation comes off it, and
+the guest is told — and refused at — what is left. The two policies are
+exclusive and the backend will not start with both.
 
 What the cap mostly does is not refuse: CS2 on an 8 GiB card takes 4.8 GB
 uncapped and 3.1 GB under a 4 GiB cap **without a single allocation being

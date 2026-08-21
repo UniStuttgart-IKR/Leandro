@@ -880,6 +880,7 @@ deliberately unlike the two above -- in name, in unit and in effect:
 | `max_pin_mib` | guest module parameter | pinned guest RAM, cumulative | 1024 MiB |
 | `LEA_MAX_PIN_MIB` | host backend env | pinned guest RAM, **one** allocation | 256 MiB |
 | `LEA_VRAM_LIMIT_MIB` | host backend env | device memory, cumulative per **VM** | 0 = off |
+| `LEA_VRAM_PROFILE_MIB` | host backend env | the same, but the number is what the VM may cost the **card** | 0 = off |
 
 The pin limits refuse with CUDA error 304. The VRAM cap refuses with an
 ordinary **out of memory** -- deliberately, because that is what a full card
@@ -897,6 +898,43 @@ allocation answered with NV_ERR_NO_MEMORY (LEA_VRAM_LIMIT_MIB)
 ```sh
 ./scripts/showcase.sh up --name b --index 1 --vram-limit 2048
 ```
+
+**Two policies, and the difference is whose number it is.**
+`LEA_VRAM_LIMIT_MIB` (`--vram-limit`) is the older one and stays the
+default: the number is the GUEST's, and the card pays it plus whatever RM
+allocates behind the channel -- channel instance memory, USERD, context
+buffers, the GSP's share, none of which ever crosses the boundary as a
+request. Measured 2026-08-21 on two 3072 MiB VMs: the card was charged
+3242 and 3101 MiB for guests reporting 3069 and 2919, so **a cap of N
+costs the card about N+175**, roughly constant rather than proportional,
+and two 3072 caps were never 6144.
+
+`LEA_VRAM_PROFILE_MIB` (`--vram-profile`) is opt-in and turns that round.
+The number is the CARD's; `LEA_VRAM_RESERVE_MIB` (256 MiB by default,
+against the ~175 measured) comes off it first, and what is left is what
+the guest is told AND what the guest may allocate:
+
+```sh
+./scripts/showcase.sh up --name b --index 1 --vram-profile 3072
+#   -> guest FB 2816 MiB, 256 MiB reserved, and the VM costs the card ~3072
+```
+
+The split is NVIDIA's: `profileSize`, `fbReservation` and `fbLength` are
+three separate fields of `VGPU_TYPE` (`common_vgpu_mgr.h:95`). Their
+reservation comes out of closed firmware, so ours is measured instead --
+which is why it is a knob and not a constant. **Nothing is allocated and
+nothing is held:** the reservation is framebuffer the guest is never told
+about and can therefore never ask for. The two are exclusive and the
+backend refuses to start with both set, because they are two policies for
+one number.
+
+**Neither policy looks at the card, and nothing looks at a sibling VM.**
+One backend serves one VM and holds no RM client of its own, so a set of
+profiles that sums past the card is accepted; `showcase.sh up` warns when
+it can see that happening and starts the VM anyway. Overprovisioning is
+allowed on purpose, admission control across tenants belongs to a
+consumer of this project, and `docs/OPEN-QUESTIONS.md` numbers 67 and 68
+are the failure mode and the mechanism.
 
 **Under a cap the guest also sees a smaller card.** That is deliberate: a
 VM capped at 2048 MiB that is told it has 8192 MiB plans against a number it

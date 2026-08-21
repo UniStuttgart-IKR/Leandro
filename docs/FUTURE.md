@@ -146,14 +146,52 @@ SHMEM patch is, and QEMU's vhost-user-device support would have to be
 checked against what the window needs.
 
 ### Make the VRAM cap a cap, or say it is not one
-Today the cap covers device memory allocations that cross the boundary as
-requests. It does not cover RM's own device memory behind a channel
-(context buffers, USERD), which is about 214 MiB under a 4 GiB cap, and it
-does not cover managed memory, which is pinned guest RAM.
+**Answered on the `vram` branch, and neither of the two ways this entry
+proposed.** The cap covers device memory allocations that cross the
+boundary as requests. It does not cover RM's own device memory behind a
+channel (context buffers, USERD), which is about 214 MiB under a 4 GiB
+cap, and it does not cover managed memory, which is pinned guest RAM.
+Accounting for the invisible half means finding a door for allocations we
+never see, and there is none: RM allocates that memory on its own side.
 
-*How:* either account for those too — which means finding a door for
-allocations we never see — or document the cap as "guest-requested device
-memory" and stop calling it a cap on the card.
+*What was done instead:* a second, opt-in policy that RESERVES rather than
+counts (`LEA_VRAM_PROFILE_MIB`, OPEN-QUESTIONS 68). The configured number
+is what the VM may cost the CARD; a reservation comes off it first
+(`LEA_VRAM_RESERVE_MIB`, 256 MiB by default against a measured ~175 MiB of
+per-backend overhead) and what is left is what the guest is told and what
+the guest may allocate. That does not make the invisible half visible — it
+makes room for it, from a measurement, up front, which is the same thing
+NVIDIA's vGPU does with `fbReservation`.
+
+*What is still open here:* managed memory is still pinned guest RAM and
+still outside both policies; and the reservation is a constant measured on
+one driver, one card and one workload, so it is a knob rather than a
+derived quantity.
+
+### Cross-tenant admission control and scheduling: not here
+**Decided, and the decision is that these belong to a CONSUMER of this
+project** (working name *MeisterStack*), not to this repository. This repo
+ships functionality; a product decides policy with it.
+
+Neither is a matter of effort:
+
+- **Admission control** needs a view of every VM on the card at once. One
+  backend serves one VM and has no path to a sibling, and giving it one
+  means a host daemon with an API and a lifetime of its own — a different
+  program, and one that would own the placement policy as well.
+  **Overprovisioning is therefore allowed here, deliberately**: nothing
+  refuses a set of profiles that sums past the card, `lea_backend_start`
+  only warns when it can see that it does. OPEN-QUESTIONS 67 is what
+  overprovisioning looks like when it goes wrong, and it is the reason the
+  warning exists at all.
+- **Scheduling** needs the runlists. vGPU's scheduler works because the
+  host driver owns them and preempts between them; this backend forwards
+  ioctls into the host's single RM context and never sees a runlist. Its
+  controls are at least reachable —
+  `NV2080_CTRL_CMD_FIFO_OBJSCHED_GET_STATE`/`SET_STATE` carry
+  `flags = 0x48 = ROUTE_TO_PHYSICAL | NON_PRIVILEGED`, so unlike numbers 19
+  and 25 they are not behind the kernel-privilege wall — but reaching a
+  control is not the same as owning what it configures.
 
 ## Longer term, and speculative
 

@@ -193,14 +193,13 @@ impl Profile {
             Policy::Reserved => Some(format!(
                 "VRAM profile {} MiB for this VM = {} MiB guest FB + {} MiB reserved \
                  for RM's own device memory (LEA_VRAM_PROFILE_MIB / \
-                 LEA_VRAM_RESERVE_MIB). The guest is told {} MiB and may allocate \
-                 {} MiB; the reservation is not allocated, it is FB the guest is \
-                 never offered. Overprovisioning is not checked here -- this \
-                 backend cannot see the card or a sibling VM.",
+                 LEA_VRAM_RESERVE_MIB). The guest is told {} MiB and is refused at \
+                 the same number; the reservation is not allocated, it is FB the \
+                 guest is never offered. Nothing here checks the card or a sibling \
+                 VM, so profiles that sum past the card are accepted.",
                 mib(self.size),
                 mib(self.fb_length),
                 mib(self.reservation),
-                mib(self.fb_length),
                 mib(self.fb_length),
             )),
         }

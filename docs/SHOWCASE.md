@@ -244,12 +244,23 @@ demonstration runs into, and there are three of them, all independent:
 | | where | default | what it bounds |
 |---|---|---|---|
 | `LEA_VRAM_LIMIT_MIB` / `--vram-limit N` | backend, per VM | **off** | VRAM this VM may hold |
+| `LEA_VRAM_PROFILE_MIB` / `--vram-profile N` | backend, per VM | **off** | what this VM may cost the CARD: `LEA_VRAM_RESERVE_MIB` (256) comes off it and the guest gets the rest |
 | `max_pin_mib` / `--max-pin-mib N` | guest module | **1024 MiB** | pinned guest memory, cumulative |
 | `LEA_MAX_PIN_MIB=N` | backend, per arena | **256 MiB** | one pinned region |
 
-The third has no flag and is set as an environment variable on `up`. It is
-also the tightest: a single pinned region above 256 MiB is refused, and the
-refusal reaches the guest as a failed mapping.
+`LEA_MAX_PIN_MIB` has no flag and is set as an environment variable on
+`up`. It is also the tightest: a single pinned region above 256 MiB is
+refused, and the refusal reaches the guest as a failed mapping.
+
+The first two are exclusive -- they are two policies for one number and the
+backend refuses to start with both -- and the difference is whose number it
+is. Under `--vram-limit N` the guest may allocate N and the card pays about
+N+175 MiB, because RM's own device memory behind a channel never crosses
+the boundary as a request (measured 2026-08-21, OPEN-QUESTIONS 68). Under
+`--vram-profile N` the card pays about N: the reservation is subtracted
+first and the guest is told, and refused at, what is left. Neither knows
+what the card has or what a sibling VM holds, so **a set of profiles may
+sum past the card**; `up` warns when it can see that and starts anyway.
 
 Measured 2026-08-20 across the VRAM axis (`vramcap.py`, `convoom.py`,
 `nvprobe`) at off / 4096 / 2048 / 1024 MiB: every cap holds, every workload

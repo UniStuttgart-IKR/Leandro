@@ -318,6 +318,18 @@ each is a known boundary of the current design.
   against the cap and refused as an ordinary out-of-memory, and the same
   number is advertised to everything in the guest — `nvidia-smi` and
   Vulkan report the capped card, its used and its free from one ledger.
+- **A second, reserving policy** (`LEA_VRAM_PROFILE_MIB` /
+  `--vram-profile N`, also opt-in) turns that number round: it is what the
+  VM may cost the **card**, a reservation comes off it first
+  (`LEA_VRAM_RESERVE_MIB`, 256 MiB) and the guest is told — and refused at
+  — what is left. The split is NVIDIA's own (`profileSize`,
+  `fbReservation`, `fbLength` in `VGPU_TYPE`), and it exists because RM
+  allocates device memory behind a channel that never crosses the boundary
+  as a request: measured ~175 MiB per backend, so a plain cap of N costs
+  the card about N+175. Nothing is checked against the card and nothing
+  can see a sibling VM, so **overprovisioning is allowed** — cross-tenant
+  admission control and scheduling belong to a consumer of this project,
+  not to it.
   Host-side deliberately: a cap inside the guest is a hint, because a
   guest that wants to overcommit can load its own module.
 
@@ -424,6 +436,7 @@ each `up` starts exactly one backend for exactly one VM.
 # are installed in the guest); afterwards it is seconds.
 ./scripts/showcase.sh up                           # vm0: index 0, IP .10, uncapped
 ./scripts/showcase.sh up --name b --index 1 --vram-limit 2048   # capped at 2 GiB
+./scripts/showcase.sh up --name c --index 2 --vram-profile 3072 # 3 GiB of card: 2816 guest + 256 reserved
 ```
 
 `nvidia-smi` is on the guest's `PATH` (the provisioning links the payload

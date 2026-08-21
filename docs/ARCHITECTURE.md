@@ -261,8 +261,19 @@ the three-point sweep that sized it at 8192 lives with the ring's code
 - No second interpreter of the ABI. There was one once (an `LD_PRELOAD`
   shim beside the module); two interpreters of the same knowledge were one
   too many, and it was removed rather than kept in sync.
-- No enforcement finer than the VM. The VRAM cap (`LEA_VRAM_LIMIT_MIB`) and
-  the guest-visible process list both exist (`vram.rs`), and both stop at
-  the VM boundary: the cap is one ledger per backend, the per-process rows
-  are reporting only, because everything below the VM is a statement of the
-  guest kernel. What the cap does not count is in [`FUTURE.md`](FUTURE.md).
+- No enforcement finer than the VM. The VRAM policies
+  (`LEA_VRAM_LIMIT_MIB`, or `LEA_VRAM_PROFILE_MIB` for the reserving one)
+  and the guest-visible process list both exist (`vram.rs`), and all of
+  them stop at the VM boundary: the ledger is one per backend, the
+  per-process rows are reporting only, because everything below the VM is a
+  statement of the guest kernel. What the cap does not count is in
+  [`FUTURE.md`](FUTURE.md).
+- **No enforcement ACROSS VMs either, and that is a decision rather than a
+  gap.** One backend serves one VM and has no path to a sibling: it cannot
+  see the card's total, its free memory or another tenant's charge, because
+  it holds no RM client of its own. So a set of profiles that sums past the
+  card is accepted -- overprovisioning is allowed, `lea_backend_start`
+  warns when it can see it happening, and OPEN-QUESTIONS 67 records what it
+  looks like when it goes wrong. Admission control and scheduling belong to
+  a consumer of this project, for the reason in [`FUTURE.md`](FUTURE.md):
+  this repository ships functionality, not a product.
