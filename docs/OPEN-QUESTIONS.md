@@ -140,16 +140,6 @@ again and that is what fails. Reloading `nvidia_drm` and `nvidia_modeset` (the d
 `lea_display_modules`) always recovers it, and has carried a full
 working day across six compositor sessions.
 
-### 17. Sunshine `capture = kms` under Wayland shows a black stream
-**Open; mostly answered, and one hypothesis withdrawn.** Sunshine
-initialises cleanly and grabs 60 frames per second, but the receiver sees
-black — once black with a live mouse pointer, meaning the cursor plane
-arrives and the main plane does not. The path demonstrably *can* carry
-content: the same chain showed a working desktop earlier the same day.
-`fbprobe` later established that the framebuffer content is there, so the
-counter hypothesis is **withdrawn**; the real blocker turned out to be the
-compositor not repainting (see 35).
-
 ### 18. Flip completions arrive in excess
 **Open, low priority.** Every compositor start produces two to five kernel
 warnings from `nv_drm_crtc_dequeue_flip` — nvidia-drm receives more flip
@@ -987,6 +977,67 @@ GPL-2.0-only for `guest-module/`, which links against the guest kernel. See
 [`LICENSES.md`](../LICENSES.md). `scripts/test.sh check` enforces the split per
 file.
 
+### 17. Sunshine `capture = kms` under Wayland shows a black stream
+**Resolved 2026-08-21.** Mostly answered when it was written, one hypothesis
+withdrawn then, and the remaining blocker closed with number 35. The original
+reasoning is kept below. Sunshine
+initialises cleanly and grabs 60 frames per second, but the receiver sees
+black — once black with a live mouse pointer, meaning the cursor plane
+arrives and the main plane does not. The path demonstrably *can* carry
+content: the same chain showed a working desktop earlier the same day.
+`fbprobe` later established that the framebuffer content is there, so the
+counter hypothesis is **withdrawn**; the real blocker turned out to be the
+compositor not repainting (see 35).
+
+---
+
+**MEASURED 2026-08-21: THE STREAM CARRIES MOVING CONTENT.** This entry ends by
+saying the real blocker "turned out to be the compositor not repainting (see
+35)". Number 35 and its whole chain are closed, and the repainting can now be
+read directly.
+
+Configuration: GNOME **Wayland**, Sunshine `capture=kms` (*"Screencasting with
+KMS"*, *"Found monitor for DRM screencasting"*, `h264_nvenc` and `hevc_nvenc`
+both found), Moonlight connected with **no 503**.
+
+`fbprobe`, which is the reader this entry already trusts, with a Wayland-native
+client (`glmark2-wayland`) drawing:
+
+    mmap  CONTENT   reads 10/10  nonzero 10/10  frame changed in 9/9 polls
+    gl    CONTENT   reads 10/10  nonzero 10/10  frame changed in 9/9 polls
+    cuda  CONTENT   reads 10/10  nonzero 10/10  frame changed in 9/9 polls
+    READER GREEN: 3 way(s) see moving, nonzero content.
+
+All three routes -- the plain mapping, the GL-interop import and the CUDA
+import -- see the scanout CHANGING, and `stat_vblank_fired` advances 180 in
+3 seconds, which is 60 Hz exactly.
+
+**The control that makes it a measurement rather than a hope:** on the same
+session with nothing drawing, the same probe reads **STATIC** -- content
+present, `frame changed in 0/9 polls` -- and says so itself: *"on an animating
+desktop that is a finding; on an idle one it is simply an idle desktop."* The
+difference between the two readings is entirely whether a client was drawing,
+which is what a working path should look like and what a black stream would
+not.
+
+**Two things that had to be fixed before this could even be attempted**, and
+they are why the entry sat so long:
+
+  * Sunshine was started without a Wayland environment, so it refused every
+    capture mode under Wayland with 503 *"Is a display connected and turned
+    on?"* -- under `portal` and under `kms` alike. Fixed the same day.
+  * The session came up as **X11** despite `--wayland` on one bring-up, with
+    `AccountsService` and `custom.conf` both correct
+    (`Session=ubuntu-wayland`, `WaylandEnable=true`). A `systemctl restart
+    gdm3` produced the Wayland session and it has behaved since. That
+    flakiness is real, is NOT this entry, and is worth its own if it recurs --
+    the symptom is `XDG_SESSION_TYPE=x11` and no `wayland-0` socket.
+
+**What is not claimed:** that a person watched the picture. By number 30's
+rule that is the only proof of presentation, and this is a pixel reader rather
+than a human. What is claimed is what the reader can support -- the scanout
+carries content, it changes when a client draws, and all three import paths
+agree about it.
 ### 20. CS2 renders but its window stays empty
 **Resolved on the native path 2026-08-17.** CS2 loads, computes and plays
 audio, and the X window is viewable and correctly sized — but GNOME's
