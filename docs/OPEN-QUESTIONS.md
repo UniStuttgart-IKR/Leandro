@@ -18,63 +18,6 @@ and thinner half of the project.
 
 ## Open
 
-### 9. NVKMS wedges after a killed X server plus a module reload
-**Open, half fixed 2026-08-16.** After hours of X and Steam, killing the
-rig's X server left the next one unable to start. The backend half is
-fixed and measured — a probe mmap closes the brick cycle. Two things are
-still owed: a change in cloud-hypervisor
-(`virtio-devices/src/vhost_user/mod.rs:406-419`) so a failed `shmem_map`
-does not kill the worker, and a taxonomy of which 512 KiB mapping Steam's
-probe is attempting.
-
-**The cloud-hypervisor half is done and MEASURED, 2026-08-21.**
-`patches/0003-generic-vhost-user-refused-request.patch`.
-
-*The mechanism, read out of the code.* `FrontendReqHandler::handle_request()`
-(vhost 0.16) maps a handler failure to `Error::ReqHandlerError` and then --
-before returning it -- calls `self.send_ack_message(&hdr, &res)?`. So the
-backend has ALREADY been told its request failed, over the protocol, and the
-two ends are still in step. cloud-hypervisor's `handle_event` then treated
-that error like a dead socket: it set `disconnected` and returned
-`EpollHelperError::HandleEvent`, which terminates the epoll worker. One
-refused mapping, and the device is deaf for the life of the VM.
-
-*The A/B.* `LEA_TEST_SHMEM_MAP_OOB` (a one-shot test hook in the backend, see
-`on_map_prepare`) makes the FIRST `MapPrepare` ask the VMM to map one window
-past the end. The VMM bounds-checks it -- patch 0001 does that -- and refuses.
-Same knob, same probe, only the binary differs:
-
-| | probe 1 (sabotaged mapping) | probe 2 (legitimate) |
-|---|---|---|
-| CH without 0003 | fails | **fails** |
-| CH with 0003 | fails | **`stage 0/1/2 ok`, rc=0** |
-
-and the backend log is the clearer half. Without the patch:
-
-    SHMEM_MAP: Frontend internal error          <- the one refusal, correct
-    SHMEM_MAP: socket is broken: Broken pipe    <- the NEXT, legitimate map
-
-With it, the refusal is followed by ordinary operation resuming
-(`pool @0x204a00000 ... attached to GPU VA`). One refused mapping costs one
-mapping now, and not the device.
-
-*Why the hook exists at all:* the backend's own bounds check means a
-well-formed request never asks the VMM for something outside the window, so
-the branch where the VMM says no is unreachable in ordinary running. That is
-also why this defect survived so long -- and why the probe mmap fix above,
-which stopped the backend asking for the impossible, was enough to close the
-brick cycle without the VMM ever being corrected.
-
-*Honest scope.* This is defence in depth rather than the cause of the
-original wedge: with the backend half fixed, the guest no longer walks into
-the refusal by itself. What the patch removes is the class -- any refusal
-from the VMM, for any reason, taking the whole device with it. The window
-filling up is the reachable case that is not a bug in anybody's code, and
-number 31 measures 1015 window mappings held for dead clients, so it is not
-hypothetical.
-
-**Still owed, and it is the whole of what is left here:** the taxonomy of
-which 512 KiB mapping Steam's probe is attempting.
 ### 14. Fence waits sometimes fall back to the polling timer
 **Open, rarer since an unrelated fix.** A woken guest answers a fence in
 tenths of a millisecond. A polling guest answers in exactly 10.07 ms,
@@ -893,6 +836,111 @@ measurement that day was taken after the SHMEM channel had died. FBConfig
 0, "no available drivers", llvmpipe compositing and the laggy desktop are
 one bug.
 
+### 9. NVKMS wedges after a killed X server plus a module reload
+**Resolved 2026-08-21.** Both owed things are done: the cloud-hypervisor
+change is made and measured, and the 512 KiB mapping has a taxonomy. The
+original reasoning is kept below. After hours of X and Steam, killing the
+rig's X server left the next one unable to start. The backend half is
+fixed and measured — a probe mmap closes the brick cycle. Two things are
+still owed: a change in cloud-hypervisor
+(`virtio-devices/src/vhost_user/mod.rs:406-419`) so a failed `shmem_map`
+does not kill the worker, and a taxonomy of which 512 KiB mapping Steam's
+probe is attempting.
+
+**The cloud-hypervisor half is done and MEASURED, 2026-08-21.**
+`patches/0003-generic-vhost-user-refused-request.patch`.
+
+*The mechanism, read out of the code.* `FrontendReqHandler::handle_request()`
+(vhost 0.16) maps a handler failure to `Error::ReqHandlerError` and then --
+before returning it -- calls `self.send_ack_message(&hdr, &res)?`. So the
+backend has ALREADY been told its request failed, over the protocol, and the
+two ends are still in step. cloud-hypervisor's `handle_event` then treated
+that error like a dead socket: it set `disconnected` and returned
+`EpollHelperError::HandleEvent`, which terminates the epoll worker. One
+refused mapping, and the device is deaf for the life of the VM.
+
+*The A/B.* `LEA_TEST_SHMEM_MAP_OOB` (a one-shot test hook in the backend, see
+`on_map_prepare`) makes the FIRST `MapPrepare` ask the VMM to map one window
+past the end. The VMM bounds-checks it -- patch 0001 does that -- and refuses.
+Same knob, same probe, only the binary differs:
+
+| | probe 1 (sabotaged mapping) | probe 2 (legitimate) |
+|---|---|---|
+| CH without 0003 | fails | **fails** |
+| CH with 0003 | fails | **`stage 0/1/2 ok`, rc=0** |
+
+and the backend log is the clearer half. Without the patch:
+
+    SHMEM_MAP: Frontend internal error          <- the one refusal, correct
+    SHMEM_MAP: socket is broken: Broken pipe    <- the NEXT, legitimate map
+
+With it, the refusal is followed by ordinary operation resuming
+(`pool @0x204a00000 ... attached to GPU VA`). One refused mapping costs one
+mapping now, and not the device.
+
+*Why the hook exists at all:* the backend's own bounds check means a
+well-formed request never asks the VMM for something outside the window, so
+the branch where the VMM says no is unreachable in ordinary running. That is
+also why this defect survived so long -- and why the probe mmap fix above,
+which stopped the backend asking for the impossible, was enough to close the
+brick cycle without the VMM ever being corrected.
+
+*Honest scope.* This is defence in depth rather than the cause of the
+original wedge: with the backend half fixed, the guest no longer walks into
+the refusal by itself. What the patch removes is the class -- any refusal
+from the VMM, for any reason, taking the whole device with it. The window
+filling up is the reachable case that is not a bug in anybody's code, and
+number 31 measures 1015 window mappings held for dead clients, so it is not
+hypothetical.
+
+**Still owed, and it is the whole of what is left here:** the taxonomy of
+which 512 KiB mapping Steam's probe is attempting.
+
+---
+
+**THE TAXONOMY, MEASURED 2026-08-21 -- AND THERE ARE EXACTLY TWO KINDS.**
+
+*First from the matrix probes*, which give the population without Steam in
+it. Across all 41 native traces there are **38** mappings of 512 KiB
+(`length=0x80000`), and they occur in **exactly the ten graphics probes** --
+`egl-gbm`, `egl-wayland`, `egl-xcb`, `egl-xlib`, `gl-enum`, `gl-render`,
+`gles`, `vk-enum`, `vk-offscreen`, `vk-rt` -- and in **no CUDA, NVML, OpenCL,
+NVDEC or NVENC probe at all**. Every one is an `NV_ESC_RM_MAP_MEMORY` on a
+**subdevice** (`hClass 0x2080`), and the `hMemory` is a small caller-chosen
+aperture selector rather than an allocated object. Decoding `NVOS33` flags
+against `nvos.h` gives two shapes and no others:
+
+| flags | decoded | count |
+|---|---|---|
+| `0x1010000` | `MAPPING=REFLECTED, CACHING_TYPE=WRITECOMBINED` | 10 -- exactly one per probe |
+| `0x3008000` | `MAPPING=DIRECT, CACHING_TYPE=DEFAULT` | 28 |
+
+*Then from Steam itself*, traced under `libnvrm_trace.so` in a guest desktop
+session (20 332 records). Steam makes **17** of them, and they are the same
+two kinds and nothing new:
+
+    MAPPING=REFLECTED, CACHING_TYPE=WRITECOMBINED     4   (hMemory 0x3, 0x4)
+    MAPPING=DIRECT,    CACHING_TYPE=DEFAULT          13   (hMemory 0x10 0x11 0x1c
+                                                            0x1d 0x1e 0x25 0x27
+                                                            0x40 0x43 0x46 0xe)
+
+**All seventeen answer `NV_OK`** on a healthy rig. So the mapping Steam's
+probe attempts is not a third thing, and it is not exotic: it is the graphics
+stack's subdevice aperture mapping, which every GL, EGL and Vulkan client on
+this rig makes and no compute client makes at all.
+
+**Which of the two matters for a wedge is now answerable rather than open.**
+The `REFLECTED` one is the interesting kind -- a reflected mapping is the
+register aperture reached through the CPU, write-combined, and exactly one is
+taken per client. That is the one whose failure would look like a display
+subsystem that has stopped answering, which is the shape this entry started
+from. The `DIRECT` ones are ordinary and there are many.
+
+**With the backend half fixed** (the probe mmap that closes the brick cycle)
+**and the VMM half fixed** (`patches/0003`, so a refused mapping costs one
+mapping and not the device), a 512 KiB refusal now fails as one mapping with
+the kind named in the backend log. That is what this entry wanted the
+taxonomy for.
 ### 10. Black windows under the compositor, then an assert
 **Resolved 2026-08-15.** The cause was the missing event back-channel: the
 guest could not be told a fence had signalled, so every wait fell back to
