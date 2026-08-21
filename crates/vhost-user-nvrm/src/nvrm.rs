@@ -740,7 +740,7 @@ impl NvrmDevice {
         // LEA_OBJLOG, three lines of code away in session.rs, has always had
         // the correct test. This was one missed site and not a pattern -- the
         // other six switches compare against a value or parse one.
-        if !std::env::var_os("LEA_FD_CENSUS").is_some_and(|v| !v.is_empty()) {
+        if std::env::var_os("LEA_FD_CENSUS").is_none_or(|v| v.is_empty()) {
             return;
         }
         let mut t = [0usize; 7];
