@@ -1117,7 +1117,9 @@ combined charge stayed inside the sum of the profiles (5674 of 6144) where the
 old policy did not (6186); the card's free memory never approached the floor
 (1108 MiB against 1); the freeze detector never fired (23-29 distinct values per
 30 s against 3-6 when frozen); `fbprobe` read moving content in both guests
-under load; and `test.sh check` is 15 PASS (counted, not glanced at).
+under load; and the gates are green -- `test.sh check` 15 PASS (counted,
+not glanced at), `test.sh gpu` pass over its eight stages with the guest
+bitstream against the native one, `test.sh vdisplay` pass over its six.
 What is left of the mechanism is in `docs/FUTURE.md`, and the failure mode
 this was raised out of is number 67, which this run narrows rather than
 closes.
