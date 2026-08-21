@@ -572,78 +572,6 @@ are IDENTICAL on the two architectures (`0xad009afd`,
 first cross-architecture evidence says the surface did not move — which is a
 prediction the per-ioctl index would be able to check properly, and cannot
 yet.
-### 58. NVIDIA's xcb EGL platform declines in a guest, and its xlib platform does not
-**Open, measured 2026-08-20.** Split out of number 53, whose hypothesis for
-this half — a missing registration, "the same shape one platform further
-on" — is FALSIFIED.
-
-`eglplat xcb` in the guest resolves to vendor `Mesa Project`; natively it
-resolves to `NVIDIA`. Read out of the guest run's own strace, every step of
-the registration chain is intact: `/usr/share/glvnd/egl_vendor.d/10_nvidia.
-json` is read, `/usr/share/egl/egl_external_platform.d/20_nvidia_xcb.json`
-is read, and `libnvidia-egl-xcb.so.1` is `dlopen`ed and returns a
-descriptor. The vendor library is found, loaded, and declines.
-
-What makes it sharp is the neighbour: `eglplat xlib` in the SAME guest, in
-the same sweep, against the same X server, resolves to `NVIDIA` and reads
-its pixel back correctly (`3377bbff`). Two external-platform libraries over
-one X connection, and only one of them accepts. So this is not "EGL is
-broken in a guest" and not a staging question; it is one platform module's
-own acceptance test.
-
-The environment difference is known and is the obvious suspect: the guest's
-X server runs on the virtio-gpu (Mesa's own diagnostic in the same trace
-reads `pci id for fd 6: 1af4:107c`), while the host's runs on the NVIDIA
-card. Unverified, and the counter-test is cheap and does not need a guest:
-run `eglplat xcb` and `eglplat xlib` on the HOST against an X server that
-is NOT on the NVIDIA card. If xcb answers Mesa there too, this is a
-property of `libnvidia-egl-xcb` and the X server's device, the boundary is
-not involved, and the honest row for `egl-xcb` in a guest is an environment
-row like `cuda-managed`. If xcb answers NVIDIA there, the boundary IS
-involved and this becomes a real finding about what the guest answers to
-whatever that library probes.
-
-No probe failed for it in a way that hides anything: `egl-xcb` is FAIL in
-the guest column with its reason on the row.
-
-**THE HOST ARM OF THE COUNTER-TEST IS IN, 2026-08-21.** This entry proposes
-running `eglplat xcb` and `eglplat xlib` on the HOST. Both were run, against
-the host's X on `:0`, which IS on the NVIDIA card:
-
-    xcb    EGLVENDOR=NVIDIA  GLRENDERER=NVIDIA GeForce RTX 2070/PCIe/SSE2  PIXEL=3377bbff
-    xlib   EGLVENDOR=NVIDIA  GLRENDERER=NVIDIA GeForce RTX 2070/PCIe/SSE2  PIXEL=3377bbff
-
-So the table is now:
-
-| | host X, NVIDIA-backed | guest X, virtio-gpu-backed |
-|---|---|---|
-| `eglplat xcb` | **NVIDIA**, pixel correct | **Mesa Project** |
-| `eglplat xlib` | **NVIDIA**, pixel correct | **NVIDIA**, pixel correct |
-
-**What that settles:** `libnvidia-egl-xcb` is not broken in general, and it is
-not broken by this driver or this card. It accepts an X server that is on the
-NVIDIA device and reads its pixel back correctly. So the guest result is about
-the guest's X server, not about the xcb platform module being unusable.
-
-**What it does NOT settle**, and this is the arm still missing: whether xcb
-would ALSO decline on a non-NVIDIA X server on the HOST -- which is the
-version of the test that would take the boundary out of the question
-entirely. This host cannot run it as it stands: `/dev/dri` has exactly one
-card and it is the NVIDIA one, so there is no second device to put an X
-server on, and no `Xvfb` or `Xephyr` installed to make a software one.
-
-**So the cheapest remaining step is one package**, `Xvfb`, and then
-`eglplat xcb` against `Xvfb :9`. If it answers Mesa there, this is a property
-of the platform module and the X server's device, the boundary is not
-involved, and `egl-xcb`'s guest FAIL becomes an environment row like
-`cuda-managed`. If it answers NVIDIA there, the guest's virtio-gpu X is the
-variable and the question is what that server answers to whatever the module
-probes.
-
-**And the asymmetry stays the sharp part**: xlib and xcb are two
-external-platform modules over ONE X connection, and only one of them
-declines. Whatever xcb tests for, xlib does not test for -- so the difference
-is in the module, whatever ultimately triggers it.
 ### 59. The probes are entry paths, and the class that can be missing is the one they do not reach
 **Raised 2026-08-20**, out of a design conversation rather than a run, and
 recorded because it is the direction with the largest measurable target in
@@ -3174,6 +3102,126 @@ whose staging is a person's call -- writing it would point the loader at
 something absent, which is number 53's failure mode in the other direction.
 Both halves therefore stay out for stated reasons, which is what this entry
 asked for.
+### 58. NVIDIA's xcb EGL platform declines in a guest, and its xlib platform does not
+**Resolved 2026-08-21 by the counter-test this entry specified.** The
+boundary is not involved. The original reasoning is kept below. Split out of number 53, whose hypothesis for
+this half — a missing registration, "the same shape one platform further
+on" — is FALSIFIED.
+
+`eglplat xcb` in the guest resolves to vendor `Mesa Project`; natively it
+resolves to `NVIDIA`. Read out of the guest run's own strace, every step of
+the registration chain is intact: `/usr/share/glvnd/egl_vendor.d/10_nvidia.
+json` is read, `/usr/share/egl/egl_external_platform.d/20_nvidia_xcb.json`
+is read, and `libnvidia-egl-xcb.so.1` is `dlopen`ed and returns a
+descriptor. The vendor library is found, loaded, and declines.
+
+What makes it sharp is the neighbour: `eglplat xlib` in the SAME guest, in
+the same sweep, against the same X server, resolves to `NVIDIA` and reads
+its pixel back correctly (`3377bbff`). Two external-platform libraries over
+one X connection, and only one of them accepts. So this is not "EGL is
+broken in a guest" and not a staging question; it is one platform module's
+own acceptance test.
+
+The environment difference is known and is the obvious suspect: the guest's
+X server runs on the virtio-gpu (Mesa's own diagnostic in the same trace
+reads `pci id for fd 6: 1af4:107c`), while the host's runs on the NVIDIA
+card. Unverified, and the counter-test is cheap and does not need a guest:
+run `eglplat xcb` and `eglplat xlib` on the HOST against an X server that
+is NOT on the NVIDIA card. If xcb answers Mesa there too, this is a
+property of `libnvidia-egl-xcb` and the X server's device, the boundary is
+not involved, and the honest row for `egl-xcb` in a guest is an environment
+row like `cuda-managed`. If xcb answers NVIDIA there, the boundary IS
+involved and this becomes a real finding about what the guest answers to
+whatever that library probes.
+
+No probe failed for it in a way that hides anything: `egl-xcb` is FAIL in
+the guest column with its reason on the row.
+
+**THE HOST ARM OF THE COUNTER-TEST IS IN, 2026-08-21.** This entry proposes
+running `eglplat xcb` and `eglplat xlib` on the HOST. Both were run, against
+the host's X on `:0`, which IS on the NVIDIA card:
+
+    xcb    EGLVENDOR=NVIDIA  GLRENDERER=NVIDIA GeForce RTX 2070/PCIe/SSE2  PIXEL=3377bbff
+    xlib   EGLVENDOR=NVIDIA  GLRENDERER=NVIDIA GeForce RTX 2070/PCIe/SSE2  PIXEL=3377bbff
+
+So the table is now:
+
+| | host X, NVIDIA-backed | guest X, virtio-gpu-backed |
+|---|---|---|
+| `eglplat xcb` | **NVIDIA**, pixel correct | **Mesa Project** |
+| `eglplat xlib` | **NVIDIA**, pixel correct | **NVIDIA**, pixel correct |
+
+**What that settles:** `libnvidia-egl-xcb` is not broken in general, and it is
+not broken by this driver or this card. It accepts an X server that is on the
+NVIDIA device and reads its pixel back correctly. So the guest result is about
+the guest's X server, not about the xcb platform module being unusable.
+
+**What it does NOT settle**, and this is the arm still missing: whether xcb
+would ALSO decline on a non-NVIDIA X server on the HOST -- which is the
+version of the test that would take the boundary out of the question
+entirely. This host cannot run it as it stands: `/dev/dri` has exactly one
+card and it is the NVIDIA one, so there is no second device to put an X
+server on, and no `Xvfb` or `Xephyr` installed to make a software one.
+
+**So the cheapest remaining step is one package**, `Xvfb`, and then
+`eglplat xcb` against `Xvfb :9`. If it answers Mesa there, this is a property
+of the platform module and the X server's device, the boundary is not
+involved, and `egl-xcb`'s guest FAIL becomes an environment row like
+`cuda-managed`. If it answers NVIDIA there, the guest's virtio-gpu X is the
+variable and the question is what that server answers to whatever the module
+probes.
+
+**And the asymmetry stays the sharp part**: xlib and xcb are two
+external-platform modules over ONE X connection, and only one of them
+declines. Whatever xcb tests for, xlib does not test for -- so the difference
+is in the module, whatever ultimately triggers it.
+
+---
+
+**THE COUNTER-TEST WAS RUN, 2026-08-21, AND IT ANSWERS BY THIS ENTRY'S OWN
+CRITERION.** Its words: *"run `eglplat xcb` and `eglplat xlib` on the HOST
+against an X server that is NOT on the NVIDIA card. If xcb answers Mesa there
+too, this is a property of `libnvidia-egl-xcb` and the X server's device, the
+boundary is not involved, and the honest row for `egl-xcb` in a guest is an
+environment row like `cuda-managed`."*
+
+`Xvfb :9` (a software X server with no DRM device at all), on the host:
+
+    xcb    EGLVENDOR=Mesa Project     "platform xcb resolved to vendor 'Mesa Project', not NVIDIA"
+    xlib   EGLVENDOR=Mesa Project     "platform xlib resolved to vendor 'Mesa Project', not NVIDIA"
+
+xcb answers Mesa there. **So the boundary is not involved**, and `egl-xcb`'s
+guest FAIL is an environment row.
+
+**The full table, three X servers, all measured:**
+
+| X server | its DRM device | `eglplat xcb` | `eglplat xlib` |
+|---|---|---|---|
+| host `:0` | **nvidia** | NVIDIA, pixel `3377bbff` | NVIDIA, pixel `3377bbff` |
+| guest | **virtio-gpu** | **Mesa** | **NVIDIA**, pixel `3377bbff` |
+| `Xvfb :9` | **none** (DRI3 error) | Mesa | Mesa |
+
+**And the third row corrects something this entry assumed.** It expected the
+counter-test to isolate xcb; instead, with NO DRM device *both* platforms fall
+back to Mesa. So the rule is not "xcb is fussy and xlib is not" -- it is:
+
+  * an X server on the NVIDIA device: both accept;
+  * an X server on no device: both decline;
+  * an X server on a FOREIGN device (the guest's virtio-gpu): they
+    **disagree**, and that disagreement is the whole of this entry.
+
+So what is special about the guest is not that NVIDIA's EGL cannot be reached
+-- xlib reaches it over the same connection and reads its pixel back correctly
+-- but that xcb's acceptance test consults the X server's DRM device where
+xlib's does not. That is a property of `libnvidia-egl-xcb`, on a machine where
+the X server is on somebody else's card, and this project's boundary carries no
+part of it.
+
+**Consequence for the sweep, which is the practical half:** `egl-xcb` FAILing
+in the guest column is an ENVIRONMENT row, like `cuda-managed`, and not a
+boundary finding. It stays reported -- an environment row with a reason is the
+right output -- and it should not be read as evidence about what the boundary
+carries.
 ### 60. One answer survived every mask, and it was memory nobody wrote
 **Resolved 2026-08-21, and it is not a defect.** The entry below predicted
 its own test: *"if it is zero on entry on both sides and non-zero on return
