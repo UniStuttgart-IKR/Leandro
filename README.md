@@ -34,12 +34,50 @@ keeps. No passthrough, no vGPU licence, no host kernel patch.
 > thesis is done.
 
 > [!CAUTION]
-> **Only ever run on one GPU architecture: Turing.** The class tables cover
-> Fermi through Blackwell, derived mechanically from the driver's own
-> `resource_list.h`, but only a Turing card (RTX 2070) has been exercised on
-> real silicon. Everything else is marked unverified in the descriptor table
-> and the host logs a line the first time a guest touches such a class. A run
-> on any other architecture is an experiment — please report how it goes.
+> **Exercised on two GPU architectures: Turing and Blackwell.** The class
+> tables cover Fermi through Blackwell, derived mechanically from the
+> driver's own `resource_list.h`, but only those two have been run on real
+> silicon — see the matrix below. Classes no run has touched stay marked
+> unverified in the descriptor table, and the host logs a line the first time
+> a guest touches one. A run on any other architecture is an experiment —
+> please report how it goes.
+
+## Gate verification
+
+One row per **(architecture, driver)**, because that is the pair a result is
+about: a class table is generated per driver and exercised per card, and
+neither half generalises on its own (`docs/OPEN-QUESTIONS.md` number 56).
+Every cell is a gate that was run, not an expectation.
+
+| architecture | cap | card | driver | `check` | `gpu` | `vdisplay` | `display` |
+|---|---|---|---|---|---|---|---|
+| **Turing** | 7.5 | RTX 2070 | 610.57.04 | ✅ 15/15 | ✅ 8/8 | ✅ 6/6 | ✅ 12/12 <sup>a</sup> |
+| Ampere | 8.6 | — | — | — | — | — | — |
+| Ada | 8.9 | — | — | — | — | — | — |
+| Hopper | 9.0 | — | — | — | — | — | — |
+| **Blackwell** | 12.0 | RTX 5060 Ti | 610.57.04 | ✅ | ✅ 8/8 | ✅ 6/6 | — <sup>b</sup> |
+
+✅ passed · ❌ failed · — not run. <sup>a</sup> recorded 2026-08-20, not
+re-run since. <sup>b</sup> not attempted yet.
+
+`check` needs no GPU and runs anywhere; `gpu` needs a card; `vdisplay` needs
+a card and builds NVKMS in the guest; `display` needs a card and a guest
+desktop. What each one proves is in [`docs/llm.md`](docs/llm.md) section 2.
+
+**What the two rows agree on**, which is the part worth reading — measured
+independently on both cards, 2026-08-21:
+
+| | Turing | Blackwell |
+|---|---|---|
+| descriptor table checksum | `0xad009afd` | `0xad009afd` |
+| virtual-display frame hash | `0xb6a79817d7f4a5c3` | `0xb6a79817d7f4a5c3` |
+| PyTorch `convburn` accuracy | bit-identical to native | bit-identical to native |
+| NVENC bitstream | — | 47 501 B, byte-identical to native |
+
+Nothing architecture-specific had to be added for the second row. The three
+failures the first Blackwell run did produce were a stale constant in this
+repository, a deprecated `nvidia-persistenced` on the host, and a missing
+host-side reference venv — none of them a property of the card.
 
 ## What this is, without assuming anything
 

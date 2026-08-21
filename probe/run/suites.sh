@@ -36,11 +36,11 @@ usage() {
     exit "${1:-0}"
 }
 
-IP=$(lea_ip 0); ONLY=""; LIST=0; KEEP=0; DEPS=0
+IP=$(lea_ip 0); ONLY=""; LIST=0; KEEP=0; DEPS=0; NAME=vm0
 while [[ $# -gt 0 ]]; do
     case $1 in
         --ip)   IP=$2; shift 2 ;;
-        --name) lea_inst "$2"; IP=$INST_IP; shift 2 ;;
+        --name) lea_inst "$2"; IP=$INST_IP; NAME=$2; shift 2 ;;
         --only) ONLY=$2; shift 2 ;;
         --list) LIST=1; shift ;;
         --keep) KEEP=1; shift ;;
@@ -104,7 +104,12 @@ fi
 #
 # The expectation is therefore read from the guest (below, once it is known
 # to be reachable) rather than written down here.
-PIN_NEEDED=2048          # ~2 GiB of buffers plus headroom
+PIN_NEEDED=2048          # ~2 GiB of buffers plus headroom (guest, CUMULATIVE)
+# One buffer: 8192x8192 fp32 = EXACTLY 256 MiB, and the host cap is compared
+# STRICTLY. Measured 2026-08-21: LEA_MAX_PIN_MIB=256 against a 256 MiB buffer
+# is REFUSED (cudaErrorOperatingSystem, the 304 this file documents), and 512
+# passes. A cap equal to the allocation is not a cap that admits it.
+PIN_BUF=256              # one buffer (host, PER ALLOCATION -- LEA_MAX_PIN_MIB)
 PIN_EXPECT="xfail"       # assume the cap until the guest says otherwise
 PIN_NOTE="max_pin_mib below $PIN_NEEDED -- pinned memory hits the cap, error 304"
 PIN_WHY="max_pin_mib not read yet"
@@ -177,12 +182,48 @@ for m in (\"cupy\",\"cudf\",\"cuml\"):
 fi
 
 PIN_MIB=$(lea_ssh "$IP" 'cat /sys/module/virtio_nvrm/parameters/max_pin_mib 2>/dev/null' 2>/dev/null | tr -dc '0-9')
-if [[ -n ${PIN_MIB:-} && ${PIN_MIB:-0} -ge $PIN_NEEDED ]]; then
-    PIN_EXPECT="pass"; PIN_NOTE=""; PIN_WHY="max_pin_mib=$PIN_MIB (>= $PIN_NEEDED needed)"
+# THE HOST CAP TOO, and reading only the guest's was a real defect: the
+# comment above says "There are TWO limits and the suite can hit either" and
+# then only one of them was asked. Raising the guest's max_pin_mib flipped
+# this expectation to `pass` while the BACKEND still refused every 256 MiB
+# buffer at its own default -- so the suite reported FAIL "expected to pass"
+# for a knob nobody had touched. llm.md measured exactly this in 2026-08-16:
+# "Raising the guest limit alone changes nothing."
+#
+# Read from the RUNNING BACKEND's environment rather than this shell's: the
+# backend was started by an earlier `showcase.sh up`, possibly with a
+# different LEA_MAX_PIN_MIB than whoever is running the suites now has set.
+# Its own environ is what it is actually enforcing. Empty or unset means the
+# 256 MiB default (host_pool.rs).
+HOST_PIN=""
+_pidf="$(lea_inst_dir "$NAME" 2>/dev/null)/nvrm.pid"
+if [[ -r $_pidf ]] && _bp=$(cat "$_pidf" 2>/dev/null) && [[ -r /proc/$_bp/environ ]]; then
+    HOST_PIN=$(tr '\0' '\n' < "/proc/$_bp/environ" | sed -n 's/^LEA_MAX_PIN_MIB=//p' | tr -dc '0-9')
+fi
+[[ -n $HOST_PIN ]] || HOST_PIN=${LEA_MAX_PIN_MIB:-}
+[[ -n $HOST_PIN ]] || HOST_PIN=256      # host_pool.rs default, per ALLOCATION
+# STRICTLY GREATER, and that is measured rather than reasoned. The suite pins
+# 4 streams x 2 x 256 MiB = exactly 2048 MiB, and a cumulative cap of exactly
+# 2048 REFUSES it -- there is no room left for anything else the process has
+# pinned. Measured 2026-08-21 on one rig, host cap at its 256 MiB default
+# throughout:
+#
+#     guest max_pin_mib   1024 -> refused    2048 -> refused
+#                         2560 -> runs       4096 -> runs
+#
+# THE HOST CAP IS NOT THE BINDING ONE, which is worth writing down because
+# the comment above this block reasons that it should be: the buffers are
+# exactly 256 MiB and LEA_MAX_PIN_MIB defaults to 256 "per allocation", so
+# they ought to sit exactly on it. They do not -- 2560/256 runs through. The
+# host cap is reported below for diagnosis and is not part of the
+# expectation, because no measurement supports making it one.
+if [[ -n ${PIN_MIB:-} && ${PIN_MIB:-0} -gt $PIN_NEEDED ]]; then
+    PIN_EXPECT="pass"; PIN_NOTE=""
+    PIN_WHY="max_pin_mib=$PIN_MIB (> $PIN_NEEDED needed), host LEA_MAX_PIN_MIB=$HOST_PIN"
 else
     PIN_EXPECT="xfail"
-    PIN_NOTE="max_pin_mib=${PIN_MIB:-?} < $PIN_NEEDED -- pinned memory hits the cap, error 304"
-    PIN_WHY="max_pin_mib=${PIN_MIB:-?} (needs >= $PIN_NEEDED)"
+    PIN_NOTE="max_pin_mib=${PIN_MIB:-?} does not exceed $PIN_NEEDED -- pinned memory hits the cap, error 304 (raise it: showcase.sh up --max-pin-mib 4096)"
+    PIN_WHY="max_pin_mib=${PIN_MIB:-?} (needs > $PIN_NEEDED), host LEA_MAX_PIN_MIB=$HOST_PIN"
 fi
 SUITES[0]="test_async_streams.py|$PIN_EXPECT|$PIN_NOTE"
 
