@@ -464,6 +464,7 @@ probe is adding one file with a `# matrix-libs:` block in it.
 | `managedprobe.c` | managed memory (`cuMemAllocManaged`) in stages, with a correctness check |
 | `hostregprobe.c` | the pinned / host-registered (`hClass=0x71`) path |
 | `oomprobe.c` | exhaust VRAM deliberately, check the error path and the recovery |
+| `vrampress.c` | the same pressure held for minutes and CHURNED, so a run can be judged by the host-side freeze detector (`--fill PCT` sizes itself to what the card tells the guest, `--max` does not believe it) |
 | `convburn.py` `convoom.py` `mmsweep.py` `pinwin.py` `streamprobe.py` `mtprobe.py` | torch-level loads used by the benchmark and isolation runs |
 | `framecopy.py` `rfbshot.py` `vramcap.py` | display-frame copy cost; a VNC screenshot reader; drives the VRAM cap red and checks the refusal kind |
 | `glinterop.c` `primeimport.c` `vkalloc.c` | GL-from-no-DRM-node interop, PRIME import in isolation, Vulkan memory-type probing |

@@ -497,8 +497,8 @@ _lea_stop_stale() {
     rm -f "$f"
 }
 
-# lea_backend_start NAME nvrm|input [--vram-limit MiB] -- start one backend
-# for that instance, detached, and wait for its socket.
+# lea_backend_start NAME nvrm|input [--vram-limit MiB] [--vram-profile MiB]
+# -- start one backend for that instance, detached, and wait for its socket.
 #
 # WARNING: THE PARENTHESES, and `</dev/null`. A backend is long-lived and
 # must outlive the shell that started it. As a bare background job it
@@ -513,16 +513,22 @@ _lea_stop_stale() {
 # one. LEA_MANAGED_COMPAT and LEA_VRAM_LIMIT_MIB are HOST switches (read in
 # session.rs), not guest ones: set inside the guest they do nothing.
 # LEA_VRAM_LIMIT_MIB is per BACKEND, i.e. per VM, which is what makes a
-# per-tenant cap mean something. LEA_OBJLOG / LEA_FD_CENSUS are the host
+# per-tenant cap mean something. LEA_VRAM_PROFILE_MIB is the OTHER policy
+# for that same VM (OPEN-QUESTIONS 68): the cap is what the guest may
+# allocate, the profile is what the VM may cost the CARD, and the backend
+# refuses to start with both set rather than ranking them. The two are
+# passed on separately so a run can A/B them without editing anything. LEA_OBJLOG / LEA_FD_CENSUS are the host
 # halves of two ledgers whose guest halves are worthless alone; LEA_DEBUG
 # likewise -- and a measuring run keeps all of them off, because every log
 # line in the hot path is a measurement error.
 lea_backend_start() {
     local name=$1 kind=$2; shift 2
-    local cap="${LEA_VRAM_LIMIT_MIB:-}"
+    local cap="${LEA_VRAM_LIMIT_MIB:-}" prof="${LEA_VRAM_PROFILE_MIB:-}"
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --vram-limit) cap=$2; shift 2 ;;
+            --vram-limit)   cap=$2; shift 2 ;;
+            --vram-profile) prof=$2; shift 2 ;;
+            --vram-profile) prof=$2; shift 2 ;;
             *) die "lea_backend_start: unknown option $1" ;;
         esac
     done
@@ -536,7 +542,27 @@ lea_backend_start() {
         nvrm)
             bin=$LEA_BIN_DIR/vhost-user-nvrm
             [[ -x $bin ]] || die "$bin missing -- run: scripts/build.sh cargo"
-            [[ -n $cap ]] && info "  $name: VRAM cap ${cap} MiB"
+            [[ -n $cap ]] && info "  $name: VRAM cap ${cap} MiB (LEA_VRAM_LIMIT_MIB)"
+            if [[ -n $prof ]]; then
+                local _res="${LEA_VRAM_RESERVE_MIB:-256}"
+                info "  $name: VRAM profile ${prof} MiB = $((prof - _res)) MiB guest FB + ${_res} MiB reserved"
+                # ADMISSION, as far as this side of the boundary can do it,
+                # and it is deliberately a WARNING. NVIDIA's vGPU refuses a
+                # VM at creation when the card is full
+                # (kernel_vgpu_mgr.c:322, NV_ERR_INSUFFICIENT_RESOURCES) --
+                # it can, because the host driver owns every profile on the
+                # card. Here nothing owns them: one backend serves one VM
+                # and cannot see a sibling. What this script CAN see is the
+                # card's free memory at this instant, which is a fact about
+                # the past the moment it is printed. Overprovisioning is
+                # allowed on purpose (OPEN-QUESTIONS 68); this only makes
+                # sure nobody does it without having been told.
+                local _free
+                _free=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1)
+                if [[ -n ${_free:-} ]] && (( prof > _free )); then
+                    warn "  $name: profile ${prof} MiB is more than the card has free right now (${_free} MiB) -- overprovisioned. That is allowed and is not checked anywhere else; OPEN-QUESTIONS 67 is what it looks like when the sum does not fit."
+                fi
+            fi
             # ONE FD PER GUEST CLIENT, and a desktop has hundreds. The backend
             # opens a real /dev/nvidiactl or /dev/nvidia0 for every RM client
             # the guest creates, which is the design -- the mirror hands the
@@ -553,6 +579,8 @@ lea_backend_start() {
             ( ulimit -n "${LEA_NOFILE:-65536}" 2>/dev/null || true
               LEA_MANAGED_COMPAT="${LEA_MANAGED_COMPAT:-}" \
               LEA_VRAM_LIMIT_MIB="$cap" \
+              LEA_VRAM_PROFILE_MIB="$prof" \
+              LEA_VRAM_RESERVE_MIB="${LEA_VRAM_RESERVE_MIB:-}" \
               LEA_MAX_PIN_MIB="${LEA_MAX_PIN_MIB:-}" \
               LEA_OBJLOG="${LEA_OBJLOG:-}" \
               LEA_FD_CENSUS="${LEA_FD_CENSUS:-}" \
@@ -1100,7 +1128,8 @@ lea_vm_ssh() {
 # lea_rig_up NAME [--index N] [--fresh] [--mem MiB] [--cpus N]
 #            [--no-compute] [--input] [--display] [--session gnome|openbox]
 #            [--with-steam] [--with-torch] [--no-provision] [--no-load]
-#            [--vram-limit MiB] [--max-pin-mib N] [--console] [--base IMAGE]
+#            [--vram-limit MiB] [--vram-profile MiB] [--max-pin-mib N]
+#            [--console] [--base IMAGE]
 #            [--guest ubuntu|nixos] [--transport ip|vsock]
 # The whole path for one guest: network, backends, VM, provisioning, guest
 # module -- and with --display the virtual-display rig on top (NVKMS
@@ -1117,7 +1146,7 @@ lea_vm_ssh() {
 lea_rig_up() {
     local name=$1; shift
     local idx="" fresh=0 mem="" cpus="" compute=1 input=0 display=0 session=""
-    local steam=0 torch=0 provision=1 load=1 cap="" pin="" console=0 base="" guest="" transport="" wayland=0
+    local steam=0 torch=0 provision=1 load=1 cap="" prof="" pin="" console=0 base="" guest="" transport="" wayland=0
     local -a gameopt=()
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -1203,7 +1232,8 @@ lea_rig_up() {
         vhu+=(--vhu "$(lea_vhu_arg "$name" input)")
     fi
     if [[ $compute -eq 1 ]]; then
-        lea_backend_start "$name" nvrm ${cap:+--vram-limit "$cap"} || { lea_backend_stop "$name"; return 1; }
+        lea_backend_start "$name" nvrm ${cap:+--vram-limit "$cap"} \
+            ${prof:+--vram-profile "$prof"} || { lea_backend_stop "$name"; return 1; }
         vhu+=(--vhu "$(lea_vhu_arg "$name" nvrm)")
     fi
 
@@ -1454,13 +1484,16 @@ _lea_fleet_overlay() {
 
 # lea_fleet_up N [--fresh] [--no-load] [--mem MiB] -- reports success only
 # once every member answers over SSH and is provisioned. PER MEMBER:
-# LEA_VRAM_LIMIT_MIB_<i> beats LEA_VRAM_LIMIT_MIB. A cap that is the same
-# for everyone answers "does the cap work"; a cap that differs per member
+# LEA_VRAM_LIMIT_MIB_<i> beats LEA_VRAM_LIMIT_MIB, and LEA_VRAM_PROFILE_MIB_<i>
+# beats LEA_VRAM_PROFILE_MIB the same way. A cap that is the same for
+# everyone answers "does the cap work"; a cap that differs per member
 # answers "does one tenant's cap hold while the neighbour has none", which
-# is the question a cap exists for.
+# is the question a cap exists for. The two policies are per member as
+# well, so a fleet can run one of each -- the backend refuses only when
+# BOTH are set on the SAME member.
 lea_fleet_up() {
     local count=$1; shift
-    local fresh=0 load=1 mem=$LEA_MEM os=ubuntu tr=ip i cap_var cap
+    local fresh=0 load=1 mem=$LEA_MEM os=ubuntu tr=ip i cap_var cap prof_var prof
     while [[ $# -gt 0 ]]; do
         case $1 in
             --fresh)     fresh=1; shift ;;
@@ -1477,10 +1510,12 @@ lea_fleet_up() {
     for i in $(seq 0 $((count - 1))); do
         _lea_fleet_overlay "$i" "$fresh" "$os" "$tr" || { error "vm$i: overlay failed"; lea_fleet_down; return 1; }
         cap_var="LEA_VRAM_LIMIT_MIB_$i"; cap="${!cap_var:-${LEA_VRAM_LIMIT_MIB:-}}"
+        prof_var="LEA_VRAM_PROFILE_MIB_$i"; prof="${!prof_var:-${LEA_VRAM_PROFILE_MIB:-}}"
         # Not --fresh here: the overlay step above already recreated the disk
         # and seed when asked, and lea_vm_start keeps what exists.
         local -a lopt=(); [[ $load -eq 0 ]] && lopt+=(--no-load)
-        lea_rig_up "vm$i" --index "$i" --mem "$mem" --guest "$os" --transport "$tr" ${cap:+--vram-limit "$cap"} "${lopt[@]}" \
+        lea_rig_up "vm$i" --index "$i" --mem "$mem" --guest "$os" --transport "$tr" \
+            ${cap:+--vram-limit "$cap"} ${prof:+--vram-profile "$prof"} "${lopt[@]}" \
             >"$LEA_VM_DIR/vm$i/up.log" 2>&1 \
             && info "  vm$i ($(lea_ip "$i")): up" \
             || { error "vm$i: failed -- $LEA_VM_DIR/vm$i/up.log"; tail -8 "$LEA_VM_DIR/vm$i/up.log" >&2

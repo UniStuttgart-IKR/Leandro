@@ -853,7 +853,7 @@ lea_guest_setup() {
     # name there.
     local p
     cp "$LEA_PROBE_BIN"/nvprobe "$LEA_ROOT"/probe/kernels/kernels.ptx "$stage"/
-    for p in hostregprobe oomprobe managedprobe ioctlping ctrlping; do
+    for p in hostregprobe oomprobe vrampress managedprobe ioctlping ctrlping; do
         [[ -x $LEA_PROBE_BIN/$p ]] && cp "$LEA_PROBE_BIN/$p" "$stage"/
     done
     # mmapping is a Rust binary, not in probe/ -- it uses the proven map path

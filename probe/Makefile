@@ -76,7 +76,7 @@ $(BIN):
 	@mkdir -p $(BIN)
 
 # --- CUDA probes (need the CUDA headers and libcuda) ---
-$(BIN)/nvprobe $(BIN)/hostregprobe $(BIN)/oomprobe $(BIN)/managedprobe: $(BIN)/%: $(SRC)/%.c | $(BIN) cuda-guard
+$(BIN)/nvprobe $(BIN)/hostregprobe $(BIN)/oomprobe $(BIN)/managedprobe $(BIN)/vrampress: $(BIN)/%: $(SRC)/%.c | $(BIN) cuda-guard
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 # --- CUDA-free probes (only need /dev/nvidiactl, or nothing at all) ---
@@ -189,7 +189,7 @@ probes: $(BIN)/ofdtest $(BIN)/granttest $(BIN)/forkprobe $(BIN)/ioctlping $(BIN)
 # from `probes` so the GPU-free workflow has exactly one target to name.
 host-tools: $(BIN)/edid-verify $(BIN)/vdisp-frame
 
-all-probes: all probes matrix-probes $(BIN)/hostregprobe $(BIN)/oomprobe $(BIN)/managedprobe $(BIN)/glinterop $(BIN)/vkalloc
+all-probes: all probes matrix-probes $(BIN)/hostregprobe $(BIN)/oomprobe $(BIN)/managedprobe $(BIN)/vrampress $(BIN)/glinterop $(BIN)/vkalloc
 
 # The .ptx is versioned so that a checkout needs no nvcc -- but a checkout on
 # a card OLDER than the one it was generated for needs a new one, and nothing

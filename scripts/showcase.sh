@@ -11,7 +11,8 @@
 #   scripts/showcase.sh up   [--name NAME] [--index N] [--count N]
 #                            [--guest ubuntu|nixos] [--transport ip|vsock]
 #                            [--display] [--session gnome|openbox] [--wayland] [--with-steam] [--input]
-#                            [--fresh] [--mem MiB] [--cpus N] [--vram-limit MiB]
+#                            [--fresh] [--mem MiB] [--cpus N]
+#                            [--vram-limit MiB | --vram-profile MiB]
 #                            [--max-pin-mib N] [--with-torch] [--with-gl]
 #                            [--games | --games-init]
 #                            [--no-provision] [--no-load] [--no-compute]
@@ -59,7 +60,11 @@
 # --keep-vm recycles a RUNNING desktop
 # guest when only the module changed. --console runs the VM in the
 # foreground on this terminal (no provisioning). Per-VM knobs: --vram-limit
-# caps the backend (a per-tenant cap), --max-pin-mib raises the guest
+# caps the backend (a per-tenant cap on what the GUEST may allocate),
+# --vram-profile does it the other way round (the number is what the VM may
+# cost the CARD, and LEA_VRAM_RESERVE_MIB -- 256 by default -- comes off it
+# before the guest sees the rest; OPEN-QUESTIONS 68). The two are exclusive
+# and the backend refuses to start with both. --max-pin-mib raises the guest
 # module's pin cap; --base IMAGE overlays a different base image for this
 # instance (the desktop-baked one for a desktop, say) -- consulted when the
 # disk is created, i.e. with --fresh or on first up. LEA_MANAGED_COMPAT=1
@@ -165,7 +170,8 @@ do_up() {
             --wayland) rig+=(--wayland); shift ;;
             --display|--input|--with-steam|--with-torch|--no-provision|--no-compute)
                 rig+=("$1"); shift ;;
-            --session|--cpus|--vram-limit|--max-pin-mib|--base) rig+=("$1" "$2"); shift 2 ;;
+            --session|--cpus|--vram-limit|--vram-profile|--max-pin-mib|--base)
+                rig+=("$1" "$2"); shift 2 ;;
             --guest|--transport) rig+=("$1" "$2"); fleet+=("$1" "$2"); shift 2 ;;
             -h|--help) usage 0 ;;
             *) error "up: unknown option $1"; usage 2 ;;
