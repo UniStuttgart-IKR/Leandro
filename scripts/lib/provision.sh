@@ -37,6 +37,54 @@ _lea_ip() {
 }
 
 # ---- shipping ---------------------------------------------------------------
+# lea_guest_apt NAME PKG... -- install packages in an Ubuntu guest, once,
+# with the three things every bare `apt-get install` here was missing.
+#
+# WHAT WENT WRONG WITHOUT IT, reported 2026-08-21: provisioning appeared to
+# HANG for minutes at "installing build tools and kernel headers" and then
+# failed with `apt-get (build-essential, linux-headers) failed` and no reason,
+# on a guest whose network was fine.
+#
+#   1. THE DPKG LOCK. An Ubuntu cloud image runs `apt-daily` and
+#      `unattended-upgrades` on first boot, and they hold
+#      /var/lib/dpkg/lock-frontend for as long as they take. An apt-get that
+#      starts in that window waits, and the wait is invisible. `cloud-init
+#      status --wait` lets first boot finish, and `DPkg::Lock::Timeout` makes
+#      apt WAIT for the lock with a bound instead of blocking forever or
+#      failing immediately -- which one you got depended on timing, and that
+#      is exactly why it looked intermittent.
+#   2. THE OUTPUT WENT TO /dev/null. Every call redirected stdout AND stderr
+#      away, so a failure could not say whether it was DNS, a mirror, a held
+#      lock or a missing package. The output goes to the caller now, which is
+#      the setup log the error message already points at.
+#   3. NO TIMEOUT. A hang had nothing to stop it. `timeout` bounds the whole
+#      thing, so a stuck mirror ends as a failure with a message rather than
+#      as a session somebody cancels twice.
+#
+# DEBIAN_FRONTEND=noninteractive so a package that wants to ask something
+# fails instead of waiting for a terminal that is not there.
+lea_guest_apt() {
+    local name=$1; shift
+    local ip rc
+    ip=$(_lea_ip "$name") || return 1
+    [[ $# -gt 0 ]] || return 0
+    lea_ssh "$ip" "sudo cloud-init status --wait >/dev/null 2>&1 || true
+        export DEBIAN_FRONTEND=noninteractive
+        sudo -E timeout ${LEA_APT_TIMEOUT:-900} apt-get -q \
+             -o DPkg::Lock::Timeout=${LEA_APT_LOCK_WAIT:-600} update
+        sudo -E timeout ${LEA_APT_TIMEOUT:-900} apt-get -q -y \
+             -o DPkg::Lock::Timeout=${LEA_APT_LOCK_WAIT:-600} install $*"
+    rc=$?
+    if [[ $rc -eq 124 ]]; then
+        error "apt-get timed out after ${LEA_APT_TIMEOUT:-900}s in the guest.
+Usually the guest cannot reach the archive. Check from inside it:
+  scripts/showcase.sh ssh --name $name -- 'getent hosts archive.ubuntu.com; ip route'
+and on the host that NAT is up: scripts/showcase.sh net status"
+        return 1
+    fi
+    return $rc
+}
+
 # lea_guest_tar NAME SRCDIR DESTDIR [tar options and members...]
 # tar, NOT scp -r: scp DEREFERENCES symlinks, so a library staged with its
 # SONAME and bare-name links would arrive three times as full copies
@@ -889,9 +937,15 @@ REG
             # this a fallback rather than the normal path.
             lea_ssh "$ip" 'command -v make >/dev/null && test -f /lib/modules/$(uname -r)/build/Makefile' || {
                 info "installing build tools and kernel headers in the guest ..."
-                lea_ssh "$ip" 'sudo apt-get update -q >/dev/null 2>&1
-                    sudo apt-get install -y -q build-essential "linux-headers-$(uname -r)" >/dev/null 2>&1' \
-                    || { error "apt-get (build-essential, linux-headers) failed"; return 1; }
+                local kver
+                # The GUEST's kernel, asked of the guest. It cannot be
+                # expanded on this side and it must not be left empty:
+                # `linux-headers-` is a package that does not exist and the
+                # failure would name apt rather than the missing answer.
+                kver=$(lea_ssh "$ip" uname -r | tr -d '\r')
+                [[ -n $kver ]] || { error "cannot read the guest's kernel version"; return 1; }
+                lea_guest_apt "$name" build-essential "linux-headers-$kver" \
+                    || { error "apt-get (build-essential, linux-headers-$kver) failed -- the reason is above"; return 1; }
             }
             lea_ssh "$ip" 'command -v make >/dev/null && test -f /lib/modules/$(uname -r)/build/Makefile' \
                 || { error "no make or no kernel headers in the guest -- without nvrm_nodes.ko there is no GPU path."; return 1; }
@@ -900,8 +954,7 @@ REG
             # Installed on demand rather than assumed.
             lea_ssh "$ip" 'command -v ffmpeg >/dev/null' || {
                 info "installing ffmpeg in the guest (the encode gate stage needs it) ..."
-                lea_ssh "$ip" 'sudo apt-get update -q >/dev/null 2>&1
-                    sudo apt-get install -y -q ffmpeg >/dev/null 2>&1' \
+                lea_guest_apt "$name" ffmpeg \
                     || warn "apt-get ffmpeg failed -- the encode gate stage will fail"
             }
             lea_ssh "$ip" 'make -C ~/guest-module/nvrm_nodes >/dev/null 2>&1 && cd ~/gpu && ./nvrm-setup.sh' \
@@ -962,7 +1015,7 @@ REG
         # libstdc++ and libgomp through nix-ld, which is the same reason the
         # probe binaries run there at all.
         case $os in
-            ubuntu) lea_ssh "$ip" 'sudo apt-get install -y -q python3-venv >/dev/null' || return 1 ;;
+            ubuntu) lea_guest_apt "$name" python3-venv || return 1 ;;
             nixos)  ;;   # python3 in the image brings venv with it
         esac
         lea_ssh "$ip" 'python3 -m venv ~/gpu/venv &&
@@ -1292,7 +1345,13 @@ PY
         [ -e /usr/include/vulkan/vulkan.h ]       || need="$need libvulkan-dev"
         if [ -n "$need" ]; then
             echo "  installing:$need"
-            sudo apt-get install -y -q $need >/dev/null 2>&1 || {
+            # Same three fixes as lea_guest_apt, which this cannot call
+            # because `need` is computed HERE, in the guest: wait out
+            # first-boot`s dpkg lock holder, bound the whole thing, and let
+            # the output reach the setup log instead of /dev/null.
+            sudo cloud-init status --wait >/dev/null 2>&1 || true
+            sudo -E DEBIAN_FRONTEND=noninteractive timeout 900 \
+                apt-get install -y -q -o DPkg::Lock::Timeout=600 $need || {
                 echo "  WARNING: apt-get failed -- the display gate will not build its probes" >&2; }
         else
             echo "  probe headers already present"
