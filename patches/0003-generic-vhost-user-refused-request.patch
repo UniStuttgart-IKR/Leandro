@@ -1,0 +1,90 @@
+Subject: vhost_user: a request the backend handler refuses must not kill the device
+
+The vhost-user epoll worker treats every error from `handle_request()` as
+fatal: it stores `disconnected` and returns `EpollHelperError::HandleEvent`,
+which terminates the worker thread. From that point the device is deaf. A
+backend that is alive and well gets no answer to any later request, and its
+guest hangs on the next one.
+
+That is right for a broken socket and wrong for a refused request, and the
+two are already distinguishable.
+
+`FrontendReqHandler::handle_request()` (vhost 0.16) dispatches to the
+handler, maps a handler failure to `Error::ReqHandlerError`, and then --
+before returning it -- calls
+
+    self.send_ack_message(&hdr, &res)?;
+
+so the backend has ALREADY been told that its request failed, over the
+protocol, and the two ends are still in step. Nothing about the channel is
+broken. The frontend then throws the device away anyway.
+
+`ReqHandlerError` is produced only by those `map_err` calls, i.e. only when
+a handler said no. Every other variant means the socket is broken or the
+stream is out of sync, and those stay fatal here.
+
+The case that motivates it is SHMEM_MAP, and it is one this series created:
+0001 bounds-checks `shmem_map` and `shmem_unmap` against the window,
+"because a backend is not trusted to stay inside it". That check is correct
+and it is reachable -- and before this patch, the first time it fires it
+costs the whole device rather than the one mapping. A backend cannot recover
+from it however carefully it handles the refusal, because there is no longer
+anybody listening.
+
+No behaviour changes for a backend that never has a request refused: the
+`Ok` arm and every non-`ReqHandlerError` arm are what they were.
+
+--- a/virtio-devices/src/vhost_user/mod.rs
++++ b/virtio-devices/src/vhost_user/mod.rs
+@@ -405,14 +405,43 @@
+             }
+             BACKEND_REQ_EVENT => {
+                 if let Some(backend_req_handler) = self.backend_req_handler.as_mut() {
+-                    backend_req_handler
+-                        .handle_request()
+-                        .map(|_| ())
+-                        .map_err(|e| {
+-                            EpollHelperError::HandleEvent(anyhow!(
+-                                "Failed to handle request from vhost-user backend: {e:?}"
+-                            ))
+-                        })
++                    match backend_req_handler.handle_request() {
++                        Ok(_) => Ok(()),
++                        // A request the HANDLER refused is not a broken
++                        // channel. `handle_request` has already answered the
++                        // backend for us -- it calls `send_ack_message` with
++                        // this very result before returning it -- so the
++                        // backend has been told its request failed and the
++                        // two ends are still in step.
++                        //
++                        // Treating it as fatal costs the whole device: the
++                        // error marks it disconnected and terminates the
++                        // epoll worker, so every later request from a backend
++                        // that is alive and well goes unanswered and its
++                        // guest hangs on the next one. A backend that asks
++                        // for something the VMM cannot do -- a SHMEM_MAP that
++                        // does not fit the window is the obvious one -- can
++                        // then never recover, however correct its own
++                        // handling of the refusal is.
++                        //
++                        // ReqHandlerError is the variant `handle_request`
++                        // produces for exactly this case, by `map_err` on
++                        // each handler call; every other variant means the
++                        // socket is broken or the stream is out of sync, and
++                        // those stay fatal.
++                        Err(VhostUserError::ReqHandlerError(e)) => {
++                            warn!(
++                                "vhost-user backend request refused for socket {}: {e:?} \
++                                 -- the backend has been sent the failure and the device \
++                                 stays up",
++                                self.socket_path
++                            );
++                            Ok(())
++                        }
++                        Err(e) => Err(EpollHelperError::HandleEvent(anyhow!(
++                            "Failed to handle request from vhost-user backend: {e:?}"
++                        ))),
++                    }
+                 } else {
+                     Ok(())
+                 }

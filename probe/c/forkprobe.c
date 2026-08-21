@@ -22,6 +22,33 @@
 #include <sys/wait.h>
 #include <cuda.h>
 
+/* WHY THIS IS DECLARED HERE AND NOT JUST CALLED.
+ *
+ * `cuCtxCreate` is a MACRO in cuda.h that aliases whichever versioned symbol
+ * that header generation shipped, and the arity changed underneath it:
+ *
+ *   CUDA 13.3 (CUDA_VERSION 13030)  #define cuCtxCreate cuCtxCreate_v4
+ *       cuCtxCreate_v4(CUcontext *, CUctxCreateParams *, unsigned, CUdevice)
+ *   older headers                   #define cuCtxCreate cuCtxCreate_v2
+ *       cuCtxCreate_v2(CUcontext *, unsigned, CUdevice)
+ *
+ * So a four-argument call builds on one machine and fails on another with
+ * "too many arguments to function 'cuCtxCreate_v2'". Reported 2026-08-21 on a
+ * host with the older header; this file had been written against 13.3.
+ *
+ * The versioned names are declared in cuda.h only under
+ * __CUDA_API_VERSION_INTERNAL, so the fix is to declare the one we want.
+ * `cuCtxCreate_v2` is exported by libcuda and by the stub we link against on
+ * every version this project has seen, and its signature has been stable for
+ * CUDA generations -- which a `#if CUDA_VERSION >= ...` would only approximate,
+ * since it needs the exact release where v4 landed to be right.
+ *
+ * This probe wants a plain context and passed NULL for the params anyway, so
+ * v2 is not a downgrade: it is the same call spelled portably.
+ */
+extern CUresult CUDAAPI cuCtxCreate_v2(CUcontext *pctx, unsigned int flags,
+                                       CUdevice dev);
+
 static const char *errstr(CUresult r) {
     const char *s = NULL;
     cuGetErrorString(r, &s);
@@ -64,16 +91,20 @@ int main(int argc, char **argv) {
 
     pid_t p = fork();
     if (p == 0) {
-        if (level == 2) { char c; read(sync[0], &c, 1); }   // gleichzeitig los
+        /* Wait for the parent's go-ahead so both sides run at once. The
+         * result is checked because -Wunused-result is an error waiting to
+         * happen and a short read here would silently un-synchronise the
+         * two processes, which is the whole point of level 2. */
+        if (level == 2) { char c; if (read(sync[0], &c, 1) != 1) _exit(2); }
         int m = 0;
         CHECK("child after fork", cuDeviceGetCount(&m));
         printf("  child sees %d devices\n", m);
         CUcontext ctx;
-        CHECK("child after fork", cuCtxCreate(&ctx, NULL, 0, dev));
+        CHECK("child after fork", cuCtxCreate_v2(&ctx, 0, dev));
         _exit(0);
     }
 
-    if (level == 2) { write(sync[1], "x", 1); }
+    if (level == 2 && write(sync[1], "x", 1) != 1) return 1;
     int m = 0;
     CHECK("parent after fork", cuDeviceGetCount(&m));
     printf("  parent sees %d devices\n", m);

@@ -15,7 +15,44 @@
 # strings that no longer existed in any source -- it went green against text
 # nothing produced any more. Every consumer builds them now
 # (lea_guest_setup in scripts/lib/provision.sh does so before copying).
-CUDA_HOME ?= /opt/cuda
+# /opt/cuda is the Arch path. Debian and Ubuntu put the toolkit under
+# /usr/local/cuda, and both ship a DISTRO cuda.h in /usr/include as well --
+# usually a much older CUDA. Probe the usual places rather than making every
+# non-Arch host set this by hand.
+CUDA_HOME ?= $(firstword $(wildcard /opt/cuda /usr/local/cuda /usr/lib/cuda) /opt/cuda)
+
+# THE SILENT-FALLBACK GUARD, and it is not theoretical -- it cost somebody a
+# build on 2026-08-21. `-I$(CUDA_HOME)/include` naming a directory that does
+# not exist is not an error: the compiler simply carries on and finds
+# /usr/include/cuda.h instead, which on a Debian-family host is the distro's
+# toolkit and can be years older than the driver. The symptom is an error deep
+# inside a probe about an API that "should" be there -- for forkprobe it was
+# `too many arguments to function 'cuCtxCreate_v2'`, because cuCtxCreate is a
+# macro whose arity changed in CUDA 12.8.
+#
+# So: say which header is being used and refuse to guess. `cuda-guard` is an
+# order-only prerequisite of the CUDA targets only, because host-tools and the
+# CUDA-free probes must still build on a machine with no CUDA at all (CI does
+# exactly that).
+CUDA_H := $(CUDA_HOME)/include/cuda.h
+
+.PHONY: cuda-guard
+cuda-guard:
+	@if [ ! -f "$(CUDA_H)" ]; then \
+	  echo "probe/Makefile: no cuda.h at $(CUDA_H)"; \
+	  echo "  CUDA_HOME is '$(CUDA_HOME)'. Set it to the TOOLKIT, e.g."; \
+	  echo "    make CUDA_HOME=/usr/local/cuda ..."; \
+	  echo "  Without it the compiler falls back to whatever cuda.h is on the"; \
+	  echo "  default include path (often /usr/include/cuda.h, an older CUDA),"; \
+	  echo "  and the failure surfaces as a wrong signature in a probe."; \
+	  found=$$(ls /usr/include/cuda.h /usr/local/cuda*/include/cuda.h \
+	              /opt/cuda*/include/cuda.h 2>/dev/null); \
+	  [ -n "$$found" ] && { echo "  cuda.h found on this host:"; \
+	    for f in $$found; do \
+	      v=$$(sed -n 's/^#define CUDA_VERSION *//p' "$$f" | head -1); \
+	      echo "    $$f (CUDA_VERSION $${v:-unknown})"; done; }; \
+	  exit 1; \
+	fi
 # The architecture the PTX is generated for, asked of the card in THIS
 # machine rather than fixed at the one it was first written on. PTX JITs
 # FORWARD and never backward: a Turing file runs on Ampere and later, and
@@ -39,7 +76,7 @@ $(BIN):
 	@mkdir -p $(BIN)
 
 # --- CUDA probes (need the CUDA headers and libcuda) ---
-$(BIN)/nvprobe $(BIN)/hostregprobe $(BIN)/oomprobe $(BIN)/managedprobe: $(BIN)/%: $(SRC)/%.c | $(BIN)
+$(BIN)/nvprobe $(BIN)/hostregprobe $(BIN)/oomprobe $(BIN)/managedprobe: $(BIN)/%: $(SRC)/%.c | $(BIN) cuda-guard
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 # --- CUDA-free probes (only need /dev/nvidiactl, or nothing at all) ---
@@ -90,7 +127,7 @@ $(BIN)/vkalloc: $(SRC)/vkalloc.c | $(BIN)
 
 # forkprobe links against the libcuda STUB: it measures what a fork does to
 # the driver state, and must not drag the real library in.
-$(BIN)/forkprobe: $(SRC)/forkprobe.c | $(BIN)
+$(BIN)/forkprobe: $(SRC)/forkprobe.c | $(BIN) cuda-guard
 	$(CC) -O1 -g -Wall -I$(CUDA_HOME)/include -o $@ $< -L$(CUDA_HOME)/lib64/stubs -lcuda
 
 # Sets only the sharing flag in UVM_INITIALIZE. It is preloaded into a CUDA

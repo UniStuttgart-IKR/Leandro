@@ -501,6 +501,7 @@ lea_backend_start() {
               LEA_MAX_PIN_MIB="${LEA_MAX_PIN_MIB:-}" \
               LEA_OBJLOG="${LEA_OBJLOG:-}" \
               LEA_FD_CENSUS="${LEA_FD_CENSUS:-}" \
+              LEA_TEST_SHMEM_MAP_OOB="${LEA_TEST_SHMEM_MAP_OOB:-}" \
               LEA_FRL_HZ="${LEA_FRL_HZ:-}" \
               LEA_CTRL_DUMP="${LEA_CTRL_DUMP:-}" \
               LEA_DEBUG="${LEA_DEBUG:-}" \

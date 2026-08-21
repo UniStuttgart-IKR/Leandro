@@ -114,6 +114,12 @@ const SHM_ID_HOST_VISIBLE: u8 = 1;
 /// constant.
 const HOST_VISIBLE_SIZE: u64 = 8 << 30;
 
+/// One-shot latch for `LEA_TEST_SHMEM_MAP_OOB` (see `on_map_prepare`). Fires
+/// once per process so the test costs exactly one mapping and everything
+/// after it is the recovery being measured, not a second injection.
+static TEST_OOB_FIRED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Which cacheability a window mapping gets. The **GPU node** never gets
 /// write-back -- registers are `NV_MEMORY_UNCACHED`, framebuffer is
 /// `UNCACHED` or write-combining. The **ctl node** maps system memory,
@@ -1190,7 +1196,7 @@ impl NvrmDevice {
         // SAFETY: probe is the mapping created just above, len unchanged.
         unsafe { libc::munmap(probe, len as usize) };
 
-        let msg_map = VhostUserMMap {
+        let mut msg_map = VhostUserMMap {
             shmid: SHM_ID_HOST_VISIBLE,
             padding: [0; 7],
             fd_offset: 0,
@@ -1198,6 +1204,35 @@ impl NvrmDevice {
             len,
             flags: VhostUserMMapFlags::WRITABLE.bits(),
         };
+        // TEST HOOK, and the only way to reach the VMM's refusal path from
+        // here. The bounds check above means a well-formed request never asks
+        // the VMM for something outside the window, so the branch where the
+        // VMM says no is unreachable in ordinary running -- and that branch is
+        // what OPEN-QUESTIONS number 9 is about: before the third
+        // cloud-hypervisor patch a refused SHMEM_MAP killed the whole device,
+        // not the one mapping.
+        //
+        // Set LEA_TEST_SHMEM_MAP_OOB to make the FIRST MapPrepare ask for an
+        // offset past the end of the window, once per process. The VMM
+        // bounds-checks it (patch 0001 does that), refuses, and everything
+        // after this line is the behaviour under test: this backend must get
+        // an error and answer the guest, and the device must still be there
+        // for the next request.
+        //
+        // `is_some_and(|v| !v.is_empty())` and not `is_some()` -- an empty
+        // value is still a set variable, and llm.md has the long version.
+        if std::env::var_os("LEA_TEST_SHMEM_MAP_OOB").is_some_and(|v| !v.is_empty())
+            && !TEST_OOB_FIRED.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            msg_map.shm_offset = HOST_VISIBLE_SIZE;
+            // Copied out first: VhostUserMMap is packed, so a format macro
+            // cannot borrow the field.
+            let bad = HOST_VISIBLE_SIZE;
+            eprintln!(
+                "vhost-user-nvrm: LEA_TEST_SHMEM_MAP_OOB -- asking the VMM to map at \
+                 {bad:#x}, one window past the end, on purpose"
+            );
+        }
         if let Err(e) = backend.shmem_map(&msg_map, &fd) {
             eprintln!("vhost-user-nvrm: SHMEM_MAP: {e}");
             return err_rsp(req.seq, libc::EIO);
