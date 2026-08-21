@@ -5,7 +5,7 @@
 # The tests: the GPU-free check band, the three gates, and the band that
 # runs the gates one after another.
 #
-#   scripts/test.sh check                       the GPU-free band, 14 steps, one exit code
+#   scripts/test.sh check                       the GPU-free band, 15 steps, one exit code
 #   scripts/test.sh gpu      [--keep-vm] [--instance NAME] [--index N] [--guest ubuntu|nixos]
 #                            [--transport ip|vsock]
 #   scripts/test.sh vdisplay [--keep-vm] [--fresh] [--instance NAME] [--index N] [--size WxH]
