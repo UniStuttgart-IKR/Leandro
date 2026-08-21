@@ -2449,7 +2449,7 @@ impl Session {
             if cmd == crate::vram::CMD_GPU_GET_NAME_STRING && !gpu_name_raw() {
                 let st = u32::from_le_bytes(self.scratch[28..32].try_into().unwrap());
                 if st == sys::NV_OK {
-                    crate::vram::rewrite_gpu_name(&mut self.aux, self.vram.limit());
+                    crate::vram::rewrite_gpu_name(&mut self.aux, self.vram.profile());
                 }
             }
             // (3c) The VM's own process list.

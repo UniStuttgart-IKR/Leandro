@@ -172,6 +172,53 @@ lea_inst_list() {
     done
 }
 
+# lea_vgpu_admit NAME TYPE MAX -- may another VM of this type start?
+#
+# THIS IS THE PIECE THE BACKEND CANNOT DO, and the reason is the whole
+# architecture: one backend serves one VM, holds no RM client, and has no
+# path to a sibling. NVIDIA's vGPU refuses at CREATION
+# (kvgpumgrValidateVgpuTypeCreatable, kernel_vgpu_mgr.c:322 --
+# NV_ERR_INSUFFICIENT_RESOURCES when existingVgpus >= maxInstance) because
+# the HOST driver owns every profile on the card. Here the equivalent owner
+# is the script that starts VMs: it can see every instance directory, and
+# that is the only place on this side of the boundary where the question
+# can be asked at all.
+#
+# Two rules, both vGPU's:
+#   * at most MAX instances of a type (its maxInstance);
+#   * HOMOGENEOUS -- every live VM on the card runs the same type. vGPU's
+#     default mode is homogeneous placement and its arithmetic assumes it;
+#     copying the arithmetic without the constraint would hand out
+#     framebuffer twice.
+# An instance whose backend is not running does not occupy a placement,
+# which is why this reads the pidfile rather than the type file alone.
+lea_vgpu_admit() {
+    local name=$1 want=$2 max=$3 n=0 other dir live
+    for other in $(lea_inst_list); do
+        [[ $other == "$name" ]] && continue
+        dir=$(lea_inst_dir "$other")
+        [[ -f $dir/vgpu-type ]] || continue
+        lea_running "$dir/nvrm.pid" || continue
+        live=$(tr -d '[:space:]' < "$dir/vgpu-type")
+        if [[ $live != "$want" ]]; then
+            error "$name: this card already runs $live (instance $other) and vGPU
+       placement is homogeneous -- every VM on a card is the same type.
+       Take it down or start $name as $live."
+            return 1
+        fi
+        n=$((n + 1))
+    done
+    if (( n >= max )); then
+        error "$name: $n instances of $want are running and its maxInstance is $max.
+       That is NV_ERR_INSUFFICIENT_RESOURCES, refused at creation the way
+       kernel_vgpu_mgr.c:322 refuses it -- before the VM exists, rather than
+       by failing an allocation at minute two."
+        return 1
+    fi
+    info "  $name: placement $((n + 1)) of $max for $want"
+    return 0
+}
+
 # lea_vm_running NAME -- is that instance's cloud-hypervisor alive?
 lea_vm_running() {
     lea_running "$(lea_inst_dir "$1")/ch.pid"
@@ -524,10 +571,12 @@ _lea_stop_stale() {
 lea_backend_start() {
     local name=$1 kind=$2; shift 2
     local cap="${LEA_VRAM_LIMIT_MIB:-}" prof="${LEA_VRAM_PROFILE_MIB:-}"
+    local vtype="${LEA_VGPU_TYPE:-}" vprof="" vfb=""
     while [[ $# -gt 0 ]]; do
         case $1 in
             --vram-limit)   cap=$2; shift 2 ;;
             --vram-profile) prof=$2; shift 2 ;;
+            --vgpu-type)    vtype=$2; shift 2 ;;
             *) die "lea_backend_start: unknown option $1" ;;
         esac
     done
@@ -541,6 +590,25 @@ lea_backend_start() {
         nvrm)
             bin=$LEA_BIN_DIR/vhost-user-nvrm
             [[ -x $bin ]] || die "$bin missing -- run: scripts/build.sh cargo"
+            if [[ -n $vtype ]]; then
+                # RESOLVE THE TYPE AGAINST THE CARD, here and not in the
+                # backend: the backend holds no RM client, so it cannot
+                # read the catalogue its own policy is named after. This is
+                # the same split vGPU makes -- the host RM owns the
+                # catalogue, the per-VM plugin gets a slice.
+                local _vg
+                _vg=$("$LEA_BIN_DIR/vgpuprofile" --select "$vtype" 2>/dev/null) || {
+                    error "$name: no vGPU type '$vtype' on this card."
+                    "$LEA_BIN_DIR/vgpuprofile" >&2 || true
+                    return 1; }
+                local vgpu_type="" vgpu_profile_mib="" vgpu_fb_mib="" vgpu_max_instance=""
+                local vgpu_segments="" vgpu_segment_mib=""
+                eval "$_vg"
+                vtype=$vgpu_type; vprof=$vgpu_profile_mib; vfb=$vgpu_fb_mib
+                info "  $name: vGPU type $vtype -- profile ${vprof} MiB, guest FB ${vfb} MiB ($vgpu_segments x ${vgpu_segment_mib} MiB VMMU segments)"
+                lea_vgpu_admit "$name" "$vtype" "$vgpu_max_instance" || return 1
+                echo "$vtype" > "$dir/vgpu-type"
+            fi
             [[ -n $cap ]] && info "  $name: VRAM cap ${cap} MiB (LEA_VRAM_LIMIT_MIB)"
             if [[ -n $prof ]]; then
                 local _res="${LEA_VRAM_RESERVE_MIB:-256}"
@@ -580,6 +648,9 @@ lea_backend_start() {
               LEA_VRAM_LIMIT_MIB="$cap" \
               LEA_VRAM_PROFILE_MIB="$prof" \
               LEA_VRAM_RESERVE_MIB="${LEA_VRAM_RESERVE_MIB:-}" \
+              LEA_VGPU_TYPE="$vtype" \
+              LEA_VGPU_PROFILE_MIB="$vprof" \
+              LEA_VGPU_FB_MIB="$vfb" \
               LEA_MAX_PIN_MIB="${LEA_MAX_PIN_MIB:-}" \
               LEA_OBJLOG="${LEA_OBJLOG:-}" \
               LEA_FD_CENSUS="${LEA_FD_CENSUS:-}" \
@@ -1127,7 +1198,8 @@ lea_vm_ssh() {
 # lea_rig_up NAME [--index N] [--fresh] [--mem MiB] [--cpus N]
 #            [--no-compute] [--input] [--display] [--session gnome|openbox]
 #            [--with-steam] [--with-torch] [--no-provision] [--no-load]
-#            [--vram-limit MiB] [--vram-profile MiB] [--max-pin-mib N]
+#            [--vram-limit MiB] [--vram-profile MiB] [--vgpu-type TYPE]
+#            [--max-pin-mib N]
 #            [--console] [--base IMAGE]
 #            [--guest ubuntu|nixos] [--transport ip|vsock]
 # The whole path for one guest: network, backends, VM, provisioning, guest
@@ -1145,7 +1217,7 @@ lea_vm_ssh() {
 lea_rig_up() {
     local name=$1; shift
     local idx="" fresh=0 mem="" cpus="" compute=1 input=0 display=0 session=""
-    local steam=0 torch=0 provision=1 load=1 cap="" prof="" pin="" console=0 base="" guest="" transport="" wayland=0
+    local steam=0 torch=0 provision=1 load=1 cap="" prof="" vtype="" pin="" console=0 base="" guest="" transport="" wayland=0
     local -a gameopt=()
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -1166,6 +1238,7 @@ lea_rig_up() {
             --no-load)      load=0; shift ;;
             --vram-limit)   cap=$2; shift 2 ;;
             --vram-profile) prof=$2; shift 2 ;;
+            --vgpu-type)    vtype=$2; shift 2 ;;
             --max-pin-mib)  pin=$2; shift 2 ;;
             --wayland)      wayland=1; shift ;;
             --games)        gameopt=(--games); shift ;;
@@ -1233,7 +1306,8 @@ lea_rig_up() {
     fi
     if [[ $compute -eq 1 ]]; then
         lea_backend_start "$name" nvrm ${cap:+--vram-limit "$cap"} \
-            ${prof:+--vram-profile "$prof"} || { lea_backend_stop "$name"; return 1; }
+            ${prof:+--vram-profile "$prof"} ${vtype:+--vgpu-type "$vtype"} \
+            || { lea_backend_stop "$name"; return 1; }
         vhu+=(--vhu "$(lea_vhu_arg "$name" nvrm)")
     fi
 

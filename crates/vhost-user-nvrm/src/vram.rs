@@ -128,6 +128,12 @@ pub enum Policy {
     /// `LEA_VRAM_PROFILE_MIB`: the profile is what the VM may cost the
     /// CARD, and the guest gets what is left after the reservation.
     Reserved,
+    /// `LEA_VGPU_TYPE`: the same, except that neither number is the
+    /// operator's. Both come from a catalogue the CARD was measured into
+    /// ([`nvrm_abi::vgpu`]), the guest framebuffer is a whole number of
+    /// VMMU segments, and the VM is named after its type the way vGPU
+    /// names one. Number 69.
+    Grid,
 }
 
 impl Policy {
@@ -138,6 +144,7 @@ impl Policy {
             Policy::Off => "no cap",
             Policy::Accounting => "LEA_VRAM_LIMIT_MIB",
             Policy::Reserved => "LEA_VRAM_PROFILE_MIB",
+            Policy::Grid => "LEA_VGPU_TYPE",
         }
     }
 }
@@ -162,12 +169,16 @@ pub struct Profile {
     /// allocate. One number for both, because a guest told one thing and
     /// refused at another has been handed a card that contradicts itself.
     pub fb_length: u64,
+    /// The vGPU-shaped type name (`RTX2070-2Q`) under [`Policy::Grid`],
+    /// empty otherwise. It is what the guest's card is CALLED, so it has
+    /// to travel with the numbers rather than beside them.
+    pub vgpu_type: &'static str,
 }
 
 impl Profile {
     /// No policy: the default configuration.
     pub const OFF: Profile =
-        Profile { policy: Policy::Off, size: 0, reservation: 0, fb_length: 0 };
+        Profile { policy: Policy::Off, size: 0, reservation: 0, fb_length: 0, vgpu_type: "" };
 
     /// The old cap, in bytes -- for tests and for the `Accounting` path.
     pub fn accounting(bytes: u64) -> Profile {
@@ -179,6 +190,7 @@ impl Profile {
             size: bytes,
             reservation: 0,
             fb_length: bytes,
+            vgpu_type: "",
         }
     }
 
@@ -207,6 +219,18 @@ impl Profile {
                 mib(self.reservation),
                 mib(self.fb_length),
             )),
+            Policy::Grid => Some(format!(
+                "vGPU-shaped type {} for this VM (LEA_VGPU_TYPE): profile {} MiB = \
+                 {} MiB guest FB + {} MiB reserved. Both numbers come from the \
+                 CARD's catalogue, not from an operator: the guest FB is a whole \
+                 number of VMMU segments and every VM on this card has the same \
+                 size. The guest's card is called \"Leandro {}\".",
+                self.vgpu_type,
+                mib(self.size),
+                mib(self.fb_length),
+                mib(self.reservation),
+                self.vgpu_type,
+            )),
         }
     }
 }
@@ -225,9 +249,26 @@ impl Profile {
 /// that leaves the guest no framebuffer. Everything else -- a typo, a
 /// negative number, a unit -- warns and leaves that variable unset, which
 /// is the behaviour `LEA_VRAM_LIMIT_MIB` has always had.
-fn decide(
-    limit: Option<&str>, profile: Option<&str>, reserve: Option<&str>,
-) -> Result<(Profile, Vec<String>), String> {
+#[derive(Default, Copy, Clone)]
+struct RawEnv<'a> {
+    limit: Option<&'a str>,
+    profile: Option<&'a str>,
+    reserve: Option<&'a str>,
+    /// The vGPU-shaped triple. `vgpu_type` is a NAME out of the card's
+    /// catalogue and the other two are the numbers that name resolves to;
+    /// the backend does not derive them, because deriving them means
+    /// asking the card and this process holds no RM client of its own
+    /// (main.rs). The manager that starts the VM resolves the name --
+    /// `nvrm-client --bin vgpuprofile` reads the card, `lea_backend_start`
+    /// selects the row -- exactly the way vGPU's host RM owns the
+    /// catalogue and the per-VM plugin only enforces its slice.
+    vgpu_type: Option<&'a str>,
+    vgpu_profile: Option<&'a str>,
+    vgpu_fb: Option<&'a str>,
+}
+
+fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
+    let (limit, profile, reserve) = (env.limit, env.profile, env.reserve);
     let mut notes = Vec::new();
     let mut mib = |name: &str, raw: Option<&str>| -> Option<u64> {
         let s = raw?;
@@ -248,9 +289,65 @@ fn decide(
             }
         }
     };
-    let limit = mib("LEA_VRAM_LIMIT_MIB", limit);
-    let size = mib("LEA_VRAM_PROFILE_MIB", profile);
-    let reserve = mib("LEA_VRAM_RESERVE_MIB", reserve);
+    // The closure borrows `notes`, so it has to be finished with before
+    // any of the branches below can add one.
+    let (limit, size, reserve, vgpu_profile, vgpu_fb) = (
+        mib("LEA_VRAM_LIMIT_MIB", limit),
+        mib("LEA_VRAM_PROFILE_MIB", profile),
+        mib("LEA_VRAM_RESERVE_MIB", reserve),
+        mib("LEA_VGPU_PROFILE_MIB", env.vgpu_profile),
+        mib("LEA_VGPU_FB_MIB", env.vgpu_fb),
+    );
+
+    // The vGPU-shaped policy, and it is all-or-nothing: a type name
+    // without its numbers is a name for something nobody computed.
+    let vgpu_type = env.vgpu_type.map(str::trim).filter(|t| !t.is_empty());
+    if let Some(t) = vgpu_type {
+        if limit.is_some() || size.is_some() {
+            return Err(format!(
+                "LEA_VGPU_TYPE={t} is set together with LEA_VRAM_LIMIT_MIB or \
+                 LEA_VRAM_PROFILE_MIB. Those are three policies for one number. \
+                 Set exactly one."
+            ));
+        }
+        let (Some(p), Some(f)) = (vgpu_profile, vgpu_fb) else {
+            return Err(format!(
+                "LEA_VGPU_TYPE={t} needs LEA_VGPU_PROFILE_MIB and LEA_VGPU_FB_MIB \
+                 beside it -- the type is a name in the card's catalogue and this \
+                 backend cannot read that catalogue (it holds no RM client). \
+                 `nvrm-client --bin vgpuprofile` prints it; lea_backend_start \
+                 resolves the name."
+            ));
+        };
+        if f >= p {
+            return Err(format!(
+                "LEA_VGPU_TYPE={t}: guest FB {f} MiB is not smaller than the \
+                 profile {p} MiB, so nothing is reserved. A vGPU profile always \
+                 keeps something back."
+            ));
+        }
+        // Read once, at startup, and kept for the life of the process:
+        // the type name goes into a Copy struct and into every log line,
+        // and the alternative is threading a String through the ledger.
+        let name: &'static str = Box::leak(t.to_string().into_boxed_str());
+        return Ok((
+            Profile {
+                policy: Policy::Grid,
+                size: p << 20,
+                reservation: (p - f) << 20,
+                fb_length: f << 20,
+                vgpu_type: name,
+            },
+            notes,
+        ));
+    }
+    if vgpu_profile.is_some() || vgpu_fb.is_some() {
+        notes.push(
+            "LEA_VGPU_PROFILE_MIB / LEA_VGPU_FB_MIB are set without LEA_VGPU_TYPE \
+             -- there is no type to give them to, so they do nothing"
+                .to_string(),
+        );
+    }
 
     if let (Some(l), Some(p)) = (limit, size) {
         return Err(format!(
@@ -284,6 +381,7 @@ fn decide(
             size: size << 20,
             reservation: reservation << 20,
             fb_length: (size - reservation) << 20,
+            vgpu_type: "",
         },
         notes,
     ))
@@ -306,7 +404,19 @@ fn profile_from_env() -> Result<Profile, String> {
         get("LEA_VRAM_PROFILE_MIB"),
         get("LEA_VRAM_RESERVE_MIB"),
     );
-    let (p, notes) = decide(limit.as_deref(), profile.as_deref(), reserve.as_deref())?;
+    let (vtype, vprofile, vfb) = (
+        get("LEA_VGPU_TYPE"),
+        get("LEA_VGPU_PROFILE_MIB"),
+        get("LEA_VGPU_FB_MIB"),
+    );
+    let (p, notes) = decide(RawEnv {
+        limit: limit.as_deref(),
+        profile: profile.as_deref(),
+        reserve: reserve.as_deref(),
+        vgpu_type: vtype.as_deref(),
+        vgpu_profile: vprofile.as_deref(),
+        vgpu_fb: vfb.as_deref(),
+    })?;
     for n in notes {
         eprintln!("vhost-user-nvrm: {n}");
     }
@@ -759,6 +869,11 @@ impl Books {
         self.ledger.limit()
     }
 
+    /// The whole policy, for the name the guest's card carries.
+    pub fn profile(&self) -> Profile {
+        self.ledger.profile()
+    }
+
     /// Which variable set the policy that just refused. A refusal names
     /// the knob that produced it or the operator has to guess which of the
     /// two is on.
@@ -1039,11 +1154,13 @@ pub use nvrm_abi::mediate::{FBINFO_COUNT_OFF, FBINFO_ENTRY, FBINFO_LIST_OFF, FBI
 /// Measured: the guest asks for 0x08, 0x09 and 0x16. The other two are
 /// rewritten as well because a card that answers one of them honestly and
 /// the others capped is a card that contradicts itself.
-const FB_INFO_INDEX_RAM_SIZE: u32 = 0x07;
-const FB_INFO_INDEX_TOTAL_RAM_SIZE: u32 = 0x08;
-const FB_INFO_INDEX_HEAP_SIZE: u32 = 0x09;
-const FB_INFO_INDEX_HEAP_FREE: u32 = 0x16;
-const FB_INFO_INDEX_USABLE_RAM_SIZE: u32 = 0x20;
+///
+/// From `nvrm_abi::mediate`, because the vGPU-shaped catalogue reads the
+/// same indices off the host's card and two lists could drift.
+use nvrm_abi::mediate::{
+    FB_INFO_INDEX_HEAP_FREE, FB_INFO_INDEX_HEAP_SIZE, FB_INFO_INDEX_RAM_SIZE,
+    FB_INFO_INDEX_TOTAL_RAM_SIZE, FB_INFO_INDEX_USABLE_RAM_SIZE,
+};
 
 /// Cap the memory sizes the guest is told, and keep them consistent with
 /// each other.
@@ -1143,7 +1260,17 @@ pub use nvrm_abi::mediate::{NAME_MAX, NAME_OFF};
 /// truncated into a lie about the profile size, so it is dropped whole
 /// instead. Spelling the prefix out cost four of those 64 bytes, so the
 /// budget is: 8 for `"Leandro "`, 55 for the base plus suffix, 1 for the NUL.
-pub fn guest_card_name(real: &str, limit: u64) -> String {
+pub fn guest_card_name(real: &str, profile: Profile) -> String {
+    // The vGPU-shaped policy does not decorate the card's own name -- it
+    // REPLACES it, because under that policy the guest is not running on
+    // an RTX 2070 with less memory, it is running on a type out of a
+    // catalogue, and the type is what nvidia-smi should print. `Leandro`
+    // stands where NVIDIA writes `GRID` or `NVIDIA`.
+    if profile.policy == Policy::Grid && !profile.vgpu_type.is_empty() {
+        let full = format!("Leandro {}", profile.vgpu_type);
+        return if full.len() < NAME_MAX { full } else { "Leandro GPU".to_string() };
+    }
+    let limit = profile.fb_length;
     let base = real
         .trim()
         .strip_prefix("NVIDIA ")
@@ -1178,7 +1305,7 @@ pub fn guest_card_name(real: &str, limit: u64) -> String {
 ///
 /// Returns `None` if the buffer is not this structure -- the caller then
 /// forwards RM's own name rather than inventing one.
-pub fn rewrite_gpu_name(aux: &mut [u8], limit: u64) -> Option<String> {
+pub fn rewrite_gpu_name(aux: &mut [u8], profile: Profile) -> Option<String> {
     if aux.len() < NAME_OFF + NAME_MAX {
         return None;
     }
@@ -1186,7 +1313,7 @@ pub fn rewrite_gpu_name(aux: &mut [u8], limit: u64) -> Option<String> {
     let end = raw.iter().position(|&c| c == 0).unwrap_or(NAME_MAX);
     let real = String::from_utf8_lossy(&raw[..end]).to_string();
 
-    let name = guest_card_name(&real, limit);
+    let name = guest_card_name(&real, profile);
     let b = name.as_bytes();
     let n = b.len().min(NAME_MAX - 1);
     aux[NAME_OFF..NAME_OFF + n].copy_from_slice(&b[..n]);
@@ -1714,12 +1841,12 @@ mod tests {
     #[test]
     fn the_card_says_what_it_is() {
         let real = "NVIDIA GeForce RTX 2070";
-        assert_eq!(guest_card_name(real, 0), "Leandro RTX 2070");
-        assert_eq!(guest_card_name(real, 2048 << 20), "Leandro RTX 2070-2G");
-        assert_eq!(guest_card_name(real, 1024 << 20), "Leandro RTX 2070-1G");
-        assert_eq!(guest_card_name(real, 1536 << 20), "Leandro RTX 2070-1536M");
+        assert_eq!(guest_card_name(real, Profile::OFF), "Leandro RTX 2070");
+        assert_eq!(guest_card_name(real, Profile::accounting(2048 << 20)), "Leandro RTX 2070-2G");
+        assert_eq!(guest_card_name(real, Profile::accounting(1024 << 20)), "Leandro RTX 2070-1G");
+        assert_eq!(guest_card_name(real, Profile::accounting(1536 << 20)), "Leandro RTX 2070-1536M");
         assert_eq!(
-            guest_card_name("NVIDIA A100-SXM4-40GB", 10240 << 20),
+            guest_card_name("NVIDIA A100-SXM4-40GB", Profile::accounting(10240 << 20)),
             "Leandro A100-SXM4-40GB-10G"
         );
     }
@@ -1736,16 +1863,16 @@ mod tests {
         // rather than being truncated into a wrong profile size.
         let b53 = "X".repeat(53);
         assert_eq!(
-            guest_card_name(&format!("NVIDIA GeForce {b53}"), 2048 << 20),
+            guest_card_name(&format!("NVIDIA GeForce {b53}"), Profile::accounting(2048 << 20)),
             format!("Leandro {b53}")
         );
         // 8 + 56 = 64 -> even the bare name does not fit. Say the one thing
         // that matters and stop.
         let b56 = "X".repeat(56);
-        assert_eq!(guest_card_name(&format!("NVIDIA GeForce {b56}"), 2048 << 20), "Leandro GPU");
+        assert_eq!(guest_card_name(&format!("NVIDIA GeForce {b56}"), Profile::accounting(2048 << 20)), "Leandro GPU");
         // and the longest name that DOES fit still fits, to the last byte
         let b55 = "X".repeat(55);
-        assert_eq!(guest_card_name(&format!("NVIDIA GeForce {b55}"), 0).len(), 63);
+        assert_eq!(guest_card_name(&format!("NVIDIA GeForce {b55}"), Profile::OFF).len(), 63);
     }
 
     #[test]
@@ -1754,7 +1881,7 @@ mod tests {
         let real = b"NVIDIA GeForce RTX 2070";
         v[NAME_OFF..NAME_OFF + real.len()].copy_from_slice(real);
         v[NAME_OFF + real.len()] = 0;
-        assert_eq!(rewrite_gpu_name(&mut v, 2048 << 20).as_deref(), Some("Leandro RTX 2070-2G"));
+        assert_eq!(rewrite_gpu_name(&mut v, Profile::accounting(2048 << 20)).as_deref(), Some("Leandro RTX 2070-2G"));
         let end = v[NAME_OFF..].iter().position(|&c| c == 0).unwrap();
         assert_eq!(&v[NAME_OFF..NAME_OFF + end], b"Leandro RTX 2070-2G");
         assert!(v[NAME_OFF + end..].iter().all(|&c| c == 0), "the tail is padded, not left over");
@@ -1781,15 +1908,21 @@ mod tests {
 
     const MIB: u64 = 1 << 20;
 
+    fn three<'a>(
+        limit: Option<&'a str>, profile: Option<&'a str>, reserve: Option<&'a str>,
+    ) -> RawEnv<'a> {
+        RawEnv { limit, profile, reserve, ..RawEnv::default() }
+    }
+
     fn ok(limit: Option<&str>, profile: Option<&str>, reserve: Option<&str>) -> Profile {
-        decide(limit, profile, reserve).expect("configuration refused").0
+        decide(three(limit, profile, reserve)).expect("configuration refused").0
     }
 
     #[test]
     fn the_default_configuration_has_no_policy() {
         assert_eq!(ok(None, None, None), Profile::OFF);
         // ... and neither has the shape the rig actually passes.
-        let (p, notes) = decide(Some(""), Some(""), Some("")).unwrap();
+        let (p, notes) = decide(three(Some(""), Some(""), Some(""))).unwrap();
         assert_eq!(p, Profile::OFF);
         assert!(notes.is_empty(), "an unset knob is not worth a warning: {notes:?}");
     }
@@ -1836,29 +1969,29 @@ mod tests {
 
     #[test]
     fn two_policies_for_one_number_are_refused_rather_than_ranked() {
-        let e = decide(Some("3072"), Some("3072"), None).unwrap_err();
+        let e = decide(three(Some("3072"), Some("3072"), None)).unwrap_err();
         assert!(e.contains("both set"), "{e}");
         // Neither wins by being first, last or larger.
-        assert!(decide(Some("1024"), Some("8192"), None).is_err());
+        assert!(decide(three(Some("1024"), Some("8192"), None)).is_err());
     }
 
     #[test]
     fn a_reservation_that_eats_the_profile_is_refused() {
-        assert!(decide(None, Some("256"), Some("256")).is_err());
-        assert!(decide(None, Some("128"), None).is_err(), "the default eats a small profile");
+        assert!(decide(three(None, Some("256"), Some("256"))).is_err());
+        assert!(decide(three(None, Some("128"), None)).is_err(), "the default eats a small profile");
         // One MiB of framebuffer is a policy, not a contradiction.
         assert_eq!(ok(None, Some("257"), Some("256")).fb_length, MIB);
     }
 
     #[test]
     fn an_unusable_value_is_ignored_with_a_note_rather_than_read_as_zero() {
-        let (p, notes) = decide(Some("3 GiB"), None, None).unwrap();
+        let (p, notes) = decide(three(Some("3 GiB"), None, None)).unwrap();
         assert_eq!(p, Profile::OFF, "a typo must not look like a policy");
         assert_eq!(notes.len(), 1);
         assert!(notes[0].contains("LEA_VRAM_LIMIT_MIB"), "{:?}", notes[0]);
         // A reservation without a profile reserves from nothing. That is
         // worth a line, because the operator plainly meant something.
-        let (p, notes) = decide(None, None, Some("256")).unwrap();
+        let (p, notes) = decide(three(None, None, Some("256"))).unwrap();
         assert_eq!(p, Profile::OFF);
         assert_eq!(notes.len(), 1);
         assert!(notes[0].contains("does nothing"), "{:?}", notes[0]);
@@ -1888,7 +2021,7 @@ mod tests {
         assert_eq!(fb_at(&v, 2), (p.fb_length / 1024) as u32, "and so is free, empty");
 
         // ... and the card's name says the same number, not the profile.
-        assert_eq!(guest_card_name("NVIDIA GeForce RTX 2070", led.limit()), "Leandro RTX 2070-2816M");
+        assert_eq!(guest_card_name("NVIDIA GeForce RTX 2070", p), "Leandro RTX 2070-2816M");
 
         // The enforced number is fbLength: the last byte of it goes in, the
         // next one does not, and the reservation is never available.
@@ -1910,6 +2043,89 @@ mod tests {
         assert_eq!(resv.limit(), 2816 * MIB);
         assert_eq!(acct.profile().size, resv.profile().size, "same bill to the card");
         assert!(resv.limit() < acct.limit(), "and a different one to the guest");
+    }
+
+
+    // =======================================================================
+    // The vGPU-shaped policy (number 69)
+    // =======================================================================
+    // The numbers are NOT computed here -- they come from the card's own
+    // catalogue (nvrm_abi::vgpu, which has the arithmetic and its tests).
+    // What is tested here is what this side does with them: that a name
+    // without numbers is refused, that three policies at once are refused,
+    // and that the guest is told the type it is running on.
+
+    fn grid<'a>(t: &'a str, profile: &'a str, fb: &'a str) -> RawEnv<'a> {
+        RawEnv {
+            vgpu_type: Some(t),
+            vgpu_profile: Some(profile),
+            vgpu_fb: Some(fb),
+            ..RawEnv::default()
+        }
+    }
+
+    #[test]
+    fn a_vgpu_type_carries_its_catalogue_numbers_or_is_refused() {
+        // The 2Q row this card really answered on 2026-08-21: 2048 MiB
+        // profile, 1536 MiB guest FB, 6 segments of 256 MiB.
+        let p = decide(grid("RTX2070-2Q", "2048", "1536")).unwrap().0;
+        assert_eq!(p.policy, Policy::Grid);
+        assert_eq!(p.size, 2048 * MIB);
+        assert_eq!(p.fb_length, 1536 * MIB);
+        assert_eq!(p.reservation, 512 * MIB);
+        assert_eq!(p.vgpu_type, "RTX2070-2Q");
+
+        // A name on its own is a name for something nobody computed.
+        let e = decide(RawEnv { vgpu_type: Some("RTX2070-2Q"), ..RawEnv::default() })
+            .unwrap_err();
+        assert!(e.contains("vgpuprofile"), "{e}");
+        // ... and a profile that reserves nothing is not a vGPU profile.
+        assert!(decide(grid("RTX2070-2Q", "2048", "2048")).is_err());
+    }
+
+    #[test]
+    fn three_policies_for_one_number_are_refused_too() {
+        let e = decide(RawEnv {
+            limit: Some("3072"),
+            vgpu_type: Some("RTX2070-2Q"),
+            vgpu_profile: Some("2048"),
+            vgpu_fb: Some("1536"),
+            ..RawEnv::default()
+        })
+        .unwrap_err();
+        assert!(e.contains("three policies"), "{e}");
+    }
+
+    /// Under this policy the card is not an RTX 2070 with less memory, it
+    /// is a TYPE -- and that is what the guest's nvidia-smi prints.
+    #[test]
+    fn the_grid_card_is_named_after_its_type() {
+        let p = decide(grid("RTX2070-2Q", "2048", "1536")).unwrap().0;
+        assert_eq!(guest_card_name("NVIDIA GeForce RTX 2070", p), "Leandro RTX2070-2Q");
+
+        // ... and the sizes it is told are the type's, not the card's.
+        let led = Ledger::for_test_profile(p);
+        let mut v = fb_buf(&[
+            (FB_INFO_INDEX_TOTAL_RAM_SIZE, 0x800000),
+            (FB_INFO_INDEX_HEAP_FREE, 0x69f000),
+        ]);
+        assert_eq!(rewrite_fb_info(&mut v, led.limit(), led.used()), Some(2));
+        assert_eq!(fb_at(&v, 0), (1536 * MIB / 1024) as u32);
+        assert_eq!(led.limit(), 1536 * MIB, "and refused at the same number");
+    }
+
+    /// The other two policies keep the name they had, and this is the
+    /// counter-test for it: nothing about them moved.
+    #[test]
+    fn the_older_policies_keep_their_names() {
+        assert_eq!(
+            guest_card_name("NVIDIA GeForce RTX 2070", Profile::accounting(3072 * MIB)),
+            "Leandro RTX 2070-3G"
+        );
+        assert_eq!(
+            guest_card_name("NVIDIA GeForce RTX 2070", ok(None, Some("3072"), None)),
+            "Leandro RTX 2070-2816M"
+        );
     }
 
 }

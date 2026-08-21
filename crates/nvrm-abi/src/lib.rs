@@ -23,6 +23,7 @@ pub mod mediate;
 pub mod nvgpu;
 pub mod share;
 pub mod table;
+pub mod vgpu;
 pub mod xfer;
 pub mod xlate;
 

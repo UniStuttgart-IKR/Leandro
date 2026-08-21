@@ -12,7 +12,7 @@
 #                            [--guest ubuntu|nixos] [--transport ip|vsock]
 #                            [--display] [--session gnome|openbox] [--wayland] [--with-steam] [--input]
 #                            [--fresh] [--mem MiB] [--cpus N]
-#                            [--vram-limit MiB | --vram-profile MiB]
+#                            [--vram-limit MiB | --vram-profile MiB | --vgpu-type TYPE]
 #                            [--max-pin-mib N] [--with-torch] [--with-gl]
 #                            [--games | --games-init]
 #                            [--no-provision] [--no-load] [--no-compute]
@@ -170,7 +170,7 @@ do_up() {
             --wayland) rig+=(--wayland); shift ;;
             --display|--input|--with-steam|--with-torch|--no-provision|--no-compute)
                 rig+=("$1"); shift ;;
-            --session|--cpus|--vram-limit|--vram-profile|--max-pin-mib|--base)
+            --session|--cpus|--vram-limit|--vram-profile|--vgpu-type|--max-pin-mib|--base)
                 rig+=("$1" "$2"); shift 2 ;;
             --guest|--transport) rig+=("$1" "$2"); fleet+=("$1" "$2"); shift 2 ;;
             -h|--help) usage 0 ;;

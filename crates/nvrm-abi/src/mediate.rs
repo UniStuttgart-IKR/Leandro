@@ -320,6 +320,21 @@ pub const FBINFO_MAX: usize = 128;
 /// wrong index, which is a real defect and has to stay visible.
 pub const FBINFO_DATA_OFF: usize = offset_of!(sys::NV2080_CTRL_FB_INFO, data);
 
+/// The `NV2080_CTRL_FB_INFO_INDEX_*` values that carry a MEMORY SIZE, all
+/// of them in kilobytes (ctrl2080fb.h:76-112, :254-260).
+///
+/// They live here rather than beside their one consumer because there is
+/// more than one now: the backend rewrites them on the way back to the
+/// guest, and the vGPU-shaped catalogue ([`crate::vgpu`]) reads the same
+/// two on the way in, from the host's own card. Two lists that could
+/// disagree about which index is a size is exactly the drift this module
+/// exists to prevent.
+pub const FB_INFO_INDEX_RAM_SIZE: u32 = 0x07;
+pub const FB_INFO_INDEX_TOTAL_RAM_SIZE: u32 = 0x08;
+pub const FB_INFO_INDEX_HEAP_SIZE: u32 = 0x09;
+pub const FB_INFO_INDEX_HEAP_FREE: u32 = 0x16;
+pub const FB_INFO_INDEX_USABLE_RAM_SIZE: u32 = 0x20;
+
 /// `NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS`: `gpuNameStringFlags` @0,
 /// `ascii[64]` @4 (`NV2080_GPU_MAX_NAME_STRING_LENGTH` = 64).
 pub const NAME_OFF: usize =
