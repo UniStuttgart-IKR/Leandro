@@ -444,6 +444,60 @@ BDF and gpuId in place (number 62). So the leading candidate is now specific
 enough to test -- answer `CARD_INFO` unmediated to one run and see whether
 `GET_PROBED_IDS` comes back. That is the same experiment number 65 wants for
 the same reason, and one run could answer both.
+
+**THE LEADING CANDIDATE IS FALSIFIED AND A STRUCTURAL ONE REPLACES IT,
+2026-08-21.** The paragraph above proposed answering `CARD_INFO` unmediated
+and seeing whether `GET_PROBED_IDS` came back. Done, live, by toggling
+`bdf_mediation` on a running guest -- it is writable and the module reads it
+per call:
+
+| workload | `bdf_mediation=1` | `bdf_mediation=0` |
+|---|---|---|
+| `vulkaninfo --summary` | PROBED_IDS **0**, DEVICE_IDS 1 | PROBED_IDS **0**, DEVICE_IDS 1 |
+| `glxinfo -B` | PROBED_IDS **0**, DEVICE_IDS 1 | PROBED_IDS **0**, DEVICE_IDS 1 |
+| `nvidia-smi -q` | PROBED_IDS 2 | PROBED_IDS 2 |
+
+**Identical.** The mediation is not what makes the branch, and the same run
+answers number 65 the same way -- `AMPERE_SMC_MONITOR_SESSION` is absent with
+mediation off too.
+
+**And it is not any answer the boundary gives, either.** Traced natively and
+in the guest with mediation off, the two runs make the SAME first four calls
+and diverge at the fifth, and the three escape answers before the branch are
+**byte-identical**:
+
+    CHECK_VERSION_STR (0xd2)   IDENTICAL
+    SYS_PARAMS        (0xd6)   IDENTICAL
+    CARD_INFO         (0xc8)   IDENTICAL
+    then: native GPU_GET_PROBED_IDS, guest GPU_GET_DEVICE_IDS
+
+With the `openat` sets and `/proc/driver/nvidia/params` already measured
+identical, **nothing the boundary carries differs before the branch.**
+
+**WHAT DOES DIFFER IS THE DRM DEVICE, and it is structural rather than
+mediated:**
+
+| | host | guest |
+|---|---|---|
+| `/dev/dri/card*` | `card1` → **nvidia** | `card0` → **virtio-pci** |
+| `/dev/dri/renderD128` | → **nvidia** | → **virtio-pci** |
+
+Both sides' userspace opens `/dev/dri/renderD128` -- 3 times natively and 2
+in the guest for `vk-enum` and `gl-enum` -- but it is a DIFFERENT DEVICE. In
+the guest the only DRM node is the virtio-gpu; NVIDIA has none unless
+`nvidia_drm` is loaded with `modeset=1`. And the probe that opens it 6 times
+on BOTH sides, `egl-gbm`, is exactly the one that never skipped anything.
+
+So the discovery branch is most likely taken on what the DRM enumeration
+finds, which is a property of the guest's virtual hardware and not of this
+boundary. That also predicts number 58 without being about it: the xcb
+platform module declining on an X server whose device is a virtio-gpu.
+
+**What would close it** is one rig configuration this run could not build: a
+guest whose `renderD128` IS the NVIDIA device (`nvidia_drm modeset=1`, and no
+virtio-gpu ahead of it in enumeration), then `vulkaninfo` and the same count.
+If `GET_PROBED_IDS` comes back there, the cause is named and this closes with
+the boundary exonerated.
 ### 56. The surface is tracked per run, and the question is per ioctl
 **Open, raised 2026-08-20.** Everything the matrix writes is keyed by the
 run that produced it: `catalog-<driver>.json` is one file per driver
