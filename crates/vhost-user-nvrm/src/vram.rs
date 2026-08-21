@@ -103,11 +103,16 @@ const _: () = {
 
 /// `fbReservation` when the operator does not say otherwise, in MiB.
 ///
-/// The measurement it answers is ~175 MiB per backend (see above, and
-/// number 68). 256 is deliberately more: the measured number is a mean of
-/// three samples of one workload on one driver, the cost of being too
-/// generous is FB the guest does not get, and the cost of being too tight
-/// is number 67 -- a freeze that latches. Round numbers also make the
+/// TWO MEASUREMENTS, an order of magnitude apart, because the quantity
+/// belongs to the WORKLOAD and not to this file (both 2026-08-21, number
+/// 68): ~175 MiB per backend with a game, NVENC and a live 1080p stream,
+/// and ~25 MiB with a CUDA allocator and a desktop -- peak host charge 2841
+/// MiB against a 2816 MiB guest framebuffer, over ten minutes at the limit.
+///
+/// 256 is deliberately more than either. The cost of being too generous is
+/// framebuffer the guest does not get; the cost of being too tight is that
+/// the VM costs the card more than its profile says, which is the whole
+/// thing this policy exists to prevent. Round numbers also make the
 /// arithmetic in a log line legible, which matters when the alternative is
 /// an operator doing it in their head at 2 a.m.
 pub const DEFAULT_RESERVATION_MIB: u64 = 256;

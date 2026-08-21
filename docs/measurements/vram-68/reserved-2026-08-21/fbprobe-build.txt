@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MIT
+# scanout reader in the guest (scripts/guest/fbprobe.c) -- reservation policy, 2026-08-21.
+-rwxrwxr-x 1 leandro leandro 48008 Aug 21 18:23 fbprobe
+-rwxrwxr-x 1 leandro leandro 48008 Aug 21 18:23 fbprobe

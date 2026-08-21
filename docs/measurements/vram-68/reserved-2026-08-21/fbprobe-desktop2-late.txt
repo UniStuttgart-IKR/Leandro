@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# scanout reader in the guest (scripts/guest/fbprobe.c) -- reservation policy, 2026-08-21.
+  plane 55 (crtc 59) fb 68  256x256  AR24  modifier 0  1 dmabuf plane(s)
+watching plane 50 (1920x1080)
+1024 sample points, 10 polls, 250 ms apart
+
+EGL 1.5, vendor "NVIDIA", dmabuf modifiers yes
+CUDA import unavailable: cuCtxCreate: out of memory
+
+
+== fbprobe verdict (plane 50, 1920x1080) ==
+  mmap  CONTENT   reads 10/10  nonzero in 10 polls (peak 997/1024)  frame changed in 9/9 polls
+  gl    CONTENT   reads 10/10  nonzero in 10 polls (peak 1024/1024)  frame changed in 9/9 polls
+  cuda  UNAVAILABLE  cuCtxCreate: out of memory
+
+READER GREEN: 2 way(s) see moving, nonzero content.

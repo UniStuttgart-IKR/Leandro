@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# driver.txt, from the run -- accounting policy, 2026-08-21.
+[20:35:11] lock held, policy=limit 3072 MiB, load 600s --max 85
+[20:35:12] up desktop
+[20:36:20] up desktop2
+desktop: vhost-user-nvrm: VRAM cap 3072 MiB for this VM (LEA_VRAM_LIMIT_MIB)
+desktop2: vhost-user-nvrm: VRAM cap 3072 MiB for this VM (LEA_VRAM_LIMIT_MIB)
+[20:37:27] guests at 192.168.100.15 192.168.100.17
+[20:37:27] backend pids 3698256 3700570
+vkcube up
+vkcube up
+[20:37:42] fbprobe desktop before: READER GREEN: 3 way(s) see moving, nonzero content. 
+[20:37:49] fbprobe desktop2 before: READER GREEN: 3 way(s) see moving, nonzero content. 
+[20:37:49] starting the load in both guests
+[20:39:55] fbprobe desktop during: READER GREEN: 2 way(s) see moving, nonzero content. 
+[20:40:02] fbprobe desktop2 during: READER GREEN: 3 way(s) see moving, nonzero content. 
+[20:45:09] fbprobe desktop late: READER GREEN: 3 way(s) see moving, nonzero content. 
+[20:45:16] fbprobe desktop2 late: READER GREEN: 3 way(s) see moving, nonzero content. 
+[20:48:19] load done
+[20:48:26] fbprobe desktop after: READER GREEN: 3 way(s) see moving, nonzero content. 
+[20:48:33] fbprobe desktop2 after: READER GREEN: 3 way(s) see moving, nonzero content. 
+[20:48:34] taking the rig down
+[20:48:38] done -- /tmp/claude-1000/-home-silas-git-Leandro/f3fc191a-453c-4f97-8ba3-de299d29d9e3/scratchpad/run-limit

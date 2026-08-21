@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: MIT
+# the guest kernel's ring buffer at the end of the run -- accounting policy, 2026-08-21.
+[  706.457924] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f488a558 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  706.600739] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f488a9d8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  706.653068] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f488a1d8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  707.392479] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f546f058 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  707.594846] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f546f218 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  707.951192] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f488aa98 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  708.012602] virtio_nvrm: events: semsurf waiter kc 0xffff8cf1012b9158 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  710.008831] semsurf_fire: 4 callbacks suppressed
+[  710.008835] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0fbabd798 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  710.986186] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0fbabdb98 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  711.437955] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0fe3821d8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  711.442276] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0fe382918 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  711.672582] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f3b96b58 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  711.850103] virtio_nvrm: events: semsurf waiter kc 0xffff8cf100722e98 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  712.081728] virtio_nvrm: events: semsurf waiter kc 0xffff8cf100722198 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  712.303698] virtio_nvrm: events: semsurf waiter kc 0xffff8cf100722f18 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  712.365138] virtio_nvrm: events: semsurf waiter kc 0xffff8cf100722398 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  712.715967] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f5bea718 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  715.196941] semsurf_fire: 10 callbacks suppressed
+[  715.196946] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f54c7cd8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  715.353452] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f54c7458 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  715.397670] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f54c7998 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  715.549883] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f54c7d58 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  715.575296] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f54c78d8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  715.607787] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f54c7658 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  715.942521] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f3a58558 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  716.600626] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f574e598 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  717.633045] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0e10cc298 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  718.300809] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f3b86558 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  720.636089] semsurf_fire: 1 callbacks suppressed
+[  720.636094] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0e57a6398 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  721.131399] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f6b413d8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  721.281486] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f6b41318 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  721.369358] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f6b41258 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  721.953353] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f6b41718 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  722.183490] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f6b417d8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  723.345164] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0e2dcddd8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  723.367650] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0e2dcdf18 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  724.064712] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f6ae2998 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  724.399183] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0ee39a798 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  726.152010] semsurf_fire: 2 callbacks suppressed
+[  726.152015] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f3a7d018 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  726.171156] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f3a7db58 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  726.205285] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0c5608d58 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  726.414038] virtio_nvrm: kernel MAP_MEMORY: 4096 bytes as kernel VA 0xffffcda5c004b000 (window +0x75fa000, 4096 reserved, flags 0x0, cache 1)
+[  726.461772] virtio_nvrm: kernel MAP_MEMORY: 524288 bytes as kernel VA 0xffffcda5c6400000 (window +0x84c4000, 524288 reserved, flags 0x0, cache 1)
+[  727.553145] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f3a7d698 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  727.938553] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0e07e6bd8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  727.999023] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0e07e6958 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  728.052587] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0c46550d8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  729.855520] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0dfad6d58 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  730.062130] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0dfe99498 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  730.192594] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0d4225898 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  732.338806] semsurf_fire: 3 callbacks suppressed
+[  732.338811] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0e86537d8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  732.486382] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f6e00b58 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  732.738016] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0e8653758 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  732.780613] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0e8653c98 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  732.994978] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0e8653e18 (client 0xc1db19ae, proc 1) fired, no slot -- dropped
+[  733.131132] virtio_nvrm: events: semsurf waiter kc 0xffff8cf0f5a165d8 (client 0xc1db19ae, proc 1) fired, no slot -- dropped

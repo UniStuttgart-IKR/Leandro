@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MIT
+# gears.txt, from the run -- reservation policy, 2026-08-21.
+GEARS DID NOT START
+GEARS DID NOT START

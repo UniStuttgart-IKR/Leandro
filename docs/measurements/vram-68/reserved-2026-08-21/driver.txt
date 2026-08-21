@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# driver.txt, from the run -- reservation policy, 2026-08-21.
+another ioctl-matrix run holds /mnt/vmstore/leandro/vm/ioctl-matrix.lock -- waiting for it
+[20:21:33] lock held, policy=profile 3072 MiB, load 600s --max 85
+[20:21:33] up desktop
+[20:22:43] up desktop2
+desktop: vhost-user-nvrm: VRAM profile 3072 MiB for this VM = 2816 MiB guest FB + 256 MiB reserved for RM's own device memory (LEA_VRAM_PROFILE_MIB / LEA_VRAM_RESERVE_MIB). The guest is told 2816 MiB and may allocate 2816 MiB; the reservation is not allocated, it is FB the guest is never offered. Overprovisioning is not checked here -- this backend cannot see the card or a sibling VM.
+desktop2: vhost-user-nvrm: VRAM profile 3072 MiB for this VM = 2816 MiB guest FB + 256 MiB reserved for RM's own device memory (LEA_VRAM_PROFILE_MIB / LEA_VRAM_RESERVE_MIB). The guest is told 2816 MiB and may allocate 2816 MiB; the reservation is not allocated, it is FB the guest is never offered. Overprovisioning is not checked here -- this backend cannot see the card or a sibling VM.
+[20:23:51] guests at 192.168.100.15 192.168.100.17
+[20:23:51] backend pids 3676313 3677825
+GEARS DID NOT START
+GEARS DID NOT START
+[20:24:06] fbprobe desktop before:   mmap  STATIC    reads 10/10  nonzero in 10 polls (peak 997/1024)  frame changed in 0/9 polls   gl    STATIC    reads 10/10  nonzero in 10 polls (peak 1024/102
+[20:24:12] fbprobe desktop2 before:   mmap  STATIC    reads 10/10  nonzero in 10 polls (peak 997/1024)  frame changed in 0/9 polls   gl    STATIC    reads 10/10  nonzero in 10 polls (peak 1024/102
+[20:24:12] starting the load in both guests
+[20:26:18] fbprobe desktop during: READER GREEN: 2 way(s) see moving, nonzero content. 
+[20:26:25] fbprobe desktop2 during: READER GREEN: 2 way(s) see moving, nonzero content. 
+/tmp/claude-1000/-home-silas-git-Leandro/f3fc191a-453c-4f97-8ba3-de299d29d9e3/scratchpad/vramrun.sh: line 159: unexpected EOF while looking for matching `"'

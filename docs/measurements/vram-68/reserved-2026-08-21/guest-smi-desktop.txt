@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MIT
+# guest-smi-desktop.txt, from the run -- reservation policy, 2026-08-21.
+name, memory.total [MiB], memory.used [MiB], memory.free [MiB]
+Leandro RTX 2070-2816M, 2816 MiB, 231 MiB, 2586 MiB

@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# scanout reader in the guest (scripts/guest/fbprobe.c) -- accounting policy, 2026-08-21.
+node /dev/dri/card0
+planes scanning out: 2
+  plane 50 (crtc 59) fb 67  1920x1080  XR24  modifier 0x300000000606014  1 dmabuf plane(s)
+  plane 55 (crtc 59) fb 68  256x256  AR24  modifier 0  1 dmabuf plane(s)
+watching plane 50 (1920x1080)
+1024 sample points, 10 polls, 250 ms apart
+
+EGL 1.5, vendor "NVIDIA", dmabuf modifiers yes
+CUDA: context on device 0
+
+
+== fbprobe verdict (plane 50, 1920x1080) ==
+  mmap  CONTENT   reads 10/10  nonzero in 10 polls (peak 997/1024)  frame changed in 8/9 polls
+  gl    CONTENT   reads 10/10  nonzero in 10 polls (peak 1024/1024)  frame changed in 8/9 polls
+  cuda  CONTENT   reads 10/10  nonzero in 10 polls (peak 1024/1024)  frame changed in 8/9 polls
+        route: GL interop (EGLImage -> owned texture -> cuGraphicsGLRegisterImage)
+
+READER GREEN: 3 way(s) see moving, nonzero content.

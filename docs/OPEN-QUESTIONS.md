@@ -885,6 +885,41 @@ make a GEM allocation fail, free the memory, and see whether the HOST
 compositor recovers. If the host recovers and a guest does not, the latch is
 ours. If neither recovers, it is vendor behaviour we inherit and only
 reservation avoids it. One run, host only.
+
+**2026-08-21: a run that did NOT freeze, and it narrows this entry.** The
+number 68 acceptance run put both guests at their own per-tenant limit and
+held them there for ten minutes -- `probe/bin/vrampress --max` in each, with
+`vkcube-wayland` drawing on the GNOME session. Measured
+(`docs/measurements/vram-68/`):
+
+  * **12482 and 13240 refused allocations**,
+    guest free VRAM down to **2 MiB**, the backends logging refusals
+    throughout (259 / 278 lines, the log keeps the first eight and every
+    hundredth).
+  * **No freeze.** `fbprobe` read `CONTENT` with the frame changing at three
+    separate points in each guest, including with the guest at its limit,
+    and after the load ended it was `GREEN` on all three readers.
+  * **Zero** `Failed to allocate NVKMS memory for GEM object` in either
+    guest's kernel log.
+
+**So a refusal at the tenant cap is not sufficient for the latch.** This
+entry's opening sentence -- that a per-tenant cap and a full card are
+indistinguishable from the guest -- holds for the SYMPTOM and not for the
+mechanism. What the recorded freeze had and this run did not is a failed
+allocation IN THE DISPLAY PATH: a CUDA allocator absorbs its own
+out-of-memory and asks again a millisecond later, while a compositor that
+cannot get a scanout buffer has nowhere to put the failure. **The
+reproduction therefore needs a load that makes the GEM/NVKMS path fail, not
+one that merely reaches the limit** -- which is also why the ownership
+question above (fill the host's card, fail a GEM allocation, free it, watch
+the HOST compositor) is still the run that would settle it.
+
+**And a calibration note for the host-side detector.** Under this load the
+healthy churn was **23-29 (medians 26 and 26, 17 windows per guest)** distinct per-backend values per 30 s,
+against the 29-43 measured with a game running. The frozen signature of 3-6
+was never approached, but the margin above the ~10 threshold is thinner than
+the game measurement suggests: the detector reads how much a workload
+ALLOCATES, so a quiet workload on a healthy guest sits closer to the line.
 ### 68. The VRAM cap is accounting, not a reservation
 **Open, raised 2026-08-21** out of the two-guest streaming runs and a read of
 NVIDIA's own vGPU code. Number 67 is the failure this causes; this is the
@@ -979,11 +1014,113 @@ stopped at one field.
   * Both belong to a consumer of this project (MeisterStack), because **this
     repo ships functionality, not a product.**
 
-**What would close THIS entry:** a reservation-based implementation on the
-`vram` branch that survives the number 67 reproduction -- the same two-guest
-1080p run that froze twice on 2026-08-21 -- with the reservation an explicit,
-configured, verified quantity rather than an emergent one. The A/B is exact,
-because the failing run is recorded.
+**BUILT AND MEASURED 2026-08-21, `vram` branch.** `LEA_VRAM_PROFILE_MIB`,
+opt-in, BESIDE the old cap rather than instead of it: `LEA_VRAM_LIMIT_MIB` is
+unchanged, still the default, still prints the same startup line word for
+word, so the two can be A/B'd on one rig. Setting both ends the backend
+before it serves anything -- they are two policies for one number, and
+ranking them would be a third policy nobody chose.
+
+The three quantities are vGPU's, and so are the names:
+
+    profileSize    LEA_VRAM_PROFILE_MIB    what the VM may cost the CARD
+    fbReservation  LEA_VRAM_RESERVE_MIB    held back, 256 MiB by default
+    fbLength       profileSize - reservation, what the GUEST gets
+
+**Nothing is allocated and nothing is held.** The reservation is framebuffer
+the guest is never told about and can therefore never ask for, sized from
+the ~175 MiB above so that what RM spends behind its back still fits inside
+the profile. It is a policy against a measured constant, not an enforcement
+against the card -- no part of this backend can see the card.
+
+**ONE NUMBER FOR BOTH HALVES OF WHAT THE GUEST EXPERIENCES.** `fbLength` is
+what `FB_GET_INFO`/`V2` answers AND what the ledger refuses at, so a guest
+cannot be told one number and refused at another. In the guest, under
+`--vram-profile 3072`:
+
+    Leandro RTX 2070-2816M, 2816 MiB total, 238 used, 2579 free
+
+The card's name carries the number the guest can actually use, not the
+profile it was cut from.
+
+**THE ACCEPTANCE RUN, 2026-08-21.** Two guests on one RTX 2070, 3072 MiB per
+VM, ten minutes of load in each, once per policy, nothing else changed. Data,
+runner and scorer: `docs/measurements/vram-68/`.
+
+The load is deliberately NOT the recorded workload: `probe/c/vrampress --max`
+(CUDA, 128 MiB blocks until something refuses, then blocks of varying size in
+and out at the ceiling) beside `vkcube-wayland` on each guest's GNOME
+session. It presses on the limit for ten minutes instead of walking up to it
+once, and it churns while it presses -- the host-side detector counts
+DISTINCT values, so a load that holds a constant amount is indistinguishable
+from a frozen guest.
+
+| | reservation, `--vram-profile 3072` | accounting, `--vram-limit 3072` | the recorded freeze |
+|---|---|---|---|
+| what the guest is told it has | **2816 MiB** | 3072 MiB | 3072 MiB |
+| combined charge to the card, peak | **5674 MiB** | **6186 MiB** | ~6494 MiB |
+| against the sum of the two numbers, 6144 | inside it by 470 | **over it by 42** | over it |
+| per backend, peak | 2841 / 2842 | 3099 / 3096 | 3242 / 3101 |
+| card used, peak | 6664 MiB | 7178 MiB | -- |
+| card free, MINIMUM | **1108 MiB** | 595 MiB | **1 MiB** |
+| churn, distinct values per 30 s | 23-29 (medians 26 and 26, 17 windows per guest) | 20-29 (medians 25 and 26, 18 windows per guest) | 3-6 when frozen |
+| `fbprobe` under load | `CONTENT`, frame changing | `CONTENT`, frame changing | `STATIC`, 0/8 |
+| refusals logged by the backend | 259 / 278 | 268 / 258 | 29, one guest |
+| `Failed to allocate NVKMS memory` | 0 and 0 | 0 and 0 | both guests |
+
+**WHAT THE A/B SHOWS, and what it does not.** Both policies were given the
+same number, 3072, and only one of them kept to it: the accounting run cost
+the card **512 MiB more** than the reservation run and left
+**513 MiB less** free on the card, because under it the guest
+may allocate the whole 3072 and RM's own device memory is charged on top.
+Neither run reached the 1 MiB floor -- this load is lighter on the card than
+the recorded one, having no game and no Moonlight decoders -- so the floor
+clause of the criterion is met by both, and the clause that separates them is
+the arithmetic: 5674 inside 6144 against 6186 outside it.
+
+**THE OVERHEAD, MEASURED AGAIN AND MUCH SMALLER.** Peak charge per backend
+was 2841 and 2842 MiB against a guest framebuffer of
+2816 MiB -- about 25 MiB of RM's own device memory, where the
+game-plus-NVENC-plus-stream workload cost ~175. **The reservation is
+therefore a knob and not a constant**, 256 MiB covered both, and this run is
+the second data point rather than the answer.
+
+**WHAT DID NOT HAPPEN, and it is the more interesting half.** Both guests sat
+at their own limit for ten minutes -- 12482 and
+13240 refused allocations, guest free VRAM down to 2 MiB --
+and neither froze. `fbprobe` read `CONTENT` at three separate points in each
+guest, and both guest kernels logged ZERO `Failed to allocate NVKMS memory
+for GEM object`. See number 67: a refusal at the tenant cap is not by itself
+the latch.
+
+**WHAT THE RUNS DO NOT SETTLE, named rather than left to be discovered:**
+
+  * **The load is not the recorded workload.** No game, no Steam, no
+    Moonlight client -- `encoder.stats.sessionCount` was 0 throughout, so the
+    ~595 MiB the two decoders cost the card is absent and the NVKMS path was
+    never pushed to failure. The A/B between the policies is exact; the third
+    column above is scale, not a control.
+  * **Overprovisioning is untested here on purpose.** Two 3072 profiles fit
+    this card. What a set that does NOT fit does is still recorded only in
+    number 67, and nothing in this repository refuses one: one backend serves
+    one VM and cannot see a sibling. That is the decision, not an omission --
+    admission control across tenants and scheduling belong to a CONSUMER of
+    this project (MeisterStack), because this repo ships functionality, not a
+    product. `docs/FUTURE.md` carries both.
+  * **The reservation is measured, not derived**, and it is enforced against
+    nothing: no part of this backend can see the card.
+  * **Managed memory is still outside both policies** -- it is pinned guest
+    RAM, bounded by `max_pin_mib`.
+
+**RESOLVED 2026-08-21**, on the four conditions fixed before the run: the
+combined charge stayed inside the sum of the profiles (5674 of 6144) where the
+old policy did not (6186); the card's free memory never approached the floor
+(1108 MiB against 1); the freeze detector never fired (23-29 distinct values per
+30 s against 3-6 when frozen); `fbprobe` read moving content in both guests
+under load; and `test.sh check` is 15 PASS (counted, not glanced at).
+What is left of the mechanism is in `docs/FUTURE.md`, and the failure mode
+this was raised out of is number 67, which this run narrows rather than
+closes.
 ## Resolved and decided
 
 ### 1. Does the descriptor table warrant a protocol change?

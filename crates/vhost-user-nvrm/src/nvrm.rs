@@ -272,9 +272,10 @@ pub struct NvrmDevice {
     /// host checks it: nothing may overlap, nothing may cross the window
     /// boundary.
     window: BTreeMap<u64, WindowMap>,
-    /// The VRAM cap. One ledger per device, i.e. per VM -- every session
-    /// charges the same counter, because the VM is the only boundary the
-    /// host can enforce (docs/FUTURE.md).
+    /// The VRAM policy and its counter. One ledger per device, i.e. per VM
+    /// -- every session charges the same counter, because the VM is the only
+    /// boundary the host can enforce (docs/FUTURE.md). Which policy, and
+    /// what it holds back, is [`crate::vram::Profile`].
     vram: std::sync::Arc<crate::vram::Ledger>,
 
     /// The device's OWN epoll set for host fds that announce RM events.

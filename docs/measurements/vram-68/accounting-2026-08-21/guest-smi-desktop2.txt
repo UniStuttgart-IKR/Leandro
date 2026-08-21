@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MIT
+# guest-smi-desktop2.txt, from the run -- accounting policy, 2026-08-21.
+name, memory.total [MiB], memory.used [MiB], memory.free [MiB]
+Leandro RTX 2070-3G, 3072 MiB, 229 MiB, 2844 MiB

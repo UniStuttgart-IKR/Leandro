@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MIT
+# policy.txt, from the run -- accounting policy, 2026-08-21.
+desktop: vhost-user-nvrm: VRAM cap 3072 MiB for this VM (LEA_VRAM_LIMIT_MIB)
+desktop2: vhost-user-nvrm: VRAM cap 3072 MiB for this VM (LEA_VRAM_LIMIT_MIB)

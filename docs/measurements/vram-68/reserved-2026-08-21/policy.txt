@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MIT
+# policy.txt, from the run -- reservation policy, 2026-08-21.
+desktop: vhost-user-nvrm: VRAM profile 3072 MiB for this VM = 2816 MiB guest FB + 256 MiB reserved for RM's own device memory (LEA_VRAM_PROFILE_MIB / LEA_VRAM_RESERVE_MIB). The guest is told 2816 MiB and may allocate 2816 MiB; the reservation is not allocated, it is FB the guest is never offered. Overprovisioning is not checked here -- this backend cannot see the card or a sibling VM.
+desktop2: vhost-user-nvrm: VRAM profile 3072 MiB for this VM = 2816 MiB guest FB + 256 MiB reserved for RM's own device memory (LEA_VRAM_PROFILE_MIB / LEA_VRAM_RESERVE_MIB). The guest is told 2816 MiB and may allocate 2816 MiB; the reservation is not allocated, it is FB the guest is never offered. Overprovisioning is not checked here -- this backend cannot see the card or a sibling VM.

@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+# host-smi-final.txt, from the run -- reservation policy, 2026-08-21.
+Fri Aug 21 20:34:47 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 610.57.04              KMD Version: 610.57.04     CUDA UMD Version: 13.3     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 2070        On  |   00000000:2D:00.0  On |                  N/A |
+| 84%   75C    P2             95W /  175W |    1489MiB /   8192MiB |     51%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A         3475293      G   Hyprland                                187MiB |
+|    0   N/A  N/A         3475343      G   kitty                                    48MiB |
+|    0   N/A  N/A         3475344      G   /usr/lib/firefox/firefox                 64MiB |
+|    0   N/A  N/A         3475414      G   Xwayland                                  2MiB |
+|    0   N/A  N/A         3475543    C+G   ...rack-uuid=3190708988185955192         79MiB |
+|    0   N/A  N/A         3475612      G   ...ice --variations-seed-version         85MiB |
+|    0   N/A  N/A         3477734    C+G   ...rack-uuid=3190708988185955192        247MiB |
+|    0   N/A  N/A         3497692      G   kitty                                    32MiB |
+|    0   N/A  N/A         3676313    C+G   ...arget/release/vhost-user-nvrm        245MiB |
+|    0   N/A  N/A         3677825    C+G   ...arget/release/vhost-user-nvrm        245MiB |
++-----------------------------------------------------------------------------------------+
