@@ -1562,6 +1562,31 @@ reopens it. Both are one `dmesg` and one `journalctl` away.
 **Six entries closed on one measurement**, which is what this entry predicted
 when it said *"Fixing the import is expected to resolve the rest; nothing
 above it needs its own fix."* That prediction held.
+
+**TWO HONEST LIMITS OF THAT RUN, recorded so the closure is not read as more
+than it is.**
+
+*The game exited on its own after about twenty minutes, and it exited
+CLEANLY.* No `SIGSEGV`, and `coredumpctl` lists four cores for the whole day,
+all of them the 32-bit `steam` client faulting in `libX11` at `0x4d0` during
+startup, none of them `ShadowOfTheTombRaider`. The crashing session of number
+44 left **six** cores including a 1.7 GB one for `WinMain`. So the exit is not
+the defect wearing a different hat.
+
+*No mapped window was ever confirmed.* `wmctrl` listed none, and `fbprobe`
+read the scanout as **STATIC** -- content present (peak 1014/1024) but
+unchanged across 9 polls. The game was demonstrably doing GPU work (2.2 GB of
+device memory, 49 threads, 16-17 % utilisation) but nothing here proves it
+reached the screen, and by number 30's rule that distinction has to be made
+rather than assumed.
+
+That matters less than it might, because number 44's crash arrives **15-20
+seconds after launch** -- during startup, at or before window mapping -- and
+this run passed that point by roughly sixty times without a fault. But a run
+that had reached a drawing game would be stronger evidence than one that may
+have sat in a loading screen, and the next attempt should confirm presentation
+with a reader that looks at pixels or with a human, exactly as `llm.md` says.
+
 ### 36. Two traps of our own making
 **Named.** An empty `LEA_DEBUG` switches the firehose *on*, because an
 empty value is still a set variable; and a cleanup path deleted the
@@ -2228,6 +2253,31 @@ identification. And the three lying diagnostics this entry fixed on the way
 (`CROSS-SESSION`, the FD-less failure log, the negative `unaccounted`) were
 never the crash and are still the reason it was hunted in the wrong place for
 a session.
+
+**TWO HONEST LIMITS OF THAT RUN, recorded so the closure is not read as more
+than it is.**
+
+*The game exited on its own after about twenty minutes, and it exited
+CLEANLY.* No `SIGSEGV`, and `coredumpctl` lists four cores for the whole day,
+all of them the 32-bit `steam` client faulting in `libX11` at `0x4d0` during
+startup, none of them `ShadowOfTheTombRaider`. The crashing session of number
+44 left **six** cores including a 1.7 GB one for `WinMain`. So the exit is not
+the defect wearing a different hat.
+
+*No mapped window was ever confirmed.* `wmctrl` listed none, and `fbprobe`
+read the scanout as **STATIC** -- content present (peak 1014/1024) but
+unchanged across 9 polls. The game was demonstrably doing GPU work (2.2 GB of
+device memory, 49 threads, 16-17 % utilisation) but nothing here proves it
+reached the screen, and by number 30's rule that distinction has to be made
+rather than assumed.
+
+That matters less than it might, because number 44's crash arrives **15-20
+seconds after launch** -- during startup, at or before window mapping -- and
+this run passed that point by roughly sixty times without a fault. But a run
+that had reached a drawing game would be stronger evidence than one that may
+have sat in a loading screen, and the next attempt should confirm presentation
+with a reader that looks at pixels or with a human, exactly as `llm.md` says.
+
 ### 45. `NV_ESC_ATTACH_GPUS_TO_FD` answers `-1` to Xwayland
 **Resolved 2026-08-20, and the cause was ours rather than the ioctl's.** A
 signal interrupted the guest module's wait for the host's reply AFTER the
