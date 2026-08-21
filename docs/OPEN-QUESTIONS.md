@@ -1123,6 +1123,106 @@ six.
 What is left of the mechanism is in `docs/FUTURE.md`, and the failure mode
 this was raised out of is number 67, which this run narrows rather than
 closes.
+### 69. A vGPU-shaped VRAM policy: the card names the numbers
+**Open, raised 2026-08-21** on the `vram-grid` branch, out of number 68 and
+a question it deliberately left alone: what does it cost to copy vGPU's
+model rather than borrow one field from it?
+
+Number 68's `LEA_VRAM_PROFILE_MIB` lets an operator pick a number and takes
+a measured reservation off it. Sizes are arbitrary, per VM, and nothing is
+bounded but framebuffer -- which was that entry's decided scope. This one
+takes the other road, constraint for constraint:
+
+  * a CATALOGUE derived from the card rather than a number from a person;
+  * one size for every VM on the card (vGPU's homogeneous placement);
+  * the guest framebuffer QUANTISED to whole VMMU segments;
+  * `maxInstance`, refused at CREATION;
+  * the VM named after its type, and told it is virtualised.
+
+**FIRST, THE CARD WAS ASKED.** `nvrm-client --bin vgpuprofile` sends two
+non-privileged controls -- `NV2080_CTRL_CMD_GPU_GET_VMMU_SEGMENT_SIZE`
+(0x2080017e; `flags = 0x10448` in `g_subdevice_nvoc.c` =
+`GSP_PLUGIN_FOR_VGPU_GSP | CACHEABLE | ROUTE_TO_PHYSICAL | NON_PRIVILEGED`,
+so an ordinary client may ask and the GSP answers) and `FB_GET_INFO_V2` --
+and this RTX 2070 says:
+
+    vmmu segment size   268435456 bytes = 256 MiB
+    fb total            8192 MiB      (TOTAL_RAM_SIZE)
+    usable heap         7771 MiB      (HEAP_SIZE)
+    free at that moment 6802 MiB      so the HOST desktop held 969
+
+**THE ARITHMETIC IS NVIDIA'S**, from `kvgpumgrSetSupportedPlacementIds`:
+
+    available    = ALIGN_UP(fbTotal, 8 * vmmuSegmentSize)          (:3797)
+    guestFb      = available / maxInstance - fbReservation - gspHeap
+    guestFb      = ALIGN_DOWN(guestFb, vmmuSegmentSize)            (:3803)
+    guestVmmuCount = guestFb / vmmuSegmentSize                     (:3805)
+
+and the reserve is DIVIDED among the instances rather than charged to each
+(`vgpuReservedFb = ALIGN_UP(totalReservedFb / maxInstance, segment)`,
+:3762). What is ours is what has to be: `fbReservation` and `gspHeapSize`
+are fields of a catalogue that lives behind the GSP
+(`memmgrGetVgpuHostRmReservedFb_KERNEL`, mem_mgr.c:3984), so ours is built
+from measurements -- the card's own carve-out, read, plus number 68's
+per-VM overhead. `gspHeapSize` is zero because there is no per-VM GSP
+plugin here.
+
+    type          max  profile   reserved   guest FB   segments   encoder%
+    RTX2070-8Q      1     8192       1792       6400         25       100
+    RTX2070-4Q      2     4096       1024       3072         12        50
+    RTX2070-2Q      4     2048        768       1280          5        25
+    RTX2070-1Q      8     1024        512        512          2        12
+
+**WHY 2Q GIVES 1280 AND NOT 2048**, because that number is the whole
+entry in miniature: 2048 is the profile (8192/4, and the `2` in the name is
+those 2 GiB); 1390 MiB is carved out of the card before any guest sees it
+(421 the card's own, 969 the host desktop's); a quarter of that is 348; plus
+256 MiB of measured per-VM overhead is 604; rounded UP to the card's 256 MiB
+VMMU segment is 768; and 2048 - 768 = 1280, which is 5 segments exactly.
+**164 of those MiB are lost to alignment alone**, because this card's
+granule is 256 MiB -- other chips use 32 (`ctrl2080gpu.h:3143`). That is
+number 68's "a 2 GiB profile yields less than 2 GiB" reproduced with our
+own numbers: reservation plus quantisation, and no unit confusion anywhere
+near it.
+
+**EVERY FIELD OF `VGPU_TYPE`, AND WHAT BECAME OF IT.** The struct is at
+`common_vgpu_mgr.h:95`; the "asked by" column is this repository's own
+trace catalogue (`matrix/catalog-610.57.04.json`), which records what the
+guest's libraries really call and how often.
+
+| vGPU field | what it is | asked by the guest | here |
+|---|---|---|---|
+| `profileSize` | what one VM costs the card | -- | **done**: derived, `8192 / maxInstance` |
+| `fbReservation` | held back per instance | -- | **done**: `(carve-out / maxInstance) + measured overhead`, rounded to a segment |
+| `fbLength` | what the guest sees | `FB_GET_INFO`/`V2`, 56 calls | **done**: quantised to whole VMMU segments |
+| `gspHeapSize` | the vGPU's GSP plugin heap | -- | **zero, and it says why**: there is no per-VM GSP plugin here |
+| `maxInstance` | how many fit | -- | **done**: refused at creation, `lea_vgpu_admit` |
+| `vgpuName` | `GRID RTX6000-2Q` | `GPU_GET_NAME_STRING`, 52 calls | **done**: `Leandro RTX2070-2Q` |
+| `encoderCapacity` | NVENC share, percent | `GPU_GET_ENCODER_CAPACITY`, 22 calls | **done**: `100 / maxInstance`, reported |
+| `frlConfig`, `frlEnable` | frame rate limiter | -- | **already borrowed** before this entry: `LEA_FRL_HZ` (`waiters.rs`) |
+| `numHeads`, `maxResolutionX/Y`, `maxPixels` | display bounds | no control -- vGPU enforces them in its plugin | **open**: this project builds the virtual display's EDID and mode list itself (`nvrm_edid.c`), so the bound belongs there, not in a mediated answer |
+| `bar1Length`, `mappableVideoSize` | the BAR1 aperture a VM gets | -- | **open**: the equivalent here is the host-visible window, which is 8 GiB and already reports `window full` when a guest exhausts it |
+| `cudaEnabled`, `eccSupported`, `multiVgpuSupported`, `gpuDirectSupported`, `nvlinkP2PSupported` | capability booleans | `QUERY_ECC_STATUS` 31 calls, others none | **open**, and only `eccSupported` has a control to answer through |
+| `channelCount`, `placementSize` | the VM's slice of the channel ID space | -- | **open**: vGPU reserves a channel range per VM (`vgpuMgrReserveSystemChannelIDs`); this backend forwards channel allocations into the host's single RM context and could count them, but nothing has measured a workload running out |
+| `vdevId`, `pdevId` | the PCI IDs the guest sees | `BUS_GET_PCI_INFO`, 34 calls | **deliberately not**: the guest driver matches device IDs against its own supported list, and a made-up one is a card the driver may refuse. The BDF is already mediated; the device ID is a different risk |
+| `license`, `licensedProductName`, `vgpuSignature` | GRID licensing | -- | **deliberately not, and not "later"**: `NV_GRID_LICENSED_PRODUCT_*` are product names for a licence nobody here holds. Claiming one is a lie with a legal shape, not a technical one. |
+| `gpuInstanceSize`, `maxInstancePerGI` | MIG partitioning | -- | **not applicable**: Turing has no MIG |
+
+**AND ONE THING vGPU DOES NOT HAVE, which had to be added:** the host is a
+tenant. A card running vGPU profiles runs nothing else; this one drives the
+machine's own desktop, and the 969 MiB it was holding when the catalogue
+was derived is not available to guests. `vgpuprofile` reads `HEAP_FREE` and
+subtracts it, which is why the 2Q row gives the guest 1280 MiB and not the
+1536 it gave before that was accounted for.
+
+**WHAT WOULD CLOSE THIS ENTRY:** a density benchmark that says whether the
+catalogue's numbers hold when several guests press at once -- and, above
+all, whether the admission it adds does what number 68 could not: keep a
+tenant from being starved by a neighbour. The uncapped baseline is already
+recorded (four VMs, `vrampress --max` in each): the four guests held
+**0, 128, 1920 and 4096 MiB**, one of them could not allocate a single
+block, and the card fell to **319 MiB free**.
+
 ## Resolved and decided
 
 ### 1. Does the descriptor table warrant a protocol change?
