@@ -334,7 +334,10 @@ impl NvrmDevice {
             tables,
             backend: None,
             window: BTreeMap::new(),
-            vram: crate::vram::Ledger::new(),
+            // A refused profile ends the backend here, before the socket
+            // exists: the guest then fails to start with the reason in
+            // this log, rather than coming up under a policy nobody chose.
+            vram: crate::vram::Ledger::new().map_err(|e| anyhow::anyhow!("{e}"))?,
             poll: Epoll::new().map_err(|e| anyhow::anyhow!("event epoll: {e}"))?,
             poll_srcs: HashMap::new(),
             poll_ids: HashMap::new(),

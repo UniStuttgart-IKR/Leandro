@@ -539,7 +539,8 @@ enum Action {
     /// "Managed light" (LEA_MANAGED_COMPAT=1): semantic no-op answers for
     /// the managed-only commands; the evidence sits at the execute branch.
     FakeManaged,
-    /// The VM is at its VRAM cap (LEA_VRAM_LIMIT_MIB). Answer exactly the
+    /// The VM is at its VRAM cap -- `LEA_VRAM_LIMIT_MIB`, or the guest
+    /// half of `LEA_VRAM_PROFILE_MIB`. Answer exactly the
     /// way the card answers when it is full -- ioctl 0, NVOS64.status =
     /// NV_ERR_NO_MEMORY -- so that libcuda produces an ordinary CUDA OOM.
     /// Measured reference at the execute branch.
@@ -2209,9 +2210,10 @@ impl Session {
             if let Some(n) = self.vram.count_refusal() {
                 eprintln!(
                     "vhost-user-nvrm: VRAM cap reached ({n}. refusal) -- {} of {} MiB in use, \
-                     allocation answered with NV_ERR_NO_MEMORY (LEA_VRAM_LIMIT_MIB)",
+                     allocation answered with NV_ERR_NO_MEMORY ({})",
                     self.vram.used() >> 20,
-                    self.vram.limit() >> 20
+                    self.vram.limit() >> 20,
+                    self.vram.knob()
                 );
             }
             0

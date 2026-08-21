@@ -63,38 +63,253 @@ const _: () = {
     assert!(ALLOC_FLAGS_VIRTUAL == sys::NVOS32_ALLOC_FLAGS_VIRTUAL);
 };
 
-/// The cap, in bytes. `LEA_VRAM_LIMIT_MIB`, default 0 = off.
+// ===========================================================================
+// The VM's memory profile
+// ===========================================================================
+// TWO POLICIES, one card, and exactly one of them is on at a time. The
+// older one is the default and is unchanged by anything here; the newer one
+// exists because the older one cannot see what it does not charge.
+//
+// ACCOUNTING (`LEA_VRAM_LIMIT_MIB`). The number is the GUEST's: it is what
+// the guest may allocate and what the guest is told it has, and the card
+// pays it PLUS whatever RM allocates behind the channel. Measured
+// 2026-08-21 on two 3072 MiB VMs streaming 1080p: the card was charged 3242
+// and 3101 MiB for guests reporting 3069 and 2919 -- so ~175 MiB per
+// backend that no cap could see, roughly constant rather than proportional,
+// and two 3072 caps were never 6144.
+//
+// RESERVED (`LEA_VRAM_PROFILE_MIB`, opt-in). The number is the CARD's. The
+// reservation comes off it first and what is left is the guest's, which is
+// the split NVIDIA's vGPU makes: `profileSize`, `fbReservation` and
+// `fbLength` are three separate fields of `VGPU_TYPE`
+// (vendor/open-gpu-kernel-modules, common_vgpu_mgr.h:95), computed up front
+// rather than discovered afterwards. Their number is closed --
+// `memmgrGetVgpuHostRmReservedFb_KERNEL` (mem_mgr.c:3984) forwards
+// `NV2080_CTRL_CMD_INTERNAL_MEMMGR_GET_VGPU_CONFIG_HOST_RESERVED_FB` to the
+// GSP and returns what the firmware says -- so ours is measured instead,
+// and it is a knob because that measurement belongs to a driver, a card and
+// a workload rather than to this source file.
+//
+// WHAT IS RESERVED, AND WHAT IS NOT. Nothing is allocated and nothing is
+// held. The reservation is FB the guest is never told about and can
+// therefore never ask for, sized so that what RM spends behind its back
+// still fits inside the profile. That is a policy against a measured
+// constant, NOT an enforcement against the card: this backend keeps no RM
+// client of its own (main.rs), so it cannot see the card's total or its
+// free memory, and one backend serves one VM with no path to a sibling.
+// Overprovisioning therefore stays possible and stays the operator's
+// decision -- docs/OPEN-QUESTIONS.md number 67 is what it looks like when
+// the sum of the profiles exceeds the card.
+
+/// `fbReservation` when the operator does not say otherwise, in MiB.
 ///
-/// Read ONCE. `std::env::var_os` scans `environ` linearly and takes a
-/// lock; at ~12 us per forwarded ioctl a per-message read would distort
-/// exactly the number this rig measures (docs/TESTING.md §2).
+/// The measurement it answers is ~175 MiB per backend (see above, and
+/// number 68). 256 is deliberately more: the measured number is a mean of
+/// three samples of one workload on one driver, the cost of being too
+/// generous is FB the guest does not get, and the cost of being too tight
+/// is number 67 -- a freeze that latches. Round numbers also make the
+/// arithmetic in a log line legible, which matters when the alternative is
+/// an operator doing it in their head at 2 a.m.
+pub const DEFAULT_RESERVATION_MIB: u64 = 256;
+
+/// Which of the two policies this backend runs, if either.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Policy {
+    /// No cap at all. The default, and what every run before 2026-08-21
+    /// measured.
+    Off,
+    /// `LEA_VRAM_LIMIT_MIB`: a per-VM counter charged at allocation time.
+    Accounting,
+    /// `LEA_VRAM_PROFILE_MIB`: the profile is what the VM may cost the
+    /// CARD, and the guest gets what is left after the reservation.
+    Reserved,
+}
+
+impl Policy {
+    /// The variable that set this policy, for a message that has to tell
+    /// an operator which knob to turn.
+    pub fn knob(self) -> &'static str {
+        match self {
+            Policy::Off => "no cap",
+            Policy::Accounting => "LEA_VRAM_LIMIT_MIB",
+            Policy::Reserved => "LEA_VRAM_PROFILE_MIB",
+        }
+    }
+}
+
+/// What this VM's memory costs and what of it the guest gets. All three
+/// numbers are bytes.
 ///
-/// The name is deliberately unlike both pin limits: `max_pin_mib` (guest
+/// The field names are vGPU's on purpose (`common_vgpu_mgr.h:95`): the
+/// distinction they carry is the entire content of number 68, and a reader
+/// who knows that header should not have to translate.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Profile {
+    pub policy: Policy,
+    /// `profileSize` -- what the VM may cost the CARD. Equal to `fb_length`
+    /// under `Accounting`, where nothing is held back.
+    pub size: u64,
+    /// `fbReservation` -- held back for RM's own device memory. Zero under
+    /// `Accounting`, which is the honest statement of what that policy
+    /// reserves.
+    pub reservation: u64,
+    /// `fbLength` -- what the guest is TOLD it has and what it may
+    /// allocate. One number for both, because a guest told one thing and
+    /// refused at another has been handed a card that contradicts itself.
+    pub fb_length: u64,
+}
+
+impl Profile {
+    /// No policy: the default configuration.
+    pub const OFF: Profile =
+        Profile { policy: Policy::Off, size: 0, reservation: 0, fb_length: 0 };
+
+    /// The old cap, in bytes -- for tests and for the `Accounting` path.
+    pub fn accounting(bytes: u64) -> Profile {
+        if bytes == 0 {
+            return Profile::OFF;
+        }
+        Profile {
+            policy: Policy::Accounting,
+            size: bytes,
+            reservation: 0,
+            fb_length: bytes,
+        }
+    }
+
+    /// The line this backend prints once, at startup. It is the only place
+    /// the three numbers appear together, so it spells the arithmetic out
+    /// rather than leaving it to be reconstructed from two of them.
+    pub fn announce(&self) -> Option<String> {
+        let mib = |b: u64| b >> 20;
+        match self.policy {
+            Policy::Off => None,
+            // Kept WORD FOR WORD: this line is grepped by rig scripts and
+            // appears in every measurement taken before 2026-08-21.
+            Policy::Accounting => Some(format!(
+                "VRAM cap {} MiB for this VM (LEA_VRAM_LIMIT_MIB)",
+                mib(self.size)
+            )),
+            Policy::Reserved => Some(format!(
+                "VRAM profile {} MiB for this VM = {} MiB guest FB + {} MiB reserved \
+                 for RM's own device memory (LEA_VRAM_PROFILE_MIB / \
+                 LEA_VRAM_RESERVE_MIB). The guest is told {} MiB and may allocate \
+                 {} MiB; the reservation is not allocated, it is FB the guest is \
+                 never offered. Overprovisioning is not checked here -- this \
+                 backend cannot see the card or a sibling VM.",
+                mib(self.size),
+                mib(self.fb_length),
+                mib(self.reservation),
+                mib(self.fb_length),
+                mib(self.fb_length),
+            )),
+        }
+    }
+}
+
+/// Decide the policy from the three raw variables, without touching the
+/// environment.
+///
+/// Pure so that the trap can be TESTED rather than described: an empty
+/// variable is a SET variable (`LEA_VRAM_LIMIT_MIB=""` is what
+/// `rig.sh` passes when nobody asked for a cap, docs/llm.md §3), and it
+/// must mean "off" here or every rig would run capped at nothing.
+///
+/// `Err` is for a configuration that has no honest reading and no safe
+/// default; the backend refuses to start on one. The two of them are
+/// exactly the contradictions: both policies at once, and a reservation
+/// that leaves the guest no framebuffer. Everything else -- a typo, a
+/// negative number, a unit -- warns and leaves that variable unset, which
+/// is the behaviour `LEA_VRAM_LIMIT_MIB` has always had.
+fn decide(
+    limit: Option<&str>, profile: Option<&str>, reserve: Option<&str>,
+) -> Result<(Profile, Vec<String>), String> {
+    let mut notes = Vec::new();
+    let mut mib = |name: &str, raw: Option<&str>| -> Option<u64> {
+        let s = raw?;
+        if s.trim().is_empty() {
+            // Not a note: this is the NORMAL shape of an unset knob as the
+            // rig passes it, and a warning on every run is a warning
+            // nobody reads.
+            return None;
+        }
+        match s.trim().parse::<u64>() {
+            Ok(0) => None,
+            Ok(v) => Some(v),
+            Err(_) => {
+                // Off, not "0 MiB": a cap of zero would fail every
+                // allocation, and a typo must not look like a policy.
+                notes.push(format!("{name}={s:?} unusable -- ignored"));
+                None
+            }
+        }
+    };
+    let limit = mib("LEA_VRAM_LIMIT_MIB", limit);
+    let size = mib("LEA_VRAM_PROFILE_MIB", profile);
+    let reserve = mib("LEA_VRAM_RESERVE_MIB", reserve);
+
+    if let (Some(l), Some(p)) = (limit, size) {
+        return Err(format!(
+            "LEA_VRAM_LIMIT_MIB={l} and LEA_VRAM_PROFILE_MIB={p} are both set. \
+             They are two policies for the same number and this backend will \
+             not pick one for you: the cap is what the GUEST may allocate, the \
+             profile is what the VM may cost the CARD. Set exactly one."
+        ));
+    }
+    let Some(size) = size else {
+        if reserve.is_some() {
+            notes.push(
+                "LEA_VRAM_RESERVE_MIB is set without LEA_VRAM_PROFILE_MIB -- \
+                 there is no profile to reserve from, so it does nothing"
+                    .to_string(),
+            );
+        }
+        return Ok((Profile::accounting(limit.unwrap_or(0) << 20), notes));
+    };
+    let reservation = reserve.unwrap_or(DEFAULT_RESERVATION_MIB);
+    if reservation >= size {
+        return Err(format!(
+            "LEA_VRAM_RESERVE_MIB={reservation} leaves nothing of \
+             LEA_VRAM_PROFILE_MIB={size}: the guest would be told it has a \
+             card with no memory. Raise the profile or lower the reservation."
+        ));
+    }
+    Ok((
+        Profile {
+            policy: Policy::Reserved,
+            size: size << 20,
+            reservation: reservation << 20,
+            fb_length: (size - reservation) << 20,
+        },
+        notes,
+    ))
+}
+
+/// The profile this process runs under, from the environment.
+///
+/// Read ONCE, at startup, by the one [`Ledger::new`]. `std::env::var` scans
+/// `environ` linearly and takes a lock; at ~12 us per forwarded ioctl a
+/// per-message read would distort exactly the number this rig measures
+/// (docs/TESTING.md §2).
+///
+/// The names are deliberately unlike both pin limits: `max_pin_mib` (guest
 /// module, cumulative over all pins) and `LEA_MAX_PIN_MIB` (host, one
 /// arena) already collide enough that only the log line tells them apart.
-fn limit_bytes() -> u64 {
-    use std::sync::OnceLock;
-    static LIMIT: OnceLock<u64> = OnceLock::new();
-    *LIMIT.get_or_init(|| {
-        let mib = match std::env::var("LEA_VRAM_LIMIT_MIB") {
-            Err(_) => 0,
-            Ok(s) => match s.trim().parse::<u64>() {
-                Ok(v) => v,
-                Err(_) => {
-                    // Off, not "0 MiB": a cap of zero would fail every
-                    // allocation, and a typo must not look like a policy.
-                    eprintln!(
-                        "vhost-user-nvrm: LEA_VRAM_LIMIT_MIB={s:?} unusable -- cap stays off"
-                    );
-                    0
-                }
-            },
-        };
-        if mib > 0 {
-            eprintln!("vhost-user-nvrm: VRAM cap {mib} MiB for this VM (LEA_VRAM_LIMIT_MIB)");
-        }
-        mib << 20
-    })
+fn profile_from_env() -> Result<Profile, String> {
+    let get = |n: &str| std::env::var(n).ok();
+    let (limit, profile, reserve) = (
+        get("LEA_VRAM_LIMIT_MIB"),
+        get("LEA_VRAM_PROFILE_MIB"),
+        get("LEA_VRAM_RESERVE_MIB"),
+    );
+    let (p, notes) = decide(limit.as_deref(), profile.as_deref(), reserve.as_deref())?;
+    for n in notes {
+        eprintln!("vhost-user-nvrm: {n}");
+    }
+    if let Some(line) = p.announce() {
+        eprintln!("vhost-user-nvrm: {line}");
+    }
+    Ok(p)
 }
 
 /// How many bytes of FB this `NV_ESC_RM_ALLOC` would occupy, or `None` if
@@ -281,7 +496,11 @@ pub struct ProcRow {
 ///     numbers whether or not anyone capped the VM.
 #[derive(Debug)]
 pub struct Ledger {
-    limit: u64,
+    /// What this VM costs the card and what of that the guest gets. The
+    /// ledger enforces `profile.fb_length` and nothing else -- the
+    /// reservation is not a second counter, it is FB that was never
+    /// offered.
+    profile: Profile,
     used: AtomicU64,
     /// sub_id -> what that guest process is and holds. A Mutex, not an
     /// atomic: it is touched on alloc/free and on the two list controls,
@@ -290,34 +509,61 @@ pub struct Ledger {
 }
 
 impl Ledger {
-    /// The backend's one ledger. The limit is read here, once per process.
-    pub fn new() -> Arc<Self> {
-        Arc::new(Ledger { limit: limit_bytes(), used: AtomicU64::new(0), roster: Mutex::default() })
+    /// The backend's one ledger. The profile is read here, once per
+    /// process.
+    ///
+    /// `Err` ends the backend before it serves anything: the two
+    /// configurations `decide` refuses have no honest reading, and a VM
+    /// that comes up under a policy nobody chose is worse than one that
+    /// does not come up.
+    pub fn new() -> Result<Arc<Self>, String> {
+        Ok(Self::with_profile(profile_from_env()?))
+    }
+
+    fn with_profile(profile: Profile) -> Arc<Self> {
+        Arc::new(Ledger { profile, used: AtomicU64::new(0), roster: Mutex::default() })
     }
 
     /// A ledger that never refuses -- for tests and for the fuzz target,
     /// which must reach the same code without an environment.
     pub fn off() -> Arc<Self> {
-        Arc::new(Ledger { limit: 0, used: AtomicU64::new(0), roster: Mutex::default() })
+        Self::with_profile(Profile::OFF)
     }
 
     /// A ledger with a limit set from the test rather than the
-    /// environment: a `OnceLock` read once per process cannot be varied
-    /// per test case.
+    /// environment: a process reads the environment once and cannot vary
+    /// it per test case.
     #[cfg(test)]
     pub fn for_test(limit: u64) -> Arc<Self> {
-        Arc::new(Ledger { limit, used: AtomicU64::new(0), roster: Mutex::default() })
+        Self::with_profile(Profile::accounting(limit))
+    }
+
+    /// The same, for the reserved policy, where the enforced number and
+    /// the paid-for number are deliberately not equal.
+    #[cfg(test)]
+    pub fn for_test_profile(profile: Profile) -> Arc<Self> {
+        Self::with_profile(profile)
     }
 
     /// Is the cap on at all? The whole path hangs off this, and it is a
     /// plain field read: with the cap off the hot path pays one `bool`.
     #[inline]
     pub fn enabled(&self) -> bool {
-        self.limit != 0
+        self.profile.fb_length != 0
     }
 
+    /// What the guest may allocate -- and, through [`rewrite_fb_info`],
+    /// what it is told it has. `fbLength`, never `profileSize`: telling a
+    /// guest the profile would promise it memory the reservation has
+    /// already spent.
     pub fn limit(&self) -> u64 {
-        self.limit
+        self.profile.fb_length
+    }
+
+    /// The whole profile, for the log lines that have to name the policy
+    /// rather than only its enforced half.
+    pub fn profile(&self) -> Profile {
+        self.profile
     }
 
     pub fn used(&self) -> u64 {
@@ -340,7 +586,7 @@ impl Ledger {
             // it would wrap and land BELOW the limit -- the one arithmetic
             // slip that turns a cap into an open door (docs/TESTING.md §1).
             let next = cur.saturating_add(bytes);
-            if self.limit != 0 && next > self.limit {
+            if self.profile.fb_length != 0 && next > self.profile.fb_length {
                 return false;
             }
             match self.used.compare_exchange_weak(
@@ -507,6 +753,13 @@ impl Books {
 
     pub fn limit(&self) -> u64 {
         self.ledger.limit()
+    }
+
+    /// Which variable set the policy that just refused. A refusal names
+    /// the knob that produced it or the operator has to guess which of the
+    /// two is on.
+    pub fn knob(&self) -> &'static str {
+        self.ledger.profile().policy.knob()
     }
 
     /// Bytes this session currently owes the ledger.
@@ -974,7 +1227,7 @@ mod tests {
         let any = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY);
         assert_eq!(request_bytes(0x40, &params(0, any, 4096)), Some(4096));
 
-        let led = Arc::new(Ledger { limit: 1 << 20, used: AtomicU64::new(0), roster: Mutex::default() });
+        let led = Ledger::for_test(1 << 20);
         let mut b = Books::new(7, led.clone());
         assert!(b.reserve(4096));
         assert_eq!(led.used(), 4096);
@@ -986,7 +1239,7 @@ mod tests {
 
     #[test]
     fn a_refused_alloc_gives_its_reservation_back() {
-        let led = Arc::new(Ledger { limit: 1 << 20, used: AtomicU64::new(0), roster: Mutex::default() });
+        let led = Ledger::for_test(1 << 20);
         let mut b = Books::new(7, led.clone());
         assert!(b.reserve(4096));
         b.settle(false, 0, Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: 0x5c0000ab, bytes: 4096 });
@@ -996,7 +1249,7 @@ mod tests {
 
     #[test]
     fn the_cap_refuses_and_lets_go_again() {
-        let led = Arc::new(Ledger { limit: 8192, used: AtomicU64::new(0), roster: Mutex::default() });
+        let led = Ledger::for_test(8192);
         let mut b = Books::new(7, led.clone());
         let vid = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM);
 
@@ -1019,7 +1272,7 @@ mod tests {
     fn freeing_a_parent_or_a_client_takes_the_children() {
         let vid = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM);
         for victim in [0x5c000002u32, 0xc1d8u32] {
-            let led = Arc::new(Ledger { limit: 1 << 30, used: AtomicU64::new(0), roster: Mutex::default() });
+            let led = Ledger::for_test(1 << 30);
             let mut b = Books::new(7, led.clone());
             for h in [0xaau32, 0xbb, 0xcc] {
                 assert!(b.reserve(4096));
@@ -1038,7 +1291,7 @@ mod tests {
     #[test]
     fn two_clients_may_use_the_same_handle_number() {
         let vid = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM);
-        let led = Arc::new(Ledger { limit: 1 << 30, used: AtomicU64::new(0), roster: Mutex::default() });
+        let led = Ledger::for_test(1 << 30);
         let mut b = Books::new(7, led.clone());
 
         assert!(b.reserve(4096));
@@ -1056,7 +1309,7 @@ mod tests {
     #[test]
     fn closing_the_fd_takes_what_rode_on_it() {
         let vid = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM);
-        let led = Arc::new(Ledger { limit: 1 << 30, used: AtomicU64::new(0), roster: Mutex::default() });
+        let led = Ledger::for_test(1 << 30);
         let mut b = Books::new(7, led.clone());
         b.reserve(4096);
         b.settle(true, vid, Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: 0xaa, bytes: 4096 });
@@ -1072,7 +1325,7 @@ mod tests {
     #[test]
     fn a_dying_session_pays_its_debt() {
         let vid = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM);
-        let led = Arc::new(Ledger { limit: 1 << 30, used: AtomicU64::new(0), roster: Mutex::default() });
+        let led = Ledger::for_test(1 << 30);
         {
             let mut b = Books::new(7, led.clone());
             for h in 0..10u32 {
@@ -1086,7 +1339,7 @@ mod tests {
 
     #[test]
     fn a_guest_word_cannot_wrap_the_counter() {
-        let led = Arc::new(Ledger { limit: 1 << 20, used: AtomicU64::new(0), roster: Mutex::default() });
+        let led = Ledger::for_test(1 << 20);
         let mut b = Books::new(7, led.clone());
         assert!(b.reserve(4096));
         // `size` is a guest word. 4096 + (u64::MAX - 4095) wraps to exactly
@@ -1513,4 +1766,146 @@ mod tests {
         b.announce(0);
         assert!(led.roster().is_empty());
     }
+
+    // =======================================================================
+    // The profile: which policy, and what each of them means by "the number"
+    // =======================================================================
+    // These test [`decide`] rather than the environment, so they can state
+    // the traps as assertions -- above all that an EMPTY variable is a SET
+    // variable (docs/llm.md §3), which is how the rig passes every knob
+    // nobody asked for.
+
+    const MIB: u64 = 1 << 20;
+
+    fn ok(limit: Option<&str>, profile: Option<&str>, reserve: Option<&str>) -> Profile {
+        decide(limit, profile, reserve).expect("configuration refused").0
+    }
+
+    #[test]
+    fn the_default_configuration_has_no_policy() {
+        assert_eq!(ok(None, None, None), Profile::OFF);
+        // ... and neither has the shape the rig actually passes.
+        let (p, notes) = decide(Some(""), Some(""), Some("")).unwrap();
+        assert_eq!(p, Profile::OFF);
+        assert!(notes.is_empty(), "an unset knob is not worth a warning: {notes:?}");
+    }
+
+    #[test]
+    fn the_old_cap_is_the_guests_number_and_reserves_nothing() {
+        let p = ok(Some("3072"), None, None);
+        assert_eq!(p.policy, Policy::Accounting);
+        assert_eq!(p.size, 3072 * MIB);
+        assert_eq!(p.reservation, 0, "accounting reserves nothing, and says so");
+        assert_eq!(p.fb_length, 3072 * MIB);
+        // The startup line is grepped and appears in every measurement
+        // taken before this policy existed. It does not move.
+        assert_eq!(
+            p.announce().unwrap(),
+            "VRAM cap 3072 MiB for this VM (LEA_VRAM_LIMIT_MIB)"
+        );
+    }
+
+    #[test]
+    fn a_profile_is_the_cards_number_and_the_reservation_comes_off_it() {
+        let p = ok(None, Some("3072"), None);
+        assert_eq!(p.policy, Policy::Reserved);
+        assert_eq!(p.size, 3072 * MIB, "what the VM may cost the card");
+        assert_eq!(p.reservation, DEFAULT_RESERVATION_MIB * MIB);
+        assert_eq!(p.fb_length, (3072 - DEFAULT_RESERVATION_MIB) * MIB);
+        assert_eq!(
+            p.size,
+            p.fb_length + p.reservation,
+            "the three numbers are one arithmetic, not three settings"
+        );
+        // The measured overhead this default is sized against: ~175 MiB per
+        // backend on 2026-08-21 (number 68). The reservation has to be
+        // larger, or it does not cover what it exists to cover.
+        assert!(p.reservation > 175 * MIB);
+    }
+
+    #[test]
+    fn the_reservation_is_a_knob_because_the_measurement_is_a_measurement() {
+        let p = ok(None, Some("3072"), Some("300"));
+        assert_eq!(p.reservation, 300 * MIB);
+        assert_eq!(p.fb_length, 2772 * MIB);
+    }
+
+    #[test]
+    fn two_policies_for_one_number_are_refused_rather_than_ranked() {
+        let e = decide(Some("3072"), Some("3072"), None).unwrap_err();
+        assert!(e.contains("both set"), "{e}");
+        // Neither wins by being first, last or larger.
+        assert!(decide(Some("1024"), Some("8192"), None).is_err());
+    }
+
+    #[test]
+    fn a_reservation_that_eats_the_profile_is_refused() {
+        assert!(decide(None, Some("256"), Some("256")).is_err());
+        assert!(decide(None, Some("128"), None).is_err(), "the default eats a small profile");
+        // One MiB of framebuffer is a policy, not a contradiction.
+        assert_eq!(ok(None, Some("257"), Some("256")).fb_length, MIB);
+    }
+
+    #[test]
+    fn an_unusable_value_is_ignored_with_a_note_rather_than_read_as_zero() {
+        let (p, notes) = decide(Some("3 GiB"), None, None).unwrap();
+        assert_eq!(p, Profile::OFF, "a typo must not look like a policy");
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].contains("LEA_VRAM_LIMIT_MIB"), "{:?}", notes[0]);
+        // A reservation without a profile reserves from nothing. That is
+        // worth a line, because the operator plainly meant something.
+        let (p, notes) = decide(None, None, Some("256")).unwrap();
+        assert_eq!(p, Profile::OFF);
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].contains("does nothing"), "{:?}", notes[0]);
+    }
+
+    /// THE POINT OF THE WHOLE POLICY, in one test: the guest is TOLD
+    /// `fbLength` and REFUSED at `fbLength`, and the profile it was cut
+    /// from is never promised to it. A guest told one number and refused at
+    /// another has been handed a card that contradicts itself -- which is
+    /// what number 67 looks like from inside the guest.
+    #[test]
+    fn the_guest_is_told_exactly_what_it_may_allocate() {
+        let p = ok(None, Some("3072"), None);
+        let led = Ledger::for_test_profile(p);
+        assert_eq!(led.limit(), p.fb_length);
+        assert!(led.limit() < p.size, "the reservation is real, or it is nothing");
+
+        // What the guest's nvidia-smi and every Vulkan client are told.
+        let mut v = fb_buf(&[
+            (FB_INFO_INDEX_TOTAL_RAM_SIZE, 0x800000),
+            (FB_INFO_INDEX_HEAP_SIZE, 0x797240),
+            (FB_INFO_INDEX_HEAP_FREE, 0x69f000),
+        ]);
+        assert_eq!(rewrite_fb_info(&mut v, led.limit(), led.used()), Some(3));
+        assert_eq!(fb_at(&v, 0), (p.fb_length / 1024) as u32, "total is fbLength");
+        assert_eq!(fb_at(&v, 1), (p.fb_length / 1024) as u32);
+        assert_eq!(fb_at(&v, 2), (p.fb_length / 1024) as u32, "and so is free, empty");
+
+        // ... and the card's name says the same number, not the profile.
+        assert_eq!(guest_card_name("NVIDIA GeForce RTX 2070", led.limit()), "Leandro RTX 2070-2816M");
+
+        // The enforced number is fbLength: the last byte of it goes in, the
+        // next one does not, and the reservation is never available.
+        let mut b = Books::new(1, led.clone());
+        assert!(b.reserve(p.fb_length));
+        assert!(!b.reserve(1), "the reservation is not spare change");
+        assert_eq!(led.used(), p.fb_length);
+    }
+
+    /// And the counter-check: under the OLD policy the guest is told the
+    /// whole cap, because nothing was held back from it. The two policies
+    /// differ in what the guest sees, which is the only place the
+    /// difference is observable from inside the VM.
+    #[test]
+    fn the_two_policies_show_the_guest_different_cards() {
+        let acct = Ledger::for_test(3072 * MIB);
+        let resv = Ledger::for_test_profile(ok(None, Some("3072"), None));
+        assert_eq!(acct.limit(), 3072 * MIB);
+        assert_eq!(resv.limit(), 2816 * MIB);
+        assert_eq!(acct.profile().size, resv.profile().size, "same bill to the card");
+        assert!(resv.limit() < acct.limit(), "and a different one to the guest");
+    }
+
 }
