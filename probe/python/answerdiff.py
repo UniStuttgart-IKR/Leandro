@@ -75,7 +75,7 @@ import traceread
 # The key normalisation lives in ONE place, for the reason guestdiff imports
 # it too: a second copy that drifted would key the evidence differently from
 # the catalogue it is judged against.
-from ioctlmatrix import MAP_MEMORY_NR
+from ioctlmatrix import MAP_MEMORY_NR, provenance_fields
 
 # The three things this file reads out of a trace -- the answer dumps, the
 # card's gpuId and the handles this side allocated -- used to be three
@@ -1057,6 +1057,8 @@ def main():
 
     js = {
         "provenance": [x for x in a.provenance.split("|") if x],
+        "provenance_fields": provenance_fields(
+            [x for x in a.provenance.split("|") if x]),
         "generated_by": "scripts/ioctl-matrix.sh verify",
         "method": (
             "the tracer's ctrlout lines -- the params buffer sampled BEFORE "

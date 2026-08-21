@@ -904,6 +904,47 @@ def collect_signatures(tdir, probes):
     return sigs
 
 
+def provenance_fields(lines):
+    """The provenance header as FIELDS, beside the human-readable lines.
+
+    WHY BOTH, and why this function exists at all (OPEN-QUESTIONS number 56):
+    every artefact carries its provenance as `driver:  610.57.04` and so on,
+    one string per line. That is right for a person and useless for a MERGE --
+    the question people ask is per ioctl across the drivers and cards it was
+    measured on, and answering it means joining catalogues on architecture and
+    driver. Joining on prose means parsing prose later, in a reader that does
+    not exist yet, against files written months apart. Number 56 says to make
+    the provenance structured NOW and merge later, for exactly that reason.
+
+    The strings stay. They are what a reader reads, several artefacts print
+    them verbatim, and dropping them to save a duplicate would break those for
+    no gain. These are DERIVED from the same lines, in one place, so the two
+    cannot drift.
+
+    `arch` is split from the compute capability, which the line bundles as
+    "Turing (compute 7.5)": an index wants to select on either.
+    """
+    out = {}
+    for ln in lines:
+        k, _, v = ln.partition(":")
+        k, v = k.strip(), v.strip()
+        if not k or not v:
+            continue
+        if k == "arch":
+            m = re.match(r"(.*?)\s*\(compute\s*([0-9.]+)\)\s*$", v)
+            if m:
+                out["arch"], out["compute_cap"] = m.group(1).strip(), m.group(2)
+                continue
+        if k == "commit":
+            # "8c0c627 (working tree modified)" -- the flag is a fact about the
+            # run and belongs in its own field, not in the middle of a sha.
+            out["tree_modified"] = "working tree modified" in v
+            out["commit"] = v.split()[0]
+            continue
+        out[k] = v
+    return out
+
+
 def hexint(s):
     try:
         return int(s, 16) if s.startswith("0x") else int(s)
@@ -1281,6 +1322,7 @@ def write_fieldmap(path, hdr, sizes, prov):
         structs[name] = {"size": size, "members": sizes.members(name)}
     js = {
         "provenance": prov,
+        "provenance_fields": provenance_fields(prov),
         "generated_by": "scripts/ioctl-matrix.sh trace (probe/python/ioctlmatrix.py --fieldmap-only)",
         "method": (
             "sizeof(S), offsetof(S, m) and sizeof(((S *)0)->m) are COMPILED, one "
@@ -1489,6 +1531,7 @@ def sortkey(r):
 def write_catalog(outdir, driver, prov, rows, probes, inv, gov, sizes, ev, evpath):
     js = {
         "provenance": prov,
+        "provenance_fields": provenance_fields(prov),
         "generated_by": "scripts/ioctl-matrix.sh catalog",
         "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, "
                          "the RM_ALLOC hClass, the NVKMS command on device "

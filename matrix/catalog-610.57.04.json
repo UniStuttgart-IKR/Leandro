@@ -4,9 +4,19 @@
     "gpu:     NVIDIA GeForce RTX 2070",
     "arch:    Turing (compute 7.5)",
     "kernel:  7.1.8-arch1-3",
-    "date:    2026-08-21T09:26:01Z",
-    "commit:  8c0c627 (working tree modified)"
+    "date:    2026-08-21T10:46:00Z",
+    "commit:  aed491d (working tree modified)"
   ],
+  "provenance_fields": {
+    "driver": "610.57.04",
+    "gpu": "NVIDIA GeForce RTX 2070",
+    "arch": "Turing",
+    "compute_cap": "7.5",
+    "kernel": "7.1.8-arch1-3",
+    "date": "2026-08-21T10:46:00Z",
+    "tree_modified": true,
+    "commit": "aed491d"
+  },
   "generated_by": "scripts/ioctl-matrix.sh catalog",
   "signature_key": "(device, ioctl nr, sub) -- sub is the RM_CONTROL cmd, the RM_ALLOC hClass, the NVKMS command on device 'modeset', or '-'",
   "answer_verification_evidence": "matrix/verified-610.57.04.json",
@@ -3545,7 +3555,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1031}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
+        "answer bytes compared against a native run: 374 call(s), 32 of 32 bytes, masked {'not-written': 1044}; NOT paired in egl-xlib, gl-enum, gl-render, gles, vk-offscreen, which judged nothing either way"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -5945,7 +5955,7 @@
         "none"
       ],
       "notes": [
-        "answer bytes compared against a native run: 3 call(s), 2192 of 2192 bytes, masked {'not-written': 553}"
+        "answer bytes compared against a native run: 3 call(s), 2192 of 2192 bytes, masked {'not-written': 556}"
       ],
       "status": "passthrough",
       "xlate_size": null
@@ -7760,9 +7770,7 @@
       "flags": [
         "none"
       ],
-      "notes": [
-        "answer bytes compared against a native run: 4 call(s), 32908 of 32908 bytes"
-      ],
+      "notes": [],
       "status": "passthrough",
       "xlate_size": null
     },
@@ -11818,7 +11826,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: capsTbl @8",
-        "answer bytes compared against a native run: 6 call(s), 22 of 22 bytes, masked {'not-written': 12}"
+        "answer bytes compared against a native run: 6 call(s), 22 of 22 bytes, masked {'not-written': 11}"
       ],
       "fields": [
         {
@@ -12062,7 +12070,7 @@
       ],
       "notes": [
         "pointer field(s), offsets compiled: engineList @8",
-        "answer bytes compared against a native run: 3 call(s), 52 of 52 bytes, masked {'nested-ptr': 6}"
+        "answer bytes compared against a native run: 3 call(s), 52 of 52 bytes, masked {'nested-ptr': 5}"
       ],
       "fields": [
         {

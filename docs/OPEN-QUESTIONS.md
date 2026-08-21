@@ -982,6 +982,53 @@ does when the second arrives. The cost of waiting is that an old catalogue
 may lack a field the merge wants, which argues for making the provenance
 structured now and merging later.
 
+**THE ENABLING CHANGE IS DONE, 2026-08-21.** This entry ends by arguing for
+it: *"the provenance in the JSON is currently an array of strings.
+Architecture and compute capability should be FIELDS, so the merge does not
+parse prose"*, and *"the cost of waiting is that an old catalogue may lack a
+field the merge wants, which argues for making the provenance structured now
+and merging later."* Every artefact the matrix writes now carries both:
+
+    "provenance": ["driver:  610.57.04", "arch:    Turing (compute 7.5)", ...]
+    "provenance_fields": {
+        "driver": "610.57.04", "gpu": "NVIDIA GeForce RTX 2070",
+        "arch": "Turing", "compute_cap": "7.5",
+        "kernel": "7.1.8-arch1-3", "date": "2026-08-21T10:42:39Z",
+        "commit": "aed491d", "tree_modified": true
+    }
+
+Three details, each deliberate:
+
+  * **the strings stay.** They are what a person reads and several artefacts
+    print them verbatim; dropping them to avoid a duplicate would break those
+    for no gain. The fields are DERIVED from the same lines, in one function
+    (`ioctlmatrix.provenance_fields`, imported by `guestdiff` and
+    `answerdiff`), so the two cannot drift;
+  * **`arch` and `compute_cap` are separate.** The line bundles them as
+    `Turing (compute 7.5)` and an index wants to select on either;
+  * **`tree_modified` is its own boolean.** It was a parenthesis inside the
+    commit string, which made the sha unparseable without knowing to strip
+    it.
+
+**THE SECOND DATA POINT HAS ARRIVED, BUT NOT FOR THIS AXIS, AND THE
+DISTINCTION IS THE WHOLE POINT OF THIS ENTRY.** A Blackwell card (RTX 5060
+Ti, compute 12.0, same driver 610.57.04) ran the GATES on 2026-08-21 and
+passed `gpu` 8/8 and `vdisplay` 6/6 — the README carries the matrix. That is
+a second `(architecture, driver)` observation about the BOUNDARY.
+
+It is not a second catalogue. Nobody has run `ioctl-matrix.sh` on that card,
+so `matrix/` still holds exactly one `catalog-*.json` and the index this
+entry describes would still have one column. **Building it remains premature
+for the reason stated above**, and the trigger is unchanged: a second
+`catalog-<driver>.json`, from any card.
+
+What the gate results do establish, and it is worth having before the index
+exists: the descriptor table's checksum and the virtual display's frame hash
+are IDENTICAL on the two architectures (`0xad009afd`,
+`0xb6a79817d7f4a5c3`), and PyTorch is bit-identical to native on both. So the
+first cross-architecture evidence says the surface did not move — which is a
+prediction the per-ioctl index would be able to check properly, and cannot
+yet.
 ### 57. A vendor manifest is registered nowhere, and a knob depends on it
 **Open, measured 2026-08-20.** Found while generalising number 53's rule.
 Of the ten host files that name an NVIDIA library, eight are written into
@@ -1311,6 +1358,57 @@ in those terms.
    at all. That answers the coverage question regardless of why NVML skips
    it, and it is the one step that does not depend on guessing NVML's
    reasoning.
+
+### 66. The control test proves stability on one side of the boundary only
+**Open, measured 2026-08-21.** A signature moved from `verified` to
+`mismatch` on a re-run that changed nothing but the guest traces, and the
+reason is a gap in the instrument rather than a change in the boundary.
+
+`ctl 0x2a 0x2080a0a8`, `unknown -- not in public headers`, in `nvml`, 32908
+bytes of answer, at offset 1064:
+
+| trace | word @1064 |
+|---|---|
+| native run | `0x001cd6d0` |
+| native CONTROL run (the second native trace) | `0x001cd6d0` |
+| guest run, 2026-08-21 sweep | `0x001d1168` |
+| guest run, previous sweep | matched the native value -- the signature was `verified` in the committed artefact |
+
+**So the word is STABLE across two native runs and VARIES across two guest
+runs**, and the control test cannot see that, because both of its variants
+compare native against native:
+
+  * the within-trace variant compares calls of one native run;
+  * the second-native-run variant compares call *i* of native run A against
+    call *i* of native run B.
+
+There is no guest-side variant, so a value that moves between guest runs is
+indistinguishable from a value the boundary got wrong. It lands in
+`mismatch`, which is the safe place for it, and it is why the mismatch class
+is not empty today after being empty yesterday.
+
+**What this is NOT.** It is not the `unstable` class doing its job -- that
+class means "native-against-native moved", and this did not. It is not a
+regression either: nothing in `xlate.rs`, the backend or the guest module
+changed between the two sweeps that produced the two guest values.
+
+**What would settle it**, and it is the exact mirror of what number 55 asked
+for on the native side: **a second GUEST run per probe**, unioned with the
+native control the same way. `trace` already takes a second native run for
+this reason (`<traces>/control/`); the guest phase takes one. A word that
+moves between two guest runs of the same probe is evidence for nothing, in
+either direction, and should be classified out rather than reported as a
+difference.
+
+The cost is one extra guest sweep per run -- about two minutes, measured --
+and the guest phase already loops over probes, so it is the same change
+`trace` took.
+
+**Until then, read a lone `mismatch` in this namespace with suspicion.** The
+`0x2080axxx` unknowns are where the counter-shaped values live: `0x2080a079`
+and `0x2080a097` are already recorded as moving between runs, and this is a
+third of the same shape. That is a hint about what the value is and it is not
+evidence -- which is the whole reason the class exists.
 
 ## Resolved and decided
 

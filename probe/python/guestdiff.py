@@ -55,7 +55,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 # The key normalisation lives in ONE place. Importing it rather than
 # repeating it is not tidiness: a second copy that drifted would compare two
 # differently-keyed sets and report the drift as a finding about the guest.
-from ioctlmatrix import MAP_MEMORY_NR                       # noqa: E402
+from ioctlmatrix import MAP_MEMORY_NR, provenance_fields  # noqa: E402
 import traceread                                            # noqa: E402
 
 
@@ -245,6 +245,8 @@ def main():
 
     js = {
         "provenance": [x for x in a.provenance.split("|") if x],
+        "provenance_fields": provenance_fields(
+            [x for x in a.provenance.split("|") if x]),
         "generated_by": "scripts/ioctl-matrix.sh guest",
         "compared": ("the signature set and the rm_status fingerprint per "
                      "signature, native against guest, both traced by the same "
