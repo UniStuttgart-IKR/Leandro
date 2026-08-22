@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# guest-snaps.csv, from the run -- sottr-4q policy, 2026-08-21.
+14:50:02,desktop,3072,2671,402,77
+14:50:02,desktop2,3072,2669,404,72
+14:52:03,desktop,3072,2393,680,79
+14:52:04,desktop2,3072,2360,713,79
+14:53:51,desktop,3072,2896,177,80
+14:53:51,desktop2,3072,2945,128,80
+14:56:43,desktop,3072,2457,616,99
+14:56:43,desktop2,3072,2536,537,98

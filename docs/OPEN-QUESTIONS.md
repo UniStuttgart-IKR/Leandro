@@ -1756,6 +1756,82 @@ thrash. Shadow of the Tomb Raider at a fixed resolution across these same
 sizes is the run that would show the third behaviour, and it is the one
 this rig has not done.
 
+### 71. The catalogue moves: a type is not one size twice
+**Open, raised 2026-08-22, found by starting two guests of the SAME type.**
+
+`vgpuprofile` derives the catalogue from the card and then subtracts **what
+the host is holding at that instant** (`in_use = heap - free`, overridable
+by `LEA_VGPU_HOST_RESERVE_MIB`). That subtraction was deliberate and its
+reasoning is still right -- vGPU never has to allow for a host desktop
+because its cards run nothing but guests, and a catalogue derived from the
+whole heap would hand out memory that is already spoken for.
+
+**But it is evaluated once per VM START, and every running guest counts as
+"the host".** So the second VM of a type is smaller than the first:
+
+    desktop  (started first):  RTX2070-4Q -- 3072 MiB guest FB, 12 segments
+    desktop2 (started second): RTX2070-4Q -- 2816 MiB guest FB, 11 segments
+
+Same type name, same command, one segment apart. With both up, the tool
+reports `host reserve: 1939 MiB` against the 874 MiB it reports when the
+card is idle -- the first guest's own memory is inside the number the
+second guest's profile is derived from.
+
+**WHY THIS MATTERS MORE THAN THE 256 MiB.** Number 69 argues for the
+catalogue over a per-VM number on exactly one ground: *"`RTX2070-1Q` is a
+promise the manager can check before the VM starts"*. A promise whose value
+depends on how many promises have already been kept is not checkable. It
+also breaks the admission arithmetic silently, because `lea_vgpu_admit`
+sums `profile_size` values that were each computed against a different
+card, and the density runs in 69 only agreed with each other because every
+guest in them was started from the same near-idle state.
+
+**IT IS NOT A LEAK AND NOT A RACE.** Every number is correct for the moment
+it was taken. The defect is that a CATALOGUE is supposed to be a property of
+the CARD, and this one is a property of the card *and the clock*.
+
+**THE FIX IS ALREADY IN THE TOOL AND IS ONE LINE OF POLICY:** pin
+`LEA_VGPU_HOST_RESERVE_MIB` and the catalogue stops moving. Measured the
+same minute:
+
+    LEA_VGPU_HOST_RESERVE_MIB=1024 -> RTX2070-4Q, 3072 MiB, 12 segments
+    LEA_VGPU_HOST_RESERVE_MIB=1100 -> RTX2070-4Q, 3072 MiB, 12 segments
+
+-- stable across the reserve value too, because the alignment absorbs it.
+What is NOT yet decided is where that number should come from: a
+measurement of the host at rest (874 MiB idle here, and a desktop that
+later opens a browser invalidates it), a fixed budget the operator declares,
+or a floor the launcher enforces by refusing to start guests that would
+push the host below it. **The third is the only one that stays true**, and
+it is the same shape as the admission rule 69(b) already added -- which
+argues for deriving the catalogue ONCE, from a declared host budget, and
+treating a host that exceeds it as the error rather than silently shrinking
+every guest that follows.
+
+**WHAT WOULD CLOSE IT:** decide where the host budget comes from, derive
+the catalogue from that alone, and prove it by starting N guests of one
+type in any order and getting N identical guest framebuffers. The run is
+cheap -- two 4Q, started in both orders.
+
+**AND THE SOTTR RUN ADDED THE SECOND HALF OF THIS, 2026-08-22.** Two
+guests, both `RTX2070-4Q`, both promised 3072 MiB. Under a 1080p benchmark
+the HOST was charged **3130 and 3184 MiB** for them -- and the card ran to
+**1 MiB free** while the ledger never refused a single allocation (0
+`NV_ERR_NO_MEMORY` across the whole session). The gap is the CUDA/graphics
+context and the driver's own per-process pages, which `nvidia-smi` counts
+against the process and the ledger does not charge.
+
+So a profile understates what it costs the card by roughly **110 MiB per
+VM at load**, and the error is in the direction that matters: two 4Q
+profiles sum to 6144 by the catalogue and cost **6243** in fact. **The
+physical card runs out before the configured limit does**, which means the
+limit never gets to do its job -- the tenant is not refused politely, the
+card is simply full. For a consumer doing capacity planning this is the
+number that has to be right, so it belongs beside the reserve question
+rather than in a footnote: whatever the host budget ends up being derived
+from, the per-VM overhead has to be part of the profile's cost, not
+discovered afterwards.
+
 ## Resolved and decided
 
 ### 1. Does the descriptor table warrant a protocol change?

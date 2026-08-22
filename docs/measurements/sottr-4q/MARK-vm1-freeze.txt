@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: MIT
+# MARK-vm1-freeze.txt, from the run -- sottr-4q policy, 2026-08-21.
+14:54:52

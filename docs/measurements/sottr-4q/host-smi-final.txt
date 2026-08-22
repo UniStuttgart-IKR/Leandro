@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT
+# host-smi-final.txt, from the run -- sottr-4q policy, 2026-08-21.
+Sat Aug 22 14:56:46 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 610.57.04              KMD Version: 610.57.04     CUDA UMD Version: 13.3     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 2070        On  |   00000000:2D:00.0  On |                  N/A |
+| 97%   87C    P2            140W /  175W |    6206MiB /   8192MiB |    100%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A          538067      G   kitty                                    58MiB |
+|    0   N/A  N/A          554326    C+G   ...arget/release/vhost-user-nvrm       2607MiB |
+|    0   N/A  N/A          556683    C+G   ...arget/release/vhost-user-nvrm       2668MiB |
+|    0   N/A  N/A          779013      G   kitty                                    14MiB |
+|    0   N/A  N/A         3475293      G   Hyprland                                187MiB |
+|    0   N/A  N/A         3475343      G   kitty                                    20MiB |
+|    0   N/A  N/A         3475344      G   /usr/lib/firefox/firefox                 50MiB |
+|    0   N/A  N/A         3475414      G   Xwayland                                  2MiB |
+|    0   N/A  N/A         3475543    C+G   ...rack-uuid=3190708988185955192         79MiB |
+|    0   N/A  N/A         3475612      G   ...ice --variations-seed-version         71MiB |
+|    0   N/A  N/A         3477734    C+G   ...rack-uuid=3190708988185955192        147MiB |
+|    0   N/A  N/A         3497692      G   kitty                                    24MiB |
++-----------------------------------------------------------------------------------------+

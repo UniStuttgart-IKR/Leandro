@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: MIT
+# refusals.csv, from the run -- sottr-4q policy, 2026-08-21.
+ts,vm,refusals,delta

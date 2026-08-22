@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: MIT
+# host-ram-final.txt, from the run -- sottr-4q policy, 2026-08-21.
+               total        used        free      shared  buff/cache   available
+Mem:           32006       26322         447       16552       22312        5684
+Swap:          32767        6342       26425
