@@ -1832,6 +1832,174 @@ rather than in a footnote: whatever the host budget ends up being derived
 from, the per-VM overhead has to be part of the profile's cost, not
 discovered afterwards.
 
+### 72. A branch is not a layout, and R610 already carries two
+**Open, raised 2026-09-14 out of the first multi-version sweep.** The support
+policy this work is built on says that a minor release joins its branch
+automatically when the manifest matches. The second half of that sentence
+carries all of it, and the first half invites the reading that a BRANCH is a
+layout. It is not.
+
+Measured 2026-09-14, `cargo xtask abi` over twelve open-gpu-kernel-modules
+tags, classifying the whole bound footprint (982 to 1181 types and 2803 to
+2930 constants, depending on the version):
+
+| within a branch | verdict |
+|---|---|
+| 580.167.08, 580.173.02, 580.178.04 | identical, all three |
+| 595.91.07, 595.99.02 | identical |
+| 610.43.02, 610.43.03 | identical |
+| **610.43.x to 610.57.04** | **append-only** |
+
+Across branches every remaining pair is breaking, 570 to 575 and 590 to 595
+included.
+
+**So four of the five branch-internal comparisons are free and the fifth is
+not.** `NV0080_CTRL_FB_GET_COMPBIT_STORE_INFO_PARAMS` gained
+`NV_DECLARE_ALIGNED(NvU64 cbcRegionSize, 8)` at the end between 610.43 and
+610.57 -- 80 to 88 bytes, every old offset unchanged, and it is the ONLY
+difference in the whole footprint between those two tags. One header file
+differs between them; one struct in it.
+
+**What is open is not the measurement, it is what the policy promises.** Two
+things follow from the number above and neither is decided:
+
+  * the doc must not say "a branch is a supported unit". It has to say that a
+    manifest is, and that a branch usually has one -- with this counterexample
+    named, because a reader who assumes otherwise will add 610.57.04 as a
+    minor of an existing layout and be wrong by eight bytes;
+  * the generator names a layout module after the first version that
+    introduced it, which for this branch yields `v610` and then a second
+    module for 610.57.04 with no good name. `v610_57` is honest and ugly;
+    `v611` is a lie. Nothing is decided.
+
+**What would close it:** one sentence in the policy and one naming rule, and
+then the generator can stop being asked the question. The measurement does not
+need repeating -- the manifests are committed and a reader can check the claim
+with a diff.
+
+### 73. A renamed type with an identical body is indistinguishable from a removal
+**Open, raised 2026-09-14.** Between 595.99.02 and 610.43.02 NVIDIA renamed two
+allocation-parameter structs and kept the old spelling as a macro:
+
+    595:  typedef struct { NvU32 size; NvU32 prohibitMultipleInstances;
+                           NvU32 engineInstance; } NV_BSP_ALLOCATION_PARAMETERS;
+    610:  typedef struct { ...the same three fields... } NV_NVDEC_ALLOCATION_PARAMETERS;
+          #define NV_BSP_ALLOCATION_PARAMETERS NV_NVDEC_ALLOCATION_PARAMETERS
+
+`NV_MSENC_` to `NV_NVENC_` is the same change. The body is byte for byte the
+same and the classifier reports "absent in 595.99.02, new in 610.43.02" one
+way and "absent in 610.43.02" the other. Both reports are true and neither is
+useful.
+
+**This is two defects wearing one face, and only the first is ours.**
+
+  * **The footprint is written in one version's vocabulary.** `[footprint]`
+    names `NV_NVDEC_ALLOCATION_PARAMETERS`, which resolves on 610 and later
+    and on nothing older, so 580 and 595 do not bind that struct AT ALL --
+    not under either name. That is a hole in the binding, not a
+    classification artefact, and adding the old spelling to the footprint
+    closes it.
+  * **Even with both names bound, abi.toml cannot say that one became the
+    other.** A rename would still read as a removal plus an addition, which
+    is exactly the shape a genuinely dropped struct has.
+
+**The size of the surrounding problem, measured the same day:** of the names
+the five supported versions bind, **289 types and 195 constants are absent on
+at least one of them**. Most of that is the surface growing rather than
+anything being renamed -- 244 types exist on 615.71.09 and not on 580.178.04
+-- but nothing today separates "new" from "renamed", and the two want
+different answers.
+
+**What would close it:** decide whether abi.toml gets a way to state a rename,
+and have the generator offer the candidates rather than leaving them to be
+spotted. A name that is absent in exactly the OLDER versions, beside a name
+that is absent in exactly the NEWER ones, with the same field list, is a
+rename with high confidence and the generator can list those pairs without
+being told.
+
+### 74. The virtual display's class does not exist before R595
+**Open, raised 2026-09-14, found while vendoring headers rather than by a
+run.** `class/cla083.h` and `ctrl/ctrla083.h` are not in the 580.178.04 SDK at
+all, and not in 570.211.01, 575.64.05 or 590.48.01 either. They appear in
+595.91.07. So `NVA083_GRID_DISPLAYLESS` -- the class the virtual display
+invents, the class number 16's failing control belongs to, and the class
+`vdisp_control` answers on the module's own -- **arrives with R595**.
+
+Measured 2026-09-14, NVA083 names bound per version:
+
+| version | constants | types |
+|---|---|---|
+| 570.211.01, 575.64.05, 580.178.04, 590.48.01 | 0 | 0 |
+| 595.91.07, 595.99.02 | 18 | 6 |
+
+`crates/nvrm-sys/wrapper.h` now guards the two includes with `__has_include`,
+so a 580 binding is buildable and the names are reported absent instead of
+invented. That is the mechanical half and it is done.
+
+**The half that is open is what a 580 target MEANS for the display path.**
+NVKMS asks `NVA083_CTRL_CMD_VIRTUAL_DISPLAY_GET_NUM_HEADS` in
+`DisplaylessRmGetConnectedDpys` (number 16 quotes the vendor source). A 580
+NVKMS cannot be asking for a class its own SDK does not define, so either the
+displayless path is shaped differently there or it is not present at all --
+and number 25 is about that path being forced in the first place. Nothing in
+this tree has ever run against a 580 guest userspace.
+
+**What would close it:** read 580.178.04's `nvkms-rm.c` for what it does when
+a GPU has no connectors. That is a source read, not a run, and it decides
+whether "supported on 580" can honestly include the display half or has to
+say compute only.
+
+### 75. Every version pair is breaking, and the word has stopped carrying information
+**Open, raised 2026-09-14, and it is a question about what the footprint is
+FOR.** The classification over the five supported versions:
+
+| pair | identical | append-only | breaking | constants changed |
+|---|---|---|---|---|
+| 580.178.04 to 595.99.02 | 911 | 3 | 96 | 84 |
+| 595.99.02 to 610.43.02 | 939 | 1 | 168 | 97 |
+| 610.43.02 to 610.57.04 | 1092 | 1 | 0 | 0 |
+| 610.57.04 to 615.71.09 | 1064 | 2 | 118 | 18 |
+
+**And almost none of it is on the boundary.** The breaking entries are
+overwhelmingly controls nothing in this tree intercepts --
+`NV2080_CTRL_INTERNAL_*`, NVLINK, C2C, BOARDOBJ, GPU accounting -- pulled in
+by the wide patterns (`NV2080_.*`, `NV0080_.*`) that the footprint inherited
+from `build.rs`. What the boundary actually reads is about twenty structs, and
+they barely move. Measured across TWELVE versions, 570.211.01 to 615.71.09: of
+the **30** allocation-parameter structs in the footprint, exactly **five**
+change anywhere, and two of those five are number 73's rename:
+
+    NV_VASPACE_ALLOCATION_PARAMETERS        48 -> 56   at 580.167.08
+    NV_CHANNEL_ALLOC_PARAMS                368 -> 376  at 610.43.02
+    NV_CHANNEL_GROUP_ALLOCATION_PARAMETERS  20 -> 28   at 615.71.09
+    NV_NVDEC_/NV_NVENC_ALLOCATION_PARAMETERS   renamed at 610.43.02
+
+`NVOS02/21/32/33/54/64_PARAMETERS`, `NV_MEMORY_ALLOCATION_PARAMS`,
+`NV_MEMORY_DESC_PARAMS`, `NV_CTXSHARE_ALLOCATION_PARAMETERS`, `NvUnixEvent`,
+`NvKmsIoctlParams` and `nv_ioctl_card_info_t` are byte-identical on all
+twelve. `NVOS46_PARAMETERS` moves once, 56 to 64 at 580.167.08, which is the
+V580 boundary the guard in `nvrm-abi/src/nvgpu.rs` already names.
+
+**So the classification is correct and its headline is useless.** A verdict
+that says "breaking" for every pair cannot be the thing a person reads to
+decide whether a version is cheap to add.
+
+**The question, and it is a design question rather than a measurement:**
+should `[footprint]` be split in two -- a MEDIATED core whose breakage is a
+decision, and the remainder, bound because the crate binds it and classified
+for the record? The argument for is the table above. The argument against is
+that the split is a hand-maintained list of exactly the kind this design set
+out to have none of, and that a struct moves from "unused" to "mediated" the
+day somebody intercepts one more ioctl -- at which point a version that was
+declared cheap silently was not.
+
+**What would close it:** pick between two shapes. Either the core is derived
+(the structs `crates/nvrm-abi/src/nvgpu.rs` guards and the structs
+`xlate.rs` sizes, both of which are already lists in the code and could be
+read rather than retyped), or the report simply leads with the core's verdict
+and keeps one verdict overall. The first is more work and cannot go stale; the
+second is free and can.
+
 ## Resolved and decided
 
 ### 1. Does the descriptor table warrant a protocol change?

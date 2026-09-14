@@ -106,15 +106,40 @@ allocations the guest made through us.
 not of measuring it.
 
 ### Multiple driver versions at once
-Everything is pinned to the single version in `DRIVER_VERSION`, and
-`assert_driver_version()` panics rather than let a mismatch misread struct
-offsets. That is honest, and it means guest and host must match exactly.
+**Half delivered, 2026-09-14.** `crates/nvrm-sys` now carries a measured
+layout per driver version — 580.178.04, 595.99.02, 610.57.04 and 615.71.09 —
+generated from `abi.toml` and the vendored headers by `cargo xtask abi`, with
+a committed manifest per version as the evidence. The backend reads the
+running driver once in `nvrm::serve` and everything below it is generic over
+`A: RmAbi`. `assert_driver_version()` survives for the single-version
+diagnostics; the backend uses `detect()`, which refuses an unmeasured version
+rather than approximating it.
 
-*How:* the descriptor tables would have to become version-indexed rather
-than version-locked — the host already knows which version it is serving,
-so it could send the table for that version. The hard part is not the
-protocol but keeping several sets of `xlate.rs` knowledge correct at once,
-and having a card and a driver to test each against.
+What is NOT done, and the second half is the harder one:
+
+  * **The descriptor table is still built for one version at a time.** It is
+    now `table::build::<A>()` rather than `table::build()`, so the shape is
+    there, but the guest module is compiled against the header
+    `nvrm-genhdr` emits for `DRIVER_VERSION` and the stream it interprets is
+    that one. A guest on a different driver than the one the module was built
+    for is still not a thing this tree can do. What it would take is the
+    protocol carrying the version, which it nearly does already: the stream
+    has a checksum both sides compare at every run.
+  * **Nothing has been run against a driver other than 610.57.04.** Every
+    claim above is a layout measured from headers and checked by the
+    compiler. The gates have seen one driver. Until `ioctl-matrix.sh` runs on
+    a second, "supported" means "the offsets are right", not "it works".
+  * **The workspace cannot be built without the `DRIVER_VERSION` feature.**
+    `nvrm-trace`, `nvrm-genhdr` and the `nvrm-client` diagnostics are
+    deliberately single-version and reach for `DefaultAbi`. That is correct
+    for what they are -- a tracer runs beside one driver -- but it means the
+    feature matrix is "each version alone in `nvrm-sys`", not "each version
+    alone in the workspace".
+  * **Seven constants cannot go through the trait at all.** The NVA083
+    virtual-display numbers do not exist before R595, so there is no value to
+    give a 580 implementation. They are reached through
+    `sys::default_version`, and what that means for a 580 target is
+    OPEN-QUESTIONS number 74.
 
 ### More architectures than Turing
 Only Turing has ever run this. The class tables cover Fermi through
