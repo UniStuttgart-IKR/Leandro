@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+
+# `cargo xtask <task>` -- repository automation that needs the workspace's own
+# toolchain and dependencies. The one task today is `abi`, which regenerates
+# the multi-version NVIDIA RM bindings from crates/nvrm-sys/abi.toml.
+[alias]
+xtask = "run --quiet --package xtask --"

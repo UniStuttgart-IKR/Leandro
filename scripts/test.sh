@@ -509,18 +509,21 @@ no_markers() {
 # The nix derivation fetches a SPARSE checkout, and bindgen is handed a list
 # of include directories. Those are the same list in two files, and nothing
 # made them agree until 2026-08-21, when they drifted: the NVKMS work
-# (OPEN-QUESTIONS 48) added kernel-open/nvidia-modeset to
-# crates/nvrm-sys/build.rs and to wrapper.h and not to
-# nix/packages/nvidia-headers.nix. Every local build stayed green -- a
-# checkout has the whole vendor tree and only the derivation is sparse -- and
-# `nix build` died on `'nvkms-ioctl.h' file not found`, which names the
-# symptom and not the cause.
+# (OPEN-QUESTIONS 48) added kernel-open/nvidia-modeset to the bindgen include
+# list and to wrapper.h and not to nix/packages/nvidia-headers.nix. Every
+# local build stayed green -- a checkout has the whole vendor tree and only
+# the derivation is sparse -- and `nix build` died on `'nvkms-ioctl.h' file
+# not found`, which names the symptom and not the cause.
+#
+# The list moved out of crates/nvrm-sys/build.rs when that file was deleted:
+# the crate source is generated and committed now, and the only bindgen run
+# left in the tree is the generator's.
 #
 # Comments are stripped before the lists are read: both files legitimately
 # mention these paths in prose, and a reader that matched prose would pass
 # for the wrong reason.
 nix_sparse_dirs() {
-    local nixf=nix/packages/nvidia-headers.nix rsf=crates/nvrm-sys/build.rs
+    local nixf=nix/packages/nvidia-headers.nix rsf=crates/xtask/src/abi/mod.rs
     [[ -f $nixf && -f $rsf ]] || { echo "missing $nixf or $rsf"; return 1; }
     local want have
     want=$(sed -n '/const INCLUDE_DIRS/,/^];/p' "$rsf" \
@@ -566,10 +569,45 @@ foreign_reason() {
     echo "instances of another rig are running: $names -- a gate will not touch a rig it did not start. Stop them:${cmd% } (an interrupted gate leaves its own rig up; the display gate's is 'desktop')"
 }
 
+# The first pattern is WORD-BOUNDED, and that is not tidiness. NVIDIA has a
+# constant called NV0000_CTRL_SYSTEM_RMTRACE_MODULE_RCJOURNAL, and the
+# generated ABI manifests list every constant this workspace binds by name --
+# five files, one hit each, none of them a reference to anything. An unbounded
+# pattern turned this check red on machine output that cannot be edited.
+# The generated half of crates/nvrm-sys, checked two ways.
+#
+# A run of `cargo xtask abi` must produce NO diff. The crate source is
+# committed and so are the manifests it was measured from; if a regeneration
+# moves either, the source a caller compiles against and the evidence a reader
+# checks have come apart, and neither of them says so on its own.
+#
+# And the version features must be what they claim to be. "Additive" is a
+# property, not a sentence: each version's module has to compile with only its
+# own feature on, and all of them together, or some pair of them shares a name
+# it should not. The workspace build with every version enabled is the one
+# that would catch the root re-exporting a version module by accident.
+#
+# Needs libclang, the way this band always did -- the generator runs bindgen.
+# Nothing else in the tree does any more.
+abi_generated() {
+    cargo xtask abi --check || return 1
+    local v f
+    while read -r v; do
+        f="v${v%%.*}"
+        cargo build --quiet -p nvrm-sys --no-default-features --features "$f" || {
+            echo "nvrm-sys does not build with only $f enabled"; return 1; }
+    done < <(lea_supported_drivers)
+    cargo build --quiet -p nvrm-sys --all-features || {
+        echo "nvrm-sys does not build with every version enabled at once"; return 1; }
+    cargo build --quiet --workspace --all-features || {
+        echo "the workspace does not build with every version enabled at once"; return 1; }
+    echo "abi: no diff; $(lea_supported_drivers | wc -l) versions, each alone and all together"
+}
+
 dangling_refs() {
     local J='JOURNA''L' P='prompt''s/' hits
     hits=$(git ls-files | grep -vE "^(vendor/|patches/|crates/vhost-user-nvrm/fuzz/corpus/|${P}|docs/${J}\.md$)" \
-           | while IFS= read -r f; do [[ -f $f ]] || continue; grep -InE "${J}|${P}" "$f" /dev/null; done)
+           | while IFS= read -r f; do [[ -f $f ]] || continue; grep -InE "\\b${J}\\b|${P}" "$f" /dev/null; done)
     [[ -z $hits ]] && return 0
     echo "references to material that is not in the public tree:"
     echo "$hits"
@@ -624,6 +662,7 @@ do_check() {
     step "kapi-abi"             kapi_abi
     step "bash -n"              shell_syntax
     step "licence"              licence_headers
+    step "abi"                  abi_generated
     step "nix-sparse"           nix_sparse_dirs
     step "dangling-refs"        dangling_refs
     step "no-markers"           no_markers

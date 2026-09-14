@@ -51,11 +51,13 @@ lea_matrix_check_driver() {
     running=$(lea_matrix_driver)
     want=$(lea_want_driver)
     [[ $running == "$want" ]] && return 0
-    error "driver lockstep: running $running, this tree targets $want.
+    error "driver lockstep: running $running, this run targets $want.
 The catalogue resolves signatures against vendor/ headers at $want, so a
 trace taken under $running would be resolved against the wrong structs.
-Fix: boot the pinned driver, or move DRIVER_VERSION and re-fetch
-     (./scripts/build.sh vendor)."
+Fix: boot the targeted driver, or point the RUN at the running one --
+     export LEA_DRIVER=$running && ./scripts/build.sh vendor
+That leaves DRIVER_VERSION alone; it is what the tree is BUILT for, and a
+catalogue is a record of what was MEASURED."
     return 1
 }
 

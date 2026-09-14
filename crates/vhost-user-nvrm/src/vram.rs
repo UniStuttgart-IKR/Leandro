@@ -31,6 +31,7 @@
 //! Evidence and the counter-examples are at [`request_bytes`].
 
 use std::collections::{BTreeMap, HashMap};
+use nvrm_sys::RmAbi;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -1258,7 +1259,7 @@ fn cap_fb_entries(list: &mut [u8], asked: usize, limit: u64, used: u64) -> Optio
 
 /// `NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS`: `gpuNameStringFlags` @0,
 /// `ascii[64]` @4 (ctrl2080gpu.h:338, `NV2080_GPU_MAX_NAME_STRING_LENGTH` = 64).
-pub use nvrm_abi::mediate::{NAME_MAX, NAME_OFF};
+pub use nvrm_abi::mediate::{name_max, name_off};
 
 /// The name the guest's `nvidia-smi` prints for the card.
 ///
@@ -1283,7 +1284,7 @@ pub use nvrm_abi::mediate::{NAME_MAX, NAME_OFF};
 /// truncated into a lie about the profile size, so it is dropped whole
 /// instead. Spelling the prefix out cost four of those 64 bytes, so the
 /// budget is: 8 for `"Leandro "`, 55 for the base plus suffix, 1 for the NUL.
-pub fn guest_card_name(real: &str, profile: Profile) -> String {
+pub fn guest_card_name<A: RmAbi>(real: &str, profile: Profile) -> String {
     // The vGPU-shaped policy does not decorate the card's own name -- it
     // REPLACES it, because under that policy the guest is not running on
     // an RTX 2070 with less memory, it is running on a type out of a
@@ -1291,7 +1292,7 @@ pub fn guest_card_name(real: &str, profile: Profile) -> String {
     // stands where NVIDIA writes `GRID` or `NVIDIA`.
     if profile.policy == Policy::Grid && !profile.vgpu_type.is_empty() {
         let full = format!("Leandro {}", profile.vgpu_type);
-        return if full.len() < NAME_MAX { full } else { "Leandro GPU".to_string() };
+        return if full.len() < name_max::<nvrm_sys::DefaultAbi>() { full } else { "Leandro GPU".to_string() };
     }
     let limit = profile.fb_length;
     let base = real
@@ -1313,11 +1314,11 @@ pub fn guest_card_name(real: &str, profile: Profile) -> String {
     };
 
     let full = format!("Leandro {base}{suffix}");
-    if full.len() < NAME_MAX {
+    if full.len() < name_max::<nvrm_sys::DefaultAbi>() {
         return full;
     }
     let short = format!("Leandro {base}");
-    if short.len() < NAME_MAX {
+    if short.len() < name_max::<nvrm_sys::DefaultAbi>() {
         return short;
     }
     // Nothing sensible fits. Say the one thing that matters and stop.
@@ -1328,19 +1329,19 @@ pub fn guest_card_name(real: &str, profile: Profile) -> String {
 ///
 /// Returns `None` if the buffer is not this structure -- the caller then
 /// forwards RM's own name rather than inventing one.
-pub fn rewrite_gpu_name(aux: &mut [u8], profile: Profile) -> Option<String> {
-    if aux.len() < NAME_OFF + NAME_MAX {
+pub fn rewrite_gpu_name<A: RmAbi>(aux: &mut [u8], profile: Profile) -> Option<String> {
+    if aux.len() < name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>() {
         return None;
     }
-    let raw = &aux[NAME_OFF..NAME_OFF + NAME_MAX];
-    let end = raw.iter().position(|&c| c == 0).unwrap_or(NAME_MAX);
+    let raw = &aux[name_off::<nvrm_sys::DefaultAbi>()..name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>()];
+    let end = raw.iter().position(|&c| c == 0).unwrap_or(name_max::<nvrm_sys::DefaultAbi>());
     let real = String::from_utf8_lossy(&raw[..end]).to_string();
 
-    let name = guest_card_name(&real, profile);
+    let name = guest_card_name::<nvrm_sys::DefaultAbi>(&real, profile);
     let b = name.as_bytes();
-    let n = b.len().min(NAME_MAX - 1);
-    aux[NAME_OFF..NAME_OFF + n].copy_from_slice(&b[..n]);
-    for byte in aux[NAME_OFF + n..NAME_OFF + NAME_MAX].iter_mut() {
+    let n = b.len().min(name_max::<nvrm_sys::DefaultAbi>() - 1);
+    aux[name_off::<nvrm_sys::DefaultAbi>()..name_off::<nvrm_sys::DefaultAbi>() + n].copy_from_slice(&b[..n]);
+    for byte in aux[name_off::<nvrm_sys::DefaultAbi>() + n..name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>()].iter_mut() {
         *byte = 0;
     }
     Some(name)
@@ -1864,12 +1865,12 @@ mod tests {
     #[test]
     fn the_card_says_what_it_is() {
         let real = "NVIDIA GeForce RTX 2070";
-        assert_eq!(guest_card_name(real, Profile::OFF), "Leandro RTX 2070");
-        assert_eq!(guest_card_name(real, Profile::accounting(2048 << 20)), "Leandro RTX 2070-2G");
-        assert_eq!(guest_card_name(real, Profile::accounting(1024 << 20)), "Leandro RTX 2070-1G");
-        assert_eq!(guest_card_name(real, Profile::accounting(1536 << 20)), "Leandro RTX 2070-1536M");
+        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::OFF), "Leandro RTX 2070");
+        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::accounting(2048 << 20)), "Leandro RTX 2070-2G");
+        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::accounting(1024 << 20)), "Leandro RTX 2070-1G");
+        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::accounting(1536 << 20)), "Leandro RTX 2070-1536M");
         assert_eq!(
-            guest_card_name("NVIDIA A100-SXM4-40GB", Profile::accounting(10240 << 20)),
+            guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA A100-SXM4-40GB", Profile::accounting(10240 << 20)),
             "Leandro A100-SXM4-40GB-10G"
         );
     }
@@ -1886,28 +1887,28 @@ mod tests {
         // rather than being truncated into a wrong profile size.
         let b53 = "X".repeat(53);
         assert_eq!(
-            guest_card_name(&format!("NVIDIA GeForce {b53}"), Profile::accounting(2048 << 20)),
+            guest_card_name::<nvrm_sys::DefaultAbi>(&format!("NVIDIA GeForce {b53}"), Profile::accounting(2048 << 20)),
             format!("Leandro {b53}")
         );
         // 8 + 56 = 64 -> even the bare name does not fit. Say the one thing
         // that matters and stop.
         let b56 = "X".repeat(56);
-        assert_eq!(guest_card_name(&format!("NVIDIA GeForce {b56}"), Profile::accounting(2048 << 20)), "Leandro GPU");
+        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(&format!("NVIDIA GeForce {b56}"), Profile::accounting(2048 << 20)), "Leandro GPU");
         // and the longest name that DOES fit still fits, to the last byte
         let b55 = "X".repeat(55);
-        assert_eq!(guest_card_name(&format!("NVIDIA GeForce {b55}"), Profile::OFF).len(), 63);
+        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(&format!("NVIDIA GeForce {b55}"), Profile::OFF).len(), 63);
     }
 
     #[test]
     fn the_name_is_written_nul_terminated() {
-        let mut v = vec![0xffu8; NAME_OFF + NAME_MAX];
+        let mut v = vec![0xffu8; name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>()];
         let real = b"NVIDIA GeForce RTX 2070";
-        v[NAME_OFF..NAME_OFF + real.len()].copy_from_slice(real);
-        v[NAME_OFF + real.len()] = 0;
-        assert_eq!(rewrite_gpu_name(&mut v, Profile::accounting(2048 << 20)).as_deref(), Some("Leandro RTX 2070-2G"));
-        let end = v[NAME_OFF..].iter().position(|&c| c == 0).unwrap();
-        assert_eq!(&v[NAME_OFF..NAME_OFF + end], b"Leandro RTX 2070-2G");
-        assert!(v[NAME_OFF + end..].iter().all(|&c| c == 0), "the tail is padded, not left over");
+        v[name_off::<nvrm_sys::DefaultAbi>()..name_off::<nvrm_sys::DefaultAbi>() + real.len()].copy_from_slice(real);
+        v[name_off::<nvrm_sys::DefaultAbi>() + real.len()] = 0;
+        assert_eq!(rewrite_gpu_name::<nvrm_sys::DefaultAbi>(&mut v, Profile::accounting(2048 << 20)).as_deref(), Some("Leandro RTX 2070-2G"));
+        let end = v[name_off::<nvrm_sys::DefaultAbi>()..].iter().position(|&c| c == 0).unwrap();
+        assert_eq!(&v[name_off::<nvrm_sys::DefaultAbi>()..name_off::<nvrm_sys::DefaultAbi>() + end], b"Leandro RTX 2070-2G");
+        assert!(v[name_off::<nvrm_sys::DefaultAbi>() + end..].iter().all(|&c| c == 0), "the tail is padded, not left over");
     }
 
     /// A caller that never stated who it is has no guest PID -- and an
@@ -2044,7 +2045,7 @@ mod tests {
         assert_eq!(fb_at(&v, 2), (p.fb_length / 1024) as u32, "and so is free, empty");
 
         // ... and the card's name says the same number, not the profile.
-        assert_eq!(guest_card_name("NVIDIA GeForce RTX 2070", p), "Leandro RTX 2070-2816M");
+        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", p), "Leandro RTX 2070-2816M");
 
         // The enforced number is fbLength: the last byte of it goes in, the
         // next one does not, and the reservation is never available.
@@ -2124,7 +2125,7 @@ mod tests {
     #[test]
     fn the_grid_card_is_named_after_its_type() {
         let p = decide(grid("RTX2070-2Q", "2048", "1536")).unwrap().0;
-        assert_eq!(guest_card_name("NVIDIA GeForce RTX 2070", p), "Leandro RTX2070-2Q");
+        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", p), "Leandro RTX2070-2Q");
 
         // ... and the sizes it is told are the type's, not the card's.
         let led = Ledger::for_test_profile(p);
@@ -2142,11 +2143,11 @@ mod tests {
     #[test]
     fn the_older_policies_keep_their_names() {
         assert_eq!(
-            guest_card_name("NVIDIA GeForce RTX 2070", Profile::accounting(3072 * MIB)),
+            guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", Profile::accounting(3072 * MIB)),
             "Leandro RTX 2070-3G"
         );
         assert_eq!(
-            guest_card_name("NVIDIA GeForce RTX 2070", ok(None, Some("3072"), None)),
+            guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", ok(None, Some("3072"), None)),
             "Leandro RTX 2070-2816M"
         );
     }

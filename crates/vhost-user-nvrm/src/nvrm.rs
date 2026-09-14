@@ -61,6 +61,7 @@ use nvrm_abi::sys;
 use nvrm_wire::{self as proto, Kind, Req, Rsp};
 
 use crate::session::{Pollable, Session};
+use nvrm_sys::RmAbi;
 
 type Mem = GuestMemoryAtomic<GuestMemoryMmap<()>>;
 type NvVring = VringRwLock<Mem>;
@@ -246,7 +247,7 @@ enum PollSrc {
 /// client fd -- 0 is not a client handle RM hands out).
 type PollKey = (u32, u64, u32);
 
-pub struct NvrmDevice {
+pub struct NvrmDevice<A: RmAbi> {
     mem: Option<Mem>,
     event_idx: bool,
     /// Guest process ID -> its session. The key is `Req.guest_proc`, the
@@ -261,7 +262,7 @@ pub struct NvrmDevice {
     /// the stopgap in `back_pool` (drop the older entry) was correct
     /// sequentially and a race under concurrency. Separate sessions solve
     /// it at the root: separate pools, separate tokens, separate mirrors.
-    sessions: BTreeMap<u32, Session>,
+    sessions: BTreeMap<u32, Session<A>>,
     /// How often a `fd_field_token` missed the caller's own mirror. Only for
     /// the diagnostic below; see there for what it is proving.
     fd_field_misses: u64,
@@ -313,9 +314,9 @@ pub struct NvrmDevice {
     waiters: crate::waiters::WaiterPoller,
 }
 
-impl NvrmDevice {
+impl<A: RmAbi> NvrmDevice<A> {
     fn new() -> anyhow::Result<Self> {
-        let tables = nvrm_abi::table::build();
+        let tables = nvrm_abi::table::build::<A>();
         eprintln!(
             "vhost-user-nvrm: tables v{} ready -- {} bytes, checksum {:#010x} \
              ({} ioctls, {} classes, {} controls, {} nested)",
@@ -812,7 +813,7 @@ impl NvrmDevice {
     /// devices, so in practice only memory can defeat it), the guest gets
     /// an error rather than being quietly attached to someone else's
     /// session.
-    fn session_for(&mut self, sub_id: u32) -> Option<&mut Session> {
+    fn session_for(&mut self, sub_id: u32) -> Option<&mut Session<A>> {
         if !self.sessions.contains_key(&sub_id) {
             // The guest assigns the IDs, so it must not be allowed to
             // assign arbitrarily many: every session holds host FDs and
@@ -828,7 +829,7 @@ impl NvrmDevice {
                 );
                 return None;
             }
-            match Session::detached_proc(sub_id, self.vram.clone()) {
+            match Session::<A>::detached_proc(sub_id, self.vram.clone()) {
                 Ok(s) => {
                     dlog!("new session for guest process {sub_id}");
                     self.sessions.insert(sub_id, s);
@@ -1360,7 +1361,7 @@ fn err_rsp(seq: u32, errno: i32) -> Vec<u8> {
     Rsp { seq, ret: -errno, ..Rsp::default() }.as_bytes().to_vec()
 }
 
-impl VhostUserBackendMut for NvrmDevice {
+impl<A: RmAbi> VhostUserBackendMut for NvrmDevice<A> {
     type Bitmap = ();
     type Vring = NvVring;
 
@@ -1451,11 +1452,33 @@ impl VhostUserBackendMut for NvrmDevice {
 }
 
 /// Serve as a vhost-user device on `socket` until the VMM hangs up.
+///
+/// THE dispatch point. The running driver is read once, here, turned into a
+/// [`nvrm_sys::DriverVersion`], and handed to [`nvrm_sys::dispatch`], which
+/// picks the ABI type everything below is generic over. Nothing downstream
+/// ever asks again -- a session cannot be reading 610 structs for one message
+/// and 615 structs for the next, because there is no value to get wrong.
+///
+/// Guest and host driver versions are assumed equal, so the host's answer is
+/// the guest's answer too.
 pub fn serve(socket: &str) -> anyhow::Result<()> {
+    let version = nvrm_sys::detect()?;
+    eprintln!("vhost-user-nvrm: driver {} ABI", version.as_str());
+    struct Serve<'a>(&'a str);
+    impl nvrm_sys::AbiVisitor for Serve<'_> {
+        type Out = anyhow::Result<()>;
+        fn visit<A: RmAbi>(self) -> Self::Out {
+            serve_with::<A>(self.0)
+        }
+    }
+    nvrm_sys::dispatch(version, Serve(socket))
+}
+
+fn serve_with<A: RmAbi>(socket: &str) -> anyhow::Result<()> {
     // Which VM this process serves, taken from the socket path, for the
     // UUID the vGPU-shaped policy hands the guest (grid.rs).
     crate::grid::set_identity(socket);
-    let backend = Arc::new(RwLock::new(NvrmDevice::new()?));
+    let backend = Arc::new(RwLock::new(NvrmDevice::<A>::new()?));
     backend.write().unwrap().register_waiter_notify();
     let mut daemon = VhostUserDaemon::new(
         "vhost-user-nvrm".into(),
@@ -1626,17 +1649,17 @@ mod window_tests {
 mod device_tests {
     use super::*;
 
-    fn dev() -> NvrmDevice {
+    fn dev() -> NvrmDevice<nvrm_sys::DefaultAbi> {
         NvrmDevice::new().expect("NvrmDevice::new must work without a GPU")
     }
 
-    fn answer(d: &mut NvrmDevice, req: Req) -> Rsp {
+    fn answer(d: &mut NvrmDevice<nvrm_sys::DefaultAbi>, req: Req) -> Rsp {
         Rsp::from_bytes(&d.handle(req.as_bytes())).expect("every answer starts with a Rsp")
     }
 
     /// One GET_TABLES round trip: the response header plus the chunk that
     /// follows it.
-    fn get_tables(d: &mut NvrmDevice, addr: u64, map_len: u64) -> (Rsp, Vec<u8>) {
+    fn get_tables(d: &mut NvrmDevice<nvrm_sys::DefaultAbi>, addr: u64, map_len: u64) -> (Rsp, Vec<u8>) {
         let req = Req { seq: 3, kind: proto::KIND_GET_TABLES, addr, map_len, ..Req::default() };
         let out = d.handle(req.as_bytes());
         let rsp = Rsp::from_bytes(&out).expect("every answer starts with a Rsp");

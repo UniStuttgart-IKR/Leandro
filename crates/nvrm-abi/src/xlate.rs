@@ -22,6 +22,7 @@
 
 use crate::sys;
 use core::mem::{offset_of, size_of};
+use sys::RmAbi;
 
 /// Which class of device the call goes to. Decides the dispatch level:
 /// the frontend (ctl/gpu) uses _IOC encoding, UVM does not.
@@ -190,7 +191,7 @@ pub fn uvm_param_size(cmd: u32) -> Option<u32> {
 ///
 /// `None` means no compiled struct. UVM_DEINITIALIZE takes no parameter
 /// block at all and is the only command in the list without one.
-pub fn uvm_param_size_compiled(cmd: u32) -> Option<usize> {
+pub fn uvm_param_size_compiled<A: RmAbi>(cmd: u32) -> Option<usize> {
     Some(match cmd {
         uvm::INITIALIZE => size_of::<sys::UVM_INITIALIZE_PARAMS>(),
         uvm::PAGEABLE_MEM_ACCESS => size_of::<sys::UVM_PAGEABLE_MEM_ACCESS_PARAMS>(),
@@ -198,9 +199,9 @@ pub fn uvm_param_size_compiled(cmd: u32) -> Option<usize> {
         uvm::REGISTER_GPU_VASPACE => size_of::<sys::UVM_REGISTER_GPU_VASPACE_PARAMS>(),
         uvm::UNREGISTER_GPU_VASPACE => size_of::<sys::UVM_UNREGISTER_GPU_VASPACE_PARAMS>(),
         uvm::REGISTER_CHANNEL => size_of::<sys::UVM_REGISTER_CHANNEL_PARAMS>(),
-        uvm::UNREGISTER_CHANNEL => size_of::<sys::UVM_UNREGISTER_CHANNEL_PARAMS>(),
+        uvm::UNREGISTER_CHANNEL => size_of::<A::UvmUnregisterChannelParams>(),
         uvm::MAP_EXTERNAL_ALLOCATION => size_of::<sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS>(),
-        uvm::FREE => size_of::<sys::UVM_FREE_PARAMS>(),
+        uvm::FREE => size_of::<A::UvmFreeParams>(),
         uvm::REGISTER_GPU => size_of::<sys::UVM_REGISTER_GPU_PARAMS>(),
         uvm::MAP_DYNAMIC_PARALLELISM_REGION => size_of::<sys::UVM_MAP_DYNAMIC_PARALLELISM_REGION_PARAMS>(),
         uvm::ALLOC_SEMAPHORE_POOL => size_of::<sys::UVM_ALLOC_SEMAPHORE_POOL_PARAMS>(),
@@ -232,16 +233,16 @@ pub fn uvm_param_size_compiled(cmd: u32) -> Option<usize> {
 /// Reading past the end of a caller's struct is the bug this file has had
 /// before -- 88 bytes past a foreign one -- so a class that cannot be
 /// measured gets no dump rather than a guessed one.
-pub fn alloc_param_size_compiled(hclass: u32) -> Option<usize> {
+pub fn alloc_param_size_compiled<A: RmAbi>(hclass: u32) -> Option<usize> {
     Some(match hclass {
         0x003e | 0x0040 | 0x50a0 | 0x90ce => size_of::<sys::NV_MEMORY_ALLOCATION_PARAMS>(),
         0x0071 => size_of::<sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS>(),
         0x0080 => size_of::<sys::NV0080_ALLOC_PARAMETERS>(),
         0x90f1 => size_of::<sys::NV_VASPACE_ALLOCATION_PARAMETERS>(),
-        0xa06c => size_of::<sys::NV_CHANNEL_GROUP_ALLOCATION_PARAMETERS>(),
+        0xa06c => size_of::<A::TsgParams>(),
         0x9067 => size_of::<sys::NV_CTXSHARE_ALLOCATION_PARAMETERS>(),
         0x906f | 0xa06f | 0xa16f | 0xb06f | 0xc06f | 0xc36f | 0xc46f | 0xc56f
-        | 0xc86f | 0xc96f | 0xca6f => size_of::<sys::NV_CHANNEL_ALLOC_PARAMS>(),
+        | 0xc86f | 0xc96f | 0xca6f => size_of::<A::AllocChannelParams>(),
         0x902d | 0xa140 | 0xc597 | 0xc5c0 | 0xc697 | 0xc6c0 | 0xc797 | 0xc7c0
         | 0xc997 | 0xc9c0 | 0xcb97 | 0xcbc0 | 0xcd40 | 0xcd97 | 0xcdc0
         | 0xce97 | 0xcec0 => size_of::<sys::NV_GR_ALLOCATION_PARAMETERS>(),
@@ -434,7 +435,7 @@ mod uvm_size_tests {
         macro_rules! check {
             ($t:ty, $($hclass:expr),+) => {{
                 $(
-                    let hand = alloc_param_size($hclass)
+                    let hand = alloc_param_size::<sys::DefaultAbi>($hclass)
                         .expect("class is in the hand-written table");
                     assert_eq!(
                         hand as usize, size_of::<$t>(),
@@ -517,7 +518,7 @@ mod uvm_size_tests {
         ];
         for cmd in cmds {
             let hand = uvm_param_size(cmd).expect("in the hand-written table");
-            let compiled = uvm_param_size_compiled(cmd).expect("has a struct");
+            let compiled = uvm_param_size_compiled::<sys::DefaultAbi>(cmd).expect("has a struct");
             assert_eq!(
                 hand as usize, compiled,
                 "UVM command {cmd:#x}: the table says {hand} bytes, the compiler {compiled}"
@@ -526,7 +527,7 @@ mod uvm_size_tests {
         assert_eq!(cmds.len(), 22, "every command with a compiled struct is checked");
         // The one command that genuinely has no parameter block.
         assert_eq!(uvm_param_size(uvm::DEINITIALIZE), Some(0));
-        assert_eq!(uvm_param_size_compiled(uvm::DEINITIALIZE), None);
+        assert_eq!(uvm_param_size_compiled::<sys::DefaultAbi>(uvm::DEINITIALIZE), None);
     }
 }
 
@@ -612,7 +613,7 @@ pub struct Embedded {
 /// # Safety
 /// `buf` must be valid for at least `size` bytes.
 #[allow(clippy::result_unit_err)] // Err(()) means "not determinable"; the caller maps it to ENOTSUP
-pub unsafe fn embedded_ptr(dev: Dev, nr: u32, buf: *const u8, size: u32) -> Result<Option<Embedded>, ()> {
+pub unsafe fn embedded_ptr<A: RmAbi>(dev: Dev, nr: u32, buf: *const u8, size: u32) -> Result<Option<Embedded>, ()> {
     if dev.is_uvm() {
         // All UVM params known so far are flat: the big MAP_EXTERNAL_-
         // ALLOCATION/ALLOC_SEMAPHORE_POOL attribute arrays are inline,
@@ -659,7 +660,7 @@ pub unsafe fn embedded_ptr(dev: Dev, nr: u32, buf: *const u8, size: u32) -> Resu
                 }
             }
             let hclass = rd32(12);
-            match alloc_param_size(hclass) {
+            match alloc_param_size::<A>(hclass) {
                 Some(len) => Ok(Some(Embedded { ptr_off: 16, len })),
                 None => Err(()), // unknown hClass -> do not guess
             }
@@ -795,14 +796,14 @@ pub fn alloc_class_verified(hclass: u32) -> bool {
 /// listed in [`alloc_class_verified`]; a class promoted into that list stays
 /// where its header citation is. The two are compared by
 /// `hclass_sizes_match_xlate` in `table.rs`.
-pub fn alloc_param_size(hclass: u32) -> Option<u32> {
+pub fn alloc_param_size<A: RmAbi>(hclass: u32) -> Option<u32> {
     Some(match hclass {
         // --- derived from the bindgen types (the vendor tree governs) ---
         0x0080 => sz::<sys::NV0080_ALLOC_PARAMETERS>(),          // NV01_DEVICE_0
         0x90f1 => sz::<sys::NV_VASPACE_ALLOCATION_PARAMETERS>(), // FERMI_VASPACE_A
-        0xa06c => sz::<sys::NV_CHANNEL_GROUP_ALLOCATION_PARAMETERS>(), // TSG
+        0xa06c => sz::<A::TsgParams>(),                          // TSG
         0x9067 => sz::<sys::NV_CTXSHARE_ALLOCATION_PARAMETERS>(),
-        0xc46f => sz::<sys::NV_CHANNEL_ALLOC_PARAMS>(),          // the 610 layout
+        0xc46f => sz::<A::AllocChannelParams>(),                 // this version's layout
 
         // --- by hand, because not in the bindgen allowlist ---
         0x2080 => 4,   // NV2080_ALLOC_PARAMETERS { subDeviceId } (cl2080.h)
@@ -890,7 +891,7 @@ pub fn alloc_param_size(hclass: u32) -> Option<u32> {
         // these the FIRST channel allocation on a non-Turing card fails.
         // 10 classes, resource_list.h from :315
         0x906f | 0xa06f | 0xa16f | 0xb06f | 0xc06f | 0xc36f | 0xc56f |
-        0xc86f | 0xc96f | 0xca6f => sz::<sys::NV_CHANNEL_ALLOC_PARAMS>(),
+        0xc86f | 0xc96f | 0xca6f => sz::<A::AllocChannelParams>(),
 
         // NV_OFA_ALLOCATION_PARAMETERS (nvos.h:3014) = 12. Optical flow
         // accelerator.
@@ -1651,9 +1652,9 @@ mod uvm_tests {
             row!(uvm::REGISTER_GPU_VASPACE, sys::UVM_REGISTER_GPU_VASPACE_PARAMS),
             row!(uvm::UNREGISTER_GPU_VASPACE, sys::UVM_UNREGISTER_GPU_VASPACE_PARAMS),
             row!(uvm::REGISTER_CHANNEL, sys::UVM_REGISTER_CHANNEL_PARAMS),
-            row!(uvm::UNREGISTER_CHANNEL, sys::UVM_UNREGISTER_CHANNEL_PARAMS),
+            row!(uvm::UNREGISTER_CHANNEL, sys::default_version::UVM_UNREGISTER_CHANNEL_PARAMS),
             row!(uvm::MAP_EXTERNAL_ALLOCATION, sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS),
-            row!(uvm::FREE, sys::UVM_FREE_PARAMS),
+            row!(uvm::FREE, sys::default_version::UVM_FREE_PARAMS),
             row!(uvm::REGISTER_GPU, sys::UVM_REGISTER_GPU_PARAMS),
             row!(
                 uvm::MAP_DYNAMIC_PARALLELISM_REGION,
@@ -1818,7 +1819,7 @@ mod embedded_ptr_tests {
     fn probe(dev: Dev, nr: u32, buf: &[u8], size: u32) -> Result<Option<(u32, u32)>, ()> {
         assert!(buf.len() >= size as usize, "the test buffer must cover `size`");
         // SAFETY: the assert above guarantees `buf` is valid for `size` bytes.
-        unsafe { embedded_ptr(dev, nr, buf.as_ptr(), size) }
+        unsafe { embedded_ptr::<sys::DefaultAbi>(dev, nr, buf.as_ptr(), size) }
             .map(|o| o.map(|e| (e.ptr_off, e.len)))
     }
 
@@ -1891,7 +1892,7 @@ mod embedded_ptr_tests {
     #[test]
     fn rm_alloc_takes_the_length_from_the_hclass_table() {
         for hclass in [0x0080u32, 0x2080, 0x0079, 0x90f1, 0xc46f] {
-            let want = alloc_param_size(hclass).expect("probe class missing from the table");
+            let want = alloc_param_size::<sys::DefaultAbi>(hclass).expect("probe class missing from the table");
             assert_eq!(
                 probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(hclass, 0xdead_beef, 0), 48),
                 Ok(Some((16, want))),
@@ -1905,7 +1906,7 @@ mod embedded_ptr_tests {
     /// guest address, or copy a guessed number of bytes.
     #[test]
     fn rm_alloc_of_an_unknown_hclass_fails_loudly() {
-        assert_eq!(alloc_param_size(0xdead), None, "the probe class must stay unknown");
+        assert_eq!(alloc_param_size::<sys::DefaultAbi>(0xdead), None, "the probe class must stay unknown");
         assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(0xdead, 0xbeef, 0), 48), Err(()));
     }
 
@@ -1932,7 +1933,7 @@ mod embedded_ptr_tests {
     #[test]
     fn the_32_byte_nvos21_form_is_accepted_like_the_48_byte_one() {
         let hclass = 0x2080u32;
-        let want = alloc_param_size(hclass).unwrap();
+        let want = alloc_param_size::<sys::DefaultAbi>(hclass).unwrap();
         // Word at 24 is paramsSize here, deliberately non-zero.
         let buf = nvos64(hclass, 0xdead_beef, 4);
         assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &buf, 32), Ok(Some((16, want))));

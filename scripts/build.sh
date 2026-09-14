@@ -10,6 +10,9 @@
 #                          [--skip-checks] [--yes] [--dry-run]
 #   scripts/build.sh preflight [--driver VERSION|auto] [--skip-checks]
 #   scripts/build.sh vendor        open-gpu-kernel-modules @ DRIVER_VERSION (headers)
+#   scripts/build.sh vendor-abi [VERSION...]
+#                                 vendor/nvidia-rm-headers/: the header sets
+#                                 crates/nvrm-sys/abi.toml names, committed
 #   scripts/build.sh ch            cloud-hypervisor @ CH_VERSION + patches/, built
 #   scripts/build.sh cargo         this workspace, release
 #   scripts/build.sh probes        make -C probe all-probes
@@ -103,7 +106,7 @@ usage() { lea_usage_from_header; exit "${1:-0}"; }
 
 CMD=${1:-all}
 case $CMD in
-    all|preflight|vendor|ch|cargo|probes|hostvenv|image|bake|check-driver|package) shift ;;
+    all|preflight|vendor|vendor-abi|ch|cargo|probes|hostvenv|image|bake|check-driver|package) shift ;;
     -h|--help) usage 0 ;;
     --*) CMD=all ;;
     *) error "unknown subcommand: $CMD"; usage 2 ;;
@@ -136,6 +139,95 @@ do_vendor() {
     git clone --filter=blob:none --depth 1 --branch "$ver" \
         https://github.com/NVIDIA/open-gpu-kernel-modules.git "$dst" || return 1
     echo "vendor: $ver ok"
+}
+
+# ---- vendor-abi -----------------------------------------------------------
+# The header sets the MULTI-VERSION bindings are generated from: one directory
+# under vendor/nvidia-rm-headers/ per [versions.*] entry in
+# crates/nvrm-sys/abi.toml.
+#
+# Not a substitute for `vendor` above and not the same fetch. That one takes
+# the WHOLE tree at DRIVER_VERSION, because the guest-side NVKMS build needs
+# the source. This one takes the transitive header closure of
+# crates/nvrm-sys/wrapper.h -- about 2.5 MB per version -- and it is
+# COMMITTED, because `cargo xtask abi` has to be able to answer for a driver
+# nobody has installed on this machine.
+#
+# The closure is computed PER VERSION with `clang -MM`. A header that moved is
+# then that version's answer rather than another version's assumed: 580.178.04
+# has no class/cla083.h at all, which is why wrapper.h guards that include.
+#
+# Nothing here is edited afterwards. Re-running reproduces the directory.
+do_vendor_abi() {
+    local -a want=("$@")
+    local abi=$LEA_ROOT/crates/nvrm-sys/abi.toml
+    [[ -f $abi ]] || { error "no $abi"; return 1; }
+    command -v clang >/dev/null || { error "vendor-abi needs clang (the header closure is computed with clang -MM)"; return 1; }
+    if [[ ${#want[@]} -eq 0 ]]; then
+        mapfile -t want < <(grep -oE '^\[versions\."[^"]+"\]' "$abi" | sed -E 's/.*"(.*)".*/\1/')
+    fi
+    [[ ${#want[@]} -gt 0 ]] || { error "no versions in $abi"; return 1; }
+    local v rc=0
+    for v in "${want[@]}"; do do_vendor_abi_one "$v" || rc=1; done
+    return $rc
+}
+
+do_vendor_abi_one() {
+    local ver=$1
+    local dirs=(kernel-open/common/inc src/common/sdk/nvidia/inc
+                src/nvidia/arch/nvalloc/unix/include kernel-open/nvidia-uvm
+                kernel-open/nvidia-modeset)
+    local work=$LEA_ROOT/target/abi-headers/$ver
+    local dst=$LEA_ROOT/vendor/nvidia-rm-headers/$ver
+    if [[ ! -d $work/.git ]]; then
+        rm -rf "$work"; mkdir -p "$(dirname "$work")"
+        # blob:none + a sparse checkout of the five include roots: the whole
+        # tree is ~170 MB and five versions of it is not what this needs.
+        git clone --quiet --filter=blob:none --no-checkout --depth 1 --branch "$ver" \
+            https://github.com/NVIDIA/open-gpu-kernel-modules.git "$work" || return 1
+        git -C "$work" sparse-checkout set --no-cone "${dirs[@]}" COPYING >/dev/null || return 1
+        git -C "$work" checkout --quiet || return 1
+    fi
+    local commit; commit=$(git -C "$work" rev-parse HEAD) || return 1
+
+    local -a inc=(); local d
+    for d in "${dirs[@]}"; do inc+=(-I"$work/$d"); done
+    # -MG so a header this version does not have is REPORTED (as a bare
+    # relative path) instead of aborting the closure.
+    local out; out=$(clang -MM -MG "$LEA_ROOT/crates/nvrm-sys/wrapper.h" "${inc[@]}" \
+                       -DNV_LINUX -D__linux__ -std=gnu11 2>/dev/null | tr ' ' '\n')
+    local -a hdrs absent
+    mapfile -t hdrs < <(grep "^$work/" <<<"$out" | sed "s|^$work/||" | sort -u)
+    mapfile -t absent < <(grep -vE "^($work/|\\\\|\$|.*wrapper\.[oh]:?\$)" <<<"$out" | sort -u)
+    [[ ${#hdrs[@]} -gt 0 ]] || { error "$ver: clang -MM produced no headers"; return 1; }
+
+    rm -rf "$dst"; mkdir -p "$dst"
+    local h
+    for h in "${hdrs[@]}"; do
+        mkdir -p "$dst/$(dirname "$h")"
+        cp "$work/$h" "$dst/$h" || return 1
+    done
+    cp "$work/COPYING" "$dst/COPYING" || return 1
+    {
+        echo "open-gpu-kernel-modules @ $ver"
+        echo
+        echo "upstream:  https://github.com/NVIDIA/open-gpu-kernel-modules"
+        echo "tag:       $ver"
+        echo "commit:    $commit"
+        echo "licence:   as stated in COPYING beside this file (MIT/GPLv2 dual)"
+        echo "headers:   ${#hdrs[@]}, copied verbatim"
+        echo
+        echo "The transitive closure of crates/nvrm-sys/wrapper.h under this"
+        echo "version's five include roots, computed with clang -MM. Produced by"
+        echo "scripts/build.sh vendor-abi $ver, which reproduces it exactly."
+        echo "Nothing in this directory is edited."
+        if [[ ${#absent[@]} -gt 0 ]]; then
+            echo
+            echo "Headers wrapper.h names that this version does NOT have:"
+            printf '  %s\n' "${absent[@]}"
+        fi
+    } > "$dst/PROVENANCE"
+    echo "vendor-abi: $ver ok -- ${#hdrs[@]} headers, ${#absent[@]} absent"
 }
 
 # ---- ch -------------------------------------------------------------------
@@ -352,7 +444,28 @@ do_check_driver() {
     have=$(lea_driver_version); have=${have:-none}
     vend=$(git -C "$LEA_ROOT/vendor/open-gpu-kernel-modules" describe --tags --exact-match 2>/dev/null || echo none)
     printf 'want=%s  running=%s  vendor=%s\n' "$want" "$have" "$vend"
-    [[ $have == "$want" ]] || { error "host driver differs"; return 1; }
+    if [[ $have != "$want" ]]; then
+        # A running driver that this tree HAS A LAYOUT FOR is not a
+        # misconfiguration, it is the second half of a version sweep. Say how
+        # to point the run at it instead of refusing with the old message,
+        # which only knew one version could ever be right.
+        if lea_driver_supported "$have"; then
+            error "host driver is $have and this run targets $want.
+Both are measured -- crates/nvrm-sys carries a layout for each. To MEASURE
+$have, point the run at it and re-fetch the headers the catalogue resolves
+against:
+     export LEA_DRIVER=$have
+     ./scripts/build.sh vendor
+     ./scripts/abi-verify.sh
+DRIVER_VERSION stays $(lea_want_driver_file): it is what the tree is BUILT for."
+        else
+            error "host driver differs, and $have has no measured layout.
+Supported: $(lea_supported_drivers | tr '\n' ' ')
+Adding it is one entry in crates/nvrm-sys/abi.toml plus
+     ./scripts/build.sh vendor-abi $have && cargo xtask abi"
+        fi
+        return 1
+    fi
     [[ $vend == "$want" ]] || { error "vendor/ differs (scripts/build.sh vendor)"; return 1; }
     echo OK
 }
@@ -1364,6 +1477,7 @@ case $CMD in
     all)          do_all "$@" ;;
     preflight)    DRY=0; do_preflight "$@" ;;
     vendor)       do_vendor ;;
+    vendor-abi)   do_vendor_abi "$@" ;;
     ch)           do_ch ;;
     cargo)        do_cargo ;;
     probes)       do_probes ;;

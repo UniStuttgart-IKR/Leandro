@@ -329,8 +329,48 @@ lea_driver_version() {
     grep -oE '[0-9]+\.[0-9]+\.[0-9]+' /proc/driver/nvidia/version 2>/dev/null | head -1
 }
 
-# lea_want_driver -- the version this tree targets (DRIVER_VERSION).
-lea_want_driver() { tr -d '[:space:]' < "$LEA_ROOT/DRIVER_VERSION"; }
+# lea_want_driver -- the version this RUN targets.
+#
+# DRIVER_VERSION is the version the tree is BUILT for: the default feature of
+# nvrm-sys, the committed guest header, the baked image's serial. LEA_DRIVER
+# overrides it for one run, which is what measuring a second driver needs.
+#
+# WHY AN OVERRIDE IS ENOUGH, and it was not before 2026-09-14. The backend now
+# carries a layout for every version in crates/nvrm-sys/abi.toml and picks one
+# from the RUNNING driver (nvrm::serve); the guest's NVIDIA userspace is copied
+# from the host at rig-up (lea_payload_stage); and the guest module reads the
+# descriptor table off the wire rather than carrying sizes. So the only things
+# that have to follow the host driver are the vendor tree the catalogue
+# resolves against and the library directory the staging reads -- both of
+# which take their version from here.
+#
+# What it does NOT do is rebuild anything. Measured 2026-09-14: the generated
+# guest header is byte-identical for 595.99.02, 610.57.04 and 615.71.09, and
+# differs on 580.178.04 only by the seven NVA083 virtual-display defines that
+# driver has no class for. A module built for one of the three serves all
+# three.
+lea_want_driver() {
+    if [[ -n ${LEA_DRIVER:-} ]]; then printf '%s' "${LEA_DRIVER//[[:space:]]/}"; return 0; fi
+    tr -d '[:space:]' < "$LEA_ROOT/DRIVER_VERSION"
+}
+
+# lea_want_driver_file -- what DRIVER_VERSION says, ignoring any override.
+lea_want_driver_file() { tr -d '[:space:]' < "$LEA_ROOT/DRIVER_VERSION"; }
+
+# lea_supported_drivers -- every version nvrm-sys carries a measured layout
+# for, oldest first. Read out of abi.toml, which is the list, rather than
+# repeated here where it could go stale.
+lea_supported_drivers() {
+    grep -oE '^\[versions\."[^"]+"\]' "$LEA_ROOT/crates/nvrm-sys/abi.toml" \
+        | sed -E 's/.*"(.*)".*/\1/'
+}
+
+# lea_driver_supported VERSION -- is there a layout for it?
+lea_driver_supported() {
+    local v=$1 s
+    while read -r s; do [[ $s == "$v" ]] && return 0; done < <(lea_supported_drivers)
+    return 1
+}
 
 # ---- local.env -------------------------------------------------------------
 # lea_local_env_set VAR VALUE [FILE] -- make VAR this checkout's default by

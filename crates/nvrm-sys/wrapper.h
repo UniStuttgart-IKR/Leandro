@@ -73,10 +73,20 @@
 /* Controls */
 #include <class/cl0073.h>   /* NV04_DISPLAY_COMMON -- the class whose PRESENCE
                              keeps NVKMS out of the displayless path      */
-#include <class/cla083.h>   /* NVA083_GRID_DISPLAYLESS -- the class NVKMS
-                             takes when a GPU has no connectors of its own */
-#include <ctrl/ctrla083.h>  /* the six controls the class defines;
-                             NVKMS asks three of them                 */
+/* NVA083_GRID_DISPLAYLESS -- the class NVKMS takes when a GPU has no
+ * connectors of its own -- and the six controls it defines, of which NVKMS
+ * asks three.
+ *
+ * Guarded because the class does not exist on every driver this crate is
+ * generated for: 580.178.04's SDK has neither header, and 595.99.02 is the
+ * oldest vendored version that has both. A version without them binds a
+ * footprint without the NVA083 names, and `cargo xtask abi` reports them as
+ * ABSENT for that version -- which is a breaking difference a person has to
+ * answer for, not a hole the generator fills in. */
+#if __has_include(<class/cla083.h>)
+#include <class/cla083.h>
+#include <ctrl/ctrla083.h>
+#endif
 #include <class/cl9010.h>   /* NV9010_VBLANK_CALLBACK -- pProc is a guest
                              kernel pointer, so the guest module services
                              the class itself (OPEN-QUESTIONS nr 7)      */

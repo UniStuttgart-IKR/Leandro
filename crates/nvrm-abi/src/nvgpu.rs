@@ -729,7 +729,15 @@ const _: () = {
 };
 
 // NV_CHANNEL_GROUP_ALLOCATION_PARAMETERS - the TSG allocation.
-assert_layout!(sys::NV_CHANNEL_GROUP_ALLOCATION_PARAMETERS, size = 20, align = 4,
+//
+// PINNED TO ONE VERSION, unlike the guards above it. This struct is not the
+// same on every supported driver: 615.71.09 appends `reserved` and
+// `internalFlags` and it is 28 bytes there. The gVisor numbers this file
+// checks against are the 610 ones, so that is what is checked; every other
+// version's layout is asserted in its own generated module, from its own
+// manifest. Callers ask `A::TsgParams`.
+#[cfg(feature = "v610")]
+assert_layout!(sys::v610::NV_CHANNEL_GROUP_ALLOCATION_PARAMETERS, size = 20, align = 4,
     hObjectError @ 0, hObjectEccError @ 4, hVASpace @ 8,
     engineType @ 12, bIsCallingContextVgpuPlugin @ 16);
 
@@ -776,7 +784,8 @@ assert_layout!(sys::NV_MEMORY_DESC_PARAMS, size = 24, align = 8,
 //     drivers everything from here on would sit 4 bytes lower.
 //   - the 4-byte hole between hUserdMemory (ends @ 68) and
 //     userdOffset @ 72 comes from the 8-byte alignment of the u64 array.
-assert_layout!(sys::NV_CHANNEL_ALLOC_PARAMS, size = 376, align = 8,
+#[cfg(feature = "v610")]
+assert_layout!(sys::v610::NV_CHANNEL_ALLOC_PARAMS, size = 376, align = 8,
     hObjectError @ 0, hObjectBuffer @ 4, gpFifoOffset @ 8,
     gpFifoEntries @ 16, flags @ 20, hContextShare @ 24,
     hVASpace @ 28, hHandleVASpace @ 32,

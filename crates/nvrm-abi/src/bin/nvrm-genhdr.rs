@@ -20,6 +20,7 @@
 use std::mem::{align_of, offset_of, size_of};
 
 use nvrm_sys as sys;
+use sys::RmAbi;
 use nvrm_wire as proto;
 use nvrm_wire::tables as t;
 
@@ -28,8 +29,36 @@ macro_rules! off {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let text = generate();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+
+    // `--abi <version>` generates the header for a driver OTHER than the one
+    // this build defaults to. It is not part of any gate -- the committed
+    // header is the default version's -- and it exists to answer one question
+    // with a diff instead of an argument: does the guest module have to be
+    // rebuilt when the host driver changes? Every NVIDIA number in this
+    // header comes through `RmAbi`, so two versions that produce the same
+    // bytes need the same module.
+    let mut abi = sys::DefaultAbi::VERSION;
+    if let Some(i) = args.iter().position(|a| a == "--abi") {
+        let want = args.get(i + 1).cloned().unwrap_or_else(|| {
+            eprintln!("--abi <version>; this build carries {}", sys::SUPPORTED_VERSIONS.join(", "));
+            std::process::exit(2);
+        });
+        abi = sys::DriverVersion::from_version_string(&want).unwrap_or_else(|| {
+            eprintln!("nvrm-genhdr: {want} is not a version this build carries ({})",
+                      sys::SUPPORTED_VERSIONS.join(", "));
+            std::process::exit(2);
+        });
+        args.drain(i..=i + 1);
+    }
+    struct Gen;
+    impl sys::AbiVisitor for Gen {
+        type Out = String;
+        fn visit<A: RmAbi>(self) -> String {
+            generate::<A>()
+        }
+    }
+    let text = sys::dispatch(abi, Gen);
     match args.split_first() {
         None => print!("{text}"),
         // For the differential test against the C interpreter (test.sh check,
@@ -37,13 +66,27 @@ fn main() {
         // view of it as text.
         Some((flag, rest)) if flag == "--dump-tables" => {
             let path = rest.first().expect("--dump-tables <file>");
-            let tb = nvrm_abi::table::build();
+            struct Build;
+            impl sys::AbiVisitor for Build {
+                type Out = nvrm_abi::table::Tables;
+                fn visit<A: RmAbi>(self) -> Self::Out {
+                    nvrm_abi::table::build::<A>()
+                }
+            }
+            let tb = sys::dispatch(abi, Build);
             std::fs::write(path, &tb.bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
             eprintln!("nvrm-genhdr: wrote {path} ({} bytes of table stream)", tb.bytes.len());
         }
         Some((flag, rest)) if flag == "--expect-dump" => {
             let path = rest.first().expect("--expect-dump <file>");
-            let text = nvrm_abi::table::expect_dump();
+            struct Expect;
+            impl sys::AbiVisitor for Expect {
+                type Out = String;
+                fn visit<A: RmAbi>(self) -> String {
+                    nvrm_abi::table::expect_dump::<A>()
+                }
+            }
+            let text = sys::dispatch(abi, Expect);
             std::fs::write(path, &text).unwrap_or_else(|e| panic!("{path}: {e}"));
             eprintln!("nvrm-genhdr: wrote {path} ({} lines)", text.lines().count());
         }
@@ -55,10 +98,10 @@ fn main() {
         // rewriting rather than written beside it.
         Some((flag, rest)) if flag == "--mediation-dump" => {
             let path = rest.first().expect("--mediation-dump <file>");
-            let text = nvrm_abi::mediate::dump();
+            let text = nvrm_abi::mediate::dump::<sys::DefaultAbi>();
             std::fs::write(path, &text).unwrap_or_else(|e| panic!("{path}: {e}"));
             eprintln!("nvrm-genhdr: wrote {path} ({} record(s))",
-                      nvrm_abi::mediate::manifest().len());
+                      nvrm_abi::mediate::manifest::<sys::DefaultAbi>().len());
         }
         Some((flag, rest)) if flag == "--check" => {
             let path = rest.first().cloned().unwrap_or_else(|| {
@@ -106,7 +149,7 @@ fn emit_struct(out: &mut String, name: &str, size: usize, align: usize, fields: 
     out.push('\n');
 }
 
-fn generate() -> String {
+fn generate<A: RmAbi>() -> String {
     let mut o = String::new();
     o.push_str(
         "/* SPDX-License-Identifier: GPL-2.0-only */\n\
@@ -134,7 +177,7 @@ fn generate() -> String {
     // and refuses to load on a mismatch. Transcribing it into the module
     // would be exactly the stale number this file exists to prevent, so it
     // comes from DRIVER_VERSION like every other version in the tree.
-    o.push_str(&format!("#define NVRM_DRIVER_VERSION\t\"{}\"\n", nvrm_sys::DRIVER_VERSION));
+    o.push_str(&format!("#define NVRM_DRIVER_VERSION\t\"{}\"\n", A::VERSION.as_str()));
     o.push_str(&format!("#define NVRM_NONE_U32\t\t{}u\n", proto::NONE_U32));
     o.push_str(&format!("#define NVRM_NONE_U64\t\t{}ull\n", proto::NONE_U64));
     o.push_str(&format!("#define NVRM_MAX_PAYLOAD\t{}u\n", proto::MAX_PAYLOAD));
@@ -221,70 +264,85 @@ fn generate() -> String {
     // path, the control that decides between them, and the three the path
     // then asks. Generated for the same reason as everything else here: a
     // hand-typed class number is a call to the wrong object.
+    // NOT pinned to one version, and it cannot be: NVA083_GRID_DISPLAYLESS
+    // does not exist before R595 -- 580.178.04's SDK has neither cla083.h nor
+    // ctrla083.h. The six numbers come through `RmAbi` as `Option`, so a
+    // header generated for a driver without the class carries NO
+    // virtual-display block at all rather than a plausible one, and the
+    // module compiled against it cannot answer for an object the driver has
+    // never heard of. OPEN-QUESTIONS number 74.
     o.push_str("/* ---- the virtual display (NVA083_GRID_DISPLAYLESS) ---- */\n");
+    if A::CLASS_DISPLAYLESS.is_none() {
+        o.push_str("/* This driver has no NVA083_GRID_DISPLAYLESS. The class arrives\n");
+        o.push_str("   with R595; before it there is nothing to define here. */\n");
+    }
     for (name, v) in [
-        ("CLASS_DISPLAY_COMMON", sys::NV04_DISPLAY_COMMON),
-        ("CLASS_DISPLAYLESS", sys::NVA083_GRID_DISPLAYLESS),
-        ("CTRL_GET_CLASSLIST", sys::NV0080_CTRL_CMD_GPU_GET_CLASSLIST),
-        ("CTRL_VD_GET_NUM_HEADS", sys::NVA083_CTRL_CMD_VIRTUAL_DISPLAY_GET_NUM_HEADS),
-        ("CTRL_VD_GET_MAX_RES", sys::NVA083_CTRL_CMD_VIRTUAL_DISPLAY_GET_MAX_RESOLUTION),
-        ("CTRL_VD_GET_EDID", sys::NVA083_CTRL_CMD_VIRTUAL_DISPLAY_GET_DEFAULT_EDID),
+        ("CLASS_DISPLAY_COMMON", Some(sys::NV04_DISPLAY_COMMON)),
+        ("CLASS_DISPLAYLESS", A::CLASS_DISPLAYLESS),
+        ("CTRL_GET_CLASSLIST", Some(sys::NV0080_CTRL_CMD_GPU_GET_CLASSLIST)),
+        ("CTRL_VD_GET_NUM_HEADS", A::CTRL_VD_GET_NUM_HEADS),
+        ("CTRL_VD_GET_MAX_RES", A::CTRL_VD_GET_MAX_RESOLUTION),
+        ("CTRL_VD_GET_EDID", A::CTRL_VD_GET_DEFAULT_EDID),
         // The other three the class exports (g_griddisplayless_nvoc.c, the
         // exported-method array). NVKMS calls NONE of them -- grep
         // nvidia-modeset and nvidia-drm and only 0x101/0x102/0x103 appear --
         // so they are here for callers that are not NVKMS. Refusing a
         // question about a display this module invented, whose answer it
         // knows, would be the wrong kind of honest.
-        ("CTRL_VD_IS_ACTIVE", sys::NVA083_CTRL_CMD_VIRTUAL_DISPLAY_IS_ACTIVE),
-        ("CTRL_VD_IS_CONNECTED", sys::NVA083_CTRL_CMD_VIRTUAL_DISPLAY_IS_CONNECTED),
-        ("CTRL_VD_GET_MAX_PIXELS", sys::NVA083_CTRL_CMD_VIRTUAL_DISPLAY_GET_MAX_PIXELS),
+        ("CTRL_VD_IS_ACTIVE", A::CTRL_VD_IS_ACTIVE),
+        ("CTRL_VD_IS_CONNECTED", A::CTRL_VD_IS_CONNECTED),
+        ("CTRL_VD_GET_MAX_PIXELS", A::CTRL_VD_GET_MAX_PIXELS),
         // Not part of the virtual display, but only reachable once it is
         // there: nvAllocCoreChannelEvo blocks GC6 before it touches the
         // display, and takes `goto failed` when that call is refused.
-        ("CTRL_GC6_BLOCKER", sys::NV2080_CTRL_CMD_OS_UNIX_GC6_BLOCKER_REFCNT),
-        ("CTRL_VT_SWITCH", sys::NV0080_CTRL_CMD_OS_UNIX_VT_SWITCH),
-        ("CTRL_VT_GET_FB_INFO", sys::NV0080_CTRL_CMD_OS_UNIX_VT_GET_FB_INFO),
+        ("CTRL_GC6_BLOCKER", Some(sys::NV2080_CTRL_CMD_OS_UNIX_GC6_BLOCKER_REFCNT)),
+        ("CTRL_VT_SWITCH", Some(sys::NV0080_CTRL_CMD_OS_UNIX_VT_SWITCH)),
+        ("CTRL_VT_GET_FB_INFO", Some(sys::NV0080_CTRL_CMD_OS_UNIX_VT_GET_FB_INFO)),
         // The vblank callback class. Deliberately NOT in the alloc tables
         // (its pProc is a guest kernel pointer, meaningless on the host);
         // the guest module answers it from its own raster clock instead.
-        ("CLASS_VBLANK_CALLBACK", sys::NV9010_VBLANK_CALLBACK),
-        ("CTRL_SET_VBLANK_NOTIFY", sys::NV9010_CTRL_CMD_SET_VBLANK_NOTIFICATION),
+        ("CLASS_VBLANK_CALLBACK", Some(sys::NV9010_VBLANK_CALLBACK)),
+        ("CTRL_SET_VBLANK_NOTIFY", Some(sys::NV9010_CTRL_CMD_SET_VBLANK_NOTIFICATION)),
         // The class the HOST substitutes a ring-0 callback with, and the
         // status RM gives an event whose parent was never allocated.
-        ("CLASS_EVENT_OS_EVENT", sys::NV01_EVENT_OS_EVENT),
+        ("CLASS_EVENT_OS_EVENT", Some(sys::NV01_EVENT_OS_EVENT)),
         // The two ring-0 callback classes the host substitutes (session.rs
         // (1a')). 0x78 and 0x7e -- NOT 0x7f (nvos.h:388-391). Only _EX
         // is callable from the guest: its signature is
         // `func(arg, NULL, hEvent, Data, Status)` (os.c:1533-1539); plain
         // 0x78 calls `callBackToMiniport(NV_GET_NV_STATE(pGpu))` with a HOST
         // pointer (os.c:1517-1524) and is dropped + counted in the guest.
-        ("CLASS_EVENT_KERNEL_CALLBACK", sys::NV01_EVENT_KERNEL_CALLBACK),
-        ("CLASS_EVENT_KERNEL_CALLBACK_EX", sys::NV01_EVENT_KERNEL_CALLBACK_EX),
+        ("CLASS_EVENT_KERNEL_CALLBACK", Some(sys::NV01_EVENT_KERNEL_CALLBACK)),
+        ("CLASS_EVENT_KERNEL_CALLBACK_EX", Some(sys::NV01_EVENT_KERNEL_CALLBACK_EX)),
         // The escape a woken 0x79 client drains its queue with (osapi.c:
         // 504-535); the guest hooks its answer to re-arm `events_pending`.
-        ("ESC_RM_GET_EVENT_DATA", sys::NV_ESC_RM_GET_EVENT_DATA),
+        ("ESC_RM_GET_EVENT_DATA", Some(sys::NV_ESC_RM_GET_EVENT_DATA)),
         // Notifiers whose NVKMS handlers dereference `pEventDataVoid`
         // (nvkms-rm.c:1696-1720, 1774-1785). Natively filled through
         // osEventNotificationWithInfo (os.c:1634-1637); on the substituted
         // path arg2 is NULL by construction, so the guest must NOT call
         // these. The host RM fires DP_IRQ for real -- the RTX 2070's
         // display belongs to the host desktop.
-        ("NOTIFIER_DP_IRQ", sys::NV2080_NOTIFIERS_DP_IRQ),
-        ("NOTIFIER_HDMI_FRL_RETRAIN", sys::NV2080_NOTIFIERS_HDMI_FRL_RETRAINING_REQUEST),
-        ("NOTIFIER_LPWR_DIFR_PREFETCH", sys::NV2080_NOTIFIERS_LPWR_DIFR_PREFETCH_REQUEST),
+        ("NOTIFIER_DP_IRQ", Some(sys::NV2080_NOTIFIERS_DP_IRQ)),
+        ("NOTIFIER_HDMI_FRL_RETRAIN", Some(sys::NV2080_NOTIFIERS_HDMI_FRL_RETRAINING_REQUEST)),
+        ("NOTIFIER_LPWR_DIFR_PREFETCH", Some(sys::NV2080_NOTIFIERS_LPWR_DIFR_PREFETCH_REQUEST)),
         // NV0005_NOTIFY_INDEX_INDEX is the DRF `15:0` (cl0005.h:58), which
         // bindgen does not emit; RM strips with exactly that mask
         // (event_notification.c:849). Hand-derived from the DRF, once.
-        ("NOTIFY_INDEX_MASK", 0xffff),
-        ("NV_ERR_OBJECT_NOT_FOUND", sys::NV_ERR_OBJECT_NOT_FOUND),
+        ("NOTIFY_INDEX_MASK", Some(0xffff)),
+        ("NV_ERR_OBJECT_NOT_FOUND", Some(sys::NV_ERR_OBJECT_NOT_FOUND)),
         // The two refusals NVIDIA's own GET_DEFAULT_EDID can return
         // (objgriddisplayless.c:296-330). A caller that asks for the EDID
         // with a buffer too small for it must be told so; writing the full
         // EDID into it would be a write past the end of somebody else's
         // allocation.
-        ("NV_ERR_BUFFER_TOO_SMALL", sys::NV_ERR_BUFFER_TOO_SMALL),
-        ("NV_ERR_INVALID_ARGUMENT", sys::NV_ERR_INVALID_ARGUMENT),
+        ("NV_ERR_BUFFER_TOO_SMALL", Some(sys::NV_ERR_BUFFER_TOO_SMALL)),
+        ("NV_ERR_INVALID_ARGUMENT", Some(sys::NV_ERR_INVALID_ARGUMENT)),
     ] {
+        // `None` is a name this driver's headers do not define. Skipped, not
+        // defaulted: a guest module compiled against a zero here would name
+        // an object no driver has.
+        let Some(v) = v else { continue };
         o.push_str(&format!("#define NVRM_{name}\t{v:#x}u\n"));
     }
     // The classes nvkms-hal.c's dispTable KEYS ON, in the order it walks
@@ -623,7 +681,7 @@ fn generate() -> String {
     // said gpuId 0x6 (mediated), this one said 0x2d00 (the host's), and the
     // RT device init, which asks it right after GET_ID_INFO_V2, found its
     // active device in no list it knew and returned INITIALIZATION_FAILED.
-    let arrays = nvrm_abi::mediate::bdf_arrays();
+    let arrays = nvrm_abi::mediate::bdf_arrays::<A>();
     for (i, (n, cmd, off, cnt, stride)) in arrays.iter().enumerate() {
         let last = i + 1 == arrays.len();
         o.push_str(&format!("\t{{ {cmd:#x}u, {off}u, {cnt}u, {stride}u }}{} /* {n} */{}\n",
@@ -876,7 +934,7 @@ fn generate() -> String {
 mod tests {
     use super::generate;
 
-    /// Field names of `nvrm_req`, in the order `generate()` emits them.
+    /// Field names of `nvrm_req`, in the order `generate::<nvrm_sys::DefaultAbi>()` emits them.
     /// The guest module writes into every one of these by name, so a
     /// missing row is a compile error over there and nothing here -- see
     /// the WARNING at `aux_fd_field_proc`: a dropped row leaves the struct
@@ -896,7 +954,7 @@ mod tests {
     /// a place nobody looks.
     #[test]
     fn the_generated_header_is_pure_ascii() {
-        let text = generate();
+        let text = generate::<nvrm_sys::DefaultAbi>();
         assert!(!text.is_empty());
         for (i, b) in text.bytes().enumerate() {
             assert!(
@@ -914,7 +972,7 @@ mod tests {
     /// line is one field whose offset nothing checks.
     #[test]
     fn every_request_field_has_an_offset_assert() {
-        let text = generate();
+        let text = generate::<nvrm_sys::DefaultAbi>();
         for field in REQ_FIELDS {
             let needle = format!("_Static_assert(offsetof(struct nvrm_req, {field}) == ");
             assert_eq!(
@@ -938,7 +996,7 @@ mod tests {
     /// the module's `#if NVRM_PROTO_VERSION != ...` is a textual match.
     #[test]
     fn the_header_defines_the_protocol_version() {
-        let text = generate();
+        let text = generate::<nvrm_sys::DefaultAbi>();
         assert!(
             text.contains("#define NVRM_PROTO_VERSION\t6u"),
             "the header must define NVRM_PROTO_VERSION as 6u"
@@ -953,6 +1011,6 @@ mod tests {
     /// random.
     #[test]
     fn generation_is_deterministic() {
-        assert_eq!(generate(), generate());
+        assert_eq!(generate::<nvrm_sys::DefaultAbi>(), generate::<nvrm_sys::DefaultAbi>());
     }
 }

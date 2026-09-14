@@ -34,6 +34,7 @@
 use core::mem::{offset_of, size_of};
 
 use nvrm_sys as sys;
+use sys::RmAbi;
 
 use crate::xlate;
 
@@ -204,8 +205,8 @@ pub fn bdf_scalars() -> &'static [(&'static str, u32, usize)] {
 /// said gpuId 0x6 (mediated), this one said 0x2d00 (the host's), and the RT
 /// device init, which asks it right after GET_ID_INFO_V2, found its active
 /// device in no list it knew and returned INITIALIZATION_FAILED.
-pub fn bdf_arrays() -> &'static [(&'static str, u32, usize, u32, usize)] {
-    &[
+pub fn bdf_arrays<A: RmAbi>() -> Vec<(&'static str, u32, usize, u32, usize)> {
+    vec![
         ("GET_ATTACHED_IDS", sys::NV0000_CTRL_CMD_GPU_GET_ATTACHED_IDS,
          offset_of!(sys::NV0000_CTRL_GPU_GET_ATTACHED_IDS_PARAMS, gpuIds),
          sys::NV0000_CTRL_GPU_MAX_ATTACHED_GPUS, 4),
@@ -228,10 +229,10 @@ pub fn bdf_arrays() -> &'static [(&'static str, u32, usize, u32, usize)] {
         // hence two rows with the same cmd (the rewrite loop takes every row
         // that matches).
         ("P2P_CAPS_MATRIX_A", sys::NV0000_CTRL_CMD_SYSTEM_GET_P2P_CAPS_MATRIX,
-         offset_of!(sys::NV0000_CTRL_SYSTEM_GET_P2P_CAPS_MATRIX_PARAMS, gpuIdGrpA),
+         A::P2P_CAPS_MATRIX_PARAMS_OFF_gpuIdGrpA,
          sys::NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS, 4),
         ("P2P_CAPS_MATRIX_B", sys::NV0000_CTRL_CMD_SYSTEM_GET_P2P_CAPS_MATRIX,
-         offset_of!(sys::NV0000_CTRL_SYSTEM_GET_P2P_CAPS_MATRIX_PARAMS, gpuIdGrpB),
+         A::P2P_CAPS_MATRIX_PARAMS_OFF_gpuIdGrpB,
          sys::NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS, 4),
     ]
 }
@@ -399,12 +400,15 @@ pub const FB_INFO_INDEX_USABLE_RAM_SIZE: u32 = 0x20;
 
 /// `NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS`: `gpuNameStringFlags` @0,
 /// `ascii[64]` @4 (`NV2080_GPU_MAX_NAME_STRING_LENGTH` = 64).
-pub const NAME_OFF: usize =
-    offset_of!(sys::NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS, gpuNameString);
+pub fn name_off<A: RmAbi>() -> usize {
+    A::GPU_NAME_STRING_PARAMS_OFF_gpuNameString
+}
 /// bindgen emits the name field as a nested type of its own (the header
 /// writes it as a union of `ascii` and `unicode`, of which this driver's
 /// header carries only `ascii`), so its SIZE is the max name length.
-pub const NAME_MAX: usize = size_of::<sys::NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS__bindgen_ty_1>();
+pub fn name_max<A: RmAbi>() -> usize {
+    size_of::<A::GpuNameStringBuffer>()
+}
 
 // The numbers the prose above quotes, so a change in the vendor headers
 // fails the build here rather than turning every doc line into a lie.
@@ -413,7 +417,16 @@ const _: () = {
     assert!(PIDINFO_COUNT_OFF == 0 && PIDINFO_LIST_OFF == 8);
     assert!(PIDINFO_ENTRY == 72 && PIDINFO_LEN == 14408 && PIDINFO_MEM_PRIVATE == 16);
     assert!(FBINFO_ENTRY == 8 && FBINFO_DATA_OFF == 4);
-    assert!(NAME_OFF == 4 && NAME_MAX == 64);
+};
+
+// The name field's two numbers, which the prose above quotes, for the version
+// this build defaults to. They are NOT the same on every supported driver --
+// 580.178.04 has a 128-byte union here -- so this is pinned rather than
+// general, and the general answer is `name_off`/`name_max`, which ask the ABI.
+#[cfg(feature = "v610")]
+const _: () = {
+    assert!(offset_of!(sys::v610::NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS, gpuNameString) == 4);
+    assert!(size_of::<sys::v610::NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS__bindgen_ty_1>() == 64);
 };
 
 // ---------------------------------------------------------------------------
@@ -426,7 +439,7 @@ const _: () = {
 /// and the fd fields from `xlate` (the same functions `table::build()` pours
 /// into the descriptor stream), and the backend's own from `offset_of!` on
 /// the vendor structs. There is no literal offset in this function.
-pub fn manifest() -> Vec<Mediated> {
+pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
     let mut out: Vec<Mediated> = Vec::new();
 
     for (name, cmd, off) in bdf_scalars() {
@@ -436,10 +449,10 @@ pub fn manifest() -> Vec<Mediated> {
             why: "a gpuId: the host's card id in, this guest's id out",
         });
     }
-    for (name, cmd, off, count, stride) in bdf_arrays() {
+    for (name, cmd, off, count, stride) in bdf_arrays::<A>() {
         out.push(Mediated {
-            nr: NR_RM_CONTROL, cmd: *cmd, off: *off as u32, len: 4,
-            stride: *stride as u32, count: *count,
+            nr: NR_RM_CONTROL, cmd, off: off as u32, len: 4,
+            stride: stride as u32, count,
             kind: Kind::BdfArray, field: name,
             why: "an array of gpuIds, translated element by element",
         });
@@ -555,7 +568,7 @@ pub fn manifest() -> Vec<Mediated> {
               the question and is carried unchanged",
     });
     out.push(Mediated {
-        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_NAME_STRING, off: NAME_OFF as u32, len: NAME_MAX as u32,
+        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_NAME_STRING, off: name_off::<A>() as u32, len: name_max::<A>() as u32,
         stride: 0, count: 0, kind: Kind::IdentityString, field: "gpuNameString",
         why: "the mediated card name (`Leandro ...`), whose content depends on \
               the VRAM cap and is therefore not a constant",
@@ -611,7 +624,7 @@ pub fn manifest() -> Vec<Mediated> {
 /// `tables.txt`. Same spirit as `table::expect_dump()`: a stream a reader
 /// and a script can both take apart, written by the code that owns the
 /// numbers.
-pub fn dump() -> String {
+pub fn dump<A: RmAbi>() -> String {
     let mut o = String::from(
         "# GENERATED by nvrm-genhdr --mediation-dump -- do not edit.\n\
          # Every field this boundary REWRITES, derived from the code that\n\
@@ -629,7 +642,7 @@ pub fn dump() -> String {
          # anything. A control is `ctl 0x2a <cmd>`; an escape that carries\n\
          # its answer inline, like NV_ESC_CARD_INFO, is `ctl <nr> -`.\n",
     );
-    for m in manifest() {
+    for m in manifest::<A>() {
         o.push_str(&format!(
             "mediated {} {} {} {} {} {} {}\n",
             m.sig(), m.off, m.len, m.stride, m.count, m.kind.as_str(), m.field
@@ -644,7 +657,7 @@ mod tests {
 
     #[test]
     fn every_record_has_a_length_and_a_home() {
-        for m in manifest() {
+        for m in manifest::<sys::DefaultAbi>() {
             assert!(m.len > 0, "{m:?} has no length");
             assert!(m.end() > m.off, "{m:?} covers nothing");
             assert!(!m.field.is_empty(), "{m:?} names no field");
@@ -660,7 +673,7 @@ mod tests {
     /// This is the record the first run of the fourth mask found missing.
     #[test]
     fn the_pci_address_is_in_the_manifest() {
-        let m = manifest();
+        let m = manifest::<sys::DefaultAbi>();
         for member in ["domain", "bus", "slot"] {
             assert!(
                 m.iter().any(|x| x.cmd == sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO
@@ -674,7 +687,7 @@ mod tests {
     /// The mask must cover the identity string that made this necessary.
     #[test]
     fn the_mediated_name_is_in_the_manifest() {
-        let m = manifest();
+        let m = manifest::<sys::DefaultAbi>();
         let name = m.iter().find(|x| x.kind == Kind::IdentityString).expect("no identity string");
         assert_eq!(name.cmd, CMD_GPU_GET_NAME_STRING);
         assert_eq!(name.off, 4);
@@ -687,7 +700,7 @@ mod tests {
     /// the params buffer, so they are deliberately not here.
     #[test]
     fn every_backend_answered_command_is_described() {
-        let m = manifest();
+        let m = manifest::<sys::DefaultAbi>();
         for cmd in [CMD_GPU_GET_PIDS, CMD_GPU_GET_PID_INFO, CMD_FB_GET_INFO,
                     CMD_FB_GET_INFO_V2, CMD_GPU_GET_NAME_STRING] {
             assert!(m.iter().any(|x| x.cmd == cmd),
@@ -699,7 +712,7 @@ mod tests {
     /// module walks that stream and the mask has to describe the same walk.
     #[test]
     fn the_pointer_records_match_the_descriptor_table() {
-        let m = manifest();
+        let m = manifest::<sys::DefaultAbi>();
         for cmd in xlate::nested_cmds() {
             let want = xlate::nested_ptrs(*cmd).len();
             let have = m.iter()

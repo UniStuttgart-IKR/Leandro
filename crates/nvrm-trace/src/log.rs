@@ -551,7 +551,15 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
         // table under test would agree with it by construction. The length
         // is `size_of` of the bindgen struct; nvrm-abi's own test requires
         // the two to agree, so the table is checked rather than trusted.
-        if let Some(plen) = nvrm_abi::xlate::uvm_param_size_compiled(nr) {
+        // DefaultAbi, deliberately. The tracer is an LD_PRELOAD interposer
+        // that runs beside whatever driver the build was made for, and it
+        // reads a length to DUMP -- not to forward. Making it detect the
+        // running version would put a /proc read and a match on a path
+        // measured at 86 645 lines in one session, to change two sizes.
+        // A tracer built for one driver and run against another dumps the
+        // wrong number of bytes for exactly two UVM commands; it cannot
+        // corrupt a call, because it does not carry one.
+        if let Some(plen) = nvrm_abi::xlate::uvm_param_size_compiled::<nvrm_sys::DefaultAbi>(nr) {
             if plen > 0 {
                 let n = plen.min(dump_cap());
                 let bytes = core::slice::from_raw_parts(arg as *const u8, n);
@@ -948,7 +956,7 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             let params = if pp.is_null() {
                 None
             } else {
-                nvrm_abi::xlate::alloc_param_size_compiled(hclass).filter(|n| *n > 0)
+                nvrm_abi::xlate::alloc_param_size_compiled::<nvrm_sys::DefaultAbi>(hclass).filter(|n| *n > 0)
             };
             let (src, plen, base) = match params {
                 Some(plen) => ("params", plen, pp as *const u8),

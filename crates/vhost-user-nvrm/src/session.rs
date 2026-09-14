@@ -42,6 +42,8 @@
 //! fds and both roles are mirrored alike.
 
 use std::os::fd::RawFd;
+use std::marker::PhantomData;
+use nvrm_sys::RmAbi;
 
 use anyhow::Result;
 
@@ -73,7 +75,7 @@ const SEMAPHORE_POOL_RMSTATUS_OFF: usize =
 /// it comes from the bindgen struct of each command (uvm_ioctl.h). `None` =
 /// a command this backend does not know the layout of (the log then prints
 /// status 0).
-fn uvm_status_off(nr: u32) -> Option<usize> {
+fn uvm_status_off<A: RmAbi>(nr: u32) -> Option<usize> {
     use nvrm_abi::xlate::uvm;
     use std::mem::offset_of;
     Some(match nr {
@@ -81,9 +83,9 @@ fn uvm_status_off(nr: u32) -> Option<usize> {
         uvm::REGISTER_GPU_VASPACE => offset_of!(sys::UVM_REGISTER_GPU_VASPACE_PARAMS, rmStatus),
         uvm::UNREGISTER_GPU_VASPACE => offset_of!(sys::UVM_UNREGISTER_GPU_VASPACE_PARAMS, rmStatus),
         uvm::REGISTER_CHANNEL => offset_of!(sys::UVM_REGISTER_CHANNEL_PARAMS, rmStatus),
-        uvm::UNREGISTER_CHANNEL => offset_of!(sys::UVM_UNREGISTER_CHANNEL_PARAMS, rmStatus),
+        uvm::UNREGISTER_CHANNEL => A::UVM_UNREGISTER_CHANNEL_PARAMS_OFF_rmStatus,
         uvm::MAP_EXTERNAL_ALLOCATION => offset_of!(sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS, rmStatus),
-        uvm::FREE => offset_of!(sys::UVM_FREE_PARAMS, rmStatus),
+        uvm::FREE => A::UVM_FREE_PARAMS_OFF_rmStatus,
         uvm::REGISTER_GPU => offset_of!(sys::UVM_REGISTER_GPU_PARAMS, rmStatus),
         uvm::PAGEABLE_MEM_ACCESS => offset_of!(sys::UVM_PAGEABLE_MEM_ACCESS_PARAMS, rmStatus),
         uvm::SET_PREFERRED_LOCATION => offset_of!(sys::UVM_SET_PREFERRED_LOCATION_PARAMS, rmStatus),
@@ -142,7 +144,15 @@ pub struct Reply {
     pub bytes: Vec<u8>,
 }
 
-pub struct Session {
+pub struct Session<A: RmAbi> {
+    /// The driver ABI this session reads guest structs with. Carried as a
+    /// type rather than a value: with one version built in it costs nothing,
+    /// and it cannot be the wrong one for one message and right for the next.
+    ///
+    /// `fn() -> A` rather than `A`, so the marker is `Send + Sync` whatever
+    /// `A` is. A session crosses threads; a phantom type must not be the
+    /// reason it cannot.
+    _abi: PhantomData<fn() -> A>,
     mirror: Mirror,
     /// Resolved by the DEVICE for this one message, from the session named
     /// by `aux_fd_field_proc`. Set on every dispatch, read once in
@@ -605,7 +615,7 @@ struct Plan {
     fb_info_list: Option<(usize, usize)>,
 }
 
-impl Session {
+impl<A: RmAbi> Session<A> {
     /// Session for ONE guest process. The id is fixed from the start, so
     /// the first RM client already carries it -- even if the guest sent no
     /// name with its open. It is embedded in every blob_id the session
@@ -623,6 +633,7 @@ impl Session {
 
     fn build(sub_id: u32, vram: std::sync::Arc<crate::vram::Ledger>) -> Result<Self> {
         Ok(Self {
+            _abi: PhantomData,
             mirror: Mirror::new(),
             aux_fd_host: None,
             fd_field_host: None,
@@ -1740,7 +1751,7 @@ impl Session {
                 return Err(Refusal::msg(libc::EINVAL, "embedded_ptr_off"));
             }
             let need = unsafe {
-                nvrm_abi::xlate::embedded_ptr(
+                nvrm_abi::xlate::embedded_ptr::<A>(
                     dev, req.ioctl_nr, self.scratch.as_ptr(), inline_len as u32)
             };
             match need {
@@ -2449,7 +2460,7 @@ impl Session {
             if cmd == crate::vram::CMD_GPU_GET_NAME_STRING && !gpu_name_raw() {
                 let st = u32::from_le_bytes(self.scratch[28..32].try_into().unwrap());
                 if st == sys::NV_OK {
-                    crate::vram::rewrite_gpu_name(&mut self.aux, self.vram.profile());
+                    crate::vram::rewrite_gpu_name::<A>(&mut self.aux, self.vram.profile());
                 }
             }
             // (3c) The VM's own process list.
@@ -2748,7 +2759,7 @@ impl Session {
                 u32::from_le_bytes(self.scratch[40..44].try_into().unwrap())
             } else if dev_of(plan.dev_tag).is_some_and(|d| d.is_uvm()) {
                 // rmStatus offset per UVM command, from the bindgen structs.
-                match uvm_status_off(plan.ioctl_nr) {
+                match uvm_status_off::<A>(plan.ioctl_nr) {
                     Some(o) if o + 4 <= inline_len =>
                         u32::from_le_bytes(self.scratch[o..o + 4].try_into().unwrap()),
                     _ => 0,
@@ -3061,9 +3072,9 @@ mod tests {
     /// A session with a ledger instead of a driver, plus a token pointing
     /// at a harmless FD (a memfd -- an ioctl on it would give ENOTTY, but
     /// the fake never lets it get that far).
-    fn session() -> (Session, Arc<FakeSyscalls>, u64) {
+    fn session() -> (Session<sys::DefaultAbi>, Arc<FakeSyscalls>, u64) {
         let fake = Arc::new(FakeSyscalls::default());
-        let mut s = Session::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         assert!(fd >= 0);
@@ -3527,7 +3538,7 @@ mod tests {
                               (40, sys::NV_OK.to_le_bytes().to_vec())],
             ..Default::default()
         });
-        let mut s = Session::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
@@ -3586,10 +3597,10 @@ mod tests {
 
     /// A session on a ledger the test keeps a handle to, so it can read
     /// the VM's counter from outside.
-    fn capped_session(limit: u64) -> (Session, Arc<FakeSyscalls>, u64, Arc<crate::vram::Ledger>) {
+    fn capped_session(limit: u64) -> (Session<sys::DefaultAbi>, Arc<FakeSyscalls>, u64, Arc<crate::vram::Ledger>) {
         let led = crate::vram::Ledger::for_test(limit);
         let fake = Arc::new(FakeSyscalls::default());
-        let mut s = Session::detached_proc(7, led.clone()).unwrap();
+        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, led.clone()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-vram-test".as_ptr(), 0) };
         assert!(fd >= 0);
@@ -3738,7 +3749,7 @@ mod tests {
         let led = crate::vram::Ledger::for_test(64 << 20);
         {
             let fake = Arc::new(FakeSyscalls::default());
-            let mut s = Session::detached_proc(7, led.clone()).unwrap();
+            let mut s = Session::<sys::DefaultAbi>::detached_proc(7, led.clone()).unwrap();
             s.sys = Box::new(fake);
             let fd = unsafe { libc::memfd_create(c"leandro-vram-drop".as_ptr(), 0) };
             let owned =
@@ -3869,7 +3880,7 @@ mod tests {
             writes_back: vec![(8, 0x5c00_00e1u32.to_le_bytes().to_vec())],
             ..Default::default()
         });
-        let mut s = Session::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
@@ -3929,7 +3940,7 @@ mod tests {
     #[test]
     fn a_refused_substituted_event_gives_its_id_back() {
         let fake = Arc::new(FakeSyscalls { ioctl_ret: -1, ..Default::default() });
-        let mut s = Session::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
@@ -3977,7 +3988,7 @@ mod tests {
             writes_back: vec![(8, 0x5c00_00e1u32.to_le_bytes().to_vec())],
             ..Default::default()
         });
-        let mut s = Session::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
@@ -4042,9 +4053,9 @@ mod tests {
     #[test]
     fn closing_the_fd_a_client_was_allocated_on_gives_its_ctl_back() {
         let fake = Arc::new(FakeSyscalls::default());
-        let mut s = Session::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
-        let mktok = |s: &mut Session| {
+        let mktok = |s: &mut Session<sys::DefaultAbi>| {
             let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
             let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
             s.mirror.insert(owned)
@@ -4099,7 +4110,7 @@ mod tests {
     #[test]
     fn drain_asks_get_event_data_and_matches_by_client_and_handle() {
         let fake = Arc::new(FakeSyscalls::default());
-        let mut s = Session::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
@@ -4341,18 +4352,18 @@ mod tests {
             uvm::MIGRATE, uvm::VALIDATE_VA_RANGE, uvm::CREATE_EXTERNAL_RANGE,
         ];
         for nr in known {
-            let off = uvm_status_off(nr).unwrap_or_else(|| panic!("{nr:#x} has no status offset"));
+            let off = uvm_status_off::<sys::DefaultAbi>(nr).unwrap_or_else(|| panic!("{nr:#x} has no status offset"));
             let size = uvm_param_size(nr).unwrap_or_else(|| panic!("{nr:#x} has no size")) as usize;
             assert!(off + 4 <= size, "{nr:#x}: rmStatus @{off} outside the {size}-byte block");
         }
         // DEINITIALIZE has no parameter block, hence no status; a number
         // nobody knows answers None rather than a guess.
-        assert_eq!(uvm_status_off(uvm::DEINITIALIZE), None);
-        assert_eq!(uvm_status_off(0x7fff), None);
+        assert_eq!(uvm_status_off::<sys::DefaultAbi>(uvm::DEINITIALIZE), None);
+        assert_eq!(uvm_status_off::<sys::DefaultAbi>(0x7fff), None);
         // And the two the fake answers write to, as literals the way the
         // execute branch quotes them.
-        assert_eq!(uvm_status_off(uvm::MIGRATE), Some(72));
-        assert_eq!(uvm_status_off(uvm::ALLOC_SEMAPHORE_POOL), Some(9240));
+        assert_eq!(uvm_status_off::<sys::DefaultAbi>(uvm::MIGRATE), Some(72));
+        assert_eq!(uvm_status_off::<sys::DefaultAbi>(uvm::ALLOC_SEMAPHORE_POOL), Some(9240));
     }
 
     /// The process-list refusal, pinned before and after the restructure of
@@ -4404,14 +4415,14 @@ mod tests {
     /// counter is set up next to the wrap rather than counted there.
     #[test]
     fn a_wrapping_blob_id_never_hands_out_zero() {
-        let mut s = Session::detached_proc(0, crate::vram::Ledger::off()).unwrap();
+        let mut s = Session::<sys::DefaultAbi>::detached_proc(0, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(Arc::new(FakeSyscalls::default()));
         let fd = unsafe { libc::memfd_create(c"leandro-blobid-test".as_ptr(), 0) };
         assert!(fd >= 0);
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
         let tok = s.mirror.insert(owned);
 
-        let prepare = |s: &mut Session, seq: u32| -> u64 {
+        let prepare = |s: &mut Session<sys::DefaultAbi>, seq: u32| -> u64 {
             let mp = Req {
                 seq,
                 kind: Kind::MapPrepare as u32,

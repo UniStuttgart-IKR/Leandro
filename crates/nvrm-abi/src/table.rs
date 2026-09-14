@@ -24,6 +24,7 @@ use nvrm_wire::tables as t;
 use nvrm_wire::DevTag;
 
 use crate::sys;
+use sys::RmAbi;
 use crate::xlate::{self, Dev};
 
 /// Finished table stream, header and checksum filled in.
@@ -89,7 +90,7 @@ const CLASS_SCAN_MAX: u32 = 0xffff;
 const FRONTEND_SCAN_MAX: u32 = 0xff;
 
 /// The four descriptor lists before serialization -- the writer's view.
-/// `build()` pours them into the stream; `expect_dump()` writes them as
+/// `build::<sys::DefaultAbi>()` pours them into the stream; `expect_dump()` writes them as
 /// text, against which the C interpreter
 /// (`guest-module/virtio_nvrm/test/tabcheck.c`) diffs its own reading.
 struct Parts {
@@ -99,8 +100,8 @@ struct Parts {
     nested: Vec<t::NestedDescRow>,
 }
 
-pub fn build() -> Tables {
-    let p = collect();
+pub fn build<A: RmAbi>() -> Tables {
+    let p = collect::<A>();
     let (bytes, checksum) = serialize(&p);
     Tables {
         bytes,
@@ -113,8 +114,8 @@ pub fn build() -> Tables {
     }
 }
 
-fn collect() -> Parts {
-    verify_against_xlate();
+fn collect<A: RmAbi>() -> Parts {
+    verify_against_xlate::<A>();
 
     let mut ioctls: Vec<t::IoctlDesc> = Vec::new();
 
@@ -165,7 +166,7 @@ fn collect() -> Parts {
     // ---- hClass -> size (+ fd inside the params buffer) ------------------
     let mut classes: Vec<t::ClassDesc> = Vec::new();
     for hclass in 0..=CLASS_SCAN_MAX {
-        let Some(param_size) = xlate::alloc_param_size(hclass) else { continue };
+        let Some(param_size) = xlate::alloc_param_size::<A>(hclass) else { continue };
         classes.push(t::ClassDesc {
             hclass,
             param_size,
@@ -238,7 +239,7 @@ fn collect() -> Parts {
 }
 
 /// The 24 header words in wire order (nvrm_wire.h) -- the ONE place that
-/// knows the order; `build()` and `expect_dump()` share it.
+/// knows the order; `build::<sys::DefaultAbi>()` and `expect_dump()` share it.
 fn header_words(p: &Parts, total_len: u32, checksum: u32) -> [u32; 24] {
     [
         t::TABLE_MAGIC,
@@ -310,10 +311,10 @@ fn serialize(p: &Parts) -> (Vec<u8>, u32) {
 /// checks exactly the stretch in between (serialization in Rust, parse +
 /// struct layout + find_* in C). All raw decimal -- formatting logic would
 /// be surface for divergence.
-pub fn expect_dump() -> String {
+pub fn expect_dump<A: RmAbi>() -> String {
     use std::fmt::Write;
 
-    let p = collect();
+    let p = collect::<A>();
     let (bytes, checksum) = serialize(&p);
     let h = header_words(&p, bytes.len() as u32, checksum);
 
@@ -491,12 +492,12 @@ fn frontend_special(nr: u32) -> Option<Special> {
 /// Counter-check: the same decision `xlate::embedded_ptr` makes, recomputed
 /// from the numbers in `frontend_special`. Runs while the table is built --
 /// that is, at every host start.
-fn verify_against_xlate() {
+fn verify_against_xlate<A: RmAbi>() {
     // (1) RM_CONTROL: params @16, length from the field @24.
     let mut buf = [0u8; 32];
     buf[16..24].copy_from_slice(&0xdead_beef_u64.to_le_bytes()); // params != 0
     buf[24..28].copy_from_slice(&1234u32.to_le_bytes()); // paramsSize
-    let got = unsafe { xlate::embedded_ptr(Dev::Ctl, sys::NV_ESC_RM_CONTROL, buf.as_ptr(), 32) };
+    let got = unsafe { xlate::embedded_ptr::<A>(Dev::Ctl, sys::NV_ESC_RM_CONTROL, buf.as_ptr(), 32) };
     match got {
         Ok(Some(e)) => assert!(
             e.ptr_off == NVOS54_PARAMS_OFF && e.len == 1234,
@@ -510,10 +511,10 @@ fn verify_against_xlate() {
     // (2) RM_ALLOC: params @16, length from the hClass table.
     let mut buf = [0u8; 48];
     let probe_class = 0x2080u32; // NV20_SUBDEVICE_0, 4-byte params
-    let want = xlate::alloc_param_size(probe_class).expect("probe class missing from xlate");
+    let want = xlate::alloc_param_size::<A>(probe_class).expect("probe class missing from xlate");
     buf[12..16].copy_from_slice(&probe_class.to_le_bytes());
     buf[16..24].copy_from_slice(&0xdead_beef_u64.to_le_bytes());
-    let got = unsafe { xlate::embedded_ptr(Dev::Ctl, sys::NV_ESC_RM_ALLOC, buf.as_ptr(), 48) };
+    let got = unsafe { xlate::embedded_ptr::<A>(Dev::Ctl, sys::NV_ESC_RM_ALLOC, buf.as_ptr(), 48) };
     match got {
         Ok(Some(e)) => assert!(
             e.ptr_off == NVOS64_PARAMS_OFF && e.len == want,
@@ -527,13 +528,13 @@ fn verify_against_xlate() {
     // (3) pRightsRequested != 0 must fail loudly -- the table tells the
     //     module the same thing via rights_off/rights_if_size.
     buf[24..32].copy_from_slice(&1u64.to_le_bytes());
-    let got = unsafe { xlate::embedded_ptr(Dev::Ctl, sys::NV_ESC_RM_ALLOC, buf.as_ptr(), 48) };
+    let got = unsafe { xlate::embedded_ptr::<A>(Dev::Ctl, sys::NV_ESC_RM_ALLOC, buf.as_ptr(), 48) };
     assert!(got.is_err(), "xlate accepts pRightsRequested != 0, the table does not");
 
     // (4) GET_EVENT_DATA: pEvent @0, length = one NvUnixEvent, constant.
     let mut buf = [0u8; 16];
     buf[0..8].copy_from_slice(&0xdead_beef_u64.to_le_bytes());
-    let got = unsafe { xlate::embedded_ptr(Dev::Ctl, sys::NV_ESC_RM_GET_EVENT_DATA, buf.as_ptr(), 16) };
+    let got = unsafe { xlate::embedded_ptr::<A>(Dev::Ctl, sys::NV_ESC_RM_GET_EVENT_DATA, buf.as_ptr(), 16) };
     let want = core::mem::size_of::<sys::NvUnixEvent>() as u32;
     match got {
         Ok(Some(e)) => assert!(
@@ -611,7 +612,7 @@ mod tests {
 
     #[test]
     fn stream_is_self_consistent() {
-        let tb = build();
+        let tb = build::<sys::DefaultAbi>();
         assert_eq!(tb.bytes.len(), u32::from_le_bytes(tb.bytes[8..12].try_into().unwrap()) as usize);
         assert_eq!(t::fnv1a32(&tb.bytes[t::HDR_LEN..]), tb.checksum);
         let n = tb.n_ioctl as usize * t::IOCTL_DESC_LEN
@@ -626,7 +627,7 @@ mod tests {
     /// guest-local number.
     #[test]
     fn fd_fields_survive_serialisation() {
-        let tb = build();
+        let tb = build::<sys::DefaultAbi>();
         let mut found = 0;
         for i in 0..tb.n_ioctl as usize {
             let o = t::HDR_LEN + i * t::IOCTL_DESC_LEN;
@@ -645,7 +646,7 @@ mod tests {
     /// would rest on the host alone instead of on both sides.
     #[test]
     fn blocked_ctrls_are_in_the_stream() {
-        let tb = build();
+        let tb = build::<sys::DefaultAbi>();
         let base = t::HDR_LEN
             + tb.n_ioctl as usize * t::IOCTL_DESC_LEN
             + tb.n_class as usize * t::CLASS_DESC_LEN;
@@ -677,7 +678,7 @@ mod tests {
     /// All offsets: nvos.h, evidenced at the NVOS* constants above.
     #[test]
     fn the_three_length_rules() {
-        let d = decode(&build());
+        let d = decode(&build::<sys::DefaultAbi>());
 
         // (1) NVOS54: params P64 @16, paramsSize u32 @24, cmd u32 @8.
         let ctl = find(&d, DevTag::Ctl, sys::NV_ESC_RM_CONTROL);
@@ -737,7 +738,7 @@ mod tests {
     /// wrapping, OS descriptor, FREE, and the protocol bounds.
     #[test]
     fn header_specials_match_the_source() {
-        let tb = build();
+        let tb = build::<sys::DefaultAbi>();
         let d = decode(&tb);
         let h = &d.hdr;
 
@@ -782,12 +783,12 @@ mod tests {
     /// hand-maintenance errors, nailed down as literals.
     #[test]
     fn hclass_sizes_match_xlate() {
-        let d = decode(&build());
+        let d = decode(&build::<sys::DefaultAbi>());
         let mut seen = std::collections::BTreeSet::new();
         for c in &d.classes {
             let (hclass, param_size, fd_off, flags) = (c[0], c[1], c[2], c[3]);
             assert!(seen.insert(hclass), "hClass {hclass:#x} twice in the stream");
-            assert_eq!(Some(param_size), xlate::alloc_param_size(hclass), "{hclass:#x}");
+            assert_eq!(Some(param_size), xlate::alloc_param_size::<sys::DefaultAbi>(hclass), "{hclass:#x}");
             assert_eq!(fd_off, xlate::alloc_fd_field(hclass).unwrap_or(t::NONE), "{hclass:#x}");
             // The flag must reach the WIRE, not just the struct: the row is
             // serialised field by field, so a hardcoded constant there would
@@ -800,13 +801,13 @@ mod tests {
         assert!(d.classes.iter().any(|c| c[3] & t::KF_UNVERIFIED != 0), "no unverified classes");
         assert!(d.classes.iter().any(|c| c[3] & t::KF_UNVERIFIED == 0), "no verified classes");
         let known: std::collections::BTreeSet<u32> =
-            (0..=CLASS_SCAN_MAX).filter(|&h| xlate::alloc_param_size(h).is_some()).collect();
+            (0..=CLASS_SCAN_MAX).filter(|&h| xlate::alloc_param_size::<sys::DefaultAbi>(h).is_some()).collect();
         assert_eq!(seen, known, "class set in the stream != xlate scan");
 
         // The two former errors: 0x90f1 with pasid = 56 (not 48, gVisor),
         // 0x71 with its own 40-byte struct (not 128, not NVOS32).
-        assert_eq!(xlate::alloc_param_size(0x90f1), Some(56));
-        assert_eq!(xlate::alloc_param_size(0x0071), Some(40));
+        assert_eq!(xlate::alloc_param_size::<sys::DefaultAbi>(0x90f1), Some(56));
+        assert_eq!(xlate::alloc_param_size::<sys::DefaultAbi>(0x0071), Some(40));
         // And the one fd field inside the aux buffer: NV0005.data @16 (cl0005.h).
         assert_eq!(xlate::alloc_fd_field(0x0079), Some(16));
     }
@@ -837,7 +838,7 @@ mod tests {
     /// second-level pointers.
     #[test]
     fn ctrl_rows_are_in_bounds_and_complete() {
-        let d = decode(&build());
+        let d = decode(&build::<sys::DefaultAbi>());
         for c in &d.ctrls {
             let (cmd, first, count) = (c[0], c[1] as usize, c[2] as usize);
             assert!(
@@ -879,7 +880,7 @@ mod tests {
     #[test]
     fn no_two_rows_in_the_stream_share_a_key() {
         use std::collections::BTreeSet;
-        let d = decode(&build());
+        let d = decode(&build::<sys::DefaultAbi>());
 
         let mut keys = BTreeSet::new();
         for r in &d.ioctls {

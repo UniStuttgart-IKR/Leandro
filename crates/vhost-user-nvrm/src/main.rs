@@ -148,7 +148,12 @@ fn settle_admin_privilege() {
 }
 
 fn main() -> Result<()> {
-    nvrm_sys::assert_driver_version();
+    // NOT `assert_driver_version()` any more, and the difference matters:
+    // that one demands the ONE version this build defaults to and panics
+    // otherwise. The backend carries a layout for every version in
+    // `crates/nvrm-sys/abi.toml` and picks one in `nvrm::serve`, which is the
+    // only place that asks. A driver with no entry is still refused -- by
+    // `detect`, with a message that says how to add it.
     settle_admin_privilege();
     install_signal_notes();
 

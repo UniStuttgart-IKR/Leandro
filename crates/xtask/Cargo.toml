@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Repository automation. `cargo xtask abi` generates the multi-version RM bindings."
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+bindgen.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+# The manifests are read out of bindgen's own output, with a real parser
+# rather than a regex: the numbers in a layout test are the numbers the crate
+# compiles against, and a shape this does not recognise has to be an error
+# rather than a silently empty result.
+syn = { version = "2", features = ["full", "parsing", "printing"] }
+quote = "1"
+proc-macro2 = "1"
+prettyplease = "0.2"
+sha2 = "0.10"

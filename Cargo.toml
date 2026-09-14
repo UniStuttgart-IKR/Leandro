@@ -6,6 +6,7 @@ resolver = "2"
 members = [
     "crates/nvrm-sys", "crates/nvrm-abi", "crates/nvrm-client",
     "crates/nvrm-wire", "crates/nvrm-trace", "crates/vhost-user-nvrm", "crates/vhost-user-input",
+    "crates/xtask",
 ]
 
 [workspace.package]

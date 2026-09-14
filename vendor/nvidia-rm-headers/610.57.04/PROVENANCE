@@ -1,0 +1,12 @@
+open-gpu-kernel-modules @ 610.57.04
+
+upstream:  https://github.com/NVIDIA/open-gpu-kernel-modules
+tag:       610.57.04
+commit:    e4a5faa2567f28c8eabe0ebb6422b6d0abcf37eb
+licence:   as stated in COPYING beside this file (MIT/GPLv2 dual)
+headers:   102, copied verbatim
+
+The transitive closure of crates/nvrm-sys/wrapper.h under this
+version's five include roots, computed with clang -MM. Produced by
+scripts/build.sh vendor-abi 610.57.04, which reproduces it exactly.
+Nothing in this directory is edited.
