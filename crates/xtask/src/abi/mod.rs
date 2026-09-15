@@ -164,6 +164,37 @@ pub fn run(args: &[String]) -> Result<()> {
     // --- the crate ---------------------------------------------------------
     let part = emit::partition(&built);
     mediated::assert_complete(&root, &cfg.footprint, &part, &built)?;
+    // Every entry in [footprint.renamed] is a CLAIM, typed by a person: that
+    // two of NVIDIA's names are the same type. The measurement can disagree
+    // -- a rename that is really two different structs would classify as
+    // breaking and then sit in a 60 KB classification nobody reads line by
+    // line. So say the verdict here, on every run, one line per rename.
+    for (canonical, per_version) in &cfg.footprint.renamed {
+        let versions_renamed: Vec<&str> = per_version.keys().map(String::as_str).collect();
+        let old: Vec<&str> = {
+            let mut o: Vec<&str> = per_version.values().map(String::as_str).collect();
+            o.sort();
+            o.dedup();
+            o
+        };
+        if part.stable.iter().any(|n| n == canonical) {
+            eprintln!(
+                "abi: rename {canonical} <- {} on {}: identical on every version, as claimed",
+                old.join("/"),
+                versions_renamed.join(", ")
+            );
+        } else {
+            eprintln!(
+                "abi: rename {canonical} <- {} on {}: NOT identical after renaming. \
+                 Either the two names are different types and the entry is wrong, or the \
+                 type was renamed AND changed in the same release -- manifests/classification.md \
+                 says which.",
+                old.join("/"),
+                versions_renamed.join(", ")
+            );
+        }
+    }
+
     emit::refuse_on_breaking(&cfg, &part, &built, &pairs)?;
     let out = emit::emit(&root, &cfg, &built, &part, &primary, check)?;
     stale.extend(out.stale);

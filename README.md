@@ -256,12 +256,27 @@ owns the nodes and the forwarding (rationale: `docs/OPEN-QUESTIONS.md` no. 2).
 Read this before trying it. None of the following is a bug to be reported;
 each is a known boundary of the current design.
 
-- **The driver version must match exactly.** Guest `libcuda` and the host's
-  `nvidia.ko` have to be the same version (this tree targets the one in
-  `DRIVER_VERSION`). NVIDIA gives no ABI stability guarantee for the `ioctl`
-  structs, so a mismatch does not announce itself as an error -- it shows up
-  as misinterpreted struct offsets. `scripts/build.sh check-driver` and
-  `nvrm_sys::assert_driver_version()` exist to make that failure loud.
+- **Guest and host driver must be the same version, and the tree carries
+  four of them.** Guest `libcuda` and the host's `nvidia.ko` have to match
+  each other. NVIDIA gives no ABI stability guarantee for the `ioctl` structs,
+  so a mismatch does not announce itself as an error -- it shows up as
+  misinterpreted struct offsets.
+
+  What changed on 2026-09-14: `crates/nvrm-sys` carries a measured layout for
+  580.178.04, 595.99.02, 610.57.04 and 615.71.09, and the backend reads the
+  running driver once at start-up and picks one. A version with no measured
+  layout is REFUSED rather than approximated. `DRIVER_VERSION` is what the
+  tree is BUILT for -- the default feature, the committed guest header -- and
+  `LEA_DRIVER` points one run at another of the four.
+  [`docs/abi-versions.md`](docs/abi-versions.md) is the page for this.
+
+  **What that does not yet mean.** Every offset is measured from the vendor
+  headers and checked by the compiler; nothing in this tree has ever RUN
+  against a driver other than 610.57.04. Until a pair is measured it is not
+  in that page's table, which is generated from the result files so it cannot
+  claim otherwise. Treat the other three as the layouts being right, not as
+  the boundary being exercised.
+
   NVIDIA's userspace is not redistributable, so the guest must fetch the
   matching version itself; see [`LICENSES.md`](LICENSES.md).
 - **Turing is the only architecture ever run** — see the disclaimer at the
