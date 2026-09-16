@@ -55,6 +55,10 @@ stdenv.mkDerivation {
     cp -r ${nvidiaSrc}/kernel-open ${nvidiaSrc}/utils.mk ${nvidiaSrc}/version.mk \
           ${nvidiaSrc}/nv-compiler.sh ${nvidiaSrc}/COPYING $s/nvkms/
     cp -r ${nvidiaSrc}/src/nvidia-modeset ${nvidiaSrc}/src/common $s/nvkms/src/
+    # The one directory of NVIDIA's RM that NVKMS includes from
+    # (src/nvidia-modeset/Makefile: -I ../nvidia/arch/nvalloc/unix/include).
+    mkdir -p $s/nvkms/src/nvidia/arch/nvalloc/unix
+    cp -r ${nvidiaSrc}/src/nvidia/arch/nvalloc/unix/include $s/nvkms/src/nvidia/arch/nvalloc/unix/
     chmod -R u+w $root
     rm -rf $s/virtio_nvrm/test
 
