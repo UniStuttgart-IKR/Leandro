@@ -155,7 +155,7 @@ pub unsafe fn set_sub_process_id(fd: RawFd, hclient: u32, sub_id: u32, name: &st
 
     let ret = libc::ioctl(
         fd,
-        iowr_raw(crate::sys::NV_ESC_RM_CONTROL, p.len() as u32) as libc::c_ulong,
+        iowr_raw(crate::sys::NV_ESC_RM_CONTROL, p.len() as u32) as libc::Ioctl,
         p.as_mut_ptr() as *mut libc::c_void,
     );
     let st = u32::from_le_bytes(p[28..32].try_into().unwrap());
@@ -189,7 +189,7 @@ pub unsafe fn grant_dup_same_user(fd: RawFd, hclient: u32, hobject: u32) -> (i32
 
     let ret = libc::ioctl(
         fd,
-        iowr_raw(crate::sys::NV_ESC_RM_CONTROL, p.len() as u32) as libc::c_ulong,
+        iowr_raw(crate::sys::NV_ESC_RM_CONTROL, p.len() as u32) as libc::Ioctl,
         p.as_mut_ptr() as *mut libc::c_void,
     );
     let st = u32::from_le_bytes(p[28..32].try_into().unwrap());

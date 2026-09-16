@@ -54,7 +54,7 @@ impl NvSyscalls for RealSyscalls {
     // `len` is unused here: the driver takes the size from the request, and
     // passing it would not change a single byte that crosses.
     unsafe fn ioctl(&self, fd: RawFd, request: libc::c_ulong, buf: *mut u8, _len: usize) -> i32 {
-        libc::ioctl(fd, request, buf as *mut libc::c_void)
+        libc::ioctl(fd, request as libc::Ioctl, buf as *mut libc::c_void)
     }
 
     fn set_sub_process_id(&self, fd: RawFd, hclient: u32, sub_id: u32, name: &str) -> (i32, u32) {

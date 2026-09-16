@@ -66,7 +66,7 @@ const BASE_LIBCUDA: u64 = 0x2_04a0_0000;
 const BASE_ARBITRARY: u64 = 0x5_1120_0000;
 
 fn uvm_ioctl<T>(fd: &std::fs::File, cmd: u64, p: &mut T) -> (i32, i32) {
-    let r = unsafe { libc::ioctl(fd.as_raw_fd(), cmd, p as *mut T) };
+    let r = unsafe { libc::ioctl(fd.as_raw_fd(), cmd as libc::Ioctl, p as *mut T) };
     let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
     (r, if r == 0 { 0 } else { errno })
 }

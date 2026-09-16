@@ -551,7 +551,7 @@ const _: () = {
 /// constants above).
 fn uvm_call<T>(fd: i32, cmd: u64, p: &mut T, status_off: usize) -> Result<()> {
     debug_assert!(status_off + 4 <= std::mem::size_of::<T>());
-    let r = unsafe { libc::ioctl(fd, cmd as libc::c_ulong, p as *mut T as *mut libc::c_void) };
+    let r = unsafe { libc::ioctl(fd, cmd as libc::Ioctl, p as *mut T as *mut libc::c_void) };
     if r != 0 {
         return Err(std::io::Error::last_os_error()).context("UVM ioctl");
     }

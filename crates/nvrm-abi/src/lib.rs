@@ -211,7 +211,7 @@ impl NvDevice {
     /// silent memory error, not an EINVAL.
     pub unsafe fn ioctl_raw<T>(&self, nr: u32, arg: &mut T) -> Result<()> {
         let cmd = iowr::<T>(nr);
-        let r = libc::ioctl(self.fd.as_raw_fd(), cmd as libc::c_ulong, arg as *mut T as *mut libc::c_void);
+        let r = libc::ioctl(self.fd.as_raw_fd(), cmd as libc::Ioctl, arg as *mut T as *mut libc::c_void);
         if r < 0 {
             return Err(Error::Ioctl { nr, source: std::io::Error::last_os_error() });
         }
