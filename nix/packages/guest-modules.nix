@@ -77,6 +77,10 @@ stdenv.mkDerivation {
     install -D -m444 guest-module/nvrm_nodes/nvrm_nodes.ko   $d/nvrm_nodes.ko
     install -D -m444 guest-module/virtio_nvrm/virtio_nvrm.ko $d/virtio_nvrm.ko
     install -D -m555 guest-module/nvrm_nodes/nvrm-nodes-tool $out/bin/nvrm-nodes-tool
+    # virtio_nvrm's exports, for the one package that links against them:
+    # NVIDIA's nvidia-modeset takes nvidia_get_rm_ops from here instead of
+    # from nvidia.ko (guest-nvkms.nix, KBUILD_EXTRA_SYMBOLS).
+    install -D -m444 guest-module/virtio_nvrm/Module.symvers $out/share/leandro/virtio_nvrm.symvers
     # A fingerprint of the SOURCES this .ko was built from, beside the .ko.
     # An out-of-tree module in an IMAGE is the one that can silently be older
     # than the checkout the host is running from: on the Ubuntu guests the

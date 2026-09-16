@@ -7,6 +7,7 @@
 #
 #   nix build .#vhost-user-nvrm .#cloud-hypervisor      the two things a host needs
 #   nix build .#guest-modules                            nvrm_nodes.ko + virtio_nvrm.ko
+#   nix build .#guest-nvkms                              NVIDIA's nvidia-modeset.ko + nvidia-drm.ko for them
 #   nix build .#guest-image                              the NixOS guest: kernel + initrd + qcow2
 #   nix build .#guest-image-uefi                         the same system, UEFI-bootable
 #   nix develop                                          the dev shell (cargo, bindgen, qemu-img, ...)
@@ -58,11 +59,21 @@
       # recursive and both the packages and the nixosConfigurations below
       # need it. See nix/guest-image.nix -- including why microvm.nix was
       # read and not used.
-      guestModule = import ./nix/module-guest.nix {
-        guestModulesFor = kernel: pkgs.callPackage ./nix/packages/guest-modules.nix {
-          src = ./.; inherit kernel;
-        };
+      # NVIDIA's open-gpu-kernel-modules at DRIVER_VERSION, whole (the
+      # headers-only fetch in nix/packages/nvidia-headers.nix is not enough to
+      # build nvidia-modeset). A new DRIVER_VERSION needs a new hash here:
+      #   nix store prefetch-file --unpack https://github.com/NVIDIA/open-gpu-kernel-modules/archive/<version>.tar.gz
+      openModulesHash = "sha256-rQHOOOY4KL92Ww3KDwh+j4eGU7oNAH8LutZC5wmFnPo=";   # 610.57.04
+
+      guestModulesFor = kernel: pkgs.callPackage ./nix/packages/guest-modules.nix {
+        src = ./.; inherit kernel;
       };
+      guestNvkmsFor = kernel: pkgs.callPackage ./nix/packages/guest-nvkms.nix {
+        inherit kernel driverVersion;
+        guestModules = guestModulesFor kernel;
+        hash = openModulesHash;
+      };
+      guestModule = import ./nix/module-guest.nix { inherit guestModulesFor guestNvkmsFor; };
       guestImage = import ./nix/guest-image.nix {
         inherit lib nixpkgs system driverVersion guestModule;
         # config.sh's LEA_GUEST_USER default. It is a build-time constant
@@ -100,6 +111,8 @@
         nvidia-headers = pkgs.leandro-nvidia-headers;
         leandro-scripts = pkgs.leandro-scripts;
         guest-modules = pkgs.leandro-guest-modules;
+        # nvidia-modeset.ko + nvidia-drm.ko, NVIDIA's, against virtio_nvrm.
+        guest-nvkms = guestNvkmsFor pkgs.linuxKernel.packages.linux_6_12.kernel;
         # kernel + initrd + qcow2 + image.env, for direct kernel boot.
         guest-image = guestImage.image;
         # The same system, UEFI-bootable, for an orchestrator that boots

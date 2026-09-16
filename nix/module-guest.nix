@@ -30,7 +30,7 @@
 # systemd units (measured on a booted guest, scripts/lib/provision.sh's
 # nvrm.conf block). Reaching CUDA from a systemd unit in a NixOS guest
 # therefore needs the variable set in that unit's own environment.
-{ guestModulesFor }:
+{ guestModulesFor, guestNvkmsFor }:
 { config, lib, pkgs, ... }:
 let
   cfg = config.services.leandro-guest;
@@ -160,14 +160,18 @@ in {
         type = lib.types.bool;
         default = false;
         description = ''
-          Serve the kernel-path RM operations a display needs and present
-          NVKMS a virtual display.
-
-          WARNING: this switches the MODULE on; it does not install NVKMS.
-          nvidia-modeset and nvidia-drm still have to come from the system's
-          NVIDIA packages and are loaded on top -- see docs/DISPLAY.md. On
-          the Ubuntu guests lea_display_stage does that staging, and there
-          is no NixOS equivalent here yet.
+          Serve the kernel-path RM operations a display needs, present NVKMS
+          a virtual display, and load NVIDIA's nvidia-modeset and nvidia-drm
+          on top (display.nvkmsPackage) before the display manager starts.
+        '';
+      };
+      nvkmsPackage = lib.mkOption {
+        type = lib.types.package;
+        default = guestNvkmsFor config.boot.kernelPackages.kernel;
+        defaultText = lib.literalExpression "leandro-guest-nvkms built for config.boot.kernelPackages.kernel";
+        description = ''
+          NVIDIA's nvidia-modeset.ko and nvidia-drm.ko at DRIVER_VERSION,
+          built against virtio_nvrm's exports instead of nvidia.ko.
         '';
       };
       width = lib.mkOption { type = lib.types.int; default = 1920; description = "Virtual display width (vdisplay_width)."; };
@@ -213,7 +217,8 @@ in {
       }
     ];
 
-    boot.extraModulePackages = [ cfg.package ];
+    boot.extraModulePackages = [ cfg.package ]
+      ++ lib.optional cfg.display.enable cfg.display.nvkmsPackage;
 
     # The guest runs NO NVIDIA kernel driver -- that is the claim the whole
     # project rests on, and `showcase.sh demo` has a section that proves it.
@@ -226,6 +231,8 @@ in {
       options nvrm_nodes ${lib.concatStringsSep " " nodesParams}
     '' + lib.optionalString (nvrmParams != [ ]) ''
       options virtio_nvrm ${lib.concatStringsSep " " nvrmParams}
+    '' + lib.optionalString cfg.display.enable ''
+      options nvidia-drm modeset=1 vblank=1
     '';
 
     systemd.services.leandro-nvrm = {
@@ -237,6 +244,28 @@ in {
         Type = "oneshot";
         RemainAfterExit = true;
         ExecStart = boot-sh;
+      };
+    };
+
+    # NVKMS registers 195:254 and creates no device for it, so nothing makes
+    # the node (provision.sh's lea_display_modules does a mknod). And the
+    # modules load in their own unit, after the params and before the display
+    # manager: nvidia-drm reads modeset/vblank once, at load, and NVKMS reads
+    # the virtual display's EDID once, when it attaches.
+    systemd.tmpfiles.rules = lib.mkIf cfg.display.enable [
+      "c /dev/nvidia-modeset 0666 root root - 195:254"
+    ];
+    systemd.services.leandro-display = lib.mkIf cfg.display.enable {
+      description = "Leandro guest: NVIDIA's nvidia-modeset and nvidia-drm on top of virtio_nvrm";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "leandro-nvrm.service" ];
+      requires = [ "leandro-nvrm.service" ];
+      before = [ "display-manager.service" ];
+      unitConfig.ConditionVirtualization = "vm";
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${pkgs.kmod}/bin/modprobe nvidia_drm";
       };
     };
 
@@ -253,9 +282,6 @@ in {
       services.leandro-guest: no nvidiaUserspaceDir. The modules will load
       and the nodes will appear, but nothing in this guest can call CUDA
       until libcuda of the host driver's exact version is in place.
-    '' ++ lib.optional cfg.display.enable ''
-      services.leandro-guest.display: the module side is on, the NVKMS side
-      is not provided here. Unverified on NixOS -- see docs/DISPLAY.md.
     '';
   };
 }
