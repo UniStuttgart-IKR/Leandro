@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+#
+# The compute half, in the order the modules need: nvrm_nodes (without device
+# nodes -- virtio_nvrm owns them, /lib/modprobe.d/leandro-guest.conf), the
+# HOST's /proc/driver/nvidia/params before the first CUDA call, virtio_nvrm.
+# modprobe of a loaded module is a no-op, so udev autoloading virtio_nvrm
+# first changes nothing but the order of two lines in dmesg.
+
+[Unit]
+Description=Leandro guest: nvrm_nodes, the host's params, virtio_nvrm
+ConditionVirtualization=vm
+ConditionFileNotEmpty=/etc/leandro/params
+After=systemd-modules-load.service
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/modprobe nvrm_nodes
+ExecStart=/usr/bin/nvrm-nodes-tool provision params /etc/leandro/params
+ExecStart=/sbin/modprobe virtio_nvrm
+
+[Install]
+WantedBy=multi-user.target

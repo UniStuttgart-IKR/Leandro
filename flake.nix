@@ -8,6 +8,7 @@
 #   nix build .#vhost-user-nvrm .#cloud-hypervisor      the two things a host needs
 #   nix build .#guest-modules                            nvrm_nodes.ko + virtio_nvrm.ko
 #   nix build .#guest-nvkms                              NVIDIA's nvidia-modeset.ko + nvidia-drm.ko for them
+#   nix build .#guest-deb                                all of it as a DKMS .deb for Ubuntu guests
 #   nix build .#guest-image                              the NixOS guest: kernel + initrd + qcow2
 #   nix build .#guest-image-uefi                         the same system, UEFI-bootable
 #   nix develop                                          the dev shell (cargo, bindgen, qemu-img, ...)
@@ -113,6 +114,10 @@
         guest-modules = pkgs.leandro-guest-modules;
         # nvidia-modeset.ko + nvidia-drm.ko, NVIDIA's, against virtio_nvrm.
         guest-nvkms = guestNvkmsFor pkgs.linuxKernel.packages.linux_6_12.kernel;
+        # The same guest side for Ubuntu: a DKMS .deb built from packaging/guest-deb.
+        guest-deb = pkgs.callPackage ./nix/packages/guest-deb.nix {
+          src = ./.; inherit driverVersion; hash = openModulesHash;
+        };
         # kernel + initrd + qcow2 + image.env, for direct kernel boot.
         guest-image = guestImage.image;
         # The same system, UEFI-bootable, for an orchestrator that boots

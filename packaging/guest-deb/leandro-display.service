@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+#
+# The display half: NVIDIA's nvidia-drm (and through its dependency
+# nvidia-modeset) on top of virtio_nvrm, before the display manager. Only when
+# virtio_nvrm was loaded with display=1 (/etc/modprobe.d/leandro-display.conf):
+# nvidia-drm reads modeset and vblank once, at load, and NVKMS reads the
+# virtual display's EDID once, when it attaches.
+
+[Unit]
+Description=Leandro guest: NVIDIA's nvidia-modeset and nvidia-drm over virtio_nvrm
+ConditionVirtualization=vm
+Requires=leandro-nvrm.service
+After=leandro-nvrm.service
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecCondition=/bin/grep -qx 1 /sys/module/virtio_nvrm/parameters/display
+ExecStart=/sbin/modprobe nvidia_drm
+
+[Install]
+WantedBy=multi-user.target

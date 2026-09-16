@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+set -e
+if [ "$1" = configure ]; then
+    dkms add -m leandro-guest -v @VERSION@ 2>/dev/null || true
+    dkms install -m leandro-guest -v @VERSION@ -k "$(uname -r)" || true
+    systemd-tmpfiles --create leandro.conf || true
+    systemctl daemon-reload || true
+    systemctl enable leandro-nvrm.service leandro-display.service || true
+    [ -s /etc/leandro/params ] || echo "leandro-guest: put the HOST's /proc/driver/nvidia/params into /etc/leandro/params"
+fi
