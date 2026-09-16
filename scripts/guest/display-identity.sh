@@ -99,7 +99,14 @@ ID_FILES="vendor device subsystem_vendor subsystem_device revision class config"
 
 echo "display-identity: $MSG" >&2
 export FAKE D REALNV ID_FILES
-exec unshare -m sh -c '
+# SLAVE propagation, not unshare's default (private). A display manager lives
+# for the whole boot, and the mounts made after it started must reach it:
+# logind mounts /run/user/<uid> at login, and in a private namespace gdm sees
+# the empty directory underneath -- pam_systemd "Runtime directory
+# '/run/user/1000' is not owned by UID 1000", no XDG_RUNTIME_DIR, and the
+# Wayland session falls back to Xorg (measured 2026-09-16, autologin). Slave
+# still keeps the binds below from leaking back out.
+exec unshare -m --propagation slave sh -c '
     mount --bind "$FAKE" /sys/bus/pci/devices
     bind_ids() {
         src=$1; dst=$2
