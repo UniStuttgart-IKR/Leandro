@@ -1,0 +1,20 @@
+Package: leandro-host
+Version: @VERSION@
+Architecture: amd64
+Maintainer: Silas Müller <github@silasmueller.de>
+Depends: adduser
+Recommends: nvidia-driver-610-open (>= @DRIVER@), nvidia-driver-610-open (<< @DRIVER@.0), nvidia-compute-utils-610 (>= @DRIVER@)
+Section: misc
+Priority: optional
+Homepage: https://github.com/UniStuttgart-IKR/Leandro
+Description: Leandro host side: GPU paravirtualisation over virtio-nvrm
+ vhost-user-nvrm, the backend that serves one guest's virtio-nvrm device from
+ the host's NVIDIA driver; vhost-user-input; vgpuprofile, which reads the
+ card's vGPU-shaped profiles; and cloud-hypervisor @CH@ with Leandro's
+ generic-vhost-user patches, as /usr/lib/leandro/cloud-hypervisor so it does
+ not shadow a distribution cloud-hypervisor. All statically linked.
+ .
+ The host driver must be exactly @DRIVER@ with the open kernel module, in
+ persistence mode (nvidia-persistenced). An orchestrator such as the
+ MeisterStack agent starts the backends itself; leandro-backend@.service is
+ for a cloud-hypervisor driven by hand.

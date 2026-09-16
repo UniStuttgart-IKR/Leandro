@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+set -e
+if [ "$1" = configure ]; then
+    # The user leandro-backend@ runs as; whoever drives cloud-hypervisor by
+    # hand joins its group to reach the socket.
+    getent passwd leandro >/dev/null || adduser --system --group --no-create-home leandro
+    adduser leandro video >/dev/null 2>&1 || true
+    adduser leandro render >/dev/null 2>&1 || true
+    systemctl daemon-reload || true
+fi

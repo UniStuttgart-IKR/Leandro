@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+#
+# One backend serves exactly ONE VM connection, hence a template:
+#
+#   systemctl start leandro-backend@a
+#   /usr/lib/leandro/cloud-hypervisor ... \
+#     --memory size=4096M,shared=on \
+#     --generic-vhost-user device_type=60,socket=/run/leandro/a/nvrm.sock,queue_sizes=[256,256]
+#
+# The same unit as nix/module.nix's, for a host that is not NixOS. Knobs go in
+# a drop-in: `systemctl edit leandro-backend@a`, Environment=LEA_VGPU_TYPE=RTX2070-4Q.
+
+[Unit]
+Description=Leandro vhost-user-nvrm backend for guest %i
+After=nvidia-persistenced.service
+
+[Service]
+ExecStart=/usr/bin/vhost-user-nvrm --nvrm /run/leandro/%i/nvrm.sock
+User=leandro
+Group=leandro
+SupplementaryGroups=video render
+RuntimeDirectory=leandro/%i
+RuntimeDirectoryMode=0770
+LimitNOFILE=65536
+Restart=on-failure
