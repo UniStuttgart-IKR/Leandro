@@ -20,6 +20,11 @@ Type=oneshot
 RemainAfterExit=yes
 ExecCondition=/bin/grep -qx 1 /sys/module/virtio_nvrm/parameters/display
 ExecStart=/sbin/modprobe nvidia_drm
+# The desktop session's environment, for as long as this display exists
+# (/usr/lib/leandro/display.environment says why).
+ExecStartPost=/bin/mkdir -p /run/environment.d
+ExecStartPost=/bin/ln -sfn /usr/lib/leandro/display.environment /run/environment.d/60-leandro-display.conf
+ExecStopPost=/bin/rm -f /run/environment.d/60-leandro-display.conf
 
 [Install]
 WantedBy=multi-user.target

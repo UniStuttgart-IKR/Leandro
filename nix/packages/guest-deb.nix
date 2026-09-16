@@ -7,12 +7,12 @@
 #   (in the guest)              apt install ./leandro-guest-dkms_*.deb
 #
 # What goes in is in packaging/guest-deb/, as plain files: the dkms.conf and
-# the Makefile dkms runs, the two units, modprobe.d, tmpfiles.d and the
-# control files. This expression only puts them where Debian wants them,
-# next to the sources dkms builds from -- Leandro's two guest modules and the
-# parts of NVIDIA's open-gpu-kernel-modules that nvidia-modeset and
-# nvidia-drm are built from -- and runs dpkg-deb. No Debian toolchain is
-# needed on the host.
+# the Makefile dkms runs, the two units, modprobe.d, tmpfiles.d, the desktop
+# session's environment and the control files. This expression only puts
+# them where Debian wants them, next to the sources dkms builds from --
+# Leandro's two guest modules and the parts of NVIDIA's
+# open-gpu-kernel-modules that nvidia-modeset and nvidia-drm are built from --
+# and runs dpkg-deb. No Debian toolchain is needed on the host.
 #
 # NVIDIA's userspace is not in it and cannot be (LICENSES.md).
 { lib, stdenv, pkgsStatic, dpkg, fetchFromGitHub, src, driverVersion, hash }:
@@ -68,6 +68,7 @@ stdenv.mkDerivation {
     install -D -m644 $p/leandro-display.service $root/usr/lib/systemd/system/leandro-display.service
     install -D -m644 $p/leandro-guest.modprobe.conf $root/usr/lib/modprobe.d/leandro-guest.conf
     install -D -m644 $p/leandro-display.modprobe.conf $root/etc/modprobe.d/leandro-display.conf
+    install -D -m644 $p/leandro-display.environment $root/usr/lib/leandro/display.environment
     install -D -m644 $p/leandro.tmpfiles.conf $root/usr/lib/tmpfiles.d/leandro.conf
 
     mkdir -p $root/DEBIAN

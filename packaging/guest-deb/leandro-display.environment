@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+#
+# The session environment of a DESKTOP guest. leandro-display.service links
+# this file to /run/environment.d/60-leandro-display.conf when it loads
+# nvidia-drm, so it exists only while the virtual display does. gdm starts
+# after that service, and both its greeter's gnome-shell and the autologin
+# session's had the variable (measured 2026-09-16, Ubuntu 24.04, gdm 46).
+#
+# mutter on the legacy KMS API, not the atomic one. The virtual display is
+# NVIDIA's DISPLAYLESS NVKMS path, and that path has no output LUT
+# (nvkms-displayless.c, DisplaylessGetCapabilities sets no caps.olut), while
+# nvidia-drm offers GAMMA_LUT on every CRTC regardless. A MODESET that carries
+# a gamma LUT is accepted -- nvEvoSetLut records curOutputLutEnabled without
+# asking the caps -- and from then on every flip inherits that LUT surface
+# and fails ValidateHeadLutHwState (nvkms-hw-flip.c:1526). The compositor gets
+# EINVAL for every frame, ~1000 a second, and the scanout never changes:
+# the grey or black Sunshine stream. mutter 46 puts its colour-device gamma
+# (a linear ramp) into the first modeset whenever colord answers before the
+# first frame, as it did on this guest (measured 2026-09-16:
+# "[atomic] Setting CRTC 59 property 'GAMMA_LUT' (28) to 67" in the
+# ALLOW_MODESET commit, then "KMS update failed: drmModeAtomicCommit: Invalid
+# argument" for every flip; with colord masked the same modeset sets the
+# gamma "to bypass" and nothing fails). On the legacy API the gamma is its own
+# drmModeCrtcSetGamma: it fails once, alone, and never reaches a modeset.
+#
+# Any other compositor that sets GAMMA_LUT in a modeset has the same problem;
+# this line only covers mutter.
+MUTTER_DEBUG_FORCE_KMS_MODE=simple
