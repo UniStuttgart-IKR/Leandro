@@ -226,6 +226,29 @@
 	{ 0x13au, 8u, 8u, 4u }, /* P2P_CAPS_MATRIX_A */ \
 	{ 0x13au, 40u, 8u, 4u }  /* P2P_CAPS_MATRIX_B */
 
+/* ---- FB_GET_INFO: the sizes the display reserve moves ---- */
+#define NVRM_CTRL_FB_GET_INFO	0x20801301u
+#define NVRM_CTRL_FB_GET_INFO_V2	0x20801303u
+#define NVRM_FB_INFO_V2_COUNT_OFF	0u
+#define NVRM_FB_INFO_V2_LIST_OFF	4u
+#define NVRM_FB_INFO_V1_COUNT_OFF	0u
+#define NVRM_FB_INFO_V1_LIST_PTR_OFF	8u
+#define NVRM_FB_INFO_ENTRY_SIZE	8u
+#define NVRM_FB_INFO_DATA_OFF	4u
+#define NVRM_FB_INFO_MAX_LIST	128u
+#define NVRM_FB_INFO_INDEX_RAM_SIZE	0x7u
+#define NVRM_FB_INFO_INDEX_TOTAL_RAM_SIZE	0x8u
+#define NVRM_FB_INFO_INDEX_HEAP_SIZE	0x9u
+#define NVRM_FB_INFO_INDEX_HEAP_FREE	0x16u
+#define NVRM_FB_INFO_INDEX_USABLE_RAM_SIZE	0x20u
+#define NVRM_ESC_RM_VID_HEAP_CONTROL	0x4au
+#define NVRM_NVOS32_SIZE	184u
+#define NVRM_NVOS32_FUNCTION_OFF	8u
+#define NVRM_NVOS32_STATUS_OFF	20u
+#define NVRM_NVOS32_TOTAL_OFF	24u
+#define NVRM_NVOS32_FREE_OFF	32u
+#define NVRM_NVOS32_FUNCTION_INFO	5u
+
 /* ---- offset of `status` per op, so a refusal can be stated ---- */
 #define NVRM_KSTAT_FREE	0u, 12u
 #define NVRM_KSTAT_ALLOC_MEMORY	2u, 40u

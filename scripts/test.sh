@@ -359,6 +359,13 @@ c_interpreter() {
     # and a lookup for a key the stream lacks answers NULL. Same code, same
     # stream, one damaged copy per case.
     "$d/tabreject" "$d/stream.bin" > "$d/reject.txt" || { cat "$d/reject.txt"; return 1; }
+    # The module's third piece of plain arithmetic, the display reserve
+    # (nvrm_vram.c, same translation unit): the scanout size and the auto
+    # reserve against what was measured, the FB_GET_INFO and NVOS32 INFO
+    # rewrites against hand-built answers. Here and not a step of its own:
+    # it is the module's C run in userspace, like the interpreter above.
+    cc -O2 -Wall -Wextra -Werror -o "$d/vramcheck" guest-module/virtio_nvrm/test/vramcheck.c || return 1
+    "$d/vramcheck" > "$d/vramcheck.txt" || { cat "$d/vramcheck.txt"; return 1; }
 }
 
 # The EDID the virtual display hands out, through a parser that knows the
