@@ -25,28 +25,21 @@
 //!     arithmetic.
 //!
 //!   cargo run --release -p nvrm-client --bin vgpuprofile
-//!   vgpuprofile --select 2Q      one row, as shell key=value pairs
+//!   vgpuprofile --select 2Q      one type, as shell key=value pairs
+//!   vgpuprofile --select 130M    one size, priced by the same rule
 //!
 //! `--select` is what makes this the MANAGER's half of the split. vGPU's
 //! host RM owns the catalogue and hands a per-VM plugin its slice; here
-//! the backend holds no RM client (main.rs) and cannot read the card at
-//! all, so the script that starts a VM resolves the type name through this
-//! tool and passes the numbers on. Same division of labour, different
-//! reason for it.
+//! the backend serves no catalogue, so the script that starts a VM
+//! resolves the type name or size through this tool and passes the
+//! numbers on. Same division of labour, different reason for it.
 
-use nvrm_abi::vgpu;
+use nvrm_abi::{mediate, vgpu};
 use nvrm_abi::{sys, NvDevice};
 use nvrm_client::RmClient;
 
 /// `NV2080_CTRL_CMD_GPU_GET_VMMU_SEGMENT_SIZE` (ctrl2080gpu.h:3135).
 const CMD_GPU_GET_VMMU_SEGMENT_SIZE: u32 = 0x2080_017e;
-/// `NV2080_CTRL_CMD_FB_GET_INFO_V2` (ctrl2080fb.h:489).
-const CMD_FB_GET_INFO_V2: u32 = 0x2080_1303;
-/// `NV2080_CTRL_FB_INFO_INDEX_HEAP_FREE` (ctrl2080fb.h), in kilobytes.
-const FB_INFO_INDEX_HEAP_FREE: u32 = 0x16;
-
-/// `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` (ctrl2080gpu.h:325).
-const CMD_GPU_GET_NAME_STRING: u32 = 0x2080_0110;
 
 /// `NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS`: flags @0, then the 64-byte
 /// ASCII union (ctrl2080gpu.h:338).
@@ -64,29 +57,23 @@ impl Default for NameParams {
     }
 }
 
-/// `NV2080_CTRL_FB_INFO { NvU32 index; NvU32 data; }`.
-#[repr(C)]
-#[derive(Default, Copy, Clone)]
-struct FbInfo {
-    index: u32,
-    data: u32,
-}
-
-/// `NV2080_CTRL_FB_GET_INFO_V2_PARAMS`: count @0, then the list. The real
-/// struct carries 128 entries; asking for fewer is legal (the count says
-/// how many are read) but the BUFFER has to be the full one, because RM
-/// reads `paramsSize` against the class's own size.
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct FbInfoParams {
-    count: u32,
-    list: [FbInfo; 128],
-}
-
-impl Default for FbInfoParams {
-    fn default() -> Self {
-        Self { count: 0, list: [FbInfo::default(); 128] }
-    }
+/// One profile as shell `key=value` lines. The unit is in every name,
+/// because a bare number in an env var is how a MiB becomes a MB two
+/// scripts later.
+fn select_block(cat: &vgpu::Catalogue, p: &vgpu::Profile) -> String {
+    [
+        format!("vgpu_type={}", p.name),
+        format!("vgpu_profile_mib={}", p.profile_size >> 20),
+        format!("vgpu_fb_mib={}", p.fb_length >> 20),
+        format!("vgpu_max_instance={}", p.max_instance),
+        format!("vgpu_segments={}", p.segments),
+        format!("vgpu_segment_mib={}", cat.segment >> 20),
+        format!("vgpu_encoder_cap={}", p.encoder_capacity),
+        // What admission is measured against: the card, not the heap. See
+        // `Catalogue::admits`.
+        format!("vgpu_available_mib={}", cat.available() >> 20),
+    ]
+    .join("\n")
 }
 
 fn main() {
@@ -97,7 +84,7 @@ fn main() {
         [] => None,
         [flag, want] if flag == "--select" => Some(want.clone()),
         _ => {
-            eprintln!("usage: vgpuprofile [--select TYPE]");
+            eprintln!("usage: vgpuprofile [--select TYPE|SIZE]");
             std::process::exit(2);
         }
     };
@@ -147,15 +134,15 @@ fn main() {
     };
 
     // ---- and the total it partitions -----------------------------------
-    let mut fb = FbInfoParams::default();
-    fb.count = 3;
-    fb.list[0].index = vgpu::FB_INFO_INDEX_TOTAL_RAM_SIZE;
-    fb.list[1].index = vgpu::FB_INFO_INDEX_HEAP_SIZE;
-    fb.list[2].index = FB_INFO_INDEX_HEAP_FREE;
-    rm.control(subdevice, CMD_FB_GET_INFO_V2, &mut fb).expect("FB_GET_INFO_V2");
-    let total_kb = fb.list[0].data as u64;
-    let heap_kb = fb.list[1].data as u64;
-    let free_kb = fb.list[2].data as u64;
+    let mut fb = sys::NV2080_CTRL_FB_GET_INFO_V2_PARAMS::default();
+    fb.fbInfoListSize = 3;
+    fb.fbInfoList[0].index = vgpu::FB_INFO_INDEX_TOTAL_RAM_SIZE;
+    fb.fbInfoList[1].index = vgpu::FB_INFO_INDEX_HEAP_SIZE;
+    fb.fbInfoList[2].index = mediate::FB_INFO_INDEX_HEAP_FREE;
+    rm.control(subdevice, mediate::CMD_FB_GET_INFO_V2, &mut fb).expect("FB_GET_INFO_V2");
+    let total_kb = fb.fbInfoList[0].data as u64;
+    let heap_kb = fb.fbInfoList[1].data as u64;
+    let free_kb = fb.fbInfoList[2].data as u64;
     say!(
         "fb total: {} MiB (TOTAL_RAM_SIZE), heap {} MiB (HEAP_SIZE), free now {} MiB",
         total_kb / 1024,
@@ -196,7 +183,7 @@ fn main() {
 
     // ---- and the board's own name --------------------------------------
     let mut np = NameParams::default();
-    rm.control(subdevice, CMD_GPU_GET_NAME_STRING, &mut np).expect("GPU_GET_NAME_STRING");
+    rm.control(subdevice, mediate::CMD_GPU_GET_NAME_STRING, &mut np).expect("GPU_GET_NAME_STRING");
     let name = np.ascii.iter().take_while(|&&c| c != 0).map(|&c| c as char).collect::<String>();
     say!("board: {name:?}");
 
@@ -213,26 +200,13 @@ fn main() {
     let cat = vgpu::Catalogue::derive(&board, total_kb * 1024, usable, segment, overhead);
 
     if let Some(want) = select {
-        match cat.find(&want) {
+        match cat.resolve(&want) {
             Some(p) => {
-                // key=value, so a shell can `eval` it. The unit is in every
-                // name, because a bare number in an env var is how a MiB
-                // becomes a MB two scripts later.
-                println!("vgpu_type={}", p.name);
-                println!("vgpu_profile_mib={}", p.profile_size >> 20);
-                println!("vgpu_fb_mib={}", p.fb_length >> 20);
-                println!("vgpu_max_instance={}", p.max_instance);
-                println!("vgpu_segments={}", p.segments);
-                println!("vgpu_segment_mib={}", cat.segment >> 20);
-                println!("vgpu_encoder_cap={}", p.encoder_capacity);
-                // What admission is measured against: the card, not the
-                // heap. See `Catalogue::admits` -- every full-density row
-                // sums to exactly this.
-                println!("vgpu_available_mib={}", cat.available() >> 20);
+                println!("{}", select_block(&cat, &p));
                 return;
             }
             None => {
-                eprintln!("vgpuprofile: no type {want:?} on this card. It offers:");
+                eprintln!("vgpuprofile: no type or size {want:?} on this card. It offers:");
                 eprintln!("{}", cat.table());
                 std::process::exit(1);
             }
@@ -240,4 +214,20 @@ fn main() {
     }
     println!();
     println!("{}", cat.table());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What a manager evals for a type and for the size that type picks
+    /// is the same, except for the label.
+    #[test]
+    fn a_type_and_its_size_print_the_same_numbers() {
+        let cat = vgpu::Catalogue::derive("RTX2070", 8192 << 20, 6871 << 20, 256 << 20, 256 << 20);
+        let (q, g) = (cat.resolve("4Q").unwrap(), cat.resolve("3G").unwrap());
+        let body = |p| select_block(&cat, &p).split_once('\n').unwrap().1.to_string();
+        assert_eq!(body(q), body(g));
+        assert!(select_block(&cat, &cat.resolve("3G").unwrap()).starts_with("vgpu_type=RTX2070-3G\n"));
+    }
 }

@@ -8,15 +8,15 @@
 //! vGPU its own view of framebuffer, and its SEGMENT is the granule a guest
 //! framebuffer is cut in. FB is the card's own memory.
 //!
-//! WHY THIS EXISTS, and how it differs from `vram.rs`'s profile
-//! (docs/OPEN-QUESTIONS.md 68 and 69). There, the operator names a number
-//! and a reservation comes off it; the sizes are arbitrary and per VM,
-//! which is what that entry's scope asked for. Here the CARD names the
-//! numbers: a catalogue is derived from the card's own total, its usable
-//! heap and its VMMU segment size, every profile on the card is the same
-//! size, the guest framebuffer is quantised to whole segments, and the
-//! instance count is bounded. That is vGPU's model, constraint for
-//! constraint -- including the one entry 68 deliberately rejected.
+//! WHY THIS EXISTS (docs/OPEN-QUESTIONS.md 68 and 69): a VM's cost to the
+//! card is more than the framebuffer its guest is told, and the difference
+//! belongs to the CARD -- its own carve-out, what the host holds, the
+//! per-VM overhead this project measured. ONE RULE turns a guest
+//! framebuffer into what the VM costs, [`Catalogue::profile_for`], and
+//! every way of naming a VM's size goes through it: a catalogue type
+//! (`RTX2070-4Q`) only picks the framebuffer, a size (`3G`, `130M`) is
+//! the framebuffer. Two VMs told the same size cost the same, whatever
+//! named them.
 //!
 //! WHAT IS COPIED, and it is the arithmetic rather than the mechanism:
 //!
@@ -31,16 +31,14 @@
 //!
 //! -- `kvgpumgrSetSupportedPlacementIds`, kernel_vgpu_mgr.c:3795-3805, the
 //! GSP-client branch, which is the branch this card takes. The non-GSP
-//! branch above it (:3757-3783) is where the OTHER rule comes from, and it
-//! is the one this file needs most:
+//! branch above it (:3757-3783) is where the OTHER rule comes from:
 //!
 //! ```text
 //!   vgpuReservedFb = ALIGN_UP(totalReservedFb / maxInstance, segment)
 //! ```
 //!
-//! **The reserve is DIVIDED among the instances, not charged to each.**
-//! That is the difference between a catalogue and a per-VM knob, and it is
-//! why this file computes a different reservation for every row.
+//! **The reserve is DIVIDED among the instances, not charged to each** --
+//! here, carried in proportion to what each VM uses (number 69(b)).
 //!
 //! WHAT CANNOT BE COPIED, and is therefore ours and marked as ours:
 //!
@@ -48,14 +46,17 @@
 //!     catalogue that lives in the closed vGPU host driver;
 //!     `memmgrGetVgpuHostRmReservedFb_KERNEL` (mem_mgr.c:3984) asks the GSP
 //!     for the number and the GSP is firmware. Ours is built from two
-//!     measurements instead -- see [`Catalogue::derive`].
+//!     measurements instead -- see [`Catalogue::profile_for`].
 //!   * The profile NAMES and their class letters (`Q`, `C`, `B`, `A`) come
 //!     from that same closed catalogue. The SHAPE is public --
-//!     `<board>-<gigabytes><class>` -- and this file follows it, with
-//!     `Leandro` where NVIDIA writes `GRID` or `NVIDIA`, because a mediated
-//!     card must never be mistakable for a vendor one.
+//!     `<board>-<gigabytes><class>` -- and this file follows it, with `Q`
+//!     for guests that do graphics and CUDA at once and no licence behind
+//!     the letter. `Leandro` stands where NVIDIA writes `GRID` or `NVIDIA`,
+//!     because a mediated card must never be mistakable for a vendor one.
 //!   * There is no GSP plugin per VM here and no per-VM GSP heap, so
 //!     `gspHeapSize` is zero and says so.
+//!   * Nothing is PLACED here, so a size named by a person need not be a
+//!     whole number of segments; only the catalogue's own types are.
 
 /// `NV2080_CTRL_GPU_VMMU_SEGMENT_SIZE_*` (ctrl2080gpu.h:3143-3148). The
 /// card is asked rather than looked up (`nvrm-client --bin vgpuprofile`);
@@ -71,77 +72,26 @@ pub const VMMU_SEGMENT_SIZES: [u64; 6] = [
 
 pub use crate::mediate::{FB_INFO_INDEX_HEAP_SIZE, FB_INFO_INDEX_TOTAL_RAM_SIZE};
 
-/// The class letter of a profile, in vGPU's own vocabulary.
-///
-/// vGPU's letters mean licence classes: `Q` is Quadro vDWS (full graphics
-/// AND CUDA), `C` is vCS (compute only, no display), `B` is vPC and `A` is
-/// vApps. Ours means the same shape and NO licence -- there is nothing to
-/// license here, and a letter that promised one would be a lie. `Q` is the
-/// default because these guests do graphics and CUDA at once, which is
-/// exactly the combination `Q` names.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Class {
-    Q,
-    C,
-}
-
-impl Class {
-    pub fn letter(self) -> char {
-        match self {
-            Class::Q => 'Q',
-            Class::C => 'C',
-        }
-    }
-    pub fn parse(c: char) -> Option<Class> {
-        match c.to_ascii_uppercase() {
-            'Q' => Some(Class::Q),
-            'C' => Some(Class::C),
-            _ => None,
-        }
-    }
-}
-
-/// One row of the catalogue: what a VM of this type costs and gets.
+/// One VM's profile: what it costs the card and what its guest is told.
+/// Made by [`Catalogue::profile_for`] and nothing else.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Profile {
-    /// vGPU's `vgpuName` without the vendor prefix: `RTX2070-2Q`.
+    /// What named it: vGPU's `vgpuName` for a type (`RTX2070-2Q`), the size
+    /// for a size (`RTX2070-130M`). A label for logs and admission; the
+    /// guest's card name follows `fb_length` (vram.rs, `guest_card_name`).
     pub name: String,
-    pub class: Class,
-    /// vGPU's `maxInstance`: how many of THIS type fit on the card.
+    /// vGPU's `maxInstance`: how many VMs of this size fit on the card.
     pub max_instance: u32,
-    /// vGPU's `profileSize`: what one instance costs the card.
+    /// vGPU's `profileSize`: what one VM costs the card.
     pub profile_size: u64,
-    /// vGPU's `fbReservation`: this instance's share of what the card and
-    /// the host keep for themselves.
+    /// vGPU's `fbReservation`, `profile_size - fb_length`.
     pub reservation: u64,
-    /// vGPU's `fbLength`: what the guest sees, a whole number of segments.
+    /// vGPU's `fbLength`: what the guest is told and refused at.
     pub fb_length: u64,
-    /// vGPU's `guestVmmuCount`.
+    /// vGPU's `guestVmmuCount`, for the operator's eye.
     pub segments: u64,
-    /// vGPU's `encoderCapacity`: this type's share of NVENC, as a
-    /// percentage, which is the unit
-    /// `NV2080_CTRL_CMD_GPU_GET_ENCODER_CAPACITY` answers in
-    /// (`NV_ENC_CAPACITY_MAX_VALUE` is 100 and is what a bare-metal card
-    /// reports, subdevice_ctrl_gpu_kernel.c:1000).
-    ///
-    /// DERIVED, because NVIDIA's per-profile values are in the closed
-    /// catalogue: an equal share, `100 / maxInstance`. That is the only
-    /// division a homogeneous catalogue can justify, and it is what vGPU's
-    /// published tables do for the Q series.
+    /// vGPU's `encoderCapacity`: [`encoder_share`].
     pub encoder_capacity: u32,
-}
-
-impl Profile {
-    /// The name the guest's `nvidia-smi` prints, with the umbrella name
-    /// where NVIDIA puts `GRID`.
-    pub fn guest_name(&self) -> String {
-        format!("Leandro {}", self.name)
-    }
-
-    /// What all instances of this type together cost the card.
-    pub fn total_cost(&self) -> u64 {
-        (self.profile_size) * self.max_instance as u64
-    }
 }
 
 /// Every profile this card supports, derived from the card.
@@ -153,10 +103,9 @@ pub struct Catalogue {
     /// `NV2080_CTRL_FB_INFO_INDEX_TOTAL_RAM_SIZE`, bytes. This is what
     /// vGPU's arithmetic calls `fbTotalMemSizeMb`.
     pub total: u64,
-    /// `..._HEAP_SIZE`, bytes: what is actually allocatable. The gap
-    /// between this and `total` is the card's own carve-out (ECC, page
-    /// tables, RM's static reserve) and is the FIRST thing a reservation
-    /// has to cover -- it is not optional and it is not ours to spend.
+    /// `..._HEAP_SIZE`, bytes, minus what the host holds: what guests can
+    /// actually be given. The gap to `total` is the carve-out every VM
+    /// carries a share of -- it is not optional and it is not ours to spend.
     pub usable: u64,
     /// What the card answered for its VMMU segment size.
     pub segment: u64,
@@ -180,6 +129,38 @@ pub fn board_name(real: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
+/// A size as a person writes one, in MiB: `3G`, `3GiB`, `130M`, `130MiB`,
+/// or a bare number of MiB. Binary units and whole MiB only: `3GB` is
+/// refused rather than guessed at, because MiB-or-MB is exactly the
+/// confusion a unit in a name exists to prevent.
+pub fn parse_mib(s: &str) -> Option<u64> {
+    let s = s.trim();
+    let (n, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len()));
+    let scale = match unit.trim().to_ascii_uppercase().as_str() {
+        "" | "M" | "MIB" => 1,
+        "G" | "GIB" => 1024,
+        _ => return None,
+    };
+    n.parse::<u64>().ok()?.checked_mul(scale).filter(|&m| m > 0)
+}
+
+/// A VM's share of NVENC, in the percent
+/// `NV2080_CTRL_CMD_GPU_GET_ENCODER_CAPACITY` answers in (a bare-metal card
+/// says 100, subdevice_ctrl_gpu_kernel.c:1000).
+///
+/// PROPORTIONAL TO THE GUEST FRAMEBUFFER against the card's total, and to
+/// nothing that moves: the backend computes this itself under every
+/// policy, and the card's total is a constant while the usable heap
+/// follows the host's desktop (number 71). The shares of VMs that fit the
+/// card sum to at most 100. At least 1, because 0 is "no policy" to the
+/// rewrite and would hand a 130 MiB VM the whole encoder.
+pub fn encoder_share(fb_length: u64, total: u64) -> u32 {
+    if total == 0 {
+        return 0;
+    }
+    (100 * fb_length as u128 / total as u128).clamp(1, 100) as u32
+}
+
 const MIB: u64 = 1 << 20;
 const GIB: u64 = 1 << 30;
 
@@ -190,117 +171,103 @@ fn align_down(v: u64, a: u64) -> u64 {
     if a == 0 { v } else { (v / a) * a }
 }
 
-/// `a * b / c` without overflowing on the way through. The values here are
-/// byte counts of a framebuffer, so `a * b` is comfortably past 2^64.
-fn mul_div(a: u64, b: u64, c: u64) -> u64 {
-    if c == 0 { return 0; }
-    (a as u128 * b as u128 / c as u128) as u64
-}
-
 impl Catalogue {
     /// Derive the catalogue from what the card answered.
     ///
-    /// `total` and `usable` are `TOTAL_RAM_SIZE` and `HEAP_SIZE` in bytes,
-    /// `segment` is the card's VMMU segment size, `overhead` is the
-    /// per-VM host-side cost this project measured.
+    /// `total` is `TOTAL_RAM_SIZE`, `usable` the heap minus what the host
+    /// holds, both in bytes; `segment` is the card's VMMU segment size,
+    /// `overhead` the per-VM host-side cost this project measured.
     ///
     /// THE INSTANCE COUNTS are powers of two, which is not an arbitrary
     /// simplification: vGPU's placement arithmetic recursively halves the
     /// placement region (`_kvgpumgrSetHeterogeneousResources`,
     /// kernel_vgpu_mgr.c:3020 ff.), and the profile sizes NVIDIA publishes
     /// for a board are its FB divided by 1, 2, 4, 8 ... A count whose
-    /// profile is not a whole gigabyte is dropped, because vGPU names its
+    /// share is not a whole gigabyte is dropped, because vGPU names its
     /// profiles in gigabytes and a `RTX2070-0Q` would be a nonsense name.
     ///
-    /// THE RESERVATION per instance is
-    /// `ALIGN_UP((total - usable) / maxInstance + overhead, segment)`:
-    /// the card's own carve-out DIVIDED among the instances (vGPU's
-    /// `totalReservedFb / maxInstance`, kernel_vgpu_mgr.c:3762) plus this
-    /// project's own per-VM overhead, which is per VM and therefore is not
-    /// divided.
+    /// A TYPE ONLY PICKS THE FRAMEBUFFER: its share of the card, less that
+    /// share of the carve-out and the per-VM overhead, rounded to whole
+    /// segments the way vGPU rounds. What the VM then costs is
+    /// [`Catalogue::profile_for`]'s, like any other size. The carve-out
+    /// share is rounded UP, so the rule never costs a type more than its
+    /// share of the card: every set of types that fitted still fits.
     pub fn derive(board: &str, total: u64, usable: u64, segment: u64, overhead: u64) -> Catalogue {
-        let mut profiles = Vec::new();
+        let mut cat =
+            Catalogue { board: board.to_string(), total, usable, segment, overhead, profiles: Vec::new() };
         if segment == 0 || total == 0 {
-            return Catalogue {
-                board: board.to_string(),
-                total,
-                usable,
-                segment,
-                overhead,
-                profiles,
-            };
+            return cat;
         }
-        // vGPU aligns the total up to EIGHT segments before dividing
-        // (kernel_vgpu_mgr.c:3797). Eight, because the placement region is
-        // halved at most three times before the segment becomes the unit.
-        let available = align_up(total, 8 * segment);
+        let available = cat.available();
         let carve_out = total.saturating_sub(usable);
-
-        for max_instance in [1u32, 2, 4, 8, 16] {
-            let profile_size = available / max_instance as u64;
-            if profile_size % GIB != 0 || profile_size == 0 {
+        for count in [1u64, 2, 4, 8, 16] {
+            let share = available / count;
+            if share % GIB != 0 || share == 0 {
                 continue;
             }
-            // PROPORTIONAL, not divided by the instance count. vGPU
-            // writes `totalReservedFb / maxInstance` because every
-            // instance on its card is the same size, so the two are the
-            // same number; written this way the rule keeps meaning
-            // something when they are not (number 69(b)). The identity is
-            // a test below, not a hope.
-            let reservation = align_up(
-                mul_div(carve_out, profile_size, available) + overhead,
-                segment,
-            );
-            if reservation >= profile_size {
-                continue;
-            }
-            let fb_length = align_down(profile_size - reservation, segment);
-            if fb_length == 0 {
-                continue;
-            }
+            let reserved = (carve_out as u128 * share as u128).div_ceil(available as u128) as u64;
+            let fb = align_down(share.saturating_sub(align_up(reserved + overhead, segment)), segment);
             // The card has to be able to hand out what the catalogue
             // promises. This is the check vGPU does not need, because its
             // reserve accounting is exact and ours is a measurement.
-            if fb_length * max_instance as u64 > usable {
+            if fb == 0 || fb * count > usable {
                 continue;
             }
-            let gib = profile_size / GIB;
-            profiles.push(Profile {
-                name: format!("{board}-{gib}Q"),
-                class: Class::Q,
-                max_instance,
-                profile_size,
-                reservation,
-                fb_length,
-                segments: fb_length / segment,
-                encoder_capacity: 100 / max_instance,
-            });
+            let row = cat.profile_for(format!("{board}-{}Q", share / GIB), fb);
+            cat.profiles.extend(row);
         }
-        Catalogue { board: board.to_string(), total, usable, segment, overhead, profiles }
+        cat
     }
 
     /// What the catalogue partitions: the card's total aligned up to eight
     /// VMMU segments, which is vGPU's `totalAvailableFb`
-    /// (kernel_vgpu_mgr.c:3797).
-    ///
-    /// This -- not the usable heap -- is what profile sizes are measured
-    /// against, and the distinction is the whole of [`Catalogue::admits`]:
-    /// a `profile_size` already CONTAINS that instance's share of the
-    /// card's carve-out, so the sizes sum to the card, not to the heap.
+    /// (kernel_vgpu_mgr.c:3797). Profile sizes are measured against this.
     pub fn available(&self) -> u64 {
         if self.segment == 0 { self.total } else { align_up(self.total, 8 * self.segment) }
+    }
+
+    /// THE RULE: what a VM whose guest is told `fb_length` costs this card.
+    ///
+    /// ```text
+    ///   profileSize  = (fb_length + overhead) * available / (available - carve_out), up to a MiB
+    ///   fbReservation = profileSize - fb_length
+    ///   maxInstance  = available / profileSize
+    ///   encoder      = encoder_share(fb_length, total)
+    /// ```
+    ///
+    /// The VM pays its framebuffer and the measured overhead, and carries
+    /// the carve-out -- the card's own and what the host holds -- in
+    /// proportion to them. So [`Catalogue::admits`]' sum of profile sizes
+    /// against the card says: the framebuffers and overheads of the VMs fit
+    /// what the card leaves usable. Rounded up, never down.
+    ///
+    /// `None` if the VM does not fit the card at all.
+    pub fn profile_for(&self, name: String, fb_length: u64) -> Option<Profile> {
+        let available = self.available();
+        let usable = available.checked_sub(self.total.saturating_sub(self.usable))?;
+        let need = fb_length.checked_add(self.overhead)?;
+        if fb_length == 0 || need > usable {
+            return None;
+        }
+        let cost = align_up((need as u128 * available as u128).div_ceil(usable as u128) as u64, MIB);
+        Some(Profile {
+            name,
+            max_instance: (available / cost) as u32,
+            profile_size: cost,
+            reservation: cost - fb_length,
+            fb_length,
+            segments: fb_length.checked_div(self.segment).unwrap_or(0),
+            encoder_capacity: encoder_share(fb_length, self.total),
+        })
     }
 
     /// May a VM of `want` start beside these already-live profile sizes?
     ///
     /// **The rule is `sum(profile_size) <= available`,** and the tempting
-    /// wrong one is `<= usable`. Every homogeneous full-density row in this
-    /// catalogue sums to exactly `available` -- eight 1Q, four 2Q and two
-    /// 4Q all cost 8192 MiB on this card -- so a rule written against the
-    /// usable heap would refuse the very configurations that were measured
-    /// running (number 69: eight 1Q guests, every one of them holding its
-    /// 384 MiB, 3 GiB still free). The carve-out is already inside each
-    /// profile's reservation; charging it twice is what that rule does.
+    /// wrong one is `<= usable`: a profile size already CONTAINS that VM's
+    /// share of the carve-out, so charging the carve-out again by measuring
+    /// against the heap refuses configurations that were measured running
+    /// (number 69: eight 1Q guests, 3 GiB still free).
     ///
     /// vGPU needs more than arithmetic here because its framebuffers are
     /// PLACED -- fixed placement ids in the VMMU region, a recursive
@@ -312,14 +279,20 @@ impl Catalogue {
         live.iter().copied().sum::<u64>() + want <= self.available()
     }
 
-    /// Find a profile by the part after the board name (`2Q`) or by its
-    /// whole name (`RTX2070-2Q`), case-insensitively.
-    pub fn find(&self, want: &str) -> Option<&Profile> {
+    /// A profile by what a person calls it: a type (`2Q`, `RTX2070-2Q`) or a
+    /// guest framebuffer size (`3G`, `130MiB`, `RTX2070-130M`),
+    /// case-insensitively. A type only supplies the size; both go through
+    /// [`Catalogue::profile_for`].
+    pub fn resolve(&self, want: &str) -> Option<Profile> {
+        let board = format!("{}-", self.board.to_ascii_uppercase());
         let w = want.trim().to_ascii_uppercase();
-        self.profiles.iter().find(|p| {
-            p.name.to_ascii_uppercase() == w
-                || p.name.to_ascii_uppercase() == format!("{}-{}", self.board.to_ascii_uppercase(), w)
-        })
+        let short = w.strip_prefix(&board).unwrap_or(&w);
+        if let Some(p) = self.profiles.iter().find(|p| p.name.to_ascii_uppercase() == board.clone() + short) {
+            return Some(p.clone());
+        }
+        let mib = parse_mib(short)?;
+        let size = if mib % 1024 == 0 { format!("{}G", mib / 1024) } else { format!("{mib}M") };
+        self.profile_for(format!("{}-{size}", self.board), mib * MIB)
     }
 
     /// The catalogue as a person would read it, with the arithmetic spelled
@@ -378,65 +351,93 @@ mod tests {
         Catalogue::derive("RTX2070", 8192 * MIB, (7771 - 900) * MIB, 256 * MIB, 256 * MIB)
     }
 
-    /// **The generalisation is free.** vGPU divides its reserve by the
-    /// instance count; this file multiplies it by the profile's share of
-    /// the card. Where every instance is the same size those are the same
-    /// number -- and every row of a homogeneous catalogue is that case, so
-    /// nothing in number 69's measured tables moves.
+    fn cards() -> impl Iterator<Item = Catalogue> {
+        VMMU_SEGMENT_SIZES.into_iter().flat_map(|seg| {
+            (0..=2400).step_by(37).map(move |host| {
+                Catalogue::derive("RTX2070", 8192 * MIB, (7773 - host) * MIB, seg, 256 * MIB)
+            })
+        })
+    }
+
+    /// The rule, with the numbers of the card as the launcher sees it.
     #[test]
-    fn a_proportional_reserve_equals_a_divided_one_when_all_are_equal() {
+    fn the_rule_prices_a_framebuffer() {
         let cat = rtx2070_with_a_busy_host();
-        let available = cat.available();
-        let carve_out = cat.total - cat.usable;
-        for p in &cat.profiles {
-            let divided = align_up(carve_out / p.max_instance as u64 + cat.overhead, cat.segment);
-            assert_eq!(
-                p.reservation, divided,
-                "{}: proportional {} != divided {}",
-                p.name, p.reservation, divided
-            );
-            // and the reason they agree, stated so a change to either is
-            // caught here rather than in a guest
-            assert_eq!(p.profile_size, available / p.max_instance as u64);
+        let p = cat.resolve("3G").expect("3 GiB fits");
+        assert_eq!(p.name, "RTX2070-3G");
+        assert_eq!(
+            (p.fb_length, p.profile_size, p.reservation, p.max_instance, p.encoder_capacity),
+            (3072 * MIB, 3968 * MIB, 896 * MIB, 2, 37)
+        );
+        let p = cat.resolve("130MiB").expect("130 MiB fits");
+        assert_eq!(p.name, "RTX2070-130M");
+        assert_eq!(
+            (p.fb_length, p.profile_size, p.reservation, p.max_instance, p.encoder_capacity),
+            (130 * MIB, 461 * MIB, 331 * MIB, 17, 1)
+        );
+        // More than the card leaves usable, overhead included, is no profile.
+        assert!(cat.resolve("6615M").is_some());
+        assert!(cat.resolve("6616M").is_none());
+    }
+
+    /// **A type is one way to name a framebuffer, and nothing else.** For
+    /// every row of every catalogue, naming the row's framebuffer as a size
+    /// gives the same profile -- cost, reservation, instances, encoder --
+    /// with only the label telling them apart.
+    #[test]
+    fn a_type_and_its_size_are_the_same_profile() {
+        for cat in cards() {
+            for row in &cat.profiles {
+                let size = cat.resolve(&format!("{}M", row.fb_length / MIB)).expect("the row's size");
+                assert_eq!(Profile { name: row.name.clone(), ..size }, *row);
+            }
         }
     }
 
-    /// **The rule is against the card, not against the heap.** Every
-    /// full-density row sums to exactly the available total; a rule written
-    /// against the usable heap would refuse all of them, including the
-    /// eight-guest 1Q run that number 69 measured working.
+    /// **Every set of types that fitted still fits.** A type's cost is at
+    /// most its share of the card, so its instance count is at least what
+    /// the share promises, and that many are admitted. The three host
+    /// states are ones where rounding the carve-out share DOWN made the
+    /// rule cost a type 1-2 MiB more than its share.
     #[test]
-    fn full_density_saturates_the_card_exactly() {
-        let cat = rtx2070_with_a_busy_host();
-        for p in &cat.profiles {
-            assert_eq!(
-                p.profile_size * p.max_instance as u64,
-                cat.available(),
-                "{} x{} does not fill the card",
-                p.name,
-                p.max_instance
-            );
-            // the last one fits and one more does not
-            let live: Vec<u64> =
-                std::iter::repeat_n(p.profile_size, p.max_instance as usize - 1).collect();
-            assert!(cat.admits(&live, p.profile_size), "{}: the last instance was refused", p.name);
-            let full: Vec<u64> =
-                std::iter::repeat_n(p.profile_size, p.max_instance as usize).collect();
-            assert!(!cat.admits(&full, p.profile_size), "{}: one too many was admitted", p.name);
-            // and the rule the entry first proposed would have refused the
-            // whole row -- kept as a test so it is not proposed again
-            assert!(p.profile_size * p.max_instance as u64 > cat.usable);
+    fn a_type_never_costs_more_than_its_share() {
+        let pinned = [6139, 6655, 7165]
+            .map(|u| Catalogue::derive("RTX2070", 8192 * MIB, u * MIB, 256 * MIB, 256 * MIB));
+        for cat in cards().chain(pinned) {
+            for p in &cat.profiles {
+                let gib: u64 = p.name.trim_start_matches("RTX2070-").trim_end_matches('Q').parse().unwrap();
+                let count = cat.available() / (gib * GIB);
+                assert!(p.profile_size <= gib * GIB, "{} costs {} MiB", p.name, p.profile_size / MIB);
+                assert!(p.max_instance as u64 >= count);
+                let live = vec![p.profile_size; count as usize - 1];
+                assert!(cat.admits(&live, p.profile_size), "{}: the last instance was refused", p.name);
+            }
         }
     }
 
-    /// The mixed case this branch could not previously express: one 4Q
-    /// beside two 2Q is exactly the card, and a further 1Q is not.
+    /// The invariants of the rule for any size a person may name.
+    #[test]
+    fn any_size_follows_the_rule() {
+        let cat = rtx2070_with_a_busy_host();
+        for mib in (1..=6615).step_by(7) {
+            let p = cat.resolve(&format!("{mib}")).expect("fits");
+            assert_eq!(p.fb_length, mib * MIB);
+            assert!(p.profile_size >= p.fb_length + cat.overhead);
+            assert_eq!(p.reservation, p.profile_size - p.fb_length);
+            assert!(p.max_instance as u64 * p.profile_size <= cat.available());
+            assert!(!cat.admits(&vec![p.profile_size; p.max_instance as usize], p.profile_size));
+            assert_eq!(p.encoder_capacity, encoder_share(p.fb_length, cat.total));
+        }
+    }
+
+    /// The mixed case: one 4Q beside two 2Q fits the card, and a further
+    /// 1Q does not.
     #[test]
     fn one_4q_admits_two_2q_and_nothing_more() {
         let cat = rtx2070_with_a_busy_host();
-        let p4 = cat.find("4Q").expect("4Q").clone();
-        let p2 = cat.find("2Q").expect("2Q").clone();
-        let p1 = cat.find("1Q").expect("1Q").clone();
+        let p4 = cat.resolve("4Q").expect("4Q");
+        let p2 = cat.resolve("2Q").expect("2Q");
+        let p1 = cat.resolve("1Q").expect("1Q");
         assert!(cat.admits(&[p4.profile_size], p2.profile_size));
         assert!(cat.admits(&[p4.profile_size, p2.profile_size], p2.profile_size));
         assert!(!cat.admits(&[p4.profile_size, p2.profile_size, p2.profile_size], p1.profile_size));
@@ -461,11 +462,6 @@ mod tests {
                 assert_eq!(p.fb_length % seg, 0, "{} not segment-aligned", p.name);
                 assert_eq!(p.fb_length, p.segments * seg);
                 assert!(
-                    p.fb_length + p.reservation <= p.profile_size,
-                    "{} promises more than its profile",
-                    p.name
-                );
-                assert!(
                     p.fb_length * p.max_instance as u64 <= c.usable,
                     "{} x{} does not fit the usable heap",
                     p.name,
@@ -475,14 +471,13 @@ mod tests {
         }
     }
 
-    /// The card's own carve-out is 419 MiB here, and it is the thing a
-    /// per-VM knob cannot see: with one instance the reservation has to
-    /// cover all of it, with eight it covers an eighth each.
+    /// The card's own carve-out is 419 MiB here: the whole-card VM carries
+    /// all of it, a 1 GiB one an eighth.
     #[test]
     fn the_reservation_is_divided_among_the_instances() {
         let c = rtx2070(32 * MIB);
-        let one = c.find("8Q").expect("one instance of the whole card");
-        let many = c.find("1Q").expect("eight instances of one gigabyte");
+        let one = c.resolve("8Q").expect("one instance of the whole card");
+        let many = c.resolve("1Q").expect("eight instances of one gigabyte");
         assert_eq!(one.max_instance, 1);
         assert_eq!(many.max_instance, 8);
         assert!(
@@ -498,23 +493,36 @@ mod tests {
     #[test]
     fn a_profile_is_named_the_way_vgpu_names_one() {
         let c = rtx2070(32 * MIB);
-        let p = c.find("2Q").expect("2Q");
+        let p = c.resolve("2Q").expect("2Q");
         assert_eq!(p.name, "RTX2070-2Q");
-        assert_eq!(p.guest_name(), "Leandro RTX2070-2Q");
-        assert_eq!(p.profile_size, 2 * GIB);
+        assert!(p.profile_size <= 2 * GIB);
         assert_eq!(p.max_instance, 4);
         // ... and it is findable by either spelling.
-        assert_eq!(c.find("RTX2070-2Q"), c.find("2q"));
+        assert_eq!(c.resolve("RTX2070-2Q"), c.resolve("2q"));
+        assert_eq!(c.resolve("rtx2070-130m"), c.resolve("130 MiB"));
     }
 
-    /// The encoder share follows the same division as the framebuffer, and
-    /// a whole card is a whole encoder.
+    /// Proportional to the framebuffer, a whole card is a whole encoder,
+    /// and no VM is told it has none.
     #[test]
-    fn the_encoder_is_shared_the_way_the_framebuffer_is() {
-        let c = rtx2070(256 * MIB);
-        assert_eq!(c.find("8Q").unwrap().encoder_capacity, 100);
-        assert_eq!(c.find("4Q").unwrap().encoder_capacity, 50);
-        assert_eq!(c.find("2Q").unwrap().encoder_capacity, 25);
+    fn the_encoder_share_follows_the_framebuffer() {
+        let total = 8192 * MIB;
+        assert_eq!(encoder_share(total, total), 100);
+        assert_eq!(encoder_share(4096 * MIB, total), 50);
+        assert_eq!(encoder_share(3072 * MIB, total), 37);
+        assert_eq!(encoder_share(130 * MIB, total), 1);
+        assert_eq!(encoder_share(2 * MIB, total), 1, "clamped, never 0");
+        assert_eq!(encoder_share(1, 0), 0, "no card, no share");
+    }
+
+    #[test]
+    fn sizes_are_binary_and_whole() {
+        for (s, mib) in [("4G", 4096), ("4GiB", 4096), ("130MiB", 130), ("130M", 130), ("3072", 3072), (" 3 gib ", 3072)] {
+            assert_eq!(parse_mib(s), Some(mib), "{s:?}");
+        }
+        for s in ["3GB", "130MB", "1.5G", "", "0", "-1", "4T", "G"] {
+            assert_eq!(parse_mib(s), None, "{s:?}");
+        }
     }
 
     #[test]
@@ -526,12 +534,12 @@ mod tests {
         assert!(c.table().contains("none"));
     }
 
-    /// A 1 GiB profile cannot survive a large segment: the reservation
-    /// rounds up to the segment, and a 1 GiB row would have nothing left.
+    /// A 1 GiB type cannot survive a large segment: the reservation rounds
+    /// up to the segment, and a 1 GiB row would have nothing left.
     #[test]
     fn a_segment_larger_than_the_slice_removes_the_row() {
         let big = rtx2070(1024 * MIB);
-        assert!(big.find("1Q").is_none());
-        assert!(big.find("8Q").is_some());
+        assert!(big.resolve("1Q").is_none());
+        assert!(big.resolve("8Q").is_some());
     }
 }
