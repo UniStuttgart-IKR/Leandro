@@ -52,6 +52,7 @@ let
       "vdisplay_width=${toString cfg.display.width}"
       "vdisplay_height=${toString cfg.display.height}"
       "vdisplay_vblank_hz=${toString cfg.display.refresh}"
+      "display_reserve_mib=${toString cfg.display.reserveMiB}"
     ]
     ++ lib.optional cfg.bdfMediation "bdf_mediation=1"
     ++ cfg.extraModuleParams;
@@ -177,6 +178,30 @@ in {
       width = lib.mkOption { type = lib.types.int; default = 1920; description = "Virtual display width (vdisplay_width)."; };
       height = lib.mkOption { type = lib.types.int; default = 1080; description = "Virtual display height (vdisplay_height)."; };
       refresh = lib.mkOption { type = lib.types.int; default = 60; description = "Virtual vblank rate in Hz (vdisplay_vblank_hz)."; };
+      reserveMiB = lib.mkOption {
+        type = lib.types.int;
+        default = -1;
+        example = 0;
+        description = ''
+          The VRAM balloon (virtio_nvrm display_reserve_mib): how many MiB of
+          the VM's VRAM the guest module allocates itself and gives back to
+          NVKMS, in the same call, when NVKMS is refused a display buffer (a
+          window's or the cursor's scanout buffer). -1 sizes it from width x
+          height: five scanout buffers of that size plus 1 MiB of cursor, 44
+          MiB at 1920x1080, 76 at 2560x1440, 161 at 3840x2160 -- the highest
+          point the display path reached above idle, measured at those
+          sizes. 0 turns it off, a positive number fixes it.
+
+          Why: the host allows the VM a fixed amount of VRAM, and a game fills
+          it. Measured 2026-09-17 on a 2816 MiB guest with Shadow of the Tomb
+          Raider, Steam and Sunshine, the picture froze in 7 of 9 benchmark
+          runs until the game exited (132-193 s), in exactly the runs where
+          one 8.4 MiB scanout buffer for the game's window was refused.
+          Reporting a smaller card to the programs did not help, the game's
+          budget did not follow it. The balloon holds the room instead:
+          programs reach the limit that much earlier, the display does not.
+        '';
+      };
     };
 
     nvidiaUserspaceDir = lib.mkOption {
