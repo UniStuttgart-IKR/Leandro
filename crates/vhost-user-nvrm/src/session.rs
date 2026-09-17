@@ -2587,6 +2587,25 @@ impl<A: RmAbi> Session<A> {
             }
         }
 
+        // The card's size through the NVOS32 door. RM answers INFO from an
+        // FB_GET_INFO_V2 of its own, which never passes the rewrite above,
+        // so without this the guest heard the host's heap here under every
+        // policy -- see vram::rewrite_vidheap_info. NVOS32 keeps its status
+        // inline (@20).
+        if ret == 0
+            && self.vram.enabled()
+            && plan.ioctl_nr == sys::NV_ESC_RM_VID_HEAP_CONTROL
+            && inline_len >= crate::vram::V_STATUS_OFF + 4
+            && u32::from_le_bytes(
+                self.scratch[crate::vram::V_STATUS_OFF..crate::vram::V_STATUS_OFF + 4]
+                    .try_into()
+                    .unwrap(),
+            ) == sys::NV_OK
+        {
+            let (limit, used) = (self.vram.limit(), self.vram.used());
+            crate::vram::rewrite_vidheap_info(&mut self.scratch[..inline_len], limit, used);
+        }
+
         // Settle what prepare reserved on the VRAM ledger: keep the charge
         // only if RM really handed out device memory.
         //
@@ -3894,6 +3913,34 @@ mod tests {
         assert_eq!(u32::from_le_bytes(r.bytes[o..o + 4].try_into().unwrap()), sys::NV_OK);
         assert_eq!(fake.ioctl_count(), before + 2, "ALLOC_SIZE ANY reached RM too");
         assert_eq!(led.used(), 4 << 20, "and neither was charged");
+    }
+
+    /// NVOS32_FUNCTION_INFO under a cap tells the capped card: the reply the
+    /// guest gets back carries total = limit and free = limit - used, and
+    /// the request still reached RM. Without a cap RM's answer stands.
+    #[test]
+    fn nvos32_info_answers_the_capped_card() {
+        let info = |tok| {
+            let mut inline = vec![0u8; 184];
+            inline[8..12].copy_from_slice(&sys::NVOS32_FUNCTION_INFO.to_le_bytes());
+            msg(&ioctl_req(tok, sys::NV_ESC_RM_VID_HEAP_CONTROL, 184, 0), &inline, &[])
+        };
+        let at = |r: &Vec<u8>, o: usize| {
+            u64::from_le_bytes(r[Rsp::WIRE_LEN + o..Rsp::WIRE_LEN + o + 8].try_into().unwrap())
+        };
+
+        let (mut s, fake, tok, led) = capped_session(64 << 20);
+        let r = s.handle_msg(&vram_alloc_msg(tok, 0xaa, 4 << 20)).unwrap();
+        assert_eq!(rm_status(&r), sys::NV_OK);
+        let before = fake.ioctl_count();
+        let r = s.handle_msg(&info(tok)).unwrap();
+        assert_eq!(fake.ioctl_count(), before + 1, "INFO reaches RM");
+        assert_eq!(at(&r.bytes, 24), 64 << 20, "total = limit");
+        assert_eq!(at(&r.bytes, 32), (64 << 20) - led.used(), "free = limit - used");
+
+        let (mut s, _fake, tok) = session();
+        let r = s.handle_msg(&info(tok)).unwrap();
+        assert_eq!(at(&r.bytes, 24), 0, "no cap: RM's answer (the fake's zero) stands");
     }
 
     /// The 4.2 GB that occupy nothing: NV50_MEMORY_VIRTUAL with

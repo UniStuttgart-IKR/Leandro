@@ -616,6 +616,25 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
         why: "a gpuId: the host's card id in, this guest's id out. Already               covered by the derived gpuId mask, and declared here anyway --               the manifest describes what the code REWRITES, not what some               other mask happens to catch",
     });
 
+    // NVOS32_FUNCTION_INFO, the card's size through an escape rather than a
+    // control: `total` and `free` in the NVOS32 block itself, which RM fills
+    // from an FB_GET_INFO_V2 of its own and the backend rewrites under a cap
+    // like the list above (vram::rewrite_vidheap_info). OUT fields of every
+    // NVOS32 function, zero for all but INFO, so the record needs no
+    // function column: a native run and a guest run agree on the zeros.
+    for (member, off) in [
+        ("total", offset_of!(sys::NVOS32_PARAMETERS, total)),
+        ("free", offset_of!(sys::NVOS32_PARAMETERS, free)),
+    ] {
+        out.push(Mediated {
+            nr: sys::NV_ESC_RM_VID_HEAP_CONTROL, cmd: 0,
+            off: off as u32, len: 8, stride: 0, count: 0,
+            kind: Kind::BackendAnswered, field: member,
+            why: "the VRAM ledger's capped sizes in bytes, on the NVOS32 door \
+                  the host RM answers from its own FB_GET_INFO_V2",
+        });
+    }
+
     out.sort_by_key(|m| (m.nr, m.cmd, m.off, m.len));
     out
 }
@@ -705,6 +724,12 @@ mod tests {
                     CMD_FB_GET_INFO_V2, CMD_GPU_GET_NAME_STRING] {
             assert!(m.iter().any(|x| x.cmd == cmd),
                     "{cmd:#x} is answered by the backend and named in no record");
+        }
+        // And the one that is not a control: NVOS32_FUNCTION_INFO's sizes.
+        for field in ["total", "free"] {
+            assert!(m.iter().any(|x| x.nr == sys::NV_ESC_RM_VID_HEAP_CONTROL
+                                 && x.field == field && x.len == 8),
+                    "NVOS32 {field} is answered by the backend and named in no record");
         }
     }
 

@@ -567,6 +567,10 @@ const VA_ATTR: usize = V_DATA + 16;
 const VA_SIZE: usize = V_DATA + 48;
 /// The whole struct. Anything shorter is not it.
 const V_LEN: usize = 184;
+/// `NVOS32_PARAMETERS::total` and `::free` -- OUT for every function, and
+/// filled by exactly one: NVOS32_FUNCTION_INFO ([`rewrite_vidheap_info`]).
+const V_TOTAL: usize = 24;
+const V_FREE: usize = 32;
 
 // The same tie to the generated structs as for the NVOS64 door above.
 //
@@ -580,6 +584,8 @@ const _: () = {
     assert!(V_STATUS_OFF == core::mem::offset_of!(sys::NVOS32_PARAMETERS, status));
     assert!(V_DATA == core::mem::offset_of!(sys::NVOS32_PARAMETERS, data));
     assert!(V_LEN == core::mem::size_of::<sys::NVOS32_PARAMETERS>());
+    assert!(V_TOTAL == core::mem::offset_of!(sys::NVOS32_PARAMETERS, total));
+    assert!(V_FREE == core::mem::offset_of!(sys::NVOS32_PARAMETERS, free));
 
     type AllocSize = sys::NVOS32_PARAMETERS__bindgen_ty_1__bindgen_ty_1;
     assert!(VA_HMEMORY == V_DATA + core::mem::offset_of!(AllocSize, hMemory));
@@ -1500,6 +1506,35 @@ fn cap_fb_entries(list: &mut [u8], asked: usize, limit: u64, used: u64) -> Optio
     Some(touched)
 }
 
+/// The same card through the third door: NVOS32_FUNCTION_INFO.
+///
+/// `total` and `free` are answered in BYTES in the NVOS32 block itself, and
+/// RM takes them from an FB_GET_INFO_V2 it issues INSIDE the host RM
+/// (rmapi_deprecated_vidheapctrl.c:340-383: `free` = HEAP_FREE, `total` =
+/// HEAP_SIZE + FB_TAX_SIZE_KB). That control never crosses this boundary,
+/// so the cap on it above cannot see it: under every policy the guest was
+/// told the HOST card's heap and the host's free memory on this door.
+/// Nobody was caught asking -- the guest module's vram_debug census of
+/// 2026-09-17 (GNOME, Xwayland, Sunshine, Steam, Shadow of the Tomb Raider)
+/// saw no INFO call -- so this closes a door by source, not a measured leak.
+///
+/// Rewritten with the arithmetic [`cap_fb_entries`] uses, so all three doors
+/// tell one card: total = limit, free = limit - used. `data.Info` (the
+/// largest free block and the heap base) is left as RM answered: its offset
+/// and size are addresses on the host card, not sizes this VM owns, and
+/// FB_GET_INFO leaves the matching indices (0x11-0x13) alone as well.
+///
+/// Returns false if the buffer is not an NVOS32 INFO answer or there is no
+/// cap, and leaves it untouched then.
+pub fn rewrite_vidheap_info(buf: &mut [u8], limit: u64, used: u64) -> bool {
+    if limit == 0 || vidheap_function(buf) != Some(sys::NVOS32_FUNCTION_INFO) {
+        return false;
+    }
+    buf[V_TOTAL..V_TOTAL + 8].copy_from_slice(&limit.to_le_bytes());
+    buf[V_FREE..V_FREE + 8].copy_from_slice(&limit.saturating_sub(used).to_le_bytes());
+    true
+}
+
 /// `NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS`: `gpuNameStringFlags` @0,
 /// `ascii[64]` @4 (ctrl2080gpu.h:338, `NV2080_GPU_MAX_NAME_STRING_LENGTH` = 64).
 pub use nvrm_abi::mediate::{name_max, name_off};
@@ -2127,7 +2162,72 @@ mod tests {
             assert_eq!(vidheap_request_bytes(&v), None, "len {n}");
             assert_eq!(vidheap_attr_out(&v), 0, "len {n}");
             assert_eq!(vidheap_handle(&v), 0, "len {n}");
+            let mut w = v.clone();
+            assert!(!rewrite_vidheap_info(&mut w, 1 << 30, 0), "len {n}");
+            assert_eq!(w, v, "len {n}: a short buffer is never written");
         }
+    }
+
+    /// An NVOS32_FUNCTION_INFO answer as the host RM gives it: its own heap
+    /// in `total`, its own free memory in `free`, both in bytes, and the
+    /// largest free block in `data.Info`.
+    fn nvos32_info(total: u64, free: u64) -> Vec<u8> {
+        let mut v = nvos32(sys::NVOS32_FUNCTION_INFO, 0, 0, 0);
+        v[V_TOTAL..V_TOTAL + 8].copy_from_slice(&total.to_le_bytes());
+        v[V_FREE..V_FREE + 8].copy_from_slice(&free.to_le_bytes());
+        v[V_DATA + 16..V_DATA + 24].copy_from_slice(&0x1234_5000u64.to_le_bytes());
+        v
+    }
+
+    fn u64_at(v: &[u8], o: usize) -> u64 {
+        u64::from_le_bytes(v[o..o + 8].try_into().unwrap())
+    }
+
+    /// The third door tells the card the other two tell. Before this the
+    /// guest asked FB_GET_INFO and heard the cap, asked NVOS32 INFO and
+    /// heard the host's heap -- the host RM builds that answer from a
+    /// control of its own, which the backend never sees.
+    #[test]
+    fn the_nvos32_info_door_answers_the_same_card_as_fb_get_info() {
+        let (limit, used) = (2816u64 << 20, 982u64 << 20);
+        let mut info = nvos32_info(7771 << 20, 6100 << 20);
+        assert!(rewrite_vidheap_info(&mut info, limit, used));
+
+        let mut v2 = fb_buf(&[
+            (FB_INFO_INDEX_HEAP_FREE, 0x5d4000),
+            (FB_INFO_INDEX_HEAP_SIZE, 0x797240),
+        ]);
+        assert_eq!(rewrite_fb_info(&mut v2, limit, used), Some(2));
+        assert_eq!(u64_at(&info, V_FREE), fb_at(&v2, 0) as u64 * 1024, "free agrees");
+        assert_eq!(u64_at(&info, V_TOTAL), fb_at(&v2, 1) as u64 * 1024, "total agrees with the heap");
+        assert_eq!(u64_at(&info, V_DATA + 16), 0x1234_5000, "data.Info is RM's and stays");
+    }
+
+    /// Past the limit there is nothing free, not a wrapped 16 EiB.
+    #[test]
+    fn nvos32_info_free_saturates_at_zero() {
+        let mut info = nvos32_info(7771 << 20, 6100 << 20);
+        assert!(rewrite_vidheap_info(&mut info, 1 << 30, 2 << 30));
+        assert_eq!(u64_at(&info, V_FREE), 0);
+        assert_eq!(u64_at(&info, V_TOTAL), 1 << 30);
+    }
+
+    /// Only INFO fills `total`/`free`; every other function's bytes there are
+    /// RM's (zeroed) and must not be turned into a size. And without a cap
+    /// the VM has the whole card, on this door as on the others.
+    #[test]
+    fn nvos32_info_is_rewritten_only_for_info_and_only_under_a_cap() {
+        for f in [sys::NVOS32_FUNCTION_ALLOC_SIZE, sys::NVOS32_FUNCTION_FREE,
+                  sys::NVOS32_FUNCTION_ALLOC_SIZE_RANGE, sys::NVOS32_FUNCTION_HW_FREE] {
+            let v = nvos32(f, 0, vidmem_attr(), 4 << 20);
+            let mut w = v.clone();
+            assert!(!rewrite_vidheap_info(&mut w, 1 << 30, 0), "function {f}");
+            assert_eq!(w, v, "function {f}: untouched");
+        }
+        let v = nvos32_info(7771 << 20, 6100 << 20);
+        let mut w = v.clone();
+        assert!(!rewrite_vidheap_info(&mut w, 0, 0));
+        assert_eq!(w, v, "no cap: the host's answer stands");
     }
 
     /// Without a cap the V1 door stays honest too.
