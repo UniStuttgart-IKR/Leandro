@@ -7071,9 +7071,9 @@ static void balloon_worker(struct work_struct *work)
 					    (balloon.held_bytes - before) >> 10);
 		balloon.filled_once = true;
 	} else {
-		pr_info_ratelimited("virtio_nvrm: balloon holds %llu of %llu KiB, the next chunk was refused (%s %ld) -- again in %lu s\n",
+		pr_info_ratelimited("virtio_nvrm: balloon holds %llu of %llu KiB, the next step failed (%s %#lx) -- again in %lu s\n",
 				    balloon.held_bytes >> 10, balloon.target >> 10,
-				    ret < 0 ? "errno" : "status", ret,
+				    ret < 0 ? "errno" : "status", ret < 0 ? -ret : ret,
 				    balloon.backoff / HZ);
 		balloon_kick(balloon.backoff, false);
 		balloon.backoff = min(balloon.backoff * 2, NVRM_BALLOON_BACKOFF_MAX);
