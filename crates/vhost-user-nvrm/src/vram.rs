@@ -38,7 +38,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use nvrm_abi::nvgpu::nvos32_attr;
-use nvrm_abi::sys;
+use nvrm_abi::{sys, vgpu};
 
 /// `NV_MEMORY_ALLOCATION_PARAMS` field offsets, from the layout guard in
 /// `nvrm-abi/src/nvgpu.rs` (`flags @ 8`, `attr @ 24`, `size @ 64`).
@@ -131,10 +131,8 @@ pub enum Policy {
     /// CARD, and the guest gets what is left after the reservation.
     Reserved,
     /// `LEA_VGPU_TYPE`: the same, except that neither number is the
-    /// operator's. Both come from a catalogue the CARD was measured into
-    /// ([`nvrm_abi::vgpu`]), the guest framebuffer is a whole number of
-    /// VMMU segments, and the VM is named after its type the way vGPU
-    /// names one. Number 69.
+    /// operator's: both are the card's rule ([`nvrm_abi::vgpu`]), applied
+    /// by the launcher to a type or a size. Number 69.
     Grid,
 }
 
@@ -171,13 +169,14 @@ pub struct Profile {
     /// allocate. One number for both, because a guest told one thing and
     /// refused at another has been handed a card that contradicts itself.
     pub fb_length: u64,
-    /// The vGPU-shaped type name (`RTX2070-2Q`) under [`Policy::Grid`],
-    /// empty otherwise. It is what the guest's card is CALLED, so it has
-    /// to travel with the numbers rather than beside them.
+    /// What the launcher called it under [`Policy::Grid`] (`RTX2070-2Q`,
+    /// `RTX2070-130M`), empty otherwise. For the log; the guest's card is
+    /// named after `fb_length` under every policy.
     pub vgpu_type: &'static str,
-    /// vGPU's `encoderCapacity`, a percentage, under [`Policy::Grid`]; 0
-    /// otherwise, which is how `grid::rewrite_encoder_capacity` knows to
-    /// leave RM's own answer alone.
+    /// vGPU's `encoderCapacity`, a percentage: `fb_length`'s share of the
+    /// card ([`nvrm_abi::vgpu::encoder_share`]) under every cap. 0 without
+    /// a cap or without the card's answer, which is how
+    /// `grid::rewrite_encoder_capacity` knows to leave RM's own alone.
     pub encoder_capacity: u32,
 }
 
@@ -221,29 +220,18 @@ impl Profile {
                 "VRAM cap {} MiB for this VM (LEA_VRAM_LIMIT_MIB)",
                 mib(self.size)
             )),
-            Policy::Reserved => Some(format!(
+            Policy::Reserved | Policy::Grid => Some(format!(
                 "VRAM profile {} MiB for this VM = {} MiB guest FB + {} MiB reserved \
-                 for RM's own device memory (LEA_VRAM_PROFILE_MIB / \
-                 LEA_VRAM_RESERVE_MIB). The guest is told {} MiB and is refused at \
-                 the same number; the reservation is not allocated, it is FB the \
-                 guest is never offered. Nothing here checks the card or a sibling \
-                 VM, so profiles that sum past the card are accepted.",
+                 for RM's own device memory ({} {}). The guest is told {} MiB and is \
+                 refused at the same number; the reservation is not allocated, it is \
+                 FB the guest is never offered. Nothing here checks the card or a \
+                 sibling VM, so profiles that sum past the card are accepted.",
                 mib(self.size),
                 mib(self.fb_length),
                 mib(self.reservation),
+                self.policy.knob(),
+                if self.policy == Policy::Grid { self.vgpu_type } else { "/ LEA_VRAM_RESERVE_MIB" },
                 mib(self.fb_length),
-            )),
-            Policy::Grid => Some(format!(
-                "vGPU-shaped type {} for this VM (LEA_VGPU_TYPE): profile {} MiB = \
-                 {} MiB guest FB + {} MiB reserved. Both numbers come from the \
-                 CARD's catalogue, not from an operator: the guest FB is a whole \
-                 number of VMMU segments and every VM on this card has the same \
-                 size. The guest's card is called \"Leandro {}\".",
-                self.vgpu_type,
-                mib(self.size),
-                mib(self.fb_length),
-                mib(self.reservation),
-                self.vgpu_type,
             )),
         }
     }
@@ -258,33 +246,35 @@ impl Profile {
 /// must mean "off" here or every rig would run capped at nothing.
 ///
 /// `Err` is for a configuration that has no honest reading and no safe
-/// default; the backend refuses to start on one. The two of them are
-/// exactly the contradictions: both policies at once, and a reservation
-/// that leaves the guest no framebuffer. Everything else -- a typo, a
-/// negative number, a unit -- warns and leaves that variable unset, which
-/// is the behaviour `LEA_VRAM_LIMIT_MIB` has always had.
+/// default; the backend refuses to start on one: two policies at once, a
+/// reservation that leaves the guest no framebuffer, and a value that is
+/// not a number of MiB. The last one used to warn and run UNCAPPED --
+/// `LEA_VRAM_LIMIT_MIB=4G` was a VM without a limit and one log line.
 #[derive(Default, Copy, Clone)]
 struct RawEnv<'a> {
     limit: Option<&'a str>,
     profile: Option<&'a str>,
     reserve: Option<&'a str>,
-    /// The vGPU-shaped triple. `vgpu_type` is a NAME out of the card's
-    /// catalogue and the other two are the numbers that name resolves to;
-    /// the backend does not derive them, because deriving them means
-    /// asking the card and this process holds no RM client of its own
-    /// (main.rs). The manager that starts the VM resolves the name --
-    /// `nvrm-client --bin vgpuprofile` reads the card, `lea_backend_start`
-    /// selects the row -- exactly the way vGPU's host RM owns the
-    /// catalogue and the per-VM plugin only enforces its slice.
+    /// The vGPU-shaped triple. `vgpu_type` names a type or a size and the
+    /// other two are the numbers the card's rule gives it. The manager that
+    /// starts the VM resolves the name -- `nvrm-client --bin vgpuprofile`
+    /// reads the card, `lea_backend_start` selects the row -- exactly the
+    /// way vGPU's host RM owns the catalogue and the per-VM plugin only
+    /// enforces its slice.
     vgpu_type: Option<&'a str>,
     vgpu_profile: Option<&'a str>,
     vgpu_fb: Option<&'a str>,
+    /// Only used when the card did not answer: the backend prices the
+    /// encoder itself from `card_total`, the same way for every policy.
     vgpu_encoder: Option<&'a str>,
+    /// `TOTAL_RAM_SIZE` in bytes, asked at start-up (`grid::card`); 0 if
+    /// the card did not answer.
+    card_total: u64,
 }
 
 fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
-    let (limit, profile, reserve) = (env.limit, env.profile, env.reserve);
     let mut notes = Vec::new();
+    let mut unusable = Vec::new();
     let mut mib = |name: &str, raw: Option<&str>| -> Option<u64> {
         let s = raw?;
         if s.trim().is_empty() {
@@ -297,33 +287,33 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
             Ok(0) => None,
             Ok(v) => Some(v),
             Err(_) => {
-                // Off, not "0 MiB": a cap of zero would fail every
-                // allocation, and a typo must not look like a policy.
-                notes.push(format!("{name}={s:?} unusable -- ignored"));
+                let hint = vgpu::parse_mib(s).map(|m| format!(" -- write {m}")).unwrap_or_default();
+                unusable.push(format!("{name}={s:?} is not a number of MiB{hint}"));
                 None
             }
         }
     };
-    // The closure borrows `notes`, so it has to be finished with before
-    // any of the branches below can add one.
+    // The closure borrows `unusable`, so it has to be finished with before
+    // any of the branches below can look at it.
     let (limit, size, reserve, vgpu_profile, vgpu_fb) = (
-        mib("LEA_VRAM_LIMIT_MIB", limit),
-        mib("LEA_VRAM_PROFILE_MIB", profile),
-        mib("LEA_VRAM_RESERVE_MIB", reserve),
+        mib("LEA_VRAM_LIMIT_MIB", env.limit),
+        mib("LEA_VRAM_PROFILE_MIB", env.profile),
+        mib("LEA_VRAM_RESERVE_MIB", env.reserve),
         mib("LEA_VGPU_PROFILE_MIB", env.vgpu_profile),
         mib("LEA_VGPU_FB_MIB", env.vgpu_fb),
     );
-    // Not a MiB, a percentage -- and the only knob here that is not a size,
-    // which is why it is parsed on its own.
-    let vgpu_encoder = env
-        .vgpu_encoder
-        .and_then(|v| v.trim().parse::<u32>().ok())
-        .filter(|&p| p > 0 && p <= 100);
+    if !unusable.is_empty() {
+        return Err(format!(
+            "{}. The unit is in the name; the backend will not start without the \
+             limit it was given.",
+            unusable.join("; ")
+        ));
+    }
 
     // The vGPU-shaped policy, and it is all-or-nothing: a type name
     // without its numbers is a name for something nobody computed.
     let vgpu_type = env.vgpu_type.map(str::trim).filter(|t| !t.is_empty());
-    if let Some(t) = vgpu_type {
+    let (policy, size, fb, label) = if let Some(t) = vgpu_type {
         if limit.is_some() || size.is_some() {
             return Err(format!(
                 "LEA_VGPU_TYPE={t} is set together with LEA_VRAM_LIMIT_MIB or \
@@ -334,8 +324,7 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
         let (Some(p), Some(f)) = (vgpu_profile, vgpu_fb) else {
             return Err(format!(
                 "LEA_VGPU_TYPE={t} needs LEA_VGPU_PROFILE_MIB and LEA_VGPU_FB_MIB \
-                 beside it -- the type is a name in the card's catalogue and this \
-                 backend cannot read that catalogue (it holds no RM client). \
+                 beside it -- the type is a name in the card's catalogue. \
                  `nvrm-client --bin vgpuprofile` prints it; lea_backend_start \
                  resolves the name."
             ));
@@ -347,64 +336,66 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
                  keeps something back."
             ));
         }
-        // Read once, at startup, and kept for the life of the process:
-        // the type name goes into a Copy struct and into every log line,
-        // and the alternative is threading a String through the ledger.
-        let name: &'static str = Box::leak(t.to_string().into_boxed_str());
-        return Ok((
-            Profile {
-                policy: Policy::Grid,
-                size: p << 20,
-                reservation: (p - f) << 20,
-                fb_length: f << 20,
-                vgpu_type: name,
-                encoder_capacity: vgpu_encoder.unwrap_or(0),
-            },
-            notes,
-        ));
-    }
-    if vgpu_profile.is_some() || vgpu_fb.is_some() {
-        notes.push(
-            "LEA_VGPU_PROFILE_MIB / LEA_VGPU_FB_MIB are set without LEA_VGPU_TYPE \
-             -- there is no type to give them to, so they do nothing"
-                .to_string(),
-        );
-    }
-
-    if let (Some(l), Some(p)) = (limit, size) {
-        return Err(format!(
-            "LEA_VRAM_LIMIT_MIB={l} and LEA_VRAM_PROFILE_MIB={p} are both set. \
-             They are two policies for the same number and this backend will \
-             not pick one for you: the cap is what the GUEST may allocate, the \
-             profile is what the VM may cost the CARD. Set exactly one."
-        ));
-    }
-    let Some(size) = size else {
-        if reserve.is_some() {
+        (Policy::Grid, p, f, t)
+    } else {
+        if vgpu_profile.is_some() || vgpu_fb.is_some() {
             notes.push(
-                "LEA_VRAM_RESERVE_MIB is set without LEA_VRAM_PROFILE_MIB -- \
-                 there is no profile to reserve from, so it does nothing"
+                "LEA_VGPU_PROFILE_MIB / LEA_VGPU_FB_MIB are set without LEA_VGPU_TYPE \
+                 -- there is no type to give them to, so they do nothing"
                     .to_string(),
             );
         }
-        return Ok((Profile::accounting(limit.unwrap_or(0) << 20), notes));
+        match (limit, size) {
+            (Some(l), Some(p)) => {
+                return Err(format!(
+                    "LEA_VRAM_LIMIT_MIB={l} and LEA_VRAM_PROFILE_MIB={p} are both set. \
+                     They are two policies for the same number and this backend will \
+                     not pick one for you: the cap is what the GUEST may allocate, the \
+                     profile is what the VM may cost the CARD. Set exactly one."
+                ));
+            }
+            (None, Some(size)) => {
+                let reservation = reserve.unwrap_or(DEFAULT_RESERVATION_MIB);
+                if reservation >= size {
+                    return Err(format!(
+                        "LEA_VRAM_RESERVE_MIB={reservation} leaves nothing of \
+                         LEA_VRAM_PROFILE_MIB={size}: the guest would be told it has a \
+                         card with no memory. Raise the profile or lower the reservation."
+                    ));
+                }
+                (Policy::Reserved, size, size - reservation, "")
+            }
+            (limit, None) => {
+                if reserve.is_some() {
+                    notes.push(
+                        "LEA_VRAM_RESERVE_MIB is set without LEA_VRAM_PROFILE_MIB -- \
+                         there is no profile to reserve from, so it does nothing"
+                            .to_string(),
+                    );
+                }
+                let Some(l) = limit else { return Ok((Profile::OFF, notes)) };
+                (Policy::Accounting, l, l, "")
+            }
+        }
     };
-    let reservation = reserve.unwrap_or(DEFAULT_RESERVATION_MIB);
-    if reservation >= size {
-        return Err(format!(
-            "LEA_VRAM_RESERVE_MIB={reservation} leaves nothing of \
-             LEA_VRAM_PROFILE_MIB={size}: the guest would be told it has a \
-             card with no memory. Raise the profile or lower the reservation."
-        ));
-    }
+    // ONE encoder share for one framebuffer, whichever policy set it. A
+    // launcher's LEA_VGPU_ENCODER_CAP is the same number by the same rule;
+    // it is only needed when this process could not ask the card.
+    let encoder_capacity = if env.card_total != 0 {
+        vgpu::encoder_share(fb << 20, env.card_total)
+    } else {
+        env.vgpu_encoder.and_then(|v| v.trim().parse::<u32>().ok()).filter(|p| (1..=100).contains(p)).unwrap_or(0)
+    };
     Ok((
         Profile {
-            policy: Policy::Reserved,
+            policy,
             size: size << 20,
-            reservation: reservation << 20,
-            fb_length: (size - reservation) << 20,
-            vgpu_type: "",
-            encoder_capacity: 0,
+            reservation: (size - fb) << 20,
+            fb_length: fb << 20,
+            // Read once, at startup, and kept for the life of the process:
+            // the name goes into a Copy struct and into every log line.
+            vgpu_type: Box::leak(label.to_string().into_boxed_str()),
+            encoder_capacity,
         },
         notes,
     ))
@@ -420,7 +411,7 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
 /// The names are deliberately unlike both pin limits: `max_pin_mib` (guest
 /// module, cumulative over all pins) and `LEA_MAX_PIN_MIB` (host, one
 /// arena) already collide enough that only the log line tells them apart.
-fn profile_from_env() -> Result<Profile, String> {
+fn profile_from_env(card_total: u64) -> Result<Profile, String> {
     let get = |n: &str| std::env::var(n).ok();
     let (limit, profile, reserve) = (
         get("LEA_VRAM_LIMIT_MIB"),
@@ -441,6 +432,7 @@ fn profile_from_env() -> Result<Profile, String> {
         vgpu_profile: vprofile.as_deref(),
         vgpu_fb: vfb.as_deref(),
         vgpu_encoder: venc.as_deref(),
+        card_total,
     })?;
     for n in notes {
         eprintln!("vhost-user-nvrm: {n}");
@@ -825,7 +817,7 @@ impl Ledger {
     /// that comes up under a policy nobody chose is worse than one that
     /// does not come up.
     pub fn new() -> Result<Arc<Self>, String> {
-        Ok(Self::with_profile(profile_from_env()?))
+        Ok(Self::with_profile(profile_from_env(crate::grid::card().map_or(0, |c| c.total))?))
     }
 
     fn with_profile(profile: Profile) -> Arc<Self> {
@@ -1543,12 +1535,14 @@ pub use nvrm_abi::mediate::{name_max, name_off};
 ///
 /// Modelled on what NVIDIA's own vGPU does: an `A100` becomes a
 /// `GRID A100-10C`, where the vendor prefix gives way to the mediation
-/// layer and the profile size joins the name. Here:
+/// layer and the size joins the name. The size is the guest framebuffer,
+/// under EVERY policy -- a VM told 3072 MiB is `-3G` whether a cap, a
+/// profile, a type or a size set it:
 ///
 /// ```text
 ///   NVIDIA GeForce RTX 2070   ->  Leandro RTX 2070        (no cap)
-///   NVIDIA GeForce RTX 2070   ->  Leandro RTX 2070-1G     (cap 1024 MiB)
-///   NVIDIA GeForce RTX 2070   ->  Leandro RTX 2070-1536M  (cap 1536 MiB)
+///   NVIDIA GeForce RTX 2070   ->  Leandro RTX 2070-3G     (3072 MiB, e.g. RTX2070-4Q)
+///   NVIDIA GeForce RTX 2070   ->  Leandro RTX 2070-1536M  (1536 MiB)
 /// ```
 ///
 /// `Leandro` is the project name spelled out -- the DISPLAY name only. The
@@ -1563,22 +1557,10 @@ pub use nvrm_abi::mediate::{name_max, name_off};
 /// instead. Spelling the prefix out cost four of those 64 bytes, so the
 /// budget is: 8 for `"Leandro "`, 55 for the base plus suffix, 1 for the NUL.
 pub fn guest_card_name<A: RmAbi>(real: &str, profile: Profile) -> String {
-    // The vGPU-shaped policy does not decorate the card's own name -- it
-    // REPLACES it, because under that policy the guest is not running on
-    // an RTX 2070 with less memory, it is running on a type out of a
-    // catalogue, and the type is what nvidia-smi should print. `Leandro`
-    // stands where NVIDIA writes `GRID` or `NVIDIA`.
-    if profile.policy == Policy::Grid && !profile.vgpu_type.is_empty() {
-        let full = format!("Leandro {}", profile.vgpu_type);
-        return if full.len() < name_max::<nvrm_sys::DefaultAbi>() { full } else { "Leandro GPU".to_string() };
-    }
     let limit = profile.fb_length;
-    let base = real
-        .trim()
-        .strip_prefix("NVIDIA ")
-        .unwrap_or(real.trim())
-        .strip_prefix("GeForce ")
-        .unwrap_or_else(|| real.trim().strip_prefix("NVIDIA ").unwrap_or(real.trim()));
+    let real = real.trim();
+    let real = real.strip_prefix("NVIDIA ").unwrap_or(real);
+    let base = real.strip_prefix("GeForce ").unwrap_or(real);
 
     let suffix = if limit == 0 {
         String::new()
@@ -2385,12 +2367,16 @@ mod tests {
         assert_eq!(ok(None, Some("257"), Some("256")).fb_length, MIB);
     }
 
+    /// A unit in a `*_MIB` knob is refused, loudly, instead of running the
+    /// VM without the limit it was given -- and the refusal says what to
+    /// write instead.
     #[test]
-    fn an_unusable_value_is_ignored_with_a_note_rather_than_read_as_zero() {
-        let (p, notes) = decide(three(Some("3 GiB"), None, None)).unwrap();
-        assert_eq!(p, Profile::OFF, "a typo must not look like a policy");
-        assert_eq!(notes.len(), 1);
-        assert!(notes[0].contains("LEA_VRAM_LIMIT_MIB"), "{:?}", notes[0]);
+    fn a_value_that_is_not_mib_refuses_to_start() {
+        let e = decide(three(Some("3 GiB"), None, None)).unwrap_err();
+        assert!(e.contains("LEA_VRAM_LIMIT_MIB=\"3 GiB\"") && e.contains("write 3072"), "{e}");
+        let e = decide(grid("RTX2070-4Q", "4G", "3072")).unwrap_err();
+        assert!(e.contains("LEA_VGPU_PROFILE_MIB") && e.contains("write 4096"), "{e}");
+        assert!(decide(three(None, Some("-1"), None)).is_err(), "a negative number is no size either");
         // A reservation without a profile reserves from nothing. That is
         // worth a line, because the operator plainly meant something.
         let (p, notes) = decide(three(None, None, Some("256"))).unwrap();
@@ -2498,12 +2484,12 @@ mod tests {
         assert!(e.contains("three policies"), "{e}");
     }
 
-    /// Under this policy the card is not an RTX 2070 with less memory, it
-    /// is a TYPE -- and that is what the guest's nvidia-smi prints.
+    /// A type names the guest framebuffer, and the card is named after the
+    /// framebuffer -- as under every other policy.
     #[test]
-    fn the_grid_card_is_named_after_its_type() {
+    fn the_grid_card_is_named_after_its_framebuffer() {
         let p = decide(grid("RTX2070-2Q", "2048", "1536")).unwrap().0;
-        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", p), "Leandro RTX2070-2Q");
+        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", p), "Leandro RTX 2070-1536M");
 
         // ... and the sizes it is told are the type's, not the card's.
         let led = Ledger::for_test_profile(p);
@@ -2514,6 +2500,31 @@ mod tests {
         assert_eq!(rewrite_fb_info(&mut v, led.limit(), led.used()), Some(2));
         assert_eq!(fb_at(&v, 0), (1536 * MIB / 1024) as u32);
         assert_eq!(led.limit(), 1536 * MIB, "and refused at the same number");
+    }
+
+    /// **One framebuffer, one card, whichever knob named it.** A cap of
+    /// 3072 MiB, a profile that leaves 3072 MiB and the type that picks
+    /// 3072 MiB tell the guest the same name and the same encoder share,
+    /// once the card has answered; without the card, a launcher's share
+    /// stands in.
+    #[test]
+    fn the_same_framebuffer_is_the_same_card_under_every_policy() {
+        let card = 8192 * MIB;
+        let with_card = |env: RawEnv| decide(RawEnv { card_total: card, ..env }).unwrap().0;
+        let profiles = [
+            with_card(three(Some("3072"), None, None)),
+            with_card(three(None, Some("3328"), None)),
+            with_card(RawEnv { vgpu_encoder: Some("50"), ..grid("RTX2070-4Q", "3968", "3072") }),
+            with_card(grid("RTX2070-3G", "3968", "3072")),
+        ];
+        for p in profiles {
+            assert_eq!(p.fb_length, 3072 * MIB);
+            assert_eq!(p.encoder_capacity, 37, "{:?}", p.policy);
+            assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", p), "Leandro RTX 2070-3G");
+        }
+        let launcher = RawEnv { vgpu_encoder: Some("37"), ..grid("RTX2070-3G", "3968", "3072") };
+        assert_eq!(decide(launcher).unwrap().0.encoder_capacity, 37, "no card: the launcher's share");
+        assert_eq!(with_card(RawEnv::default()).encoder_capacity, 0, "no cap: RM's own answer");
     }
 
     /// The other two policies keep the name they had, and this is the

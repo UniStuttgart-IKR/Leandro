@@ -1478,6 +1478,7 @@ fn serve_with<A: RmAbi>(socket: &str) -> anyhow::Result<()> {
     // Which VM this process serves, taken from the socket path, for the
     // UUID the vGPU-shaped policy hands the guest (grid.rs).
     crate::grid::set_identity(socket);
+    crate::grid::set_card(crate::host_pool::card());
     let backend = Arc::new(RwLock::new(NvrmDevice::<A>::new()?));
     backend.write().unwrap().register_waiter_notify();
     let mut daemon = VhostUserDaemon::new(

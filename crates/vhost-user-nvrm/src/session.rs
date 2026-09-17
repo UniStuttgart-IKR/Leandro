@@ -2522,67 +2522,21 @@ impl<A: RmAbi> Session<A> {
                 }
             }
 
-            // (3d) What the card IS, under the vGPU-shaped policy only
-            // (number 69). Everything else keeps RM's own answers: a VM
-            // with a smaller framebuffer is not a vGPU and must not say it
-            // is. Both buffers are flat, both are in the mediation
-            // manifest, and both are rewritten only on an NV_OK answer --
-            // an error the guest should see is an error it sees.
+            // (3d) What the card IS. The encoder share is the guest
+            // framebuffer's under every cap, and 0 without one leaves RM's
+            // whole encoder standing. The mode and the UUID stay the
+            // vGPU-shaped policy's (number 69). All are flat buffers in the
+            // mediation manifest, rewritten only on an NV_OK answer -- an
+            // error the guest should see is an error it sees.
             let profile = self.vram.profile();
-            if profile.policy == crate::vram::Policy::Grid
-                && u32::from_le_bytes(self.scratch[28..32].try_into().unwrap()) == sys::NV_OK
-            {
-                if cmd == crate::grid::CMD_GPU_GET_VIRTUALIZATION_MODE
-                    && crate::grid::mediate_mode()
-                {
-                    let mode = crate::grid::rewrite_virtualization_mode(&mut self.aux);
-                    if debug_level() >= 1 {
-                        eprintln!(
-                            "vhost-user-nvrm: virtualization mode -> {mode:?} (VGX) for {}",
-                            profile.vgpu_type
-                        );
-                    }
-                } else if cmd == crate::grid::CMD_GPU_GET_GID_INFO
-                    && crate::grid::mediate_uuid()
-                {
-                    let uuid = crate::grid::rewrite_gid_info(
-                        &mut self.aux,
-                        crate::grid::identity(),
-                    );
-                    if debug_level() >= 1 {
-                        // The FLAGS matter more than the answer: this
-                        // rewrite ignores them, and whether that is why
-                        // libcuda stops (number 69) is exactly what they
-                        // would say.
-                        let f = u32::from_le_bytes(
-                            self.aux[nvrm_abi::mediate::GID_FLAGS_OFF
-                                ..nvrm_abi::mediate::GID_FLAGS_OFF + 4]
-                                .try_into()
-                                .unwrap(),
-                        );
-                        let n = u32::from_le_bytes(
-                            self.aux[nvrm_abi::mediate::GID_LENGTH_OFF
-                                ..nvrm_abi::mediate::GID_LENGTH_OFF + 4]
-                                .try_into()
-                                .unwrap(),
-                        );
-                        eprintln!(
-                            "vhost-user-nvrm: uuid -> {uuid:?} (flags {f:#x}, length now {n})"
-                        );
-                    }
-                } else if cmd == crate::grid::CMD_GPU_GET_ENCODER_CAPACITY
-                    && crate::grid::mediate_enc()
-                {
-                    let pct = crate::grid::rewrite_encoder_capacity(
-                        &mut self.aux,
-                        profile.encoder_capacity,
-                    );
-                    if debug_level() >= 1 {
-                        eprintln!(
-                            "vhost-user-nvrm: encoder capacity -> {pct:?}% for {}",
-                            profile.vgpu_type
-                        );
-                    }
+            let grid = profile.policy == crate::vram::Policy::Grid;
+            if u32::from_le_bytes(self.scratch[28..32].try_into().unwrap()) == sys::NV_OK {
+                if cmd == crate::grid::CMD_GPU_GET_VIRTUALIZATION_MODE && grid && crate::grid::mediate_mode() {
+                    crate::grid::rewrite_virtualization_mode(&mut self.aux);
+                } else if cmd == crate::grid::CMD_GPU_GET_GID_INFO && grid && crate::grid::mediate_uuid() {
+                    crate::grid::rewrite_gid_info(&mut self.aux, crate::grid::identity());
+                } else if cmd == crate::grid::CMD_GPU_GET_ENCODER_CAPACITY && crate::grid::mediate_enc() {
+                    crate::grid::rewrite_encoder_capacity(&mut self.aux, profile.encoder_capacity);
                 }
             }
         }
@@ -3913,6 +3867,54 @@ mod tests {
         assert_eq!(u32::from_le_bytes(r.bytes[o..o + 4].try_into().unwrap()), sys::NV_OK);
         assert_eq!(fake.ioctl_count(), before + 2, "ALLOC_SIZE ANY reached RM too");
         assert_eq!(led.used(), 4 << 20, "and neither was charged");
+    }
+
+    /// One RM control with `aux` as its params, the way the guest module
+    /// sends it: NVOS54 inline, the params pointer @16 named as embedded.
+    fn ctrl_msg(tok: u64, cmd: u32, aux: &[u8]) -> Vec<u8> {
+        let mut inline = vec![0u8; 32];
+        inline[8..12].copy_from_slice(&cmd.to_le_bytes());
+        inline[16..24].copy_from_slice(&0xdead_beefu64.to_le_bytes());
+        inline[24..28].copy_from_slice(&(aux.len() as u32).to_le_bytes());
+        let mut req = ioctl_req(tok, sys::NV_ESC_RM_CONTROL, 32, aux.len());
+        req.embedded_ptr_off = 16;
+        msg(&req, &inline, aux)
+    }
+
+    /// A session of this backend under `profile`, for the answers that
+    /// depend on the profile and not on the ledger's counter.
+    fn profiled_session(profile: crate::vram::Profile) -> (Session<sys::DefaultAbi>, u64) {
+        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::for_test_profile(profile)).unwrap();
+        s.sys = Box::new(Arc::new(FakeSyscalls::default()));
+        let fd = unsafe { libc::memfd_create(c"leandro-profile-test".as_ptr(), 0) };
+        assert!(fd >= 0);
+        let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
+        let token = s.mirror.insert(owned);
+        (s, token)
+    }
+
+    /// The encoder share the guest reads is the framebuffer's, whichever
+    /// policy set the framebuffer; without a cap RM's answer stands.
+    #[test]
+    fn the_encoder_answer_is_the_same_under_every_policy() {
+        use crate::vram::{Policy, Profile};
+        let fb = 3072u64 << 20;
+        let share = nvrm_abi::vgpu::encoder_share(fb, 8192 << 20);
+        let answer = |profile: Profile| {
+            let (mut s, tok) = profiled_session(profile);
+            let mut aux = vec![0u8; nvrm_abi::mediate::ENCCAP_LEN];
+            aux[nvrm_abi::mediate::ENCCAP_OFF..nvrm_abi::mediate::ENCCAP_OFF + 4].copy_from_slice(&100u32.to_le_bytes());
+            let r = s.handle_msg(&ctrl_msg(tok, crate::grid::CMD_GPU_GET_ENCODER_CAPACITY, &aux)).unwrap();
+            let o = Rsp::WIRE_LEN + 32 + nvrm_abi::mediate::ENCCAP_OFF;
+            u32::from_le_bytes(r.bytes[o..o + 4].try_into().unwrap())
+        };
+        let capped = |policy, size| Profile {
+            policy, size, reservation: size - fb, fb_length: fb, vgpu_type: "", encoder_capacity: share,
+        };
+        for p in [capped(Policy::Accounting, fb), capped(Policy::Reserved, fb + (256 << 20)), capped(Policy::Grid, 3968 << 20)] {
+            assert_eq!(answer(p), 37, "{:?}", p.policy);
+        }
+        assert_eq!(answer(Profile::OFF), 100, "no cap: RM's whole encoder");
     }
 
     /// NVOS32_FUNCTION_INFO under a cap tells the capped card: the reply the

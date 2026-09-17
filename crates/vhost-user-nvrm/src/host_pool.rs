@@ -371,6 +371,18 @@ impl Backing {
     }
 }
 
+/// The card this backend serves: its UUID and `TOTAL_RAM_SIZE` in bytes,
+/// asked once at start-up through a backing client that closes again.
+pub fn card() -> Result<([u8; 16], u64)> {
+    let b = Backing::new()?;
+    let mut fb = sys::NV2080_CTRL_FB_GET_INFO_V2_PARAMS::default();
+    fb.fbInfoListSize = 1;
+    fb.fbInfoList[0].index = nvrm_abi::mediate::FB_INFO_INDEX_TOTAL_RAM_SIZE;
+    // The subdevice is the handle Backing::new allocated after the device.
+    b.control(b.device + 1, nvrm_abi::mediate::CMD_FB_GET_INFO_V2, &mut fb)?;
+    Ok((b.uuid.uuid, fb.fbInfoList[0].data as u64 * 1024))
+}
+
 /// An active external mapping of a pool -- held so that the arena and the
 /// OS descriptor stay alive as long as the guest uses the pool.
 /// `addr`/`len`/`osdesc` are what a re-map path would need (re-attaching

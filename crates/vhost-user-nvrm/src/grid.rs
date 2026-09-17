@@ -11,10 +11,10 @@
 //! `nvrm_abi::mediate`'s manifest so that a guest run compared against a
 //! native one masks them instead of reporting them as defects.
 //!
-//! NEITHER IS ON UNLESS THE vGPU-SHAPED POLICY IS. Under the default, under
-//! `LEA_VRAM_LIMIT_MIB` and under `LEA_VRAM_PROFILE_MIB`, RM's own answers
-//! are forwarded untouched -- a VM that was given a smaller framebuffer is
-//! not a vGPU and must not claim to be one.
+//! THE ENCODER SHARE FOLLOWS THE GUEST FRAMEBUFFER under every cap, because
+//! a share is a size and two VMs told the same size must be told the same
+//! share. The MODE is the vGPU-shaped policy's alone: saying "vGPU" is a
+//! claim about the guest driver, not about a size (see [`mediate_mode`]).
 
 use nvrm_abi::mediate;
 
@@ -221,6 +221,32 @@ pub fn name_from_socket(socket: &str) -> String {
 /// Remember which VM this is. Called once, from `serve`.
 pub fn set_identity(socket: &str) {
     let _ = IDENTITY.set(name_from_socket(socket));
+}
+
+/// The card this backend serves, asked once at start-up
+/// ([`crate::host_pool::card`]): its UUID, and `TOTAL_RAM_SIZE` in bytes,
+/// which is what an encoder share is a share of.
+#[derive(Debug)]
+pub struct Card {
+    pub host: [u8; 16],
+    pub total: u64,
+}
+
+static CARD: std::sync::OnceLock<Card> = std::sync::OnceLock::new();
+
+/// Keep what the card answered. Called once, from `serve`, before the
+/// ledger reads its profile. A card that did not answer costs the encoder
+/// share, not the VM: the backend still serves.
+pub fn set_card(asked: anyhow::Result<([u8; 16], u64)>) {
+    match asked {
+        Ok((host, total)) => drop(CARD.set(Card { host, total })),
+        Err(e) => eprintln!("vhost-user-nvrm: the card did not answer at start-up ({e:#}) -- no encoder share"),
+    }
+}
+
+/// What [`set_card`] kept, if the card answered.
+pub fn card() -> Option<&'static Card> {
+    CARD.get()
 }
 
 /// What this VM is called, or `"lea"` if nobody said.
