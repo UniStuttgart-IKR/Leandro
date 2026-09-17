@@ -469,10 +469,33 @@ fn profile_from_env() -> Result<Profile, String> {
 /// the class as "0x40 means VRAM" would have been right for this workload
 /// and wrong in principle; reading LOCATION is what RM itself acts on.
 ///
-/// `LOCATION_ANY` counts as a candidate on the way IN. RM may resolve it
-/// either way, and a request that is not charged before the ioctl is a
-/// request that walks past the cap. What it really became is settled
-/// afterwards from the written-back attr -- see [`Books::settle`].
+/// ONLY 0x40 WITH `LOCATION_VIDMEM` IS CHARGED, and that is RM's rule, not
+/// a guess about workloads. Until 2026-09-17 `LOCATION_ANY` counted as a
+/// candidate on the way in, for all three classes, on the theory that RM
+/// "may resolve it either way". On a GSP-client dGPU it never does (NVIDIA
+/// open-gpu-kernel-modules 610.57.04, the HAL variants this card binds):
+///
+/// | hClass | LOCATION in       | what RM does                                  | source                        |
+/// |--------|-------------------|-----------------------------------------------|-------------------------------|
+/// | 0x40   | VIDMEM            | FB (PMA or heap), writes VIDMEM back          | video_mem.c:616-619, 1498-1513 |
+/// | 0x40   | ANY, PCI          | NV_ERR_INVALID_ARGUMENT, nothing allocated    | video_mem.c:616-619           |
+/// | 0x3e   | VIDMEM, VIRTUAL   | NV_ERR_INVALID_ARGUMENT                       | system_mem.c:192-195          |
+/// | 0x3e   | ANY, PCI          | system memory (ADDR_SYSMEM, osAllocPages)     | mem_mgr.c:1586-1614, system_mem.c:264-268 |
+/// | 0x50a0 | without VIRTUAL   | NV_ERR_INVALID_ARGUMENT                       | virtual_mem.c:357-358         |
+/// | 0x50a0 | with VIRTUAL      | a GPU VA range, no physical memory            | mem_utils.c:1542-1546         |
+///
+/// There is no sysmem fallback for ANY when FB runs out either: ANY never
+/// reaches the FB allocator at all. The 0x3e table has one trap: with
+/// `NVOS32_ALLOC_FLAGS_PROTECTED` RM writes VIDMEM BACK into attr for what
+/// is still system memory (mem_mgr.c:1604-1608, mem_utils.c:1532), so
+/// settling a 0x3e by its written-back attr would keep a charge for
+/// nothing. `sysmemInitAllocRequest_SOC`'s ANY -> PCI (system_mem.c:568)
+/// is the Tegra variant and not the reason; this card binds `_HMM`
+/// (g_system_mem_nvoc.c:562-571).
+///
+/// So charging ANY was never "cautious". At a full ledger it answered
+/// NV_ERR_NO_MEMORY to system memory RM would have handed out, and to
+/// requests RM would have refused with a different code.
 pub fn request_bytes(hclass: u32, aux: &[u8]) -> Option<u64> {
     // Only the three classes whose params ARE NV_MEMORY_ALLOCATION_PARAMS
     // (xlate.rs:402). 0x71 has its own, much smaller struct -- decoding it
@@ -480,12 +503,18 @@ pub fn request_bytes(hclass: u32, aux: &[u8]) -> Option<u64> {
     if !matches!(hclass, 0x003e | 0x0040 | 0x50a0) || aux.len() < P_LEN {
         return None;
     }
+    // ... and of those three, only NV01_MEMORY_LOCAL_USER is VideoMemory
+    // (resource_list.h:537-547). RM's own dmem accounting charges that
+    // class and no other (video_mem.c:626).
+    if hclass != 0x0040 {
+        return None;
+    }
     let flags = u32::from_le_bytes(aux[P_FLAGS..P_FLAGS + 4].try_into().unwrap());
     if flags & ALLOC_FLAGS_VIRTUAL != 0 {
         return None;
     }
     let attr = u32::from_le_bytes(aux[P_ATTR..P_ATTR + 4].try_into().unwrap());
-    if !may_be_vidmem(attr) {
+    if !asks_for_vidmem(attr) {
         return None;
     }
     let size = u64::from_le_bytes(aux[P_SIZE..P_SIZE + 8].try_into().unwrap());
@@ -570,8 +599,15 @@ pub fn vidheap_function(buf: &[u8]) -> Option<u32> {
 /// for something the cap does not count.
 ///
 /// The three tests are the SAME three as [`request_bytes`], in the same
-/// order and for the same reasons: not a virtual reservation, plausibly
-/// VIDMEM, non-zero.
+/// order and for the same reasons: not a virtual reservation, VIDMEM,
+/// non-zero.
+///
+/// Here the class is not the guest's to name, RM picks it from the same
+/// two fields (`_rmVidHeapControlAllocCommon`,
+/// rmapi_deprecated_vidheapctrl.c:137-142): VIRTUAL -> 0x50a0, else VIDMEM
+/// -> 0x40, else (PCI, ANY) -> 0x3e, i.e. system memory. An ALLOC_SIZE
+/// with `LOCATION_ANY` is therefore a sysmem allocation, and refusing it
+/// at a full ledger refused memory the card never pays.
 pub fn vidheap_request_bytes(buf: &[u8]) -> Option<u64> {
     if vidheap_function(buf)? != sys::NVOS32_FUNCTION_ALLOC_SIZE {
         return None;
@@ -581,7 +617,7 @@ pub fn vidheap_request_bytes(buf: &[u8]) -> Option<u64> {
         return None;
     }
     let attr = u32::from_le_bytes(buf[VA_ATTR..VA_ATTR + 4].try_into().unwrap());
-    if !may_be_vidmem(attr) {
+    if !asks_for_vidmem(attr) {
         return None;
     }
     let size = u64::from_le_bytes(buf[VA_SIZE..VA_SIZE + 8].try_into().unwrap());
@@ -605,13 +641,16 @@ pub fn vidheap_handle(buf: &[u8]) -> u32 {
     u32::from_le_bytes(buf[VA_HMEMORY..VA_HMEMORY + 4].try_into().unwrap())
 }
 
-/// On the way in: VIDMEM, or ANY (which RM may turn into VIDMEM).
-fn may_be_vidmem(attr: u32) -> bool {
-    let loc = nvos32_attr::LOCATION.get(attr);
-    loc == sys::NVOS32_ATTR_LOCATION_VIDMEM || loc == sys::NVOS32_ATTR_LOCATION_ANY
+/// On the way in: VIDMEM and nothing else. ANY and PCI never reach FB on
+/// this card -- the table at [`request_bytes`].
+fn asks_for_vidmem(attr: u32) -> bool {
+    nvos32_attr::LOCATION.get(attr) == sys::NVOS32_ATTR_LOCATION_VIDMEM
 }
 
-/// On the way out: what RM wrote back. Only VIDMEM stays charged.
+/// On the way out: what RM wrote back. Only VIDMEM stays charged. With
+/// only VIDMEM charged on the way in this is a second look rather than the
+/// decision, and it stays: a written-back attr that disagrees with the
+/// request is exactly the case a cap should not keep paying for.
 fn is_vidmem(attr: u32) -> bool {
     nvos32_attr::LOCATION.get(attr) == sys::NVOS32_ATTR_LOCATION_VIDMEM
 }
@@ -1123,8 +1162,8 @@ impl Books {
     /// back.
     ///
     /// `ok` is the RM verdict, `attr_out` what RM wrote into the params.
-    /// A failed alloc occupies nothing, and an allocation RM placed in
-    /// sysmem after all (`LOCATION_ANY`) is not this cap's business.
+    /// A failed alloc occupies nothing, and an allocation whose attr came
+    /// back as anything but VIDMEM is not this cap's business.
     pub fn settle(&mut self, ok: bool, attr_out: u32, c: Charge) {
         if !ok || !is_vidmem(attr_out) {
             self.ledger.release(c.bytes);
@@ -1581,16 +1620,46 @@ mod tests {
         assert_eq!(request_bytes(0x40, &params(0x1c101, 0x18000000, 1)[..64]), None);
     }
 
+    /// The table at [`request_bytes`], row by row: of every class and
+    /// LOCATION, only 0x40 with VIDMEM can occupy FB. Before 2026-09-17 the
+    /// ANY rows were charged, and at a full ledger refused.
     #[test]
-    fn location_any_is_charged_on_the_way_in_and_settled_on_the_way_out() {
-        let any = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY);
-        assert_eq!(request_bytes(0x40, &params(0, any, 4096)), Some(4096));
+    fn only_vidmem_on_the_video_memory_class_is_charged() {
+        let (vid, pci, any) = (
+            nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM),
+            nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_PCI),
+            nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY),
+        );
+        assert_eq!(request_bytes(0x40, &params(0, vid, 4096)), Some(4096));
+        assert_eq!(request_bytes(0x40, &params(0, any, 4096)), None, "RM refuses ANY on 0x40");
+        assert_eq!(request_bytes(0x40, &params(0, pci, 4096)), None, "and PCI");
+        for attr in [vid, pci, any] {
+            assert_eq!(request_bytes(0x3e, &params(0, attr, 4096)), None, "0x3e is system memory");
+            assert_eq!(request_bytes(0x50a0, &params(0, attr, 4096)), None, "0x50a0 is address space");
+        }
+        // PROTECTED 0x3e comes BACK as VIDMEM and is still sysmem: it must
+        // not be charged on the way in, because settle would keep it.
+        const ALLOC_FLAGS_PROTECTED: u32 = 0x0100_0000;
+        assert_eq!(request_bytes(0x3e, &params(ALLOC_FLAGS_PROTECTED, any, 4096)), None);
 
+        // The other door: RM picks the class from the same two fields.
+        let ask = |flags, attr| vidheap_request_bytes(&nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, flags, attr, 4096));
+        assert_eq!(ask(0, vid), Some(4096), "VIDMEM -> 0x40");
+        assert_eq!(ask(0, any), None, "ANY -> 0x3e, system memory");
+        assert_eq!(ask(0, pci), None, "PCI -> 0x3e");
+        assert_eq!(ask(ALLOC_FLAGS_VIRTUAL, vid), None, "VIRTUAL -> 0x50a0");
+    }
+
+    /// Only VIDMEM is charged, and a VIDMEM request whose attr comes back
+    /// as anything else still gives its charge back: the written-back attr
+    /// has the last word.
+    #[test]
+    fn a_charge_whose_attr_comes_back_elsewhere_is_given_back() {
         let led = Ledger::for_test(1 << 20);
         let mut b = Books::new(7, led.clone());
         assert!(b.reserve(4096));
         assert_eq!(led.used(), 4096);
-        // RM resolved it to sysmem -> the charge goes back.
+        // RM wrote something other than VIDMEM back -> the charge goes back.
         let pci = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_PCI);
         b.settle(true, pci, Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: 0x5c0000ab, bytes: 4096 });
         assert_eq!(led.used(), 0);
@@ -2004,7 +2073,7 @@ mod tests {
 
         let nvos32 = nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, attr, size);
 
-        assert_eq!(request_bytes(0x003e, &nvos64), Some(size));
+        assert_eq!(request_bytes(0x0040, &nvos64), Some(size));
         assert_eq!(vidheap_request_bytes(&nvos32), Some(size), "the other door must agree");
     }
 
@@ -2021,6 +2090,11 @@ mod tests {
         assert_eq!(
             vidheap_request_bytes(&nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, sysmem, size)),
             None, "sysmem is not this cap's business"
+        );
+        let any = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY);
+        assert_eq!(
+            vidheap_request_bytes(&nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, any, size)),
+            None, "neither is ANY, which RM allocates as 0x3e"
         );
         assert_eq!(
             vidheap_request_bytes(&nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, vidmem_attr(), 0)),

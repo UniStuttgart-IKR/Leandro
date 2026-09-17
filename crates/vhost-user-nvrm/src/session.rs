@@ -2590,11 +2590,12 @@ impl<A: RmAbi> Session<A> {
         // Settle what prepare reserved on the VRAM ledger: keep the charge
         // only if RM really handed out device memory.
         //
-        // The attr is read BACK, not as it was sent: with LOCATION_ANY the
-        // guest leaves the choice to RM, and RM writes what it chose into
-        // the same field (measured: 0x18000000 in -> 0x11800000 out for a
-        // VIDMEM block; on a failed alloc the field stays untouched, which
-        // is why `ok` is checked first).
+        // The attr is read BACK, not as it was sent: RM writes what it made
+        // of the request into the same field (measured: 0x18000000 in ->
+        // 0x11800000 out for a VIDMEM block; on a failed alloc the field
+        // stays untouched, which is why `ok` is checked first). Only VIDMEM
+        // is reserved on the way in (vram::request_bytes has RM's table),
+        // so this is the second look, not the decision.
         if plan.vram_reserved != 0 {
             // hRoot @0, hObjectParent @4, hObjectNew @8 in both alloc
             // forms; `status` is the one field that moves (see
@@ -3857,6 +3858,42 @@ mod tests {
         // The 48-byte status field must NOT have been touched: it does not
         // exist in this message.
         assert_eq!(r.bytes.len(), Rsp::WIRE_LEN + 32 + 128);
+    }
+
+    /// At a FULL ledger, what RM puts in system memory still reaches RM:
+    /// a 0x3e with LOCATION_ANY through RM_ALLOC and an NVOS32 ALLOC_SIZE
+    /// with LOCATION_ANY (RM allocates that as 0x3e). Until 2026-09-17 both
+    /// were answered NV_ERR_NO_MEMORY without an ioctl.
+    #[test]
+    fn a_full_ledger_does_not_refuse_system_memory() {
+        let (mut s, fake, tok, led) = capped_session(4 << 20);
+        let r = s.handle_msg(&vram_alloc_msg(tok, 0xaa, 4 << 20)).unwrap();
+        assert_eq!(rm_status(&r), sys::NV_OK);
+        assert_eq!(led.used(), 4 << 20, "full");
+        let full = s.handle_msg(&vram_alloc_msg(tok, 0xab, 1 << 20)).unwrap();
+        assert_eq!(rm_status(&full), sys::NV_ERR_NO_MEMORY, "VIDMEM is refused at a full ledger");
+        let before = fake.ioctl_count();
+
+        let any = nvrm_abi::nvgpu::nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY);
+        let mut m = vram_alloc_msg(tok, 0xbb, 64 << 20);
+        let hclass_off = Req::WIRE_LEN + 12;
+        m[hclass_off..hclass_off + 4].copy_from_slice(&0x3eu32.to_le_bytes());
+        let attr_off = Req::WIRE_LEN + 48 + 24;
+        m[attr_off..attr_off + 4].copy_from_slice(&any.to_le_bytes());
+        let r = s.handle_msg(&m).unwrap();
+        assert_eq!(rm_status(&r), sys::NV_OK, "0x3e ANY is system memory, RM decides");
+        assert_eq!(fake.ioctl_count(), before + 1, "and it reached RM");
+
+        let mut inline = vec![0u8; 184];
+        inline[8..12].copy_from_slice(&sys::NVOS32_FUNCTION_ALLOC_SIZE.to_le_bytes());
+        inline[40 + 16..40 + 20].copy_from_slice(&any.to_le_bytes());
+        inline[40 + 48..40 + 56].copy_from_slice(&(64u64 << 20).to_le_bytes());
+        let req = ioctl_req(tok, sys::NV_ESC_RM_VID_HEAP_CONTROL, 184, 0);
+        let r = s.handle_msg(&msg(&req, &inline, &[])).unwrap();
+        let o = Rsp::WIRE_LEN + crate::vram::V_STATUS_OFF;
+        assert_eq!(u32::from_le_bytes(r.bytes[o..o + 4].try_into().unwrap()), sys::NV_OK);
+        assert_eq!(fake.ioctl_count(), before + 2, "ALLOC_SIZE ANY reached RM too");
+        assert_eq!(led.used(), 4 << 20, "and neither was charged");
     }
 
     /// The 4.2 GB that occupy nothing: NV50_MEMORY_VIRTUAL with
