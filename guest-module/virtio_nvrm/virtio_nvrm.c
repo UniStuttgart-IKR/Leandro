@@ -273,6 +273,57 @@ module_param(vdisplay_vblank_hz, uint, 0644);
 MODULE_PARM_DESC(vdisplay_vblank_hz, "rate of the virtual display's vblank callbacks (default 60)");
 
 /*
+ * The VRAM balloon: how many MiB of this guest's VRAM the module holds
+ * itself, so that the display can have them back when it is refused.
+ *
+ * The problem, measured on .23 (4Q, 2816 MiB guest FB, GNOME 46 on Wayland,
+ * Shadow of the Tomb Raider's benchmark beside Steam and Sunshine,
+ * 2026-09-17): the game and the desktop around it fill the FB, and then ONE
+ * buffer the display needs on demand is refused -- nvidia-modeset's 8.4 MiB
+ * SCANOUT gbm_bo for Xwayland's fullscreen window (NVOS64 class 0x40, flags
+ * 0x102, attr 0x10020000) -- and the picture stands until the game exits
+ * (132-193 s), because Xwayland does not recover from that first failure.
+ * 7 of 9 runs froze, exactly the 7 with that refusal. Real NVIDIA cards on
+ * Wayland do the same: RM evicts nothing, scanout memory has no
+ * system-memory fallback (nvidia-drm-gem-nvkms-memory.c:654-673, KDE bug
+ * 471809), and a vGPU guest keeps no display reserve either (rsvdISOSize is
+ * 0 in every branch, mem_mgr_gm107.c:1880,1895,1914). Telling userspace a
+ * smaller card did not help: the game's budget did not follow it.
+ *
+ * So the room is HELD. Once the device answers, the module allocates R MiB
+ * of VIDMEM through a client, a device and NV01_MEMORY_LOCAL_USER chunks of
+ * its own ("nvrm-balloon" in the backend's ledger). The host counts them
+ * like any allocation, so every process reaches the VM's cap R MiB earlier.
+ * When NVKMS is refused a display buffer with NV_ERR_NO_MEMORY, kapi_op frees
+ * chunks and asks again in the same call: NVKMS only ever sees the answer to
+ * the second question. The kernel-only counterpart in RM is its reserved
+ * heap, which only kernel clients allocate from
+ * (NVOS32_ATTR_ALLOCATE_FROM_RESERVED_HEAP, video_mem.c:628-631). The host
+ * sets the limit and isolates; the guest manages its share inside it.
+ *
+ *   -1  auto, from vdisplay_width x vdisplay_height, only with `display` on
+ *       (a compute guest has no display path): five scanout buffers of that
+ *       size plus 1 MiB of cursor -- the display path's peak above idle,
+ *       measured 2026-09-17: 44 MiB at 1920x1080, 76 at 2560x1440, 161 at
+ *       3840x2160. The table: nvrm_vram.c.
+ *    0  off: nothing held, nothing given back
+ *   >0  this many MiB, whatever the display
+ *
+ * Writable at runtime: the balloon lets go of what it holds and fills to the
+ * new size (a write is also what makes a changed vdisplay_width/height
+ * count). In the guest's nvidia-smi the balloon is used memory without a
+ * process, like NVKMS's own buffers. How it works: the balloon section.
+ */
+static int display_reserve_mib = -1;
+static int display_reserve_set(const char *val, const struct kernel_param *kp);
+static const struct kernel_param_ops display_reserve_ops = {
+	.set = display_reserve_set,
+	.get = param_get_int,
+};
+module_param_cb(display_reserve_mib, &display_reserve_ops, &display_reserve_mib, 0644);
+MODULE_PARM_DESC(display_reserve_mib, "MiB of VRAM the module holds and gives back when NVKMS is refused a display buffer (-1 = auto from vdisplay_width/height when display is on, 0 = off, >0 = fixed; default -1)");
+
+/*
  * Finds where the VRAM size travels. With this on, every control reply
  * (params and nested buffers) and every escape's inline block is scanned for
  * the FB size this guest is advertised -- in KB and in bytes, the units of
@@ -3054,6 +3105,32 @@ static int write_back(struct call *c, const struct nvrm_rsp *rsp, const u8 *body
 }
 
 /*
+ * The VRAM balloon's gate (balloon section). A process's VIDMEM allocation,
+ * through either door the backend's ledger charges (vram.rs request_bytes
+ * and vidheap_request_bytes), holds it for reading from before its request
+ * is queued until its answer is back. balloon_after_alloc holds it for
+ * writing while it frees room for NVKMS and asks again, so no process
+ * allocation is in flight or queued between the free and the retry to take
+ * that room. Uncontended it costs one atomic operation per allocation.
+ */
+static DECLARE_RWSEM(balloon_gate);
+
+static bool balloon_gated(const struct call *c)
+{
+	if (c->kern || ctx_is_uvm(c->ctx))
+		return false;
+	/* NVRM_KESC_ALLOC is NV_ESC_RM_ALLOC: the op table names the escape
+	 * both doors use. hClass sits at +12 in NVOS64 and in NVOS21 alike. */
+	if (c->nr == NVRM_KESC_ALLOC)
+		return c->size >= NVRM_NVOS64_HCLASS_OFF + 4 &&
+		       rd32(c->inl, NVRM_NVOS64_HCLASS_OFF) == NVRM_CLASS_MEMORY_LOCAL_USER;
+	if (c->nr == NVRM_ESC_RM_VID_HEAP_CONTROL)
+		return c->size >= NVRM_NVOS32_FUNCTION_OFF + 4 &&
+		       rd32(c->inl, NVRM_NVOS32_FUNCTION_OFF) == NVRM_NVOS32_FUNCTION_ALLOC_SIZE;
+	return false;
+}
+
+/*
  * Steps (1) to (9), plus (8b) -- shared by both callers.
  *
  * Everything above this point differs between them: a process reads its
@@ -3068,6 +3145,7 @@ static long nvrm_call_run(struct call *c)
 	struct nvrm_xfer *x = NULL;
 	struct nvrm_req *r;
 	struct nvrm_rsp *rsp;
+	bool gated = false;
 	long ret;
 	u32 i;
 
@@ -3084,6 +3162,15 @@ static long nvrm_call_run(struct call *c)
 			ret = -EFAULT;
 			goto out;
 		}
+	}
+
+	/* (1b) A process's VIDMEM allocation passes the balloon's gate. */
+	if (balloon_gated(c)) {
+		if (down_read_killable(&balloon_gate)) {
+			ret = -EINTR;
+			goto out;
+		}
+		gated = true;
 	}
 
 	/* (2) fd field: number -> token, via the identity of the file.
@@ -3235,6 +3322,8 @@ static long nvrm_call_run(struct call *c)
 	}
 
 out:
+	if (gated)
+		up_read(&balloon_gate);
 	if (c->pin)
 		nvrm_unpin(c->pin);
 	nvrm_xfer_free(x);
@@ -3863,6 +3952,8 @@ static void nvrm_evq_drain(struct nvrm_dev *dev)
 		kfree(buf);
 }
 
+static void balloon_start(void);
+
 static int nvrm_probe(struct virtio_device *vdev)
 {
 	struct nvrm_dev *dev;
@@ -3970,6 +4061,7 @@ static int nvrm_probe(struct virtio_device *vdev)
 	pr_info("virtio_nvrm: ready (nodes %s, %u GPU%s, max_pin %u MiB)\n",
 		create_nodes ? "on" : "off", gpu_count, gpu_count > 1 ? "s" : "",
 		max_pin_mib);
+	balloon_start();
 	return 0;
 
 err_tables:
@@ -3992,6 +4084,7 @@ err_free:
 
 /* Defined with the rest of the kernel RM API, below. */
 static void kapi_session_close(void);
+static void balloon_stop(void);
 
 static void nvrm_remove(struct virtio_device *vdev)
 {
@@ -4002,6 +4095,9 @@ static void nvrm_remove(struct virtio_device *vdev)
 	 * middle of a call here -- except abandoned requests, which are waited
 	 * for below. */
 	nvrm_nodes_teardown();
+	/* The balloon's sessions hang off no file either, and its memory is
+	 * given back while the host still listens. */
+	balloon_stop();
 	/* The NVKMS session hangs off no file, so no fd holds it: it has to be
 	 * given back by hand, and while the device still answers. Without this
 	 * its process entry would still be in dev->procs at the WARN_ON below
@@ -4111,7 +4207,7 @@ static u32 kapi_gpu_count;
  * ever handing this entry to a real process -- that lookup compares against
  * a `struct pid *` it just took, and that is never NULL.
  */
-static struct nvrm_proc *nvrm_proc_kernel(struct nvrm_dev *dev)
+static struct nvrm_proc *nvrm_proc_kernel(struct nvrm_dev *dev, const char *comm)
 {
 	struct nvrm_proc *p;
 	int id;
@@ -4130,16 +4226,18 @@ static struct nvrm_proc *nvrm_proc_kernel(struct nvrm_dev *dev)
 	p->pid = NULL;
 	p->id = (u32)id;
 	p->vnr = 0;
-	strscpy(p->comm, "nvidia-modeset", sizeof(p->comm));
+	strscpy(p->comm, comm, sizeof(p->comm));
 	refcount_set(&p->ref, 1);
 	list_add(&p->node, &dev->procs);
 	mutex_unlock(&dev->proc_lock);
 	return p;
 }
 
-/* Open the NVKMS session, or return the one already open. Caller holds
- * kapi_lock. */
-static struct nvrm_ctx *kapi_ctx_open(struct nvrm_dev *dev, u32 dev_tag, u32 index)
+/* Open a kernel session on one node, as `proc`, or as NVKMS when `proc` is
+ * NULL (the VRAM balloon is the one caller with an identity of its own).
+ * Caller holds kapi_lock. */
+static struct nvrm_ctx *kapi_ctx_open(struct nvrm_dev *dev, u32 dev_tag, u32 index,
+				      struct nvrm_proc *proc)
 {
 	struct nvrm_proc_info info;
 	struct nvrm_ctx *ctx;
@@ -4166,11 +4264,14 @@ static struct nvrm_ctx *kapi_ctx_open(struct nvrm_dev *dev, u32 dev_tag, u32 ind
 	 * entry for all of its nodes because its RM handles live in one
 	 * session.
 	 */
-	if (kapi_proc) {
+	if (proc) {
+		refcount_inc(&proc->ref);
+		ctx->proc = proc;
+	} else if (kapi_proc) {
 		refcount_inc(&kapi_proc->ref);
 		ctx->proc = kapi_proc;
 	} else {
-		ctx->proc = nvrm_proc_kernel(dev);
+		ctx->proc = nvrm_proc_kernel(dev, "nvidia-modeset");
 		if (IS_ERR(ctx->proc)) {
 			ret = PTR_ERR(ctx->proc);
 			ctx->proc = NULL;
@@ -4247,7 +4348,7 @@ static struct nvrm_ctx *kapi_session(void)
 	/* The control node: RM's "any client" door, and the one the in-kernel
 	 * API corresponds to -- rm_kernel_rmapi_op() is bound to no device
 	 * file at all. */
-	ctx = kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0);
+	ctx = kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0, NULL);
 	if (IS_ERR(ctx))
 		return ctx;
 	kapi_ctx = ctx;
@@ -6067,7 +6168,7 @@ static int kapi_open_gpu(u32 gpu_id, void *sp, u8 reset_aware)
 		g->refs++;
 		goto out;
 	}
-	ctx = kapi_ctx_open(nvrm, NVRM_DEV_GPU, g->index);
+	ctx = kapi_ctx_open(nvrm, NVRM_DEV_GPU, g->index, NULL);
 	if (IS_ERR(ctx)) {
 		ret = PTR_ERR(ctx);
 		pr_warn("virtio_nvrm: open_gpu(%#x): node %u would not open: %d\n",
@@ -6239,8 +6340,8 @@ static struct nvrm_ctx *kapi_map_ctx_open(bool ctl)
 		return sess;
 	}
 	sess_token = sess->token;
-	ctx = ctl ? kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0)
-		  : kapi_ctx_open(nvrm, NVRM_DEV_GPU, index);
+	ctx = ctl ? kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0, NULL)
+		  : kapi_ctx_open(nvrm, NVRM_DEV_GPU, index, NULL);
 	mutex_unlock(&kapi_lock);
 	if (IS_ERR(ctx))
 		return ctx;
@@ -6617,6 +6718,501 @@ static void kapi_maps_drop(void)
 	}
 }
 
+/* ===========================================================================
+ * The VRAM balloon
+ * ===========================================================================
+ *
+ * See display_reserve_mib for the why. Three parts: the balloon (sessions,
+ * client, device and chunks of its own, filled by a work item), the give-way
+ * inside kapi_op's ALLOC, and the gate (balloon_gate, beside nvrm_call_run)
+ * that keeps a process from taking the room between the free and the retry.
+ *
+ * WHY GIVING BACK MAKES ROOM, and when it would not. In Leandro the refusal
+ * comes from the backend's LEDGER, which counts asked bytes against the VM's
+ * cap (vram.rs charge), not from RM placement: the card had GiBs free at
+ * every refusal measured. A freed chunk of S bytes therefore lets a request
+ * of S bytes through, and the ledger has released it before the FREE's
+ * answer comes back (session.rs execute: free_object before the reply,
+ * nvrm.rs process_queue: one request at a time). A chunk also carries the
+ * SCANOUT attributes, so on the card it leaves a contiguous hole the refused
+ * buffer fits (the host's PMA places by CONTIGUOUS, not by ISO,
+ * video_mem.c:190-345). If the CARD itself were full -- more guest FB
+ * promised than it has, or the host desktop growing into it -- RM would
+ * refuse with the same status, another VM or the host could take the hole
+ * before the retry, or no contiguous hole might be left at all. The guest
+ * cannot fix that; the retry then fails like the first try, and says so.
+ *
+ * Never FIXED_ADDRESS into the freed hole (video_mem.c:236-243 would allow
+ * it): the guest would pick host addresses.
+ */
+
+/* Plain arithmetic, shared with test/vramcheck.c. */
+#include "nvrm_vram.c"
+
+/* A refill that the ledger refuses waits 1 s, then twice as long each time,
+ * up to 30 s: the balloon takes room the ledger gives and never asks in a
+ * loop. */
+#define NVRM_BALLOON_BACKOFF_MIN	HZ
+#define NVRM_BALLOON_BACKOFF_MAX	(30 * HZ)
+
+static void balloon_worker(struct work_struct *work);
+static DECLARE_DELAYED_WORK(balloon_work, balloon_worker);
+
+/* Everything in `balloon`. Taken before kapi_lock -- every call below goes
+ * through kapi_forward_on -- and never inside it. */
+static DEFINE_MUTEX(balloon_lock);
+
+static struct {
+	struct nvrm_proc *proc;		/* the identity both sessions share */
+	struct nvrm_ctx *ctl, *gpu;
+	u32 client, device;		/* RM handles, 0 = not allocated */
+	bool cut;			/* `shape` is cut for `target` */
+	u64 target;			/* bytes */
+	struct nvrm_balloon_shape shape;
+	/* Bit i: chunk i is held. Bit shape.full is the rest. Chunk i is
+	 * handle device + 1 + i, so a handle needs no table. */
+	DECLARE_BITMAP(held, NVRM_BALLOON_MAX_CHUNKS + 1);
+	u64 held_bytes;
+	unsigned long backoff;
+	bool filled_once;		/* the first fill was announced */
+} balloon;
+
+/* Queueing the work is allowed only while the device lives: remove sets
+ * `balloon_gone` under this lock before it cancels, so nothing re-arms
+ * behind it. The same lock keeps the served list below. */
+static DEFINE_SPINLOCK(balloon_kick_lock);
+static bool balloon_gone = true;
+
+/* Display buffers that got their room from the balloon, by (client, handle).
+ * When NVKMS frees one, that room is the balloon's to take back. More than
+ * fit are not remembered; the backoff refills those. */
+static struct {
+	u32 client, handle;
+} balloon_served[16];
+
+static void balloon_kick(unsigned long delay, bool sooner)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&balloon_kick_lock, flags);
+	if (!balloon_gone) {
+		if (sooner)
+			mod_delayed_work(system_wq, &balloon_work, delay);
+		else
+			queue_delayed_work(system_wq, &balloon_work, delay);
+	}
+	spin_unlock_irqrestore(&balloon_kick_lock, flags);
+}
+
+static int display_reserve_set(const char *val, const struct kernel_param *kp)
+{
+	int v, ret;
+
+	ret = kstrtoint(val, 0, &v);
+	if (ret)
+		return ret;
+	if (v < -1)
+		return -EINVAL;
+	WRITE_ONCE(display_reserve_mib, v);
+	/* At load the device does not exist yet and the kick does nothing:
+	 * probe starts the balloon with whatever the parameters say then. */
+	balloon_kick(0, true);
+	return 0;
+}
+
+/* What the balloon should hold, in bytes, and the scanout buffer it is cut
+ * into. */
+static u64 balloon_target(u64 *scanout)
+{
+	int v = READ_ONCE(display_reserve_mib);
+	u32 w = READ_ONCE(vdisplay_width), h = READ_ONCE(vdisplay_height);
+
+	*scanout = w && h && w <= NVRM_RESERVE_MAX_DIM && h <= NVRM_RESERVE_MAX_DIM ?
+		   nvrm_scanout_bytes(w, h) : 0;
+	if (v >= 0)
+		return (u64)v << 20;
+	return READ_ONCE(display) ? (u64)nvrm_display_reserve_auto_mib(w, h) << 20 : 0;
+}
+
+static u64 balloon_chunk_bytes(u32 i)
+{
+	return i < balloon.shape.full ? balloon.shape.chunk : balloon.shape.rest;
+}
+
+/* One NV04_ALLOC on the balloon's control session: 0, RM's status, or the
+ * transport's negative errno. */
+static long balloon_alloc(u8 *p)
+{
+	long ret = kapi_forward_on(balloon.ctl, NVRM_KESC_ALLOC, p,
+				   NVRM_KSIZE_ALLOC, NVRM_NONE_U64);
+
+	return ret ? ret : rd32(p, NVRM_NVOS64_STATUS_OFF);
+}
+
+/*
+ * The balloon's sessions, client and device. Caller holds balloon_lock.
+ *
+ * Its OWN identity, not NVKMS's: the backend keeps one set of books per
+ * guest process, and in NVKMS's the balloon would read as display memory
+ * and share its handle space. A GPU node beside the control node, because RM
+ * lets a user client allocate a device only while the calling process holds
+ * that GPU open (device.c:141-149, nv_is_gpu_accessible) -- the backend is
+ * that process, and at probe it may hold none. NVKMS does the same through
+ * open_gpu. No subdevice: memory hangs off the device, as NVKMS's scanout
+ * buffers do (nvkms-kapi.c:890).
+ */
+static long balloon_open(void)
+{
+	u8 p[NVRM_KSIZE_ALLOC], dp[NVRM_DEVICE_ALLOC_SIZE];
+	struct nvrm_ctx *ctx;
+	long ret;
+
+	if (balloon.device)
+		return 0;
+	if (!balloon.proc) {
+		balloon.proc = nvrm_proc_kernel(nvrm, "nvrm-balloon");
+		if (IS_ERR(balloon.proc)) {
+			ret = PTR_ERR(balloon.proc);
+			balloon.proc = NULL;
+			return ret;
+		}
+	}
+	if (!balloon.ctl || !balloon.gpu) {
+		mutex_lock(&kapi_lock);
+		ctx = balloon.ctl ? balloon.ctl :
+		      kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0, balloon.proc);
+		if (!IS_ERR(ctx)) {
+			balloon.ctl = ctx;
+			ctx = kapi_ctx_open(nvrm, NVRM_DEV_GPU, 0, balloon.proc);
+			if (!IS_ERR(ctx))
+				balloon.gpu = ctx;
+		}
+		mutex_unlock(&kapi_lock);
+		if (IS_ERR(ctx))
+			return PTR_ERR(ctx);
+	}
+	if (!balloon.client) {
+		/* hObjectNew 0: RM picks the client handle, as for NVKMS's. */
+		memset(p, 0, sizeof(p));
+		wr32(p, NVRM_NVOS64_HCLASS_OFF, NVRM_CLASS_ROOT);
+		ret = balloon_alloc(p);
+		if (ret)
+			return ret;
+		balloon.client = rd32(p, NVRM_NVOS64_HOBJECTNEW_OFF);
+		if (!balloon.client)
+			return -EIO;
+	}
+	/* Device instance 0, this guest's one GPU. */
+	memset(dp, 0, sizeof(dp));
+	wr32(dp, NVRM_DEVICE_ALLOC_ID_OFF, 0);
+	memset(p, 0, sizeof(p));
+	wr32(p, NVRM_NVOS64_HROOT_OFF, balloon.client);
+	wr32(p, NVRM_NVOS64_HOBJECTPARENT_OFF, balloon.client);
+	wr32(p, NVRM_NVOS64_HOBJECTNEW_OFF, balloon.client + 1);
+	wr32(p, NVRM_NVOS64_HCLASS_OFF, NVRM_CLASS_DEVICE);
+	wr64(p, NVRM_NVOS64_PALLOCPARMS_OFF, (u64)(uintptr_t)dp);
+	ret = balloon_alloc(p);
+	if (!ret)
+		balloon.device = balloon.client + 1;
+	return ret;
+}
+
+/* Everything back: the client -- RM frees the device and every chunk with
+ * it, and the backend releases their charges (vram.rs free_object) -- then
+ * the sessions and the identity. Caller holds balloon_lock. */
+static void balloon_close(void)
+{
+	u8 p[NVRM_KSIZE_FREE];
+
+	if (balloon.client && balloon.ctl) {
+		memset(p, 0, sizeof(p));
+		wr32(p, NVRM_NVOS00_HROOT_OFF, balloon.client);
+		wr32(p, NVRM_NVOS00_HOBJECTOLD_OFF, balloon.client);
+		kapi_forward_on(balloon.ctl, NVRM_KESC_FREE, p, sizeof(p), NVRM_NONE_U64);
+	}
+	balloon.client = 0;
+	balloon.device = 0;
+	bitmap_zero(balloon.held, NVRM_BALLOON_MAX_CHUNKS + 1);
+	balloon.held_bytes = 0;
+	mutex_lock(&kapi_lock);
+	kapi_ctx_close(balloon.gpu);
+	kapi_ctx_close(balloon.ctl);
+	mutex_unlock(&kapi_lock);
+	balloon.gpu = NULL;
+	balloon.ctl = NULL;
+	if (balloon.proc && nvrm)
+		nvrm_proc_put(nvrm, balloon.proc);
+	balloon.proc = NULL;
+}
+
+/* Chunk i, with NVKMS's own SCANOUT attributes (nvrm_balloon_chunk_params).
+ * 0, RM's status, or a negative errno. Caller holds balloon_lock. */
+static long balloon_alloc_chunk(u32 i)
+{
+	u8 p[NVRM_KSIZE_ALLOC], a[NVRM_MEMALLOC_SIZE];
+	long ret;
+
+	nvrm_balloon_chunk_params(a, balloon_chunk_bytes(i));
+	memset(p, 0, sizeof(p));
+	wr32(p, NVRM_NVOS64_HROOT_OFF, balloon.client);
+	wr32(p, NVRM_NVOS64_HOBJECTPARENT_OFF, balloon.device);
+	wr32(p, NVRM_NVOS64_HOBJECTNEW_OFF, balloon.device + 1 + i);
+	wr32(p, NVRM_NVOS64_HCLASS_OFF, NVRM_CLASS_MEMORY_LOCAL_USER);
+	wr64(p, NVRM_NVOS64_PALLOCPARMS_OFF, (u64)(uintptr_t)a);
+	ret = balloon_alloc(p);
+	if (!ret) {
+		set_bit(i, balloon.held);
+		balloon.held_bytes += balloon_chunk_bytes(i);
+	}
+	return ret;
+}
+
+/* Chunk i, given back. The bit goes whatever RM's status: the backend
+ * releases the charge regardless of it (session.rs, the NVOS00 branch), and
+ * that charge is the room. Only a failed transport keeps the bit. Caller
+ * holds balloon_lock. */
+static long balloon_free_chunk(u32 i)
+{
+	u8 p[NVRM_KSIZE_FREE];
+	long ret;
+
+	memset(p, 0, sizeof(p));
+	wr32(p, NVRM_NVOS00_HROOT_OFF, balloon.client);
+	wr32(p, NVRM_NVOS00_HOBJECTPARENT_OFF, balloon.device);
+	wr32(p, NVRM_NVOS00_HOBJECTOLD_OFF, balloon.device + 1 + i);
+	ret = kapi_forward_on(balloon.ctl, NVRM_KESC_FREE, p, sizeof(p), NVRM_NONE_U64);
+	if (ret) {
+		pr_warn_ratelimited("virtio_nvrm: balloon: freeing chunk %u failed: %ld\n", i, ret);
+		return ret;
+	}
+	if (rd32(p, NVRM_NVOS00_STATUS_OFF))
+		pr_warn_ratelimited("virtio_nvrm: balloon: RM answered the free of chunk %u with status %#x\n",
+				    i, rd32(p, NVRM_NVOS00_STATUS_OFF));
+	clear_bit(i, balloon.held);
+	balloon.held_bytes -= balloon_chunk_bytes(i);
+	return 0;
+}
+
+/* Free chunks until `want` bytes are free or nothing is held (see
+ * nvrm_balloon_pick for which); returns the bytes freed. Caller holds
+ * balloon_lock. */
+static u64 balloon_deflate(u64 want)
+{
+	u64 freed = 0;
+
+	while (freed < want) {
+		u32 full = balloon.shape.full;
+		int k = nvrm_balloon_pick(bitmap_weight(balloon.held, full),
+					  balloon.shape.rest && test_bit(full, balloon.held),
+					  balloon.shape.rest, want - freed);
+		u32 i;
+
+		if (k < 0)
+			break;
+		i = k ? (u32)find_last_bit(balloon.held, full) : full;
+		if (balloon_free_chunk(i))
+			break;
+		freed += balloon_chunk_bytes(i);
+	}
+	return freed;
+}
+
+/*
+ * Fill to the target, from probe, from a write to display_reserve_mib, when
+ * a buffer the balloon made room for is freed, and on the backoff while it
+ * stays below. One chunk at a time and never around a refusal: what the
+ * ledger will not give now, it may give on the next round.
+ */
+static void balloon_worker(struct work_struct *work)
+{
+	struct nvrm_balloon_shape shape;
+	u64 scanout, target, before;
+	long ret;
+	u32 i, n;
+
+	mutex_lock(&balloon_lock);
+	if (!nvrm)
+		goto out;
+	target = balloon_target(&scanout);
+	nvrm_balloon_shape(target, scanout, &shape);
+	if (!balloon.cut || target != balloon.target || shape.chunk != balloon.shape.chunk) {
+		/* A new size: let go of everything and cut anew. */
+		if (balloon.held_bytes || !target)
+			balloon_close();
+		balloon.target = target;
+		balloon.shape = shape;
+		balloon.cut = true;
+		balloon.backoff = NVRM_BALLOON_BACKOFF_MIN;
+		balloon.filled_once = false;
+		if (!target)
+			pr_info("virtio_nvrm: balloon off (display_reserve_mib=%d, display=%u)\n",
+				READ_ONCE(display_reserve_mib), READ_ONCE(display));
+	}
+	if (!balloon.target)
+		goto out;
+
+	before = balloon.held_bytes;
+	n = balloon.shape.full + (balloon.shape.rest ? 1 : 0);
+	ret = balloon_open();
+	while (!ret && (i = (u32)find_first_zero_bit(balloon.held, n)) < n)
+		ret = balloon_alloc_chunk(i);
+
+	if (balloon.held_bytes == balloon.target) {
+		balloon.backoff = NVRM_BALLOON_BACKOFF_MIN;
+		if (!balloon.filled_once)
+			pr_info("virtio_nvrm: balloon holds %llu MiB (%u x %llu KiB + %llu KiB, %s %ux%u) -- guest processes reach the VRAM cap that much earlier, NVKMS gets it back when it is refused a display buffer\n",
+				balloon.target >> 20, balloon.shape.full,
+				balloon.shape.chunk >> 10, balloon.shape.rest >> 10,
+				READ_ONCE(display_reserve_mib) < 0 ? "auto for" : "fixed, cut for",
+				READ_ONCE(vdisplay_width), READ_ONCE(vdisplay_height));
+		else if (balloon.held_bytes != before)
+			pr_info_ratelimited("virtio_nvrm: balloon refilled to %llu MiB (+%llu KiB)\n",
+					    balloon.target >> 20,
+					    (balloon.held_bytes - before) >> 10);
+		balloon.filled_once = true;
+	} else {
+		pr_info_ratelimited("virtio_nvrm: balloon holds %llu of %llu KiB, the next chunk was refused (%s %ld) -- again in %lu s\n",
+				    balloon.held_bytes >> 10, balloon.target >> 10,
+				    ret < 0 ? "errno" : "status", ret,
+				    balloon.backoff / HZ);
+		balloon_kick(balloon.backoff, false);
+		balloon.backoff = min(balloon.backoff * 2, NVRM_BALLOON_BACKOFF_MAX);
+	}
+out:
+	mutex_unlock(&balloon_lock);
+}
+
+/* An NV04_ALLOC from NVKMS as it was asked, kept for a second try. */
+struct balloon_ask {
+	u8 *alloc;			/* NVKMS's own params; NULL = not a display buffer */
+	u8 saved[NVRM_MEMALLOC_SIZE];
+};
+
+static void balloon_before_alloc(u8 *params, struct balloon_ask *ask)
+{
+	u32 hclass = rd32(params, NVRM_NVOS64_HCLASS_OFF);
+	u8 *alloc = (u8 *)(uintptr_t)rd64(params, NVRM_NVOS64_PALLOCPARMS_OFF);
+
+	ask->alloc = NULL;
+	if (!alloc || !nvrm_balloon_eligible(hclass, alloc))
+		return;
+	memcpy(ask->saved, alloc, sizeof(ask->saved));
+	ask->alloc = alloc;
+}
+
+/*
+ * NVKMS was answered. If a display buffer was refused for want of room,
+ * give room back and ask again, in the same call, until it is granted or the
+ * balloon is empty: Xwayland does not recover from a first failure, so this
+ * one has to succeed. The retry is asked with the params exactly as NVKMS
+ * wrote them, in case the refusal wrote over any.
+ */
+static long balloon_after_alloc(u8 *params, struct balloon_ask *ask, long ret)
+{
+	u64 want, gave = 0, got, held, target;
+	unsigned int tries = 0;
+	unsigned long flags;
+	u32 st, i;
+
+	if (!ask->alloc || ret ||
+	    rd32(params, NVRM_NVOS64_STATUS_OFF) != NVRM_NV_ERR_NO_MEMORY)
+		return ret;
+	want = rd64(ask->saved, NVRM_MEMALLOC_SIZE_OFF);
+
+	down_write(&balloon_gate);
+	mutex_lock(&balloon_lock);
+	for (;;) {
+		got = balloon_deflate(want);
+		if (!got)
+			break;
+		gave += got;
+		memcpy(ask->alloc, ask->saved, sizeof(ask->saved));
+		ret = kapi_forward(NVRM_KESC_ALLOC, params, NVRM_KSIZE_ALLOC);
+		tries++;
+		if (ret || rd32(params, NVRM_NVOS64_STATUS_OFF) != NVRM_NV_ERR_NO_MEMORY)
+			break;
+		/* Another NVKMS allocation took the room first: the gate holds
+		 * processes back, not NVKMS. Give the next chunk. */
+	}
+	st = ret ? 0 : rd32(params, NVRM_NVOS64_STATUS_OFF);
+	held = balloon.held_bytes;
+	target = balloon.target;
+	mutex_unlock(&balloon_lock);
+	up_write(&balloon_gate);
+
+	if (tries && !ret && st == NVRM_NV_OK) {
+		spin_lock_irqsave(&balloon_kick_lock, flags);
+		for (i = 0; i < ARRAY_SIZE(balloon_served); i++)
+			if (!balloon_served[i].handle) {
+				balloon_served[i].client = rd32(params, NVRM_NVOS64_HROOT_OFF);
+				balloon_served[i].handle = rd32(params, NVRM_NVOS64_HOBJECTNEW_OFF);
+				break;
+			}
+		spin_unlock_irqrestore(&balloon_kick_lock, flags);
+	}
+	if (gave)
+		balloon_kick(NVRM_BALLOON_BACKOFF_MIN, false);
+	pr_info_ratelimited("virtio_nvrm: balloon: %s[%d] was refused a display buffer of %llu KiB (flags %#x attr %#x attr2 %#x); gave back %llu KiB in %u tr%s, now %s -- balloon holds %llu of %llu KiB\n",
+			    current->comm, task_tgid_nr(current), want >> 10,
+			    rd32(ask->saved, NVRM_MEMALLOC_FLAGS_OFF),
+			    rd32(ask->saved, NVRM_MEMALLOC_ATTR_OFF),
+			    rd32(ask->saved, NVRM_MEMALLOC_ATTR2_OFF),
+			    gave >> 10, tries, tries == 1 ? "y" : "ies",
+			    ret ? "the transport failed" : st == NVRM_NV_OK ? "granted" :
+			    st == NVRM_NV_ERR_NO_MEMORY ? "still refused" : "refused otherwise",
+			    held >> 10, target >> 10);
+	return ret;
+}
+
+/* NVKMS freed an object. If it was a buffer the balloon made room for, the
+ * balloon may take that room back now. */
+static void balloon_note_free(const u8 *params)
+{
+	u32 client = rd32(params, NVRM_NVOS00_HROOT_OFF);
+	u32 handle = rd32(params, NVRM_NVOS00_HOBJECTOLD_OFF);
+	unsigned long flags;
+	bool hit = false;
+	u32 i;
+
+	spin_lock_irqsave(&balloon_kick_lock, flags);
+	for (i = 0; i < ARRAY_SIZE(balloon_served); i++)
+		if (balloon_served[i].handle == handle && balloon_served[i].client == client) {
+			balloon_served[i].handle = 0;
+			hit = true;
+		}
+	spin_unlock_irqrestore(&balloon_kick_lock, flags);
+	if (hit)
+		balloon_kick(0, true);
+}
+
+/* From probe, once the device carries calls. */
+static void balloon_start(void)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&balloon_kick_lock, flags);
+	balloon_gone = false;
+	spin_unlock_irqrestore(&balloon_kick_lock, flags);
+	balloon_kick(0, true);
+}
+
+/* From remove, while the device still answers: no more work, then
+ * everything back. No suspend path exists in this driver to hook. */
+static void balloon_stop(void)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&balloon_kick_lock, flags);
+	balloon_gone = true;
+	memset(balloon_served, 0, sizeof(balloon_served));
+	spin_unlock_irqrestore(&balloon_kick_lock, flags);
+	cancel_delayed_work_sync(&balloon_work);
+	mutex_lock(&balloon_lock);
+	balloon_close();
+	balloon.cut = false;
+	mutex_unlock(&balloon_lock);
+}
+
 /*
  * Where `status` sits in the parameter block of a kernel-path op, or
  * NVRM_KSTAT_NONE when this module does not know the block.
@@ -6723,6 +7319,8 @@ static void kapi_op(void *sp, void *ops_cmd)
 		 * the host hears of the free (event section: the fence). */
 		event_cb_free(params);
 		ret = kapi_forward(NVRM_KESC_FREE, params, NVRM_KSIZE_FREE);
+		if (!ret)
+			balloon_note_free(params);
 		kapi_ledger("FREE ", params, 8, 0, 12,
 			    ret ? "host, TRANSPORT FAILED" : "host");
 		break;
@@ -6779,12 +7377,17 @@ static void kapi_op(void *sp, void *ops_cmd)
 		 * NV01_EVENT_OS_EVENT and overwrite the callback pointer, so
 		 * what THIS side needs (client, notifyIndex, the pointer) is
 		 * read BEFORE the call and the slot is filled AFTER the host
-		 * said yes -- event section. */
+		 * said yes -- event section. A display buffer refused for want
+		 * of room gets room from the VRAM balloon and a second try in
+		 * this same call -- balloon section. */
 		{
 			struct event_cb_pending pend;
+			struct balloon_ask bask;
 
 			event_cb_before_alloc(params, &pend);
+			balloon_before_alloc(params, &bask);
 			ret = kapi_forward(NVRM_KESC_ALLOC, params, NVRM_KSIZE_ALLOC);
+			ret = balloon_after_alloc(params, &bask, ret);
 			vdisp_event_on_missing_parent(params);
 			event_cb_after_alloc(params, &pend, ret);
 		}

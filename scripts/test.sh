@@ -359,10 +359,12 @@ c_interpreter() {
     # and a lookup for a key the stream lacks answers NULL. Same code, same
     # stream, one damaged copy per case.
     "$d/tabreject" "$d/stream.bin" > "$d/reject.txt" || { cat "$d/reject.txt"; return 1; }
-    # The module's third piece of plain arithmetic, the display path's VRAM
+    # The module's third piece of plain arithmetic, the VRAM balloon
     # (nvrm_vram.c, same translation unit): the scanout size and the formula
-    # against what was measured. Here and not a step of its own: it is the
-    # module's C run in userspace, like the interpreter above.
+    # against what was measured, how the balloon is cut, what gives way to
+    # which refusal, which allocations may take its room. Here and not a step
+    # of its own: it is the module's C run in userspace, like the interpreter
+    # above.
     cc -O2 -Wall -Wextra -Werror -o "$d/vramcheck" guest-module/virtio_nvrm/test/vramcheck.c || return 1
     "$d/vramcheck" > "$d/vramcheck.txt" || { cat "$d/vramcheck.txt"; return 1; }
 }

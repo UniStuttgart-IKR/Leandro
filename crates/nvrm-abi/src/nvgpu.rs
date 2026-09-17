@@ -409,6 +409,11 @@ pub mod nvos32_attr2 {
     /// Position from nvos.h:1124.
     pub const GPU_CACHEABLE: Drf = Drf::hi_lo(3, 2);
 
+    /// Position from nvos.h:1238. NVKMS sets it on every SCANOUT
+    /// allocation (nvkms-kapi.c:852), which is what the guest's VRAM
+    /// balloon recognises display memory by.
+    pub const ISO: Drf = Drf::hi_lo(18, 18);
+
     /// gVisor: SHIFT 24, MASK 0x1
     pub const USE_EGM: Drf = Drf::shift_mask(24, 0x1);
     pub const USE_EGM_FALSE: u32 = 0;

@@ -730,6 +730,66 @@ fn generate<A: RmAbi>() -> String {
     o.push_str(&format!("#define NVRM_NVOS32_FUNCTION_INFO\t{}u\n", sys::NVOS32_FUNCTION_INFO));
     o.push('\n');
 
+    // The VRAM balloon (virtio_nvrm.c, display_reserve_mib): the module
+    // allocates display-sized VIDMEM through a root client, a device and
+    // NV01_MEMORY_LOCAL_USER objects of its own, and gives it back when NVKMS
+    // is refused a display buffer. Everything it writes into those blocks,
+    // and everything it reads to recognise a display allocation, is named
+    // here -- the same fields vram.rs charges by.
+    use nvrm_abi::nvgpu::{nvos32_attr, nvos32_attr2};
+    o.push_str("/* ---- the VRAM balloon: its own objects, and what a display buffer looks like ---- */\n");
+    // cl0040.h:34. Not in the bindings (wrapper.h does not pull cl0040.h);
+    // vram.rs and xlate.rs name the same number.
+    o.push_str("#define NVRM_CLASS_MEMORY_LOCAL_USER\t0x40u\n");
+    o.push_str(&format!("#define NVRM_CLASS_ROOT\t{:#x}u\n", sys::NV01_ROOT));
+    o.push_str(&format!("#define NVRM_CLASS_DEVICE\t{:#x}u\n", sys::NV01_DEVICE_0));
+    o.push_str(&format!("#define NVRM_DEVICE_ALLOC_SIZE\t{}u\n", size_of::<sys::NV0080_ALLOC_PARAMETERS>()));
+    o.push_str(&format!("#define NVRM_DEVICE_ALLOC_ID_OFF\t{}u\n", off!(sys::NV0080_ALLOC_PARAMETERS, deviceId)));
+    o.push_str(&format!("#define NVRM_MEMALLOC_SIZE\t{}u\n", size_of::<sys::NV_MEMORY_ALLOCATION_PARAMS>()));
+    for (n, v) in [
+        ("TYPE", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, type_)),
+        ("FLAGS", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, flags)),
+        ("ATTR", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, attr)),
+        ("ATTR2", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, attr2)),
+        ("SIZE", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, size)),
+        ("ALIGNMENT", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, alignment)),
+    ] {
+        o.push_str(&format!("#define NVRM_MEMALLOC_{n}_OFF\t{v}u\n"));
+    }
+    for (n, v) in [
+        ("NVOS00_HROOT", off!(sys::NVOS00_PARAMETERS, hRoot)),
+        ("NVOS00_HOBJECTPARENT", off!(sys::NVOS00_PARAMETERS, hObjectParent)),
+        ("NVOS00_HOBJECTOLD", off!(sys::NVOS00_PARAMETERS, hObjectOld)),
+        ("NVOS00_STATUS", off!(sys::NVOS00_PARAMETERS, status)),
+    ] {
+        o.push_str(&format!("#define NVRM_{n}_OFF\t{v}u\n"));
+    }
+    // Field values already shifted into place, so the C side only ORs and
+    // masks. What NVKMS writes for NVKMS_KAPI_ALLOCATION_TYPE_SCANOUT
+    // (nvkms-kapi.c:835-860): TYPE_PRIMARY, ALIGNMENT_FORCE | GROWS_UP at
+    // NV_EVO_SURFACE_ALIGNMENT, CONTIGUOUS, ISO_YES, GPU_CACHEABLE_NO.
+    for (n, v) in [
+        ("NVOS32_TYPE_PRIMARY", sys::NVOS32_TYPE_PRIMARY),
+        ("NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE", sys::NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE),
+        ("NVOS32_ALLOC_FLAGS_FORCE_MEM_GROWS_UP", sys::NVOS32_ALLOC_FLAGS_FORCE_MEM_GROWS_UP),
+        ("NVOS32_ALLOC_FLAGS_NO_SCANOUT", sys::NVOS32_ALLOC_FLAGS_NO_SCANOUT),
+        ("NVOS32_ALLOC_FLAGS_VIRTUAL", sys::NVOS32_ALLOC_FLAGS_VIRTUAL),
+        ("NVOS32_ATTR_LOCATION_MASK", nvos32_attr::LOCATION.set(u32::MAX)),
+        ("NVOS32_ATTR_LOCATION_VIDMEM", nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM)),
+        ("NVOS32_ATTR_PHYSICALITY_CONTIGUOUS",
+         nvos32_attr::PHYSICALITY.set(sys::NVOS32_ATTR_PHYSICALITY_CONTIGUOUS)),
+        ("NVOS32_ATTR2_ISO_YES", nvos32_attr2::ISO.set(sys::NVOS32_ATTR2_ISO_YES)),
+        ("NVOS32_ATTR2_GPU_CACHEABLE_NO",
+         nvos32_attr2::GPU_CACHEABLE.set(sys::NVOS32_ATTR2_GPU_CACHEABLE_NO)),
+        // nvkms-types.h:92, an NVKMS header the bindings do not carry.
+        ("NV_EVO_SURFACE_ALIGNMENT", 0x1000),
+        ("NVOS32_FUNCTION_ALLOC_SIZE", sys::NVOS32_FUNCTION_ALLOC_SIZE),
+        ("NV_ERR_NO_MEMORY", sys::NV_ERR_NO_MEMORY),
+    ] {
+        o.push_str(&format!("#define NVRM_{n}\t{v:#x}u\n"));
+    }
+    o.push('\n');
+
     // Where `status` sits in each parameter block the in-kernel API can
     // carry. op() returns VOID: an op this module does not implement leaves
     // the block untouched, and the caller reads whatever it put there --

@@ -2,20 +2,51 @@
 /* SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de> */
 /* SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR */
 /*
- * nvrm_vram.c -- how much VRAM the guest's display path needs, measured.
+ * nvrm_vram.c -- how much VRAM the guest's display path needs, measured,
+ * and the arithmetic of the balloon that holds it (display_reserve_mib).
  *
- * Plain integer arithmetic, in its own translation unit the way nvrm_edid.c
- * is, so test/vramcheck.c checks the formula against the measured table in
- * userspace. test.sh check runs it.
+ * ONE translation unit for two worlds, pulled in via #include, exactly as
+ * nvrm_edid.c is:
+ *   - virtio_nvrm.c (kernel module): sizes and cuts the balloon, tells a
+ *     display allocation from any other, picks what gives way.
+ *   - test/vramcheck.c (userspace): the same functions against the measured
+ *     sizes and requests. test.sh check runs it.
+ *
+ * Hence ONLY integer arithmetic on buffers in here. Whoever reads module
+ * parameters, takes locks, talks to the host or prints is the includer.
  */
 
 #ifdef __KERNEL__
+# include <linux/string.h>
 # include <linux/types.h>
 #else
+# include <stddef.h>
 # include <stdint.h>
+# include <string.h>
+typedef uint8_t u8;
 typedef uint32_t u32;
 typedef uint64_t u64;
 #endif
+
+#include "nvrm_wire.h"
+
+static inline u32 nvrm_vram_rd32(const u8 *p, u32 off)
+{
+	u32 v;
+
+	memcpy(&v, p + off, sizeof(v));
+	return v;
+}
+
+static inline void nvrm_vram_wr32(u8 *p, u32 off, u32 v)
+{
+	memcpy(p + off, &v, sizeof(v));
+}
+
+static inline void nvrm_vram_wr64(u8 *p, u32 off, u64 v)
+{
+	memcpy(p + off, &v, sizeof(v));
+}
 
 /*
  * One scanout buffer of a W x H head, in bytes, as NVIDIA's GBM backend
@@ -87,4 +118,110 @@ static u32 nvrm_display_reserve_auto_mib(u32 w, u32 h)
 		return 0;
 	b = NVRM_RESERVE_SCANOUTS * nvrm_scanout_bytes(w, h) + NVRM_RESERVE_CURSOR_BYTES;
 	return (u32)((b + (1u << 20) - 1) >> 20);
+}
+
+/*
+ * ---- The balloon ----------------------------------------------------------
+ *
+ * R bytes held as `full` chunks of one scanout buffer S each and one `rest`
+ * chunk (R - full x S, smaller than S). S because the buffer NVKMS is
+ * refused IS one scanout buffer (0x870000 at 1920x1080, asked by
+ * nvidia-modeset in every freeze of 2026-09-17), so one chunk given back is
+ * exactly the room one refusal needs and nothing more leaves the balloon for
+ * a game to take. The rest is the cursor's chunk: the auto R is five S plus
+ * 1 MiB rounded up to a MiB, so the rest is at least the four 256x256 cursor
+ * buffers mutter keeps (1.8 MiB at 1920x1080, 1.0 at 2560x1440, 1.6 at
+ * 3840x2160).
+ *
+ * A fixed R of many S would make that many RM objects, so the chunk grows
+ * past S once R needs more than NVRM_BALLOON_MAX_CHUNKS of them (1024 MiB at
+ * 1920x1080 is 64 chunks of 16 MiB): a refusal then takes more room than it
+ * needs, which is the price of a fixed value that large.
+ */
+#define NVRM_BALLOON_MAX_CHUNKS		64u
+#define NVRM_BALLOON_ALIGN		0x10000ull	/* 64 KiB, as a scanout buffer */
+
+struct nvrm_balloon_shape {
+	u64 chunk;	/* bytes per full chunk */
+	u32 full;	/* how many of those */
+	u64 rest;	/* bytes of the last chunk, 0 = none */
+};
+
+static void nvrm_balloon_shape(u64 r, u64 s, struct nvrm_balloon_shape *b)
+{
+	u64 least = (r + NVRM_BALLOON_MAX_CHUNKS - 1) / NVRM_BALLOON_MAX_CHUNKS;
+
+	least = (least + NVRM_BALLOON_ALIGN - 1) & ~(NVRM_BALLOON_ALIGN - 1);
+	b->chunk = s > least ? s : least;
+	b->full = b->chunk ? (u32)(r / b->chunk) : 0;
+	b->rest = r - (u64)b->full * b->chunk;
+}
+
+/*
+ * Which chunk gives way to a refused request that still needs `want` bytes:
+ * the rest when it covers them alone (a cursor), else a full chunk (a
+ * scanout buffer takes exactly one), else the rest. The caller asks again
+ * until the request is covered or nothing is held.
+ *
+ * Returns 1 = a full chunk, 0 = the rest, -1 = nothing held.
+ */
+static int nvrm_balloon_pick(u32 full_held, int rest_held, u64 rest, u64 want)
+{
+	if (rest_held && rest >= want)
+		return 0;
+	if (full_held)
+		return 1;
+	return rest_held ? 0 : -1;
+}
+
+/*
+ * Whether an NV04_ALLOC is a display buffer the balloon gives way to.
+ * `alloc` is its NV_MEMORY_ALLOCATION_PARAMS, NVRM_MEMALLOC_SIZE bytes.
+ *
+ * NV01_MEMORY_LOCAL_USER in VIDMEM with attr2 ISO: what NVKMS asks for
+ * NVKMS_KAPI_ALLOCATION_TYPE_SCANOUT (nvkms-kapi.c:835-860) -- the GEM
+ * buffers nvidia-drm makes for Xwayland's windows and the cursor
+ * (nvidia-drm-gem-nvkms-memory.c:654), dumb buffers (:480), NVKMS's own
+ * surfaces and LUTs. Scanout memory has no system-memory fallback anywhere
+ * in the stack (:657-673 has one only for NO_SCANOUT), so a refusal here is
+ * a refusal of the picture. NO_SCANOUT and VIRTUAL are not display
+ * buffers, and never eligible. The kernel path is the includer's to check:
+ * only NVKMS's op() may take room from the balloon, a process never.
+ */
+static int nvrm_balloon_eligible(u32 hclass, const u8 *alloc)
+{
+	u32 flags, attr, attr2;
+
+	/* The class first: only its params are NVRM_MEMALLOC_SIZE long. */
+	if (hclass != NVRM_CLASS_MEMORY_LOCAL_USER)
+		return 0;
+	flags = nvrm_vram_rd32(alloc, NVRM_MEMALLOC_FLAGS_OFF);
+	attr = nvrm_vram_rd32(alloc, NVRM_MEMALLOC_ATTR_OFF);
+	attr2 = nvrm_vram_rd32(alloc, NVRM_MEMALLOC_ATTR2_OFF);
+	return (attr & NVRM_NVOS32_ATTR_LOCATION_MASK) == NVRM_NVOS32_ATTR_LOCATION_VIDMEM &&
+	       (attr2 & NVRM_NVOS32_ATTR2_ISO_YES) &&
+	       !(flags & (NVRM_NVOS32_ALLOC_FLAGS_NO_SCANOUT | NVRM_NVOS32_ALLOC_FLAGS_VIRTUAL));
+}
+
+/*
+ * The block one chunk is asked with: NVKMS's own SCANOUT request, pitch
+ * format, of `bytes`. The same attributes as the buffer that will take its
+ * room, so the hole a freed chunk leaves on the card is one that buffer
+ * fits: the host's PMA places by CONTIGUOUS and ignores ISO
+ * (video_mem.c:190-345, 325-338), and the ledger only counts bytes.
+ */
+static void nvrm_balloon_chunk_params(u8 *alloc, u64 bytes)
+{
+	memset(alloc, 0, NVRM_MEMALLOC_SIZE);
+	nvrm_vram_wr32(alloc, NVRM_MEMALLOC_TYPE_OFF, NVRM_NVOS32_TYPE_PRIMARY);
+	nvrm_vram_wr32(alloc, NVRM_MEMALLOC_FLAGS_OFF,
+		       NVRM_NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE |
+		       NVRM_NVOS32_ALLOC_FLAGS_FORCE_MEM_GROWS_UP);
+	nvrm_vram_wr64(alloc, NVRM_MEMALLOC_ALIGNMENT_OFF, NVRM_NV_EVO_SURFACE_ALIGNMENT);
+	nvrm_vram_wr32(alloc, NVRM_MEMALLOC_ATTR_OFF,
+		       NVRM_NVOS32_ATTR_LOCATION_VIDMEM |
+		       NVRM_NVOS32_ATTR_PHYSICALITY_CONTIGUOUS);
+	nvrm_vram_wr32(alloc, NVRM_MEMALLOC_ATTR2_OFF,
+		       NVRM_NVOS32_ATTR2_ISO_YES | NVRM_NVOS32_ATTR2_GPU_CACHEABLE_NO);
+	nvrm_vram_wr64(alloc, NVRM_MEMALLOC_SIZE_OFF, bytes);
 }
