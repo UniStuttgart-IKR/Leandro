@@ -747,6 +747,7 @@ fn generate<A: RmAbi>() -> String {
     o.push_str(&format!("#define NVRM_DEVICE_ALLOC_ID_OFF\t{}u\n", off!(sys::NV0080_ALLOC_PARAMETERS, deviceId)));
     o.push_str(&format!("#define NVRM_MEMALLOC_SIZE\t{}u\n", size_of::<sys::NV_MEMORY_ALLOCATION_PARAMS>()));
     for (n, v) in [
+        ("OWNER", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, owner)),
         ("TYPE", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, type_)),
         ("FLAGS", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, flags)),
         ("ATTR", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, attr)),

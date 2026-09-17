@@ -209,10 +209,19 @@ static int nvrm_balloon_eligible(u32 hclass, const u8 *alloc)
  * room, so the hole a freed chunk leaves on the card is one that buffer
  * fits: the host's PMA places by CONTIGUOUS and ignores ISO
  * (video_mem.c:190-345, 325-338), and the ledger only counts bytes.
+ *
+ * The owner is a tag of the balloon's own. RM refuses a client allocation
+ * with owner 0, ~0 or one of its internal owners (NV_ERR_INVALID_OWNER,
+ * standard_mem.c:78-82) -- measured on .23 as status 0x39 on every chunk.
+ * NVKMS tags its buffers 0xDCBA (nvkms-types.h:116); "nvbl" keeps the
+ * balloon's apart in an RM heap dump.
  */
+#define NVRM_BALLOON_OWNER		0x6c62766eu	/* "nvbl" */
+
 static void nvrm_balloon_chunk_params(u8 *alloc, u64 bytes)
 {
 	memset(alloc, 0, NVRM_MEMALLOC_SIZE);
+	nvrm_vram_wr32(alloc, NVRM_MEMALLOC_OWNER_OFF, NVRM_BALLOON_OWNER);
 	nvrm_vram_wr32(alloc, NVRM_MEMALLOC_TYPE_OFF, NVRM_NVOS32_TYPE_PRIMARY);
 	nvrm_vram_wr32(alloc, NVRM_MEMALLOC_FLAGS_OFF,
 		       NVRM_NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE |

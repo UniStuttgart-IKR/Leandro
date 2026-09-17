@@ -135,6 +135,11 @@ int main(void)
 	CHECK("a chunk has NVKMS's flags", nvrm_vram_rd32(a, NVRM_MEMALLOC_FLAGS_OFF) == 0x102);
 	CHECK("a chunk has NVKMS's attr2", nvrm_vram_rd32(a, NVRM_MEMALLOC_ATTR2_OFF) == 0x40008);
 	CHECK("a chunk is PRIMARY", nvrm_vram_rd32(a, NVRM_MEMALLOC_TYPE_OFF) == 8);
+	/* standard_mem.c:78-82: 0, ~0 and RM's own 0xDEAF0000-0xDEAF0003 are
+	 * refused with NV_ERR_INVALID_OWNER. */
+	i = nvrm_vram_rd32(a, NVRM_MEMALLOC_OWNER_OFF);
+	CHECK("a chunk has an owner RM accepts from a client",
+	      i && i != 0xffffffffu && (i < 0xdeaf0000u || i > 0xdeaf0003u));
 	CHECK("no display, no reserve", nvrm_display_reserve_auto_mib(0, 1080) == 0);
 	CHECK("an absurd size is not a display", nvrm_display_reserve_auto_mib(1 << 30, 1 << 30) == 0);
 	CHECK("the reserve grows with the display",
