@@ -605,6 +605,10 @@ struct Plan {
     /// is a different struct, so `execute` has to read the settle fields
     /// from different offsets and out of `scratch` rather than `aux`.
     vram_vidheap: bool,
+    /// The request as the guest sent it, whenever the ledger looked at
+    /// it (reserved or refused). Kept for the log lines in execute: by
+    /// then RM has written its answer over `attr`.
+    vram_ask: Option<crate::vram::Ask>,
     /// Where FB_GET_INFO's (V1) answer array lands in `aux`, and how many
     /// entries it holds: `(aux_off, fbInfoListSize)`.
     ///
@@ -1240,7 +1244,7 @@ impl<A: RmAbi> Session<A> {
                 // From here on this process can appear in the VM's own
                 // process list: before the identity arrives there is no
                 // guest PID `nvidia-smi` could resolve.
-                self.vram.announce(self.proc.pid);
+                self.vram.announce(self.proc.pid, &self.proc.comm_str());
                 if self.sub_id != 0 {
                     eprintln!(
                         "vhost-user-nvrm: guest process {} = {} (guest PID {})",
@@ -2124,6 +2128,7 @@ impl<A: RmAbi> Session<A> {
         let mut vram_reserved = 0u64;
         let mut vram_full = false;
         let mut vram_status_off = 0usize;
+        let mut vram_ask = None;
         if req.ioctl_nr == sys::NV_ESC_RM_ALLOC {
             // Both alloc forms carry hClass @12; only `status` moves.
             if let Some(st_off) = alloc_status_off(inline_len) {
@@ -2133,6 +2138,8 @@ impl<A: RmAbi> Session<A> {
                 // the driver reads for this class.
                 if let Some(bytes) = crate::vram::request_bytes(hclass, &self.aux) {
                     vram_status_off = st_off;
+                    let door = if st_off == 40 { crate::vram::Door::Nvos64 } else { crate::vram::Door::Nvos21 };
+                    vram_ask = crate::vram::Ask::of_alloc(door, hclass, &self.aux);
                     if self.vram.reserve(bytes) {
                         vram_reserved = bytes;
                     } else {
@@ -2151,6 +2158,7 @@ impl<A: RmAbi> Session<A> {
             if let Some(bytes) = crate::vram::vidheap_request_bytes(&self.scratch[..inline_len]) {
                 vram_vidheap = true;
                 vram_status_off = crate::vram::V_STATUS_OFF;
+                vram_ask = crate::vram::Ask::of_vidheap(&self.scratch[..inline_len]);
                 if self.vram.reserve(bytes) {
                     vram_reserved = bytes;
                 } else {
@@ -2186,6 +2194,7 @@ impl<A: RmAbi> Session<A> {
             waiter_reg,
             waiter_unreg,
             vram_vidheap,
+            vram_ask,
             fb_info_list,
         })
     }
@@ -2217,15 +2226,29 @@ impl<A: RmAbi> Session<A> {
             let o = plan.vram_status_off;
             self.scratch[o..o + 4].copy_from_slice(&sys::NV_ERR_NO_MEMORY.to_le_bytes());
             // Not every refusal: a guest that keeps asking would otherwise
-            // write the backend log full, and libcuda does retry.
-            if let Some(n) = self.vram.count_refusal() {
-                eprintln!(
-                    "vhost-user-nvrm: VRAM cap reached ({n}. refusal) -- {} of {} MiB in use, \
-                     allocation answered with NV_ERR_NO_MEMORY ({})",
-                    self.vram.used() >> 20,
-                    self.vram.limit() >> 20,
-                    self.vram.knob()
-                );
+            // write the backend log full, and libcuda does retry. The
+            // throttle is per request kind, so the first of each kind is
+            // always here.
+            //
+            // The line still starts `VRAM cap reached (`, as in every
+            // measurement before 2026-09-17; the count is now the kind's.
+            // Then it says who asked for what -- the question BEFORE RM
+            // wrote over it -- and ends with the whole ledger.
+            if let Some(ask) = plan.vram_ask {
+                if let Some(n) = self.vram.count_refusal(&ask) {
+                    eprintln!(
+                        "vhost-user-nvrm: VRAM cap reached ({n}. refusal of this kind) -- {} of {} MiB \
+                         in use, allocation answered with NV_ERR_NO_MEMORY ({}): proc {} {}[{}] asked \
+                         {ask}; {}",
+                        self.vram.used() >> 20,
+                        self.vram.limit() >> 20,
+                        self.vram.knob(),
+                        self.sub_id,
+                        self.proc.comm_str(),
+                        self.proc.pid,
+                        self.vram.census(),
+                    );
+                }
             }
             0
         } else if matches!(plan.action, Action::FakeSemaphorePool) {
@@ -2593,6 +2616,18 @@ impl<A: RmAbi> Session<A> {
                 };
                 (attr, u32::from_le_bytes(self.scratch[8..12].try_into().unwrap()))
             };
+            if let Some(ask) = plan.vram_ask {
+                if let Some(line) = self.vram.placement(&ask, ok, st, attr_out) {
+                    eprintln!(
+                        "vhost-user-nvrm: VRAM ledger, proc {} {}[{}]: {line} ({} of {} MiB in use)",
+                        self.sub_id,
+                        self.proc.comm_str(),
+                        self.proc.pid,
+                        self.vram.used() >> 20,
+                        self.vram.limit() >> 20,
+                    );
+                }
+            }
             self.vram.settle(ok, attr_out, crate::vram::Charge {
                 token: plan.target_token,
                 root: u32::from_le_bytes(self.scratch[0..4].try_into().unwrap()),

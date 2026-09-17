@@ -30,7 +30,8 @@
 //! `attr.LOCATION == VIDMEM` without `ALLOC_FLAGS_VIRTUAL` lands in FB.
 //! Evidence and the counter-examples are at [`request_bytes`].
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt;
 use nvrm_sys::RmAbi;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -615,6 +616,122 @@ fn is_vidmem(attr: u32) -> bool {
     nvos32_attr::LOCATION.get(attr) == sys::NVOS32_ATTR_LOCATION_VIDMEM
 }
 
+// ===========================================================================
+// Naming a request in the log
+// ===========================================================================
+// 2026-09-16, guest .23: Shadow of the Tomb Raider's benchmark ran to the
+// end at 2816 of 2816 MiB while the Moonlight stream showed one frozen
+// loading screen. Whatever the ledger refused in that run, its line said
+// "VRAM cap reached (n. refusal) -- used of limit" and nothing else: not the
+// guest process, not the class, not the door, not the LOCATION the guest
+// asked for. Those are exactly the four things that decide whether a
+// refusal was right, so the line now carries them.
+
+/// Which of the two allocation escapes a request came through, and in
+/// which form. The NVOS21 short form is the same escape as NVOS64 with the
+/// same params, only `status` sits elsewhere.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Door {
+    Nvos64,
+    Nvos21,
+    Nvos32,
+}
+
+impl Door {
+    /// The escape named the way nvos.h names it, so a log line can be
+    /// grepped against a trace.
+    pub fn name(self) -> &'static str {
+        match self {
+            Door::Nvos64 => "NVOS64 RM_ALLOC",
+            Door::Nvos21 => "NVOS21 RM_ALLOC",
+            Door::Nvos32 => "NVOS32 VID_HEAP",
+        }
+    }
+}
+
+/// `NVOS32_ATTR_LOCATION` as a word (nvos.h:1069-1072). 2 has no name in
+/// this driver.
+pub fn location_name(attr: u32) -> &'static str {
+    match nvos32_attr::LOCATION.get(attr) {
+        sys::NVOS32_ATTR_LOCATION_VIDMEM => "VIDMEM",
+        sys::NVOS32_ATTR_LOCATION_PCI => "PCI",
+        sys::NVOS32_ATTR_LOCATION_ANY => "ANY",
+        _ => "LOCATION_2",
+    }
+}
+
+/// One allocation request as the guest sent it, read BEFORE the ioctl --
+/// RM writes `attr` back into the same four bytes, so afterwards the
+/// question is gone and only the answer is left.
+///
+/// `hclass` is 0 for the NVOS32 door, which has no class: RM picks one.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Ask {
+    pub door: Door,
+    pub hclass: u32,
+    pub flags: u32,
+    pub attr: u32,
+    pub size: u64,
+}
+
+impl Ask {
+    /// An `NV_MEMORY_ALLOCATION_PARAMS` behind RM_ALLOC, for the three
+    /// classes [`request_bytes`] reads. `None` for anything else.
+    pub fn of_alloc(door: Door, hclass: u32, aux: &[u8]) -> Option<Ask> {
+        if !matches!(hclass, 0x003e | 0x0040 | 0x50a0) || aux.len() < P_LEN {
+            return None;
+        }
+        Some(Ask {
+            door,
+            hclass,
+            flags: u32::from_le_bytes(aux[P_FLAGS..P_FLAGS + 4].try_into().unwrap()),
+            attr: u32::from_le_bytes(aux[P_ATTR..P_ATTR + 4].try_into().unwrap()),
+            size: u64::from_le_bytes(aux[P_SIZE..P_SIZE + 8].try_into().unwrap()),
+        })
+    }
+
+    /// An `NVOS32_FUNCTION_ALLOC_SIZE`. `None` for every other function.
+    pub fn of_vidheap(buf: &[u8]) -> Option<Ask> {
+        if vidheap_function(buf)? != sys::NVOS32_FUNCTION_ALLOC_SIZE {
+            return None;
+        }
+        Some(Ask {
+            door: Door::Nvos32,
+            hclass: 0,
+            flags: u32::from_le_bytes(buf[VA_FLAGS..VA_FLAGS + 4].try_into().unwrap()),
+            attr: u32::from_le_bytes(buf[VA_ATTR..VA_ATTR + 4].try_into().unwrap()),
+            size: u64::from_le_bytes(buf[VA_SIZE..VA_SIZE + 8].try_into().unwrap()),
+        })
+    }
+
+    /// What makes two requests "the same kind" for the throttles: the
+    /// door, the class and the LOCATION asked for. The size is left out on
+    /// purpose -- a game asks for a hundred sizes of one kind of thing.
+    pub fn kind(&self) -> (Door, u32, u32) {
+        (self.door, self.hclass, nvos32_attr::LOCATION.get(self.attr))
+    }
+}
+
+impl fmt::Display for Ask {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} ", self.door.name())?;
+        if self.door == Door::Nvos32 {
+            write!(f, "ALLOC_SIZE")?;
+        } else {
+            write!(f, "class {:#x}", self.hclass)?;
+        }
+        write!(
+            f,
+            " flags {:#x} attr {:#010x} ({}) size {:#x} ({:.1} MiB)",
+            self.flags,
+            self.attr,
+            location_name(self.attr),
+            self.size,
+            self.size as f64 / (1u64 << 20) as f64,
+        )
+    }
+}
+
 /// One guest process, as the VM's own `nvidia-smi` should see it.
 ///
 /// `guest_pid` is the number the GUEST knows (`pid_vnr`), because that is
@@ -624,6 +741,9 @@ fn is_vidmem(attr: u32) -> bool {
 pub struct ProcRow {
     pub guest_pid: u32,
     pub bytes: u64,
+    /// The guest's `comm`, for the ledger's census in a refusal line. Not
+    /// part of anything the guest is told.
+    pub name: String,
 }
 
 /// The VM's counter. Shared by every session of this backend.
@@ -644,6 +764,11 @@ pub struct Ledger {
     /// atomic: it is touched on alloc/free and on the two list controls,
     /// never per forwarded ioctl.
     roster: Mutex<BTreeMap<u32, ProcRow>>,
+    /// Every (door, class, LOCATION asked, what RM made of it) this VM has
+    /// produced so far. The first of each is logged once, which is the map
+    /// of where a workload's LOCATION_ANY really lands -- the question the
+    /// ledger has to answer before RM does.
+    placements: Mutex<HashSet<(Door, u32, u32, Result<u32, u32>)>>,
 }
 
 impl Ledger {
@@ -659,7 +784,12 @@ impl Ledger {
     }
 
     fn with_profile(profile: Profile) -> Arc<Self> {
-        Arc::new(Ledger { profile, used: AtomicU64::new(0), roster: Mutex::default() })
+        Arc::new(Ledger {
+            profile,
+            used: AtomicU64::new(0),
+            roster: Mutex::default(),
+            placements: Mutex::default(),
+        })
     }
 
     /// A ledger that never refuses -- for tests and for the fuzz target,
@@ -739,9 +869,51 @@ impl Ledger {
     /// A guest process announced itself (its first `Open` carried the
     /// identity). Idempotent: a later `Open` of the same process repeats
     /// the same data.
-    pub fn register(&self, sub_id: u32, guest_pid: u32) {
+    pub fn register(&self, sub_id: u32, guest_pid: u32, name: &str) {
         let mut r = self.roster.lock().unwrap();
-        r.entry(sub_id).or_insert(ProcRow { guest_pid, bytes: 0 }).guest_pid = guest_pid;
+        let row = r.entry(sub_id).or_insert(ProcRow { guest_pid, bytes: 0, name: String::new() });
+        row.guest_pid = guest_pid;
+        row.name = name.to_string();
+    }
+
+    /// The books in one line, for a refusal: what is used against what
+    /// limit, and who holds it. Every guest process that holds anything,
+    /// largest first; what no named process holds is the kernel's clients
+    /// and processes that never stated who they are.
+    pub fn census(&self) -> String {
+        let used = self.used();
+        let mut rows: Vec<(u32, ProcRow)> = self
+            .roster
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(&s, r)| (s, r.clone()))
+            .collect();
+        rows.sort_by(|a, b| b.1.bytes.cmp(&a.1.bytes).then(a.0.cmp(&b.0)));
+        let named: u64 = rows.iter().map(|(_, r)| r.bytes).sum();
+        let mib = |b: u64| b as f64 / (1u64 << 20) as f64;
+        let mut s = format!("ledger {:.1} of {:.1} MiB:", mib(used), mib(self.limit()));
+        let mut empty = 0;
+        for (sub, r) in &rows {
+            if r.bytes == 0 {
+                empty += 1;
+                continue;
+            }
+            s.push_str(&format!(" {sub}={}[{}] {:.1}", r.name, r.guest_pid, mib(r.bytes)));
+        }
+        s.push_str(&format!(
+            "; unnamed {:.1}; {empty} more processes hold nothing",
+            mib(used.saturating_sub(named))
+        ));
+        s
+    }
+
+    /// True the FIRST time this VM sees this request kind end this way.
+    /// `outcome` is the LOCATION RM wrote back, or the status it failed
+    /// with.
+    fn first_placement(&self, ask: &Ask, outcome: Result<u32, u32>) -> bool {
+        let (door, class, loc) = ask.kind();
+        self.placements.lock().unwrap().insert((door, class, loc, outcome))
     }
 
     /// The guest process is gone -- its session fell.
@@ -843,21 +1015,27 @@ pub struct Books {
     /// Sum of `open`. Kept alongside so Drop needs no walk and cannot
     /// drift from what was charged.
     owed: u64,
-    /// How often this session was refused. Only for the log line.
-    refusals: u64,
+    /// How often this session was refused, per request kind
+    /// ([`Ask::kind`]). Only for the log line.
+    refusals: HashMap<(Door, u32, u32), u64>,
 }
 
 impl Books {
     pub fn new(sub_id: u32, ledger: Arc<Ledger>) -> Self {
-        Books { ledger, sub_id, open: HashMap::new(), owed: 0, refusals: 0 }
+        Books { ledger, sub_id, open: HashMap::new(), owed: 0, refusals: HashMap::new() }
     }
 
     /// The guest process stated who it is. Only from here on can it appear
     /// in the VM's process list -- without a guest PID there is nothing
     /// `nvidia-smi` could resolve.
-    pub fn announce(&self, guest_pid: u32) {
-        self.ledger.register(self.sub_id, guest_pid);
+    pub fn announce(&self, guest_pid: u32, name: &str) {
+        self.ledger.register(self.sub_id, guest_pid, name);
         self.ledger.set_bytes(self.sub_id, self.owed);
+    }
+
+    /// The VM's books in one line -- [`Ledger::census`].
+    pub fn census(&self) -> String {
+        self.ledger.census()
     }
 
     /// Push `owed` into the roster. Called wherever `owed` changes, so the
@@ -875,9 +1053,35 @@ impl Books {
     /// eight, then every hundredth: libcuda retries after an OOM, and a
     /// guest that simply keeps asking must not be able to fill the host's
     /// disk through the backend log.
-    pub fn count_refusal(&mut self) -> Option<u64> {
-        self.refusals += 1;
-        (self.refusals <= 8 || self.refusals % 100 == 0).then_some(self.refusals)
+    ///
+    /// Per request KIND, not per session: one process retrying one kind
+    /// of allocation a thousand times must not use up the eight lines
+    /// that the first refusal of a different kind needs. The first of
+    /// each kind is always logged.
+    pub fn count_refusal(&mut self, ask: &Ask) -> Option<u64> {
+        let n = self.refusals.entry(ask.kind()).or_insert(0);
+        *n += 1;
+        (*n <= 8 || *n % 100 == 0).then_some(*n)
+    }
+
+    /// Where RM put a request the ledger reserved for, as a log line --
+    /// once per VM per (door, class, LOCATION asked, LOCATION written
+    /// back or failure status), `None` every other time.
+    pub fn placement(&self, ask: &Ask, ok: bool, status: u32, attr_out: u32) -> Option<String> {
+        let outcome = if ok { Ok(nvos32_attr::LOCATION.get(attr_out)) } else { Err(status) };
+        if !self.ledger.first_placement(ask, outcome) {
+            return None;
+        }
+        let verdict = if ok {
+            format!(
+                "RM placed it in {} (attr out {attr_out:#010x}), {}",
+                location_name(attr_out),
+                if is_vidmem(attr_out) { "charged" } else { "charge given back" }
+            )
+        } else {
+            format!("RM refused it with status {status:#x}, charge given back")
+        };
+        Some(format!("first of its kind: {ask} -- {verdict}"))
     }
 
     #[inline]
@@ -1541,7 +1745,7 @@ mod tests {
             let mut b = Books::new(7, led.clone());
             assert!(led.roster().is_empty(), "no identity yet, no row");
 
-            b.announce(4711);
+            b.announce(4711, "python3");
             assert_eq!(led.roster().len(), 1);
             assert_eq!(led.roster()[0].guest_pid, 4711);
             assert_eq!(led.roster()[0].bytes, 0);
@@ -1585,8 +1789,8 @@ mod tests {
         let mut v = pids_buf();
         assert_eq!(pid_at(&v, 0), 1036, "RM really did put a host PID there");
         let roster = vec![
-            ProcRow { guest_pid: 4674, bytes: 380 << 20 },
-            ProcRow { guest_pid: 4676, bytes: 648 << 20 },
+            ProcRow { guest_pid: 4674, bytes: 380 << 20, name: "python3".into() },
+            ProcRow { guest_pid: 4676, bytes: 648 << 20, name: "python3".into() },
         ];
         assert_eq!(rewrite_get_pids(&mut v, &roster), Some(2));
         assert_eq!(
@@ -1634,8 +1838,8 @@ mod tests {
     fn pid_info_is_answered_from_our_own_books() {
         let mut v = info_buf(&[(4674, 0), (4676, 0), (9999, 0)], PIDINFO_LEN);
         let roster = vec![
-            ProcRow { guest_pid: 4674, bytes: 380 << 20 },
-            ProcRow { guest_pid: 4676, bytes: 648 << 20 },
+            ProcRow { guest_pid: 4674, bytes: 380 << 20, name: "python3".into() },
+            ProcRow { guest_pid: 4676, bytes: 648 << 20, name: "python3".into() },
         ];
         assert_eq!(rewrite_get_pid_info(&mut v, &roster), Some(3));
         assert_eq!(priv_at(&v, 0), 380 << 20);
@@ -1918,7 +2122,7 @@ mod tests {
     fn a_process_without_an_identity_is_not_listed() {
         let led = Ledger::off();
         let b = Books::new(7, led.clone());
-        b.announce(0);
+        b.announce(0, "");
         assert!(led.roster().is_empty());
     }
 
@@ -2150,6 +2354,89 @@ mod tests {
             guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", ok(None, Some("3072"), None)),
             "Leandro RTX 2070-2816M"
         );
+    }
+
+    // =======================================================================
+    // The refusal line (2026-09-17)
+    // =======================================================================
+
+    /// A refusal has to say what was asked, in the words a trace uses:
+    /// the door, the class, the flags, the attr with its LOCATION spelled
+    /// out, and the size.
+    #[test]
+    fn a_refusal_names_the_request() {
+        let any = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY);
+        let ask = Ask::of_alloc(Door::Nvos64, 0x40, &params(0x1c101, any, 512 << 20)).unwrap();
+        let line = ask.to_string();
+        assert!(line.starts_with("NVOS64 RM_ALLOC class 0x40 flags 0x1c101"), "{line}");
+        assert!(line.contains("(ANY)") && line.contains("(512.0 MiB)"), "{line}");
+
+        let v = nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, vidmem_attr(), 4 << 20);
+        let line = Ask::of_vidheap(&v).unwrap().to_string();
+        assert!(line.starts_with("NVOS32 VID_HEAP ALLOC_SIZE flags 0x0"), "{line}");
+        assert!(line.contains("(VIDMEM)"), "{line}");
+
+        // FREE shares the struct and is not a request.
+        assert_eq!(Ask::of_vidheap(&nvos32(sys::NVOS32_FUNCTION_FREE, 0, 0, 0)), None);
+    }
+
+    /// One process retrying one kind a thousand times must not use up the
+    /// lines the first refusal of ANOTHER kind needs.
+    #[test]
+    fn the_first_refusal_of_each_kind_is_never_throttled() {
+        let led = Ledger::for_test(1 << 20);
+        let mut b = Books::new(7, led);
+        let vid = Ask::of_alloc(Door::Nvos64, 0x40, &params(0, vidmem_attr(), 4096)).unwrap();
+        let logged = (0..1000).filter(|_| b.count_refusal(&vid).is_some()).count();
+        assert_eq!(logged, 8 + 10, "the first eight, then every hundredth");
+
+        let pci = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_PCI);
+        let other = Ask::of_alloc(Door::Nvos64, 0x3e, &params(0, pci, 4096)).unwrap();
+        assert_eq!(b.count_refusal(&other), Some(1));
+        let door = Ask::of_vidheap(&nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, vidmem_attr(), 4096)).unwrap();
+        assert_eq!(b.count_refusal(&door), Some(1), "the other door is another kind");
+    }
+
+    /// Where RM put a LOCATION_ANY is said once per VM per outcome, not
+    /// once per allocation.
+    #[test]
+    fn a_placement_is_named_once_per_kind_and_outcome() {
+        let led = Ledger::for_test(1 << 30);
+        let b1 = Books::new(1, led.clone());
+        let b2 = Books::new(2, led.clone());
+        let any = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY);
+        let ask = Ask::of_alloc(Door::Nvos64, 0x40, &params(0, any, 4096)).unwrap();
+
+        let line = b1.placement(&ask, true, 0, vidmem_attr()).expect("the first is named");
+        assert!(line.contains("RM placed it in VIDMEM") && line.contains("charged"), "{line}");
+        assert_eq!(b2.placement(&ask, true, 0, vidmem_attr()), None, "per VM, not per process");
+
+        let pci = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_PCI);
+        let line = b2.placement(&ask, true, 0, pci).expect("a new outcome is named");
+        assert!(line.contains("charge given back"), "{line}");
+        let line = b2.placement(&ask, false, sys::NV_ERR_NO_MEMORY, any).expect("and a failure");
+        assert!(line.contains("status 0x51"), "{line}");
+    }
+
+    /// The census names who holds the ledger, largest first, and what no
+    /// named process holds.
+    #[test]
+    fn the_census_says_who_holds_the_ledger() {
+        let led = Ledger::for_test(2816 * MIB);
+        let mut game = Books::new(9, led.clone());
+        let mut shell = Books::new(3, led.clone());
+        let mut kernel = Books::new(1, led.clone());
+        game.announce(4711, "ShadowOfTheTomb");
+        shell.announce(1201, "gnome-shell");
+        for (b, bytes, h) in [(&mut game, 2048 * MIB, 1u32), (&mut shell, 256 * MIB, 2), (&mut kernel, 64 * MIB, 3)] {
+            assert!(b.reserve(bytes));
+            b.settle(true, vidmem_attr(), Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: h, bytes });
+        }
+        let c = led.census();
+        assert!(c.starts_with("ledger 2368.0 of 2816.0 MiB:"), "{c}");
+        let (g, s) = (c.find("9=ShadowOfTheTomb[4711] 2048.0").unwrap(), c.find("3=gnome-shell[1201] 256.0").unwrap());
+        assert!(g < s, "largest first: {c}");
+        assert!(c.contains("unnamed 64.0"), "{c}");
     }
 
 }
