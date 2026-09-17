@@ -690,18 +690,16 @@ fn generate<A: RmAbi>() -> String {
     }
     o.push('\n');
 
-    // The display reserve (virtio_nvrm.c, display_reserve_mib): the guest
-    // tells its own userspace R MiB less VRAM than the backend's cap, so
-    // planners leave room for the buffers a compositor allocates on demand.
-    // The index list is the one the BACKEND caps with (nvrm_abi::mediate):
-    // the guest moves exactly the sizes the host sets, and a size added on
-    // one side cannot be forgotten on the other.
+    // vram_debug (virtio_nvrm.c): a census of every answer that carries the
+    // FB size this guest is advertised. It learns that size from
+    // TOTAL_RAM_SIZE, the index the BACKEND caps with (nvrm_abi::mediate),
+    // so the two sides read one list.
     //
     // Two shapes of one answer. V2 carries the list flat in the params
     // buffer; V1 behind an NvP64, which the module brings across as a nested
     // buffer -- so the pointer's offset is what finds the list there.
     use nvrm_abi::mediate as md;
-    o.push_str("/* ---- FB_GET_INFO: the sizes the display reserve moves ---- */\n");
+    o.push_str("/* ---- FB_GET_INFO: where vram_debug learns the advertised size ---- */\n");
     o.push_str(&format!("#define NVRM_CTRL_FB_GET_INFO\t{:#x}u\n", md::CMD_FB_GET_INFO));
     o.push_str(&format!("#define NVRM_CTRL_FB_GET_INFO_V2\t{:#x}u\n", md::CMD_FB_GET_INFO_V2));
     o.push_str(&format!("#define NVRM_FB_INFO_V2_COUNT_OFF\t{}u\n", md::FBINFO_COUNT_OFF));
@@ -713,26 +711,17 @@ fn generate<A: RmAbi>() -> String {
     o.push_str(&format!("#define NVRM_FB_INFO_ENTRY_SIZE\t{}u\n", md::FBINFO_ENTRY));
     o.push_str(&format!("#define NVRM_FB_INFO_DATA_OFF\t{}u\n", md::FBINFO_DATA_OFF));
     o.push_str(&format!("#define NVRM_FB_INFO_MAX_LIST\t{}u\n", md::FBINFO_MAX));
-    for (n, v) in [
-        ("RAM_SIZE", md::FB_INFO_INDEX_RAM_SIZE),
-        ("TOTAL_RAM_SIZE", md::FB_INFO_INDEX_TOTAL_RAM_SIZE),
-        ("HEAP_SIZE", md::FB_INFO_INDEX_HEAP_SIZE),
-        ("HEAP_FREE", md::FB_INFO_INDEX_HEAP_FREE),
-        ("USABLE_RAM_SIZE", md::FB_INFO_INDEX_USABLE_RAM_SIZE),
-    ] {
-        o.push_str(&format!("#define NVRM_FB_INFO_INDEX_{n}\t{v:#x}u\n"));
-    }
-    // The same sizes through an escape: NVOS32_FUNCTION_INFO answers
-    // `total` and `free` in bytes in the NVOS32 block itself, from an
-    // FB_GET_INFO_V2 the host RM makes internally
-    // (rmapi_deprecated_vidheapctrl.c:340-383). The backend caps them like
-    // the list above; the reserve moves them with it.
+    o.push_str(&format!("#define NVRM_FB_INFO_INDEX_TOTAL_RAM_SIZE\t{:#x}u\n",
+                        md::FB_INFO_INDEX_TOTAL_RAM_SIZE));
+    // The same size through an escape: NVOS32_FUNCTION_INFO answers `total`
+    // and `free` in bytes in the NVOS32 block itself, from an FB_GET_INFO_V2
+    // the host RM makes internally (rmapi_deprecated_vidheapctrl.c:340-383).
+    // The backend caps them like the list above; vram_debug names them.
     o.push_str(&format!("#define NVRM_ESC_RM_VID_HEAP_CONTROL\t{:#x}u\n",
                         sys::NV_ESC_RM_VID_HEAP_CONTROL));
     o.push_str(&format!("#define NVRM_NVOS32_SIZE\t{}u\n", size_of::<sys::NVOS32_PARAMETERS>()));
     for (n, v) in [
         ("FUNCTION", off!(sys::NVOS32_PARAMETERS, function)),
-        ("STATUS", off!(sys::NVOS32_PARAMETERS, status)),
         ("TOTAL", off!(sys::NVOS32_PARAMETERS, total)),
         ("FREE", off!(sys::NVOS32_PARAMETERS, free)),
     ] {

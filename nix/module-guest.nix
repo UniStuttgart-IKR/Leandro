@@ -52,7 +52,6 @@ let
       "vdisplay_width=${toString cfg.display.width}"
       "vdisplay_height=${toString cfg.display.height}"
       "vdisplay_vblank_hz=${toString cfg.display.refresh}"
-      "display_reserve_mib=${toString cfg.display.reserveMiB}"
     ]
     ++ lib.optional cfg.bdfMediation "bdf_mediation=1"
     ++ cfg.extraModuleParams;
@@ -178,34 +177,6 @@ in {
       width = lib.mkOption { type = lib.types.int; default = 1920; description = "Virtual display width (vdisplay_width)."; };
       height = lib.mkOption { type = lib.types.int; default = 1080; description = "Virtual display height (vdisplay_height)."; };
       refresh = lib.mkOption { type = lib.types.int; default = 60; description = "Virtual vblank rate in Hz (vdisplay_vblank_hz)."; };
-      reserveMiB = lib.mkOption {
-        type = lib.types.int;
-        default = -1;
-        example = 0;
-        description = ''
-          The display reserve (virtio_nvrm display_reserve_mib): how many MiB
-          LESS VRAM this guest's userspace is told it has than the host's
-          cap. -1 sizes it from width x height: five scanout buffers of
-          that size plus 1 MiB of cursor, 44 MiB at 1920x1080, 76 at
-          2560x1440, 161 at 3840x2160 -- the highest point the display path
-          reached above idle, measured at those sizes. 0 turns it off, a
-          positive number fixes it.
-
-          Why: programs that plan their VRAM (Vulkan's memory budget, game
-          engines, Chromium) size themselves from the card they are told
-          about, and the desktop's own buffers -- Xwayland's window buffers
-          for a fullscreen game, gnome-shell's transition copies, the
-          cursor -- are allocated on demand. Without room they are refused,
-          and the picture freezes until the game exits (measured 2026-09-17;
-          real NVIDIA cards on Wayland do the same). The host still enforces
-          the cap; this only makes the planners in the guest leave room, so
-          it is soft: a process that ignores the advertised size can still
-          use the room up. Measured the same day with Shadow of the Tomb
-          Raider and Steam, it did not keep the picture moving (frozen in 2
-          of 3 runs with the auto value, 2 of 3 without): the game's own
-          budget did not shrink and Steam's web helper grew into the room.
-        '';
-      };
     };
 
     nvidiaUserspaceDir = lib.mkOption {

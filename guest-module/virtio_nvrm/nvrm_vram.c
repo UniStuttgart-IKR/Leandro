@@ -2,59 +2,20 @@
 /* SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de> */
 /* SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR */
 /*
- * nvrm_vram.c -- the arithmetic of the display reserve.
+ * nvrm_vram.c -- how much VRAM the guest's display path needs, measured.
  *
- * ONE translation unit for two worlds, pulled in via #include, exactly as
- * nvrm_edid.c is:
- *   - virtio_nvrm.c (kernel module): sizes the reserve from the virtual
- *     display and moves the sizes in RM's answers by it (display_reserve_mib).
- *   - test/vramcheck.c (userspace): the formula against the measured table,
- *     the rewrites against hand-built answers. test.sh check runs it.
- *
- * Hence ONLY integer arithmetic on buffers in here. Whoever reads module
- * parameters, takes locks or prints is the includer.
+ * Plain integer arithmetic, in its own translation unit the way nvrm_edid.c
+ * is, so test/vramcheck.c checks the formula against the measured table in
+ * userspace. test.sh check runs it.
  */
 
 #ifdef __KERNEL__
-# include <linux/kernel.h>
-# include <linux/string.h>
 # include <linux/types.h>
 #else
-# include <stddef.h>
 # include <stdint.h>
-# include <string.h>
-typedef uint8_t u8;
 typedef uint32_t u32;
 typedef uint64_t u64;
 #endif
-
-#include "nvrm_wire.h"
-
-static inline u32 nvrm_vram_rd32(const u8 *p, u32 off)
-{
-	u32 v;
-
-	memcpy(&v, p + off, sizeof(v));
-	return v;
-}
-
-static inline u64 nvrm_vram_rd64(const u8 *p, u32 off)
-{
-	u64 v;
-
-	memcpy(&v, p + off, sizeof(v));
-	return v;
-}
-
-static inline void nvrm_vram_wr32(u8 *p, u32 off, u32 v)
-{
-	memcpy(p + off, &v, sizeof(v));
-}
-
-static inline void nvrm_vram_wr64(u8 *p, u32 off, u64 v)
-{
-	memcpy(p + off, &v, sizeof(v));
-}
 
 /*
  * One scanout buffer of a W x H head, in bytes, as NVIDIA's GBM backend
@@ -82,7 +43,8 @@ static u64 nvrm_scanout_bytes(u32 w, u32 h)
 }
 
 /*
- * How many of those the reserve holds, and the cursor beside them.
+ * How many of those the display path needs above idle, and the cursor
+ * beside them.
  *
  * Measured on .23 on 2026-09-17 (GNOME 46 on Wayland, mutter in simple KMS
  * mode, one head, 2816 MiB guest FB), with every VIDMEM allocation and free
@@ -125,55 +87,4 @@ static u32 nvrm_display_reserve_auto_mib(u32 w, u32 h)
 		return 0;
 	b = NVRM_RESERVE_SCANOUTS * nvrm_scanout_bytes(w, h) + NVRM_RESERVE_CURSOR_BYTES;
 	return (u32)((b + (1u << 20) - 1) >> 20);
-}
-
-/*
- * Take `r_kb` off the five size indices of one NV2080_CTRL_FB_INFO list, in
- * place, clamped at 0. TOTAL, RAM, USABLE, HEAP and HEAP_FREE move together,
- * so Used (HEAP - HEAP_FREE) -- what nvidia-smi and NVML report -- stays
- * what the host said; only a free smaller than the reserve clamps, and then
- * Used reads as the whole advertised heap, which is true.
- *
- * `list` holds `n` entries of NVRM_FB_INFO_ENTRY_SIZE bytes; the caller has
- * already bounded `n` by the buffer. Returns how many entries moved.
- */
-static u32 nvrm_fb_info_reserve(u8 *list, u32 n, u32 r_kb)
-{
-	u32 i, touched = 0;
-
-	for (i = 0; r_kb && i < n; i++) {
-		u32 e = i * NVRM_FB_INFO_ENTRY_SIZE;
-		u32 d = e + NVRM_FB_INFO_DATA_OFF;
-		u32 v;
-
-		switch (nvrm_vram_rd32(list, e)) {
-		case NVRM_FB_INFO_INDEX_RAM_SIZE:
-		case NVRM_FB_INFO_INDEX_TOTAL_RAM_SIZE:
-		case NVRM_FB_INFO_INDEX_USABLE_RAM_SIZE:
-		case NVRM_FB_INFO_INDEX_HEAP_SIZE:
-		case NVRM_FB_INFO_INDEX_HEAP_FREE:
-			v = nvrm_vram_rd32(list, d);
-			nvrm_vram_wr32(list, d, v > r_kb ? v - r_kb : 0);
-			touched++;
-			break;
-		default:
-			break;
-		}
-	}
-	return touched;
-}
-
-/*
- * The same move on an NVOS32_FUNCTION_INFO answer: `total` and `free` in
- * bytes, in the NVOS32 block itself. `nvos32` holds NVRM_NVOS32_SIZE bytes
- * and is an INFO answer with status OK -- the caller checked both.
- */
-static void nvrm_heap_info_reserve(u8 *nvos32, u64 r)
-{
-	u64 v;
-
-	v = nvrm_vram_rd64(nvos32, NVRM_NVOS32_TOTAL_OFF);
-	nvrm_vram_wr64(nvos32, NVRM_NVOS32_TOTAL_OFF, v > r ? v - r : 0);
-	v = nvrm_vram_rd64(nvos32, NVRM_NVOS32_FREE_OFF);
-	nvrm_vram_wr64(nvos32, NVRM_NVOS32_FREE_OFF, v > r ? v - r : 0);
 }

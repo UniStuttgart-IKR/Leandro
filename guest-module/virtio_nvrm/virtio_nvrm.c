@@ -273,74 +273,14 @@ module_param(vdisplay_vblank_hz, uint, 0644);
 MODULE_PARM_DESC(vdisplay_vblank_hz, "rate of the virtual display's vblank callbacks (default 60)");
 
 /*
- * The display reserve: how many MiB LESS VRAM this guest's userspace is told
- * it has than the backend's cap. A nudge, not a limit.
- *
- * The problem, measured on .23 (4Q, 2816 MiB guest FB, GNOME 46 on Wayland,
- * Shadow of the Tomb Raider's benchmark beside Steam and Sunshine): the game
- * and the desktop around it (Sunshine 158 MiB, steamwebhelper 230-300,
- * gnome-shell, nvidia-modeset) fill the FB, and then ONE buffer the display
- * needs on demand is refused -- nvidia-modeset's 8.4 MiB SCANOUT gbm_bo for
- * Xwayland's fullscreen window (NVOS64 class 0x40, flags 0x102), with
- * Xwayland's glamor fallback of the same size -- and the picture stands
- * still until the game exits (181-193 s on 2026-09-17, judged by
- * screenshots of the stream). Real NVIDIA cards on Wayland do the same: RM
- * evicts nothing, and a SCANOUT allocation has no system-memory fallback
- * (nvidia-drm-gem-nvkms-memory.c:654-673, KDE bug 471809).
- *
- * The HOST keeps the hard part -- accounting, isolation, the cap -- and none
- * of that changes here. What changes is what the planners in the guest are
- * told: vram_rewrite_reply() takes R off TOTAL_RAM_SIZE, RAM_SIZE,
- * USABLE_RAM_SIZE, HEAP_SIZE and HEAP_FREE in both FB_GET_INFO forms, and
- * vram_rewrite_heap_info() off NVOS32_FUNCTION_INFO's total and free, so
- * Used (heap - free) stays what it is. Vulkan's heap and memory budget,
- * NVML, the game and Chromium's GPU process plan against the smaller card,
- * and what they leave is where the display's on-demand buffers land:
- * Xwayland's window buffers through the kernel NVKMS path, gnome-shell's
- * transition copies, the cursor.
- *
- * SOFT, deliberately. No counting happens in the guest and no protocol
- * changes: a process that ignores the advertised size still reaches the
- * host cap, exactly as before. The trade is R MiB less for every planner
- * against a desktop that keeps its buffers when one of them fills its
- * budget.
- *
- * What it did NOT do, measured the same day: keep that SOTTR desktop
- * moving. nvidia-smi and Vulkan's heap and budget moved by exactly R, but
- * Feral's "Video Memory Budget" stayed at 2240-2368 MB whether 2560 or 2816
- * MiB were advertised, steamwebhelper grew into the room, and the picture
- * froze in 2 of 3 runs with the auto reserve, in 2 of 3 without, and once
- * each with 128 and 256 MiB. It helps a planner that sizes itself from the
- * card; it cannot stop one that does not from filling the FB.
- *
- *   -1  auto, from vdisplay_width x vdisplay_height, only with `display` on
- *       (a compute guest has no display path): five scanout buffers of that
- *       size plus 1 MiB of cursor, from the display path's peak measured on
- *       2026-09-17 -- 44 MiB at 1920x1080, 76 at 2560x1440, 161 at
- *       3840x2160. The table and the reasoning: nvrm_vram.c.
- *    0  off: the answers pass exactly as the host gave them
- *   >0  this many MiB, whatever the display
- *
- * The effective value is printed at probe and whenever it changes.
- */
-static int display_reserve_mib = -1;
-static int display_reserve_set(const char *val, const struct kernel_param *kp);
-static const struct kernel_param_ops display_reserve_ops = {
-	.set = display_reserve_set,
-	.get = param_get_int,
-};
-module_param_cb(display_reserve_mib, &display_reserve_ops, &display_reserve_mib, 0644);
-MODULE_PARM_DESC(display_reserve_mib, "MiB of VRAM advertised LESS to guest userspace, so the display's on-demand buffers find room when a game fills its budget (-1 = auto from vdisplay_width/height when display is on, 0 = off, >0 = fixed; default -1)");
-
-/*
- * Finds what the reserve misses. With this on, every control reply (params
- * and nested buffers) and every escape's inline block is scanned for the FB
- * size this guest is advertised -- in KB and in bytes, the units of
- * FB_GET_INFO and of NVOS32, learned from the last FB_GET_INFO answer before
- * the reserve moves it -- and, if vram_debug_card_mib is set, for the
- * physical card's size in the same two units. Each hit is named once per
- * (command, offset, form, process) with the process that asked; vram_debug=2
- * names every hit, rate-limited. NVOS32_FUNCTION_INFO is named with the
+ * Finds where the VRAM size travels. With this on, every control reply
+ * (params and nested buffers) and every escape's inline block is scanned for
+ * the FB size this guest is advertised -- in KB and in bytes, the units of
+ * FB_GET_INFO and of NVOS32, learned from the last FB_GET_INFO answer -- and,
+ * if vram_debug_card_mib is set, for the physical card's size in the same
+ * two units. Each hit is named once per (command, offset, form, process)
+ * with the process that asked; vram_debug=2 names every hit, rate-limited.
+ * NVOS32_FUNCTION_INFO is named with the
  * `total` and `free` it answered, because the host RM fills those from an
  * FB_GET_INFO_V2 of its own, which no rewrite of that control sees.
  *
@@ -565,8 +505,7 @@ struct nvrm_dev {
 	u8 bdf_bus, bdf_slot, bdf_func;
 
 	/* The FB size the host advertises this guest, in KB, as the last
-	 * FB_GET_INFO answer said BEFORE the display reserve moved it. 0 = not
-	 * seen yet. Only vram_debug reads it. */
+	 * FB_GET_INFO answer said. 0 = not seen yet. Only vram_debug reads it. */
 	u32 vram_fb_kb;
 };
 
@@ -2203,71 +2142,11 @@ static void bdf_rewrite_reply(struct call *c, u32 cmd)
 }
 
 /*
- * ---- The display reserve -------------------------------------------------
+ * ---- vram_debug ----------------------------------------------------------
  *
- * See display_reserve_mib for the why. Everything here runs on the reply,
- * after the host answered and before the caller sees it; nothing is counted
- * and nothing is refused.
+ * See vram_debug for the why. Everything here runs on the reply, after the
+ * host answered and before the caller sees it, and only reads.
  */
-
-/* The formula and the rewrites are plain arithmetic, shared with a
- * userspace test (test/vramcheck.c) the way the EDID builder is. */
-#include "nvrm_vram.c"
-
-/* What the reserve is right now, in MiB, and whether `auto` chose it. */
-static u32 display_reserve_now(bool *is_auto)
-{
-	int v = READ_ONCE(display_reserve_mib);
-
-	*is_auto = v < 0;
-	if (v >= 0)
-		return (u32)v;
-	if (!READ_ONCE(display))
-		return 0;
-	return nvrm_display_reserve_auto_mib(READ_ONCE(vdisplay_width),
-					     READ_ONCE(vdisplay_height));
-}
-
-/* The value last printed, so a change is printed once and only once --
- * whichever parameter caused it (display, vdisplay_width/height or the
- * reserve itself). -1 = nothing printed yet. */
-static atomic_t display_reserve_said = ATOMIC_INIT(-1);
-
-static u32 display_reserve_note(void)
-{
-	bool is_auto;
-	u32 mib = display_reserve_now(&is_auto);
-
-	if (atomic_xchg(&display_reserve_said, (int)mib) == (int)mib)
-		return mib;
-	if (!mib)
-		pr_info("virtio_nvrm: display reserve off -- guest userspace is told the VRAM size the host advertises\n");
-	else if (is_auto)
-		pr_info("virtio_nvrm: display reserve %u MiB (auto, %ux%u) -- guest userspace is told that much less VRAM than the host advertises\n",
-			mib, READ_ONCE(vdisplay_width), READ_ONCE(vdisplay_height));
-	else
-		pr_info("virtio_nvrm: display reserve %u MiB (fixed) -- guest userspace is told that much less VRAM than the host advertises\n",
-			mib);
-	return mib;
-}
-
-static int display_reserve_set(const char *val, const struct kernel_param *kp)
-{
-	int v, ret;
-
-	ret = kstrtoint(val, 0, &v);
-	if (ret)
-		return ret;
-	if (v < -1)
-		return -EINVAL;
-	WRITE_ONCE(display_reserve_mib, v);
-	/* At load the parameters are parsed before the device exists, and
-	 * `display` or the display size may not be parsed yet: probe prints
-	 * the value then. From here on a write prints what it changed. */
-	if (READ_ONCE(nvrm))
-		display_reserve_note();
-	return 0;
-}
 
 /*
  * Where this reply's NV2080_CTRL_FB_INFO list is, and how many entries of
@@ -2390,9 +2269,9 @@ static int vram_debug_form(const struct nvrm_dev *dev, const u8 *p, size_t len, 
 	return -1;
 }
 
-/* A control's params and nested buffers, BEFORE the reserve moves anything:
- * the FB_GET_INFO entries are named too, so one census answers both "who
- * reads the size" and "where else it travels". */
+/* A control's params and nested buffers. The FB_GET_INFO entries are named
+ * too, so one census answers both "who reads the size" and "where else it
+ * travels". */
 static void vram_debug_control(struct call *c, u32 cmd)
 {
 	u32 off;
@@ -2413,9 +2292,8 @@ static void vram_debug_control(struct call *c, u32 cmd)
 	}
 }
 
-/* An escape's inline block, as the backend answered it and before the
- * reserve moves NVOS32_FUNCTION_INFO. That one is named on its own, with its
- * values: `total` and `free` come from an FB_GET_INFO_V2 the host RM makes
+/* An escape's inline block, as the backend answered it.
+ * NVOS32_FUNCTION_INFO is named on its own, with its values: `total` and `free` come from an FB_GET_INFO_V2 the host RM makes
  * internally (rmapi_deprecated_vidheapctrl.c:340-383), so they are the host
  * card's unless the backend caps that door as well. */
 static void vram_debug_inline(struct call *c)
@@ -2451,21 +2329,20 @@ static void vram_debug_inline(struct call *c)
  * buffers are copied out: V1 keeps its list in one of them.
  *
  * WARNING: every control reply passes here. The fast path is two compares
- * and one load; the reserve itself is computed only for the two FB_GET_INFO
- * commands, which a client asks a handful of times, not per frame.
+ * and one load; the list is read only for the two FB_GET_INFO commands,
+ * which a client asks a handful of times, not per frame.
  */
-static void vram_rewrite_reply(struct call *c, u32 cmd)
+static void vram_debug_reply(struct call *c, u32 cmd)
 {
-	u32 i, n = 0, r_kb;
+	u32 i, n = 0;
 	u8 *list;
-	u64 mib;
 
 	if (cmd != NVRM_CTRL_FB_GET_INFO_V2 && cmd != NVRM_CTRL_FB_GET_INFO &&
 	    !READ_ONCE(vram_debug))
 		return;
 
 	list = vram_fb_list(c, cmd, &n);
-	/* The size the host advertises, before anything moves it. */
+	/* The size the host advertises. */
 	for (i = 0; list && i < n; i++) {
 		u32 e = i * NVRM_FB_INFO_ENTRY_SIZE;
 
@@ -2475,41 +2352,6 @@ static void vram_rewrite_reply(struct call *c, u32 cmd)
 	}
 	if (READ_ONCE(vram_debug))
 		vram_debug_control(c, cmd);
-	if (!list)
-		return;
-
-	mib = display_reserve_note();
-	if (!mib)
-		return;
-	/* KB, saturated: `data` is 32 bits, and a reserve past 4 TiB is a
-	 * reserve of everything. */
-	r_kb = (u32)min_t(u64, mib << 10, U32_MAX);
-
-	nvrm_fb_info_reserve(list, n, r_kb);
-}
-
-/*
- * The same two sizes through the escape that is not a control:
- * NVOS32_FUNCTION_INFO answers `total` and `free` in bytes in its own
- * inline block (the backend caps them like FB_GET_INFO). The reserve moves
- * them by the same R, so a client that sizes itself from this door plans
- * with the same card as one that asks FB_GET_INFO.
- *
- * Hot path: every escape reply passes here, and all but one leave at the
- * first compare.
- */
-static void vram_rewrite_heap_info(struct call *c)
-{
-	u32 mib;
-
-	if (c->nr != NVRM_ESC_RM_VID_HEAP_CONTROL || c->size < NVRM_NVOS32_SIZE ||
-	    ctx_is_uvm(c->ctx) ||
-	    rd32(c->inl, NVRM_NVOS32_FUNCTION_OFF) != NVRM_NVOS32_FUNCTION_INFO ||
-	    rd32(c->inl, NVRM_NVOS32_STATUS_OFF) != NVRM_NV_OK)
-		return;
-	mib = display_reserve_note();
-	if (mib)
-		nvrm_heap_info_reserve(c->inl, (u64)mib << 20);
 }
 
 /*
@@ -3134,12 +2976,11 @@ static int write_back(struct call *c, const struct nvrm_rsp *rsp, const u8 *body
 		memcpy(c->aux, body + rsp->inline_len, al);
 
 	if (c->emb_off != NVRM_NONE_U32 && c->saved_ptr) {
-		/* 0. the display reserve. Before step 1, because FB_GET_INFO
-		 *    (V1) keeps its list in a nested buffer that step 1 copies
-		 *    out. */
+		/* 0. vram_debug. Before step 1, because FB_GET_INFO (V1) keeps
+		 *    its list in a nested buffer that step 1 copies out. */
 		if (c->desc->cmd_off != NVRM_NONE_U32 &&
 		    c->desc->cmd_off + 4 <= c->size)
-			vram_rewrite_reply(c, rd32(c->inl, c->desc->cmd_off));
+			vram_debug_reply(c, rd32(c->inl, c->desc->cmd_off));
 		/* 1. nested buffers back to their guest addresses */
 		for (i = 0; i < c->n_nested; i++) {
 			if (call_out(c, c->nested_gva[i],
@@ -3173,7 +3014,6 @@ static int write_back(struct call *c, const struct nvrm_rsp *rsp, const u8 *body
 	bdf_rewrite_attach_gpus(c, false);
 	if (READ_ONCE(vram_debug))
 		vram_debug_inline(c);
-	vram_rewrite_heap_info(c);
 
 	/* Last check, AFTER every rewrite: does the inline block still name
 	 * the host? Whatever answers here is a place the mediation misses. */
@@ -4130,7 +3970,6 @@ static int nvrm_probe(struct virtio_device *vdev)
 	pr_info("virtio_nvrm: ready (nodes %s, %u GPU%s, max_pin %u MiB)\n",
 		create_nodes ? "on" : "off", gpu_count, gpu_count > 1 ? "s" : "",
 		max_pin_mib);
-	display_reserve_note();
 	return 0;
 
 err_tables:
