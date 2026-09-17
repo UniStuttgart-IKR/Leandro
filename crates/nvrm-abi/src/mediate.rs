@@ -330,21 +330,6 @@ pub const ENCCAP_LEN: usize =
 /// namespace further out.
 pub const CMD_GPU_GET_GID_INFO: u32 = 0x2080_014a;
 
-/// `NV2080_CTRL_GPU_GET_GID_INFO_PARAMS`: `index` @0, `flags` @4,
-/// `length` @8 (out), `data[256]` @12 (out).
-pub const GID_FLAGS_OFF: usize = offset_of!(sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS, flags);
-pub const GID_LENGTH_OFF: usize = offset_of!(sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS, length);
-pub const GID_DATA_OFF: usize = offset_of!(sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS, data);
-pub const GID_DATA_MAX: usize = 256;
-pub const GID_LEN: usize = size_of::<sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS>();
-
-/// `NV2080_GPU_CMD_GPU_GET_GID_FLAGS_FORMAT_*` (ctrl2080gpu.h:1768). The
-/// format lives in bit 1, and ASCII is the ZERO value -- so this is a mask
-/// test and not a comparison against a named constant.
-pub const GID_FLAGS_FORMAT_BINARY: u32 = 0x2;
-/// `NV2080_GPU_MAX_SHA1_BINARY_GID_LENGTH` (ctrl2080gpu.h:1755).
-pub const GID_SHA1_BINARY_LEN: usize = 16;
-
 /// `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` (ctrl2080gpu.h:325).
 pub const CMD_GPU_GET_NAME_STRING: u32 = 0x2080_0110;
 
@@ -545,21 +530,23 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
         kind: Kind::BackendAnswered, field: "isGridBuild",
         why: "the boolean beside the mode, kept consistent with it",
     });
-    out.push(Mediated {
-        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_GID_INFO, off: GID_DATA_OFF as u32,
-        len: GID_DATA_MAX as u32, stride: 0, count: 0,
-        kind: Kind::IdentityString, field: "data",
-        why: "this VM's own UUID under the vGPU-shaped policy. Forwarded, \
-              every guest on the card answers with the CARD's UUID and no \
-              scheduler can tell them apart",
-    });
-    out.push(Mediated {
-        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_GID_INFO, off: GID_LENGTH_OFF as u32,
-        len: 4, stride: 0, count: 0,
-        kind: Kind::BackendAnswered, field: "length",
-        why: "the length of the UUID the backend wrote, which is not \
-              necessarily the length RM would have written",
-    });
+    // The card's UUID, in the three controls that carry it: this VM's own
+    // in every answer, whatever the policy. Forwarded, every guest on the
+    // card answers with the CARD's UUID and no scheduler can tell them
+    // apart. The same length both ways, so no length field moves.
+    for (cmd, off, field) in [
+        (CMD_GPU_GET_GID_INFO, offset_of!(sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS, data), "data"),
+        (sys::NV0000_CTRL_CMD_GPU_GET_UUID_INFO,
+         offset_of!(sys::NV0000_CTRL_GPU_GET_UUID_INFO_PARAMS, gpuUuid), "gpuUuid"),
+        (sys::NV0000_CTRL_CMD_GPU_GET_UUID_FROM_GPU_ID,
+         offset_of!(sys::NV0000_CTRL_GPU_GET_UUID_FROM_GPU_ID_PARAMS, gpuUuid), "gpuUuid"),
+    ] {
+        out.push(Mediated {
+            nr: NR_RM_CONTROL, cmd, off: off as u32, len: 256, stride: 0, count: 0,
+            kind: Kind::IdentityString, field,
+            why: "this VM's own UUID where RM wrote the card's",
+        });
+    }
     out.push(Mediated {
         nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_ENCODER_CAPACITY,
         off: ENCCAP_OFF as u32, len: 4, stride: 0, count: 0,
@@ -707,7 +694,8 @@ mod tests {
     #[test]
     fn the_mediated_name_is_in_the_manifest() {
         let m = manifest::<sys::DefaultAbi>();
-        let name = m.iter().find(|x| x.kind == Kind::IdentityString).expect("no identity string");
+        let name = m.iter().find(|x| x.cmd == CMD_GPU_GET_NAME_STRING).expect("no identity string");
+        assert_eq!(name.kind, Kind::IdentityString);
         assert_eq!(name.cmd, CMD_GPU_GET_NAME_STRING);
         assert_eq!(name.off, 4);
         assert_eq!(name.end(), 68);
@@ -721,7 +709,9 @@ mod tests {
     fn every_backend_answered_command_is_described() {
         let m = manifest::<sys::DefaultAbi>();
         for cmd in [CMD_GPU_GET_PIDS, CMD_GPU_GET_PID_INFO, CMD_FB_GET_INFO,
-                    CMD_FB_GET_INFO_V2, CMD_GPU_GET_NAME_STRING] {
+                    CMD_FB_GET_INFO_V2, CMD_GPU_GET_NAME_STRING, CMD_GPU_GET_GID_INFO,
+                    sys::NV0000_CTRL_CMD_GPU_GET_UUID_INFO,
+                    sys::NV0000_CTRL_CMD_GPU_GET_UUID_FROM_GPU_ID] {
             assert!(m.iter().any(|x| x.cmd == cmd),
                     "{cmd:#x} is answered by the backend and named in no record");
         }

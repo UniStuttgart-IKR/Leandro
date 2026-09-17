@@ -2199,6 +2199,27 @@ impl<A: RmAbi> Session<A> {
         })
     }
 
+    /// This VM's UUID on the guest's side of a call, the card's on the
+    /// driver's (`grid::Card`), under every policy: in every UVM parameter
+    /// block, and in the params of the controls that name the GPU by UUID.
+    fn uuid_swap(&mut self, plan: &Plan, to_host: bool) {
+        let Some(card) = crate::grid::card().filter(|_| crate::grid::mediate_uuid()) else {
+            return;
+        };
+        let n = plan.inline_len.min(self.scratch.len());
+        let buf = if dev_of(plan.dev_tag).is_some_and(|d| d.is_uvm()) {
+            &mut self.scratch[..n]
+        } else if plan.ioctl_nr == sys::NV_ESC_RM_CONTROL
+            && n >= 32
+            && crate::grid::UUID_CONTROLS.contains(&u32::from_le_bytes(self.scratch[8..12].try_into().unwrap()))
+        {
+            &mut self.aux[..]
+        } else {
+            return;
+        };
+        if to_host { card.to_host(buf) } else { card.to_guest(buf) }
+    }
+
     /// DOING: the three [`NvSyscalls`] calls (or the faked answers), the
     /// follow-up work that depends on the result, and the reply. Reads and
     /// writes the buffers that [`Session::prepare`] assembled.
@@ -2329,6 +2350,7 @@ impl<A: RmAbi> Session<A> {
             }
             0
         } else {
+            self.uuid_swap(&plan, true);
             // The length is the initialized part of the scratch buffer:
             // `inline_len` bytes copied from the guest, plus whatever a
             // translation grew it to. The driver ignores it; the ledger in
@@ -2348,6 +2370,7 @@ impl<A: RmAbi> Session<A> {
         } else {
             0
         };
+        self.uuid_swap(&plan, false);
 
         // After a successful 0x71, pin the arena to the created handle
         // (NVOS02: hObjectNew @8, status @40).
@@ -2524,17 +2547,17 @@ impl<A: RmAbi> Session<A> {
 
             // (3d) What the card IS. The encoder share is the guest
             // framebuffer's under every cap, and 0 without one leaves RM's
-            // whole encoder standing. The mode and the UUID stay the
-            // vGPU-shaped policy's (number 69). All are flat buffers in the
-            // mediation manifest, rewritten only on an NV_OK answer -- an
-            // error the guest should see is an error it sees.
+            // whole encoder standing; the mode stays the vGPU-shaped
+            // policy's (number 69). The UUID is `uuid_swap`'s, below. Flat
+            // buffers in the mediation manifest, rewritten only on an NV_OK
+            // answer -- an error the guest should see is an error it sees.
             let profile = self.vram.profile();
-            let grid = profile.policy == crate::vram::Policy::Grid;
             if u32::from_le_bytes(self.scratch[28..32].try_into().unwrap()) == sys::NV_OK {
-                if cmd == crate::grid::CMD_GPU_GET_VIRTUALIZATION_MODE && grid && crate::grid::mediate_mode() {
+                if cmd == crate::grid::CMD_GPU_GET_VIRTUALIZATION_MODE
+                    && profile.policy == crate::vram::Policy::Grid
+                    && crate::grid::mediate_mode()
+                {
                     crate::grid::rewrite_virtualization_mode(&mut self.aux);
-                } else if cmd == crate::grid::CMD_GPU_GET_GID_INFO && grid && crate::grid::mediate_uuid() {
-                    crate::grid::rewrite_gid_info(&mut self.aux, crate::grid::identity());
                 } else if cmd == crate::grid::CMD_GPU_GET_ENCODER_CAPACITY && crate::grid::mediate_enc() {
                     crate::grid::rewrite_encoder_capacity(&mut self.aux, profile.encoder_capacity);
                 }
@@ -3883,14 +3906,15 @@ mod tests {
 
     /// A session of this backend under `profile`, for the answers that
     /// depend on the profile and not on the ledger's counter.
-    fn profiled_session(profile: crate::vram::Profile) -> (Session<sys::DefaultAbi>, u64) {
+    fn profiled_session(profile: crate::vram::Profile) -> (Session<sys::DefaultAbi>, Arc<FakeSyscalls>, u64) {
         let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::for_test_profile(profile)).unwrap();
-        s.sys = Box::new(Arc::new(FakeSyscalls::default()));
+        let fake = Arc::new(FakeSyscalls::default());
+        s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-profile-test".as_ptr(), 0) };
         assert!(fd >= 0);
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
         let token = s.mirror.insert(owned);
-        (s, token)
+        (s, fake, token)
     }
 
     /// The encoder share the guest reads is the framebuffer's, whichever
@@ -3901,7 +3925,7 @@ mod tests {
         let fb = 3072u64 << 20;
         let share = nvrm_abi::vgpu::encoder_share(fb, 8192 << 20);
         let answer = |profile: Profile| {
-            let (mut s, tok) = profiled_session(profile);
+            let (mut s, _fake, tok) = profiled_session(profile);
             let mut aux = vec![0u8; nvrm_abi::mediate::ENCCAP_LEN];
             aux[nvrm_abi::mediate::ENCCAP_OFF..nvrm_abi::mediate::ENCCAP_OFF + 4].copy_from_slice(&100u32.to_le_bytes());
             let r = s.handle_msg(&ctrl_msg(tok, crate::grid::CMD_GPU_GET_ENCODER_CAPACITY, &aux)).unwrap();
@@ -3915,6 +3939,35 @@ mod tests {
             assert_eq!(answer(p), 37, "{:?}", p.policy);
         }
         assert_eq!(answer(Profile::OFF), 100, "no cap: RM's whole encoder");
+    }
+
+    /// Every VM tells its guest its own UUID and hands the driver the
+    /// card's, whatever set its limit: the answer of a UUID control carries
+    /// the VM's UUID, and a UVM call made with the VM's UUID reaches the
+    /// driver with the card's and comes back with the VM's.
+    #[test]
+    fn the_uuid_is_the_vms_own_under_every_policy() {
+        use crate::vram::{Policy, Profile};
+        crate::grid::set_card("vm/uuid-test/nvrm.sock", Ok((*b"\x9e\x37\x79\xb9uuid-test-4Q", 8192 << 20)));
+        let card = crate::grid::card().expect("set above");
+        let grid = Profile { policy: Policy::Grid, size: 3968 << 20, reservation: 896 << 20, ..Profile::accounting(3072 << 20) };
+        for profile in [Profile::OFF, Profile::accounting(3072 << 20), grid] {
+            let (mut s, fake, tok) = profiled_session(profile);
+            // GID_INFO, binary: RM wrote the card's 16 bytes @12.
+            let mut gid = vec![0u8; 268];
+            gid[4] = 2;
+            gid[12..28].copy_from_slice(&card.host);
+            let r = s.handle_msg(&ctrl_msg(tok, crate::grid::CMD_GPU_GET_GID_INFO, &gid)).unwrap();
+            assert_eq!(&r.bytes[Rsp::WIRE_LEN + 32 + 12..Rsp::WIRE_LEN + 32 + 28], &card.guest, "{:?}", profile.policy);
+            // UVM_PAGEABLE_MEM_ACCESS_ON_GPU { uuid 16; bool; rmStatus }.
+            let mut inline = vec![0u8; 24];
+            inline[..16].copy_from_slice(&card.guest);
+            let mut req = ioctl_req(tok, 70, 24, 0);
+            req.dev_tag = DevTag::Uvm as u32;
+            let r = s.handle_msg(&msg(&req, &inline, &[])).unwrap();
+            assert_eq!(&fake.last_inline().unwrap()[..16], &card.host, "the driver sees the card");
+            assert_eq!(&r.bytes[Rsp::WIRE_LEN..Rsp::WIRE_LEN + 16], &card.guest, "the guest sees its own");
+        }
     }
 
     /// NVOS32_FUNCTION_INFO under a cap tells the capped card: the reply the
