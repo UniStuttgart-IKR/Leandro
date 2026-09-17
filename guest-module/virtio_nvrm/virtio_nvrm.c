@@ -276,18 +276,17 @@ MODULE_PARM_DESC(vdisplay_vblank_hz, "rate of the virtual display's vblank callb
  * The display reserve: how many MiB LESS VRAM this guest's userspace is told
  * it has than the backend's cap. A nudge, not a limit.
  *
- * The problem, measured on .23 (4Q, GNOME 46 on Wayland, Shadow of the Tomb
- * Raider's benchmark): the game sizes its budget from the card it is told
- * about (Feral's "Video Memory Budget" 2368 MB at 2816 MiB, 2560 at 3072),
- * the desktop beside it holds ~500 MiB (Sunshine, steamwebhelper,
- * gnome-shell, nvidia-modeset), and the FB fills. Then ONE buffer the
- * display needs on demand is refused -- on 2026-09-17, twice, nvidia-modeset's
- * 8.4 MiB SCANOUT gbm_bo for Xwayland's fullscreen window (NVOS64 class
- * 0x40, flags 0x102) and Xwayland's glamor fallback of the same size -- and
- * the picture stands still until the game exits (the second time 186 s,
- * judged by screenshots of the stream). Real NVIDIA cards on Wayland do the
- * same: RM evicts nothing, and a SCANOUT allocation has no system-memory
- * fallback (nvidia-drm-gem-nvkms-memory.c:654-673, KDE bug 471809).
+ * The problem, measured on .23 (4Q, 2816 MiB guest FB, GNOME 46 on Wayland,
+ * Shadow of the Tomb Raider's benchmark beside Steam and Sunshine): the game
+ * and the desktop around it (Sunshine 158 MiB, steamwebhelper 230-300,
+ * gnome-shell, nvidia-modeset) fill the FB, and then ONE buffer the display
+ * needs on demand is refused -- nvidia-modeset's 8.4 MiB SCANOUT gbm_bo for
+ * Xwayland's fullscreen window (NVOS64 class 0x40, flags 0x102), with
+ * Xwayland's glamor fallback of the same size -- and the picture stands
+ * still until the game exits (181-193 s on 2026-09-17, judged by
+ * screenshots of the stream). Real NVIDIA cards on Wayland do the same: RM
+ * evicts nothing, and a SCANOUT allocation has no system-memory fallback
+ * (nvidia-drm-gem-nvkms-memory.c:654-673, KDE bug 471809).
  *
  * The HOST keeps the hard part -- accounting, isolation, the cap -- and none
  * of that changes here. What changes is what the planners in the guest are
@@ -305,6 +304,14 @@ MODULE_PARM_DESC(vdisplay_vblank_hz, "rate of the virtual display's vblank callb
  * host cap, exactly as before. The trade is R MiB less for every planner
  * against a desktop that keeps its buffers when one of them fills its
  * budget.
+ *
+ * What it did NOT do, measured the same day: keep that SOTTR desktop
+ * moving. nvidia-smi and Vulkan's heap and budget moved by exactly R, but
+ * Feral's "Video Memory Budget" stayed at 2240-2368 MB whether 2560 or 2816
+ * MiB were advertised, steamwebhelper grew into the room, and the picture
+ * froze in 2 of 3 runs with the auto reserve, in 2 of 3 without, and once
+ * each with 128 and 256 MiB. It helps a planner that sizes itself from the
+ * card; it cannot stop one that does not from filling the FB.
  *
  *   -1  auto, from vdisplay_width x vdisplay_height, only with `display` on
  *       (a compute guest has no display path): five scanout buffers of that

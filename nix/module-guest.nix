@@ -191,15 +191,19 @@ in {
           reached above idle, measured at those sizes. 0 turns it off, a
           positive number fixes it.
 
-          Why: a game sizes its texture budget from the card it is told
-          about and fills it, and the desktop's own buffers -- mutter's
-          swapchain, Xwayland's window buffers for a fullscreen game, the
-          cursor -- are allocated on demand afterwards. Without room they are
-          refused, and the picture freezes until the game exits (measured
-          2026-09-17; real NVIDIA cards on Wayland do the same). The host
-          still enforces the cap; this only makes the planners in the guest
-          leave room, so it is soft: a process that ignores the advertised
-          size can still use the room up.
+          Why: programs that plan their VRAM (Vulkan's memory budget, game
+          engines, Chromium) size themselves from the card they are told
+          about, and the desktop's own buffers -- Xwayland's window buffers
+          for a fullscreen game, gnome-shell's transition copies, the
+          cursor -- are allocated on demand. Without room they are refused,
+          and the picture freezes until the game exits (measured 2026-09-17;
+          real NVIDIA cards on Wayland do the same). The host still enforces
+          the cap; this only makes the planners in the guest leave room, so
+          it is soft: a process that ignores the advertised size can still
+          use the room up. Measured the same day with Shadow of the Tomb
+          Raider and Steam, it did not keep the picture moving (frozen in 2
+          of 3 runs with the auto value, 2 of 3 without): the game's own
+          budget did not shrink and Steam's web helper grew into the room.
         '';
       };
     };
