@@ -5,7 +5,7 @@
 # The tests: the GPU-free check band, the three gates, and the band that
 # runs the gates one after another.
 #
-#   scripts/test.sh check                       the GPU-free band, 15 steps, one exit code
+#   scripts/test.sh check                       GPU-free checks, one exit code
 #   scripts/test.sh gpu      [--keep-vm] [--instance NAME] [--index N] [--guest ubuntu|nixos]
 #                            [--transport ip|vsock]
 #   scripts/test.sh vdisplay [--keep-vm] [--fresh] [--instance NAME] [--index N] [--size WxH]
@@ -198,7 +198,7 @@ PY
     cc -o "$out/sizes" -I"$sdk" -I"$sdk/class" -I"$sdk/alloc" -I"$sdk/ctrl" \
        -I"$vendor/src/common/inc" "$out/sizes.c" || { echo "FAIL: the sizeof probe did not compile"; return 1; }
     "$out/sizes" | sort -n > "$out/vendor.tsv" || return 1
-    cargo run --quiet --bin nvrm-genhdr -- --expect-dump "$out/expect.txt" || return 1
+    cargo run --locked --quiet --bin nvrm-genhdr -- --expect-dump "$out/expect.txt" || return 1
     awk '$1=="class"{print $2"\t"$3}' "$out/expect.txt" | sort -n > "$out/table.tsv"
     # Compare only classes the table actually lists; report every mismatch.
     local bad=0 num size want name checked
@@ -340,65 +340,14 @@ EOC
     echo "kapi-abi: PASS"
 }
 
-# The kernel module's C interpreter (nvrm_tables.c) run in user space
-# against the real stream: tabcheck READS, with the module's own code, what
-# table::build() WROTE, and the diff compares reading against writing field
-# by field. Catches struct layout drift, wrong section pointers and broken
-# find_* lookups -- without a guest kernel and without a VM.
+# Check the C parser against Rust output and test VRAM arithmetic.
 c_interpreter() {
-    local d=$LEA_ROOT/target/tabcheck
-    mkdir -p "$d" || return 1
-    cc -O2 -Wall -Wextra -Werror -o "$d/tabcheck" guest-module/virtio_nvrm/test/tabcheck.c || return 1
-    cc -O2 -Wall -Wextra -Werror -o "$d/tabreject" guest-module/virtio_nvrm/test/tabreject.c || return 1
-    cargo run --quiet --bin nvrm-genhdr -- --dump-tables "$d/stream.bin" || return 1
-    cargo run --quiet --bin nvrm-genhdr -- --expect-dump "$d/expected.txt" || return 1
-    "$d/tabcheck" "$d/stream.bin" > "$d/actual.txt" || return 1
-    diff -u "$d/expected.txt" "$d/actual.txt" || return 1
-    # The other half of the same interpreter: a damaged stream is REFUSED
-    # (wrong magic/version/length/counts/checksum, too many nested slots),
-    # and a lookup for a key the stream lacks answers NULL. Same code, same
-    # stream, one damaged copy per case.
-    "$d/tabreject" "$d/stream.bin" > "$d/reject.txt" || { cat "$d/reject.txt"; return 1; }
-    # The module's third piece of plain arithmetic, the VRAM balloon
-    # (nvrm_vram.c, same translation unit): the scanout size and the formula
-    # against what was measured, how the balloon is cut, what gives way to
-    # which refusal, which allocations may take its room. Here and not a step
-    # of its own: it is the module's C run in userspace, like the interpreter
-    # above.
-    cc -O2 -Wall -Wextra -Werror -o "$d/vramcheck" guest-module/virtio_nvrm/test/vramcheck.c || return 1
-    "$d/vramcheck" > "$d/vramcheck.txt" || { cat "$d/vramcheck.txt"; return 1; }
+    "$LEA_ROOT/scripts/ci/check-c.sh" tables
 }
 
-# The EDID the virtual display hands out, through a parser that knows the
-# spec. edidcheck runs the module's own builder (nvrm_edid.c, the same
-# translation unit) and edid-decode reads the bytes. Three defects were
-# found this way on a block nothing had ever parsed: 6 bpc where the comment
-# said 8, a max dotclock ten times too high, and GTF claimed without the
-# continuous-frequency bit. The sizes are swept because the block is DERIVED
-# from the requested one, not tabulated.
+# Validate generated EDIDs and the size/refresh clamps.
 edid_conformity() {
-    local d=$LEA_ROOT/target/edidcheck wh w h
-    mkdir -p "$d" || return 1
-    command -v edid-decode >/dev/null || {
-        echo "edid-decode not installed (Debian/Ubuntu: edid-decode, Arch: edid-decode)" >&2; return 1; }
-    cc -O2 -Wall -Wextra -Werror -o "$d/edidcheck" guest-module/virtio_nvrm/test/edidcheck.c || return 1
-    # The step BEFORE edid-decode: nvrm_edid_effective() clamps a requested
-    # (w, h, rate) down to what the EDID's fixed-width fields can hold, and
-    # the vblank hrtimer paces off the same clamped rate. A rate that slipped
-    # past the clamp would wrap the DTD's 16-bit pixel clock and decode as a
-    # wildly wrong refresh with no error anywhere. edidclamp runs that
-    # arithmetic (same translation unit) over a matrix incl. 8K and 240 Hz.
-    cc -O2 -Wall -Wextra -Werror -o "$d/edidclamp" guest-module/virtio_nvrm/test/edidclamp.c || return 1
-    "$d/edidclamp" >&2 || return 1
-    for wh in 800x600 1280x720 1920x1080 2560x1440 2560x1600 3840x2160; do
-        w=${wh%x*}; h=${wh#*x}
-        "$d/edidcheck" "$w" "$h" "$d/$wh.bin" || return 1
-        if ! edid-decode --check "$d/$wh.bin" > "$d/$wh.txt" 2>&1; then
-            echo "EDID for $wh is not conformant:" >&2
-            sed -n '/^Warnings:/,$p' "$d/$wh.txt" >&2
-            return 1
-        fi
-    done
+    "$LEA_ROOT/scripts/ci/check-c.sh" edid
 }
 
 shell_syntax() {
@@ -459,6 +408,8 @@ licence_headers() {
         [Cargo.lock]=1 [crates/vhost-user-nvrm/fuzz/Cargo.lock]=1 [flake.lock]=1
         [cscope.files]=1
         [guest-module/virtio_nvrm/.virtio_nvrm.o.d]=1
+        # Binary Debian control files have no comment syntax.
+        [packaging/guest-deb/control]=1 [packaging/host-deb/control]=1
     )
     while IFS= read -r f; do
         [[ -f $f ]] || continue
@@ -598,16 +549,16 @@ foreign_reason() {
 # Needs libclang, the way this band always did -- the generator runs bindgen.
 # Nothing else in the tree does any more.
 abi_generated() {
-    cargo xtask abi --check || return 1
+    cargo run --locked --quiet --package xtask -- abi --check || return 1
     local v f
     while read -r v; do
         f="v${v%%.*}"
-        cargo build --quiet -p nvrm-sys --no-default-features --features "$f" || {
+        cargo build --locked --quiet -p nvrm-sys --no-default-features --features "$f" || {
             echo "nvrm-sys does not build with only $f enabled"; return 1; }
     done < <(lea_supported_drivers)
-    cargo build --quiet -p nvrm-sys --all-features || {
+    cargo build --locked --quiet -p nvrm-sys --all-features || {
         echo "nvrm-sys does not build with every version enabled at once"; return 1; }
-    cargo build --quiet --workspace --all-features || {
+    cargo build --locked --quiet --workspace --all-features || {
         echo "the workspace does not build with every version enabled at once"; return 1; }
     echo "abi: no diff; $(lea_supported_drivers | wc -l) versions, each alone and all together"
 }
@@ -649,21 +600,22 @@ do_check() {
         fi
         rm -f "$log"
     }
-    step "cargo test"           cargo test --workspace --all-targets
+    step "cargo test"           cargo test --locked --workspace --all-targets
     # WARNING: do not optimise this away. u64 arithmetic PANICS in the debug
     # profile and WRAPS in the release profile, so the two are not the same
     # program. The memory-corruption hole in Arena::build was only visible as
     # what it is in a release run. What ships is release.
-    step "cargo test (release)" cargo test --workspace --all-targets --release
-    step "cargo test --doc"     cargo test --workspace --exclude nvrm-sys --doc
+    step "cargo test (release)" cargo test --locked --workspace --all-targets --release
+    step "cargo test --doc"     cargo test --locked --workspace --exclude nvrm-sys --doc
     # rustdoc's own lints: broken intra-doc links and unclosed HTML in doc
     # comments. Not compile errors, so nothing else here would notice --
     # and a doc that links to an item that no longer exists is exactly the
     # kind of stale text this tree tries not to carry. nvrm-sys is excluded
     # for the same reason its doctests are (bindgen output).
-    step "cargo doc"            env RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --exclude nvrm-sys
-    step "clippy"               cargo clippy --workspace --all-targets -- -D warnings "${CLIPPY_ALLOW[@]}"
-    step "nvrm-genhdr"          cargo run --bin nvrm-genhdr -- --check
+    step "cargo doc"            env RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --no-deps --exclude nvrm-sys
+    step "clippy"               cargo clippy --locked --workspace --all-targets -- -D warnings "${CLIPPY_ALLOW[@]}"
+    step "clippy (all features)" cargo clippy --locked --workspace --all-targets --all-features -- -D warnings "${CLIPPY_ALLOW[@]}"
+    step "nvrm-genhdr"          cargo run --locked --bin nvrm-genhdr -- --check
     step "c-interpreter"        c_interpreter
     step "edid"                 edid_conformity
     step "class-sizes"          class_sizes

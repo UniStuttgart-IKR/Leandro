@@ -22,9 +22,16 @@ tmp.md
 /probe/__pycache__/
 /probe/**/__pycache__/
 
-# Agent harness session state, not project material.
+# Local AI tools and generated indexes.
 /.claude/
+/.claude.json
+/CLAUDE.local.md
 /.hurc-harness/
+/.codex/
+/.agents/
+/AGENTS.md
+/CLAUDE.md
+/graphify-out/
 
 # This checkout's artefact locations (see local.env.example).
 /local.env
@@ -33,7 +40,6 @@ tmp.md
 /.repowise
 /.vscode
 /.mcp.json
-/.claude
 
 # The coverage matrix. Everything under matrix/ is GENERATED, and the line
 # between what is versioned and what is not is NOT "generated or written by

@@ -793,6 +793,15 @@ pub struct ProcRow {
     pub name: String,
 }
 
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct Placement {
+    door: Door,
+    class: u32,
+    requested_location: u32,
+    /// Returned location on success, RM status on failure.
+    outcome: Result<u32, u32>,
+}
+
 /// The VM's counter. Shared by every session of this backend.
 ///
 /// Two jobs, and they are deliberately not the same one:
@@ -815,7 +824,7 @@ pub struct Ledger {
     /// produced so far. The first of each is logged once, which is the map
     /// of where a workload's LOCATION_ANY really lands -- the question the
     /// ledger has to answer before RM does.
-    placements: Mutex<HashSet<(Door, u32, u32, Result<u32, u32>)>>,
+    placements: Mutex<HashSet<Placement>>,
 }
 
 impl Ledger {
@@ -971,11 +980,13 @@ impl Ledger {
     /// `outcome` is the LOCATION RM wrote back, or the status it failed
     /// with.
     fn first_placement(&self, ask: &Ask, outcome: Result<u32, u32>) -> bool {
-        let (door, class, loc) = ask.kind();
-        self.placements
-            .lock()
-            .unwrap()
-            .insert((door, class, loc, outcome))
+        let (door, class, requested_location) = ask.kind();
+        self.placements.lock().unwrap().insert(Placement {
+            door,
+            class,
+            requested_location,
+            outcome,
+        })
     }
 
     /// The guest process is gone -- its session fell.
@@ -1555,7 +1566,7 @@ fn cap_fb_entries(list: &mut [u8], asked: usize, limit: u64, used: u64) -> Optio
 /// 2026-09-17 (GNOME, Xwayland, Sunshine, Steam, Shadow of the Tomb Raider)
 /// saw no INFO call -- so this closes a door by source, not a measured leak.
 ///
-/// Rewritten with the arithmetic [`cap_fb_entries`] uses, so all three doors
+/// Rewritten with the arithmetic `cap_fb_entries` uses, so all three doors
 /// tell one card: total = limit, free = limit - used. `data.Info` (the
 /// largest free block and the heap base) is left as RM answered: its offset
 /// and size are addresses on the host card, not sizes this VM owns, and

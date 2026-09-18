@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+tone_instructions: >-
+  Be concise and specific. Explain the defect, its consequence, and a concrete
+  fix. Keep comments and doc comments factual. Avoid anecdotes, decorative
+  output, and repeated explanations.
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: false
+  poem: false
+  in_progress_fortune: false
+  enable_prompt_for_ai_agents: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!vendor/**"
+    - "!graphify-out/**"
+    - "!crates/nvrm-sys/src/**"
+    - "!crates/nvrm-sys/manifests/**"
+    - "!crates/nvrm-sys/versions.toml"
+    - "!guest-module/virtio_nvrm/nvrm_wire.h"
+    - "!crates/vhost-user-nvrm/fuzz/corpus/**"
+  path_instructions:
+    - path: "crates/**/*.rs"
+      instructions: >-
+        Prioritize correctness, checked arithmetic, ownership, cleanup on error,
+        concurrency, and the safety contracts of unsafe code and public APIs.
+        Check guest input before host memory or device access. Preserve wire
+        layouts and driver-version feature behavior. Prefer small, concrete
+        changes over new abstractions. Formatting is enforced by rustfmt.
+    - path: "**/*.{c,h}"
+      instructions: >-
+        Use Linux kernel style. Prioritize bounds, overflow, pointer lifetimes,
+        allocation cleanup, lock ordering, and ABI layouts. For kernel code,
+        check interrupt context, sleepability, user-copy failures, reference
+        counts, and teardown races. Formatting is enforced by clang-format.
+    - path: "crates/xtask/**"
+      instructions: >-
+        Generated bindings must be reproducible from the pinned vendor headers.
+        Review changes to the generator rather than requesting manual edits to
+        generated output. Preserve layout assertions and version checks.
+    - path: ".github/workflows/**"
+      instructions: >-
+        Keep pull-request checks independent of a GPU and host credentials.
+        Preserve Rust/C ABI checks and debug/release coverage. Pin tool versions
+        and action revisions, and use minimal permissions.

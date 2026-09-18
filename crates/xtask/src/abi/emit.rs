@@ -33,7 +33,9 @@ use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use syn::Item;
 
 pub struct Version {
@@ -121,6 +123,7 @@ pub fn emit(
     check: bool,
 ) -> Result<Emitted> {
     let src = root.join("crates/nvrm-sys/src");
+    let rustfmt = Rustfmt::for_workspace(root)?;
     let mut stale = Vec::new();
     let primary_v = versions
         .iter()
@@ -138,7 +141,12 @@ pub fn emit(
     ));
     let names: Vec<&str> = part.stable.iter().map(String::as_str).collect();
     body.push_str(&module_body(primary_v, &names, None)?);
-    write_or_check(&src.join("stable.rs"), &body, check, &mut stale)?;
+    write_or_check(
+        &src.join("stable.rs"),
+        &rustfmt.format(&body)?,
+        check,
+        &mut stale,
+    )?;
 
     // --- src/v<NNN>.rs ----------------------------------------------------
     for v in versions {
@@ -169,7 +177,7 @@ pub fn emit(
         body.push_str(&module_body(v, &mine, Some(&v.name))?);
         write_or_check(
             &src.join(format!("{}.rs", feature_of(&v.name))),
-            &body,
+            &rustfmt.format(&body)?,
             check,
             &mut stale,
         )?;
@@ -177,7 +185,12 @@ pub fn emit(
 
     // --- src/lib.rs -------------------------------------------------------
     let (lib, abstracted, not_abstractable) = lib_rs(cfg, versions, part, primary)?;
-    write_or_check(&src.join("lib.rs"), &lib, check, &mut stale)?;
+    write_or_check(
+        &src.join("lib.rs"),
+        &rustfmt.format(&lib)?,
+        check,
+        &mut stale,
+    )?;
 
     // --- versions.toml ----------------------------------------------------
     let vt = versions_toml(cfg, versions, part, primary, &abstracted);
@@ -705,6 +718,66 @@ fn replace_region(text: &str, block: &str) -> Result<String> {
         ),
     };
     Ok(format!("{}{BEGIN}\n{block}{}", &text[..b], &text[e..]))
+}
+
+struct Rustfmt {
+    root: PathBuf,
+    toolchain: String,
+    edition: String,
+}
+
+impl Rustfmt {
+    fn for_workspace(root: &Path) -> Result<Self> {
+        let toolchain: toml::Value =
+            toml::from_str(&std::fs::read_to_string(root.join("rust-toolchain.toml"))?)?;
+        let manifest: toml::Value =
+            toml::from_str(&std::fs::read_to_string(root.join("Cargo.toml"))?)?;
+        Ok(Self {
+            root: root.to_path_buf(),
+            toolchain: toolchain
+                .get("toolchain")
+                .and_then(|value| value.get("channel"))
+                .and_then(toml::Value::as_str)
+                .context("rust-toolchain.toml must pin a toolchain channel")?
+                .to_owned(),
+            edition: manifest
+                .get("workspace")
+                .and_then(|value| value.get("package"))
+                .and_then(|value| value.get("edition"))
+                .and_then(toml::Value::as_str)
+                .context("Cargo.toml must set workspace.package.edition")?
+                .to_owned(),
+        })
+    }
+
+    fn format(&self, source: &str) -> Result<String> {
+        // Format only this buffer; generated lib.rs names modules emitted separately.
+        let mut child = Command::new("rustup")
+            .args([
+                "run",
+                &self.toolchain,
+                "rustfmt",
+                "--edition",
+                &self.edition,
+            ])
+            .args(["--emit", "stdout", "--config", "skip_children=true"])
+            .current_dir(&self.root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("starting the pinned rustfmt")?;
+        let input = child.stdin.take().unwrap().write_all(source.as_bytes());
+        let output = child.wait_with_output().context("waiting for rustfmt")?;
+        if !output.status.success() {
+            bail!(
+                "rustfmt failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        input.context("writing generated Rust to rustfmt")?;
+        String::from_utf8(output.stdout).context("rustfmt returned invalid UTF-8")
+    }
 }
 
 fn write_or_check(path: &Path, content: &str, check: bool, stale: &mut Vec<PathBuf>) -> Result<()> {

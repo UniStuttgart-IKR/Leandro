@@ -1,48 +1,69 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 # SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-# The GPU-free check band: exactly what `scripts/test.sh check` runs locally,
-# plus the shell-hygiene passes and a Nix evaluation that need tools nobody
-# has installed on a laptop. The GPU gates (`scripts/test.sh gpu|vdisplay|
-# display`) deliberately do NOT run here -- they need /dev/nvidia*
-# exclusively and stay hand work at the measuring rig.
+# GPU-free checks. Hardware gates run separately on the test rig.
 name: check
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - name: Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Install pinned clang-format
+        run: |
+          pipx install clang-format==22.1.8
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: C formatting
+        run: scripts/ci/check-c-format.sh
+
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: System packages
-        # libclang is for bindgen; edid-decode is what the `edid` step of
-        # test.sh check pipes the generated EDID through. Without it that
-        # step fails with an install hint rather than a conformance verdict.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential clang libclang-dev pkg-config git curl edid-decode
 
-      - name: Rust (rustup bootstrap; rust-toolchain.toml pins the toolchain)
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --default-toolchain stable \
-                       --component clippy --component rustfmt
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
 
       - name: Cache (cargo + vendor headers)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
             vendor/open-gpu-kernel-modules
-          key: check-${{ hashFiles('Cargo.lock', 'DRIVER_VERSION') }}
+          key: check-ubuntu24-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'DRIVER_VERSION', 'crates/nvrm-sys/abi.toml') }}
 
       - name: Fetch NVIDIA headers at DRIVER_VERSION
         run: ./scripts/build.sh vendor
@@ -50,35 +71,77 @@ jobs:
       - name: test.sh check
         run: ./scripts/test.sh check
 
-      - name: Probe host tools (no CUDA, no hardware)
-        # probe/c/edid-verify.c and probe/c/vdisp-frame.c are built from
-        # source by the vdisplay gate, on the host and in the guest. A gate
-        # that cannot compile its own instrument is a gate that cannot run,
-        # so the compile belongs in the band that runs on every push -- and
-        # it costs a second, because neither needs CUDA or a GPU.
-        run: make -C probe host-tools
+      - name: C host tools and frame fixtures
+        run: scripts/ci/check-c.sh host-tools
 
-      - name: The committed frame hashes are still the ones the pattern makes
-        # probe/data/vdisp-frame.ref is what stops a change to vdisp-frame's
-        # pattern() from moving the written and the read-back half together
-        # -- the same blind spot the display gate's EDID comparison has. That
-        # only works while the file matches the code, so regenerate it here
-        # and insist on no diff.
+  c-sanitizers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: System packages
         run: |
-          set -euo pipefail
-          grep -v '^#' probe/data/vdisp-frame.ref | grep . > /tmp/ref-committed.txt
-          while read -r size _; do
-            ./probe/bin/vdisp-frame --reference "$size"
-          done < /tmp/ref-committed.txt > /tmp/ref-actual.txt
-          diff -u /tmp/ref-committed.txt /tmp/ref-actual.txt
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-18 libclang-rt-18-dev edid-decode
+      - name: Install pinned Rust
+        run: rustup show active-toolchain
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: c-sanitizers-ubuntu24-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+      - name: C tests with ASan and UBSan
+        env:
+          CC: clang-18
+        run: scripts/ci/check-c.sh all --sanitize
+
+  c-kernel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Ubuntu 6.8 kernel headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential linux-headers-generic
+      - name: Build both guest modules
+        run: |
+          kdir=$(find /usr/src -maxdepth 1 -type d -name 'linux-headers-6.8.*-generic' | sort -V | tail -1)
+          test -n "$kdir"
+          make -C guest-module/nvrm_nodes KDIR="$kdir" KCFLAGS=-Werror
+          make -C guest-module/virtio_nvrm KDIR="$kdir" KCFLAGS=-Werror
+
+  workflow:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate GitHub Actions
+        run: |
+          curl -fLsS https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/actionlint"
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP/actionlint" actionlint
+          "$RUNNER_TEMP/actionlint/actionlint"
 
   shell:
     # Its own job: shellcheck needs no Rust, no NVIDIA headers and no cache,
     # so it answers in seconds and says which of the bands broke without
     # waiting for the others.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: ShellCheck (pinned)
         # The distribution package moves between Ubuntu images, and a
@@ -133,16 +196,17 @@ jobs:
             || echo "advisory: see the findings above (this step never fails the build)"
 
   nix:
-    # The flake: does it evaluate, and does the NixOS module still assert
-    # and warn as designed (nix/example-host.nix)? Evaluation plus the one
-    # cheap package (the wrapped scripts). The Rust workspace and the
-    # patched cloud-hypervisor are minutes each and are NOT built here --
-    # the check job already compiles the workspace with cargo.
-    runs-on: ubuntu-latest
+    # The Nix package builds both guest modules against Linux 6.12.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d # v16
       - name: nix flake check
-        run: nix flake check --no-build
+        run: nix flake check --no-build --no-update-lock-file
       - name: nix build .#leandro-scripts
-        run: nix build .#leandro-scripts
+        run: nix build .#leandro-scripts --no-link --no-update-lock-file
+      - name: Build guest modules (Linux 6.12)
+        run: nix build .#guest-modules --no-link --no-update-lock-file
