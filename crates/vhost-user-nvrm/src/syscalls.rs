@@ -92,9 +92,22 @@ pub struct FakeSyscalls {
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FakeCall {
-    Ioctl { fd: RawFd, request: libc::c_ulong, inline: Vec<u8> },
-    SetSubProcessId { fd: RawFd, hclient: u32, sub_id: u32, name: String },
-    GrantDup { fd: RawFd, hclient: u32, hobject: u32 },
+    Ioctl {
+        fd: RawFd,
+        request: libc::c_ulong,
+        inline: Vec<u8>,
+    },
+    SetSubProcessId {
+        fd: RawFd,
+        hclient: u32,
+        sub_id: u32,
+        name: String,
+    },
+    GrantDup {
+        fd: RawFd,
+        hclient: u32,
+        hobject: u32,
+    },
 }
 
 #[cfg(test)]
@@ -155,7 +168,11 @@ impl NvSyscalls for FakeSyscalls {
         let ioc = nvrm_abi::ioc_size(request as u32) as usize;
         let n = if ioc == 0 { len } else { ioc.min(len) };
         let inline = std::slice::from_raw_parts(buf, n).to_vec();
-        self.calls.lock().unwrap().push(FakeCall::Ioctl { fd, request, inline });
+        self.calls.lock().unwrap().push(FakeCall::Ioctl {
+            fd,
+            request,
+            inline,
+        });
         for (off, bytes) in &self.writes_back {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), buf.add(*off), bytes.len());
         }
@@ -179,7 +196,11 @@ impl NvSyscalls for FakeSyscalls {
     }
 
     fn grant_dup_same_user(&self, fd: RawFd, hclient: u32, hobject: u32) -> (i32, u32) {
-        self.calls.lock().unwrap().push(FakeCall::GrantDup { fd, hclient, hobject });
+        self.calls.lock().unwrap().push(FakeCall::GrantDup {
+            fd,
+            hclient,
+            hobject,
+        });
         (0, 0)
     }
 }

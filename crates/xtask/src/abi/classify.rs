@@ -168,10 +168,12 @@ pub fn classify_type(
                     (Some(x), Some(y)) if x != y => {
                         reasons.push(format!("field {} moved {x} -> {y}", f.name))
                     }
-                    (Some(x), None) => reasons
-                        .push(format!("field {} had offset {x} and now has none", f.name)),
-                    (None, Some(y)) => reasons
-                        .push(format!("field {} had no offset and now has {y}", f.name)),
+                    (Some(x), None) => {
+                        reasons.push(format!("field {} had offset {x} and now has none", f.name))
+                    }
+                    (None, Some(y)) => {
+                        reasons.push(format!("field {} had no offset and now has {y}", f.name))
+                    }
                     _ => {}
                 }
                 if g.ty != f.ty {
@@ -188,12 +190,20 @@ pub fn classify_type(
         .collect();
 
     if !reasons.is_empty() {
-        return Change { name: name.to_string(), verdict: Verdict::Breaking, reasons };
+        return Change {
+            name: name.to_string(),
+            verdict: Verdict::Breaking,
+            reasons,
+        };
     }
 
     if added.is_empty() {
         if a.size == b.size {
-            return Change { name: name.to_string(), verdict: Verdict::Identical, reasons };
+            return Change {
+                name: name.to_string(),
+                verdict: Verdict::Identical,
+                reasons,
+            };
         }
         // Every field kept its name, its offset and its spelling, and the
         // type still changed size. That is an EMBEDDED type that grew: an
@@ -239,7 +249,11 @@ pub fn classify_type(
             a.size,
             b.size,
             added.len(),
-            added.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", ")
+            added
+                .iter()
+                .map(|g| g.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         )],
     }
 }
@@ -261,7 +275,11 @@ pub fn classify_const(
         (None, Some(_)) => format!("absent in {from_v}, new in {to_v}"),
         (None, None) => unreachable!("a name comes from one of the two manifests"),
     };
-    Some(Change { name: name.to_string(), verdict: Verdict::Breaking, reasons: vec![reason] })
+    Some(Change {
+        name: name.to_string(),
+        verdict: Verdict::Breaking,
+        reasons: vec![reason],
+    })
 }
 
 // ===========================================================================
@@ -279,18 +297,33 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn f(name: &str, offset: u64, ty: &str) -> Field {
-        Field { name: name.into(), offset: Some(offset), ty: ty.into() }
+        Field {
+            name: name.into(),
+            offset: Some(offset),
+            ty: ty.into(),
+        }
     }
 
     fn ty(size: u64, fields: Vec<Field>) -> TypeLayout {
         let mut embeds = BTreeSet::new();
         for fl in &fields {
-            let base = fl.ty.trim_start_matches('[').split(';').next().unwrap_or("");
+            let base = fl
+                .ty
+                .trim_start_matches('[')
+                .split(';')
+                .next()
+                .unwrap_or("");
             if base.starts_with("NV_") || base.starts_with("Inner") {
                 embeds.insert(base.to_string());
             }
         }
-        TypeLayout { kind: Kind::Struct, size, align: 8, fields, embeds }
+        TypeLayout {
+            kind: Kind::Struct,
+            size,
+            align: 8,
+            fields,
+            embeds,
+        }
     }
 
     fn manifest(version: &str, types: &[(&str, TypeLayout)], consts: &[(&str, &str)]) -> Manifest {
@@ -303,17 +336,34 @@ mod tests {
             constants: consts
                 .iter()
                 .map(|(k, v)| {
-                    (k.to_string(), Constant { ty: "u32".into(), value: v.to_string() })
+                    (
+                        k.to_string(),
+                        Constant {
+                            ty: "u32".into(),
+                            value: v.to_string(),
+                        },
+                    )
                 })
                 .collect(),
-            types: types.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+            types: types
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
         }
     }
 
     #[test]
     fn identical_is_identical() {
-        let a = manifest("1.0", &[("P", ty(8, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))], &[("C", "7")]);
-        let b = manifest("2.0", &[("P", ty(8, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))], &[("C", "7")]);
+        let a = manifest(
+            "1.0",
+            &[("P", ty(8, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))],
+            &[("C", "7")],
+        );
+        let b = manifest(
+            "2.0",
+            &[("P", ty(8, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))],
+            &[("C", "7")],
+        );
         let r = classify(&a, &b);
         assert_eq!(r.verdict(), Verdict::Identical);
         assert_eq!(r.identical, 1);
@@ -322,10 +372,20 @@ mod tests {
 
     #[test]
     fn a_field_appended_at_the_end_is_append_only() {
-        let a = manifest("1.0", &[("P", ty(8, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))], &[]);
+        let a = manifest(
+            "1.0",
+            &[("P", ty(8, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))],
+            &[],
+        );
         let b = manifest(
             "2.0",
-            &[("P", ty(16, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32"), f("z", 8, "NvU64")]))],
+            &[(
+                "P",
+                ty(
+                    16,
+                    vec![f("x", 0, "NvU32"), f("y", 4, "NvU32"), f("z", 8, "NvU64")],
+                ),
+            )],
             &[],
         );
         let r = classify(&a, &b);
@@ -338,10 +398,20 @@ mod tests {
     fn append_only_is_not_symmetric() {
         // Reading the NEW struct with the OLD one's eyes is fine; the other
         // direction loses a field, which is not.
-        let a = manifest("1.0", &[("P", ty(8, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))], &[]);
+        let a = manifest(
+            "1.0",
+            &[("P", ty(8, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))],
+            &[],
+        );
         let b = manifest(
             "2.0",
-            &[("P", ty(16, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32"), f("z", 8, "NvU64")]))],
+            &[(
+                "P",
+                ty(
+                    16,
+                    vec![f("x", 0, "NvU32"), f("y", 4, "NvU32"), f("z", 8, "NvU64")],
+                ),
+            )],
             &[],
         );
         assert_eq!(classify(&b, &a).verdict(), Verdict::Breaking);
@@ -353,26 +423,42 @@ mod tests {
         // and everything after it moved four bytes.
         let a = manifest(
             "1.0",
-            &[("P", ty(12, vec![f("hVASpace", 0, "NvU32"), f("hUserdMemory", 4, "NvU32"), f("tail", 8, "NvU32")]))],
+            &[(
+                "P",
+                ty(
+                    12,
+                    vec![
+                        f("hVASpace", 0, "NvU32"),
+                        f("hUserdMemory", 4, "NvU32"),
+                        f("tail", 8, "NvU32"),
+                    ],
+                ),
+            )],
             &[],
         );
         let b = manifest(
             "2.0",
             &[(
                 "P",
-                ty(16, vec![
-                    f("hVASpace", 0, "NvU32"),
-                    f("hHandleVASpace", 4, "NvU32"),
-                    f("hUserdMemory", 8, "NvU32"),
-                    f("tail", 12, "NvU32"),
-                ]),
+                ty(
+                    16,
+                    vec![
+                        f("hVASpace", 0, "NvU32"),
+                        f("hHandleVASpace", 4, "NvU32"),
+                        f("hUserdMemory", 8, "NvU32"),
+                        f("tail", 12, "NvU32"),
+                    ],
+                ),
             )],
             &[],
         );
         let r = classify(&a, &b);
         assert_eq!(r.verdict(), Verdict::Breaking);
         assert_eq!(r.breaking, 1);
-        assert!(r.types[0].reasons.iter().any(|s| s.contains("hUserdMemory moved 4 -> 8")));
+        assert!(r.types[0]
+            .reasons
+            .iter()
+            .any(|s| s.contains("hUserdMemory moved 4 -> 8")));
     }
 
     #[test]
@@ -380,15 +466,25 @@ mod tests {
         // The trap. `Inner` grows only at its end, which would be append-only
         // on its own -- but `Outer` holds one by value, so `after` moves.
         let inner_a = ty(8, vec![f("a", 0, "NvU32"), f("b", 4, "NvU32")]);
-        let inner_b = ty(16, vec![f("a", 0, "NvU32"), f("b", 4, "NvU32"), f("c", 8, "NvU64")]);
+        let inner_b = ty(
+            16,
+            vec![f("a", 0, "NvU32"), f("b", 4, "NvU32"), f("c", 8, "NvU64")],
+        );
         let outer_a = ty(16, vec![f("inner", 0, "Inner"), f("after", 8, "NvU64")]);
         let outer_b = ty(24, vec![f("inner", 0, "Inner"), f("after", 16, "NvU64")]);
         let a = manifest("1.0", &[("Inner", inner_a), ("Outer", outer_a)], &[]);
         let b = manifest("2.0", &[("Inner", inner_b), ("Outer", outer_b)], &[]);
         let r = classify(&a, &b);
         assert_eq!(r.verdict(), Verdict::Breaking);
-        assert_eq!(r.append_only, 0, "an embedded struct must never be classified append-only");
-        let inner = r.types.iter().find(|c| c.name == "Inner").expect("Inner reported");
+        assert_eq!(
+            r.append_only, 0,
+            "an embedded struct must never be classified append-only"
+        );
+        let inner = r
+            .types
+            .iter()
+            .find(|c| c.name == "Inner")
+            .expect("Inner reported");
         assert_eq!(inner.verdict, Verdict::Breaking);
         assert!(inner.reasons[0].contains("contained by value"));
     }
@@ -398,14 +494,21 @@ mod tests {
         // The same trap through an array, which is the shape
         // NV_CHANNEL_ALLOC_PARAMS uses for NV_MEMORY_DESC_PARAMS.
         let inner_a = ty(8, vec![f("a", 0, "NvU32"), f("b", 4, "NvU32")]);
-        let inner_b = ty(16, vec![f("a", 0, "NvU32"), f("b", 4, "NvU32"), f("c", 8, "NvU64")]);
+        let inner_b = ty(
+            16,
+            vec![f("a", 0, "NvU32"), f("b", 4, "NvU32"), f("c", 8, "NvU64")],
+        );
         let outer_a = ty(32, vec![f("four", 0, "[Inner; 4usize]")]);
         let outer_b = ty(64, vec![f("four", 0, "[Inner; 4usize]")]);
         let a = manifest("1.0", &[("Inner", inner_a), ("Outer", outer_a)], &[]);
         let b = manifest("2.0", &[("Inner", inner_b), ("Outer", outer_b)], &[]);
         let r = classify(&a, &b);
         assert_eq!(r.append_only, 0);
-        let inner = r.types.iter().find(|c| c.name == "Inner").expect("Inner reported");
+        let inner = r
+            .types
+            .iter()
+            .find(|c| c.name == "Inner")
+            .expect("Inner reported");
         assert!(inner.reasons[0].contains("contained by value"));
     }
 
@@ -414,7 +517,11 @@ mod tests {
         // Same size, a field appeared: it went into padding that an older
         // caller may have written. Not append-only.
         let a = manifest("1.0", &[("P", ty(16, vec![f("x", 0, "NvU32")]))], &[]);
-        let b = manifest("2.0", &[("P", ty(16, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))], &[]);
+        let b = manifest(
+            "2.0",
+            &[("P", ty(16, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))],
+            &[],
+        );
         let r = classify(&a, &b);
         assert_eq!(r.verdict(), Verdict::Breaking);
     }
@@ -424,8 +531,16 @@ mod tests {
         // No field was added, moved or respelled, and the struct is bigger:
         // an array element or a member struct grew underneath it. Nothing
         // here is appended, so nothing here is append-only.
-        let a = manifest("1.0", &[("P", ty(32, vec![f("four", 0, "[Inner; 4usize]")]))], &[]);
-        let b = manifest("2.0", &[("P", ty(64, vec![f("four", 0, "[Inner; 4usize]")]))], &[]);
+        let a = manifest(
+            "1.0",
+            &[("P", ty(32, vec![f("four", 0, "[Inner; 4usize]")]))],
+            &[],
+        );
+        let b = manifest(
+            "2.0",
+            &[("P", ty(64, vec![f("four", 0, "[Inner; 4usize]")]))],
+            &[],
+        );
         let r = classify(&a, &b);
         assert_eq!(r.verdict(), Verdict::Breaking);
         assert!(r.types[0].reasons[0].contains("something it"));
@@ -445,7 +560,11 @@ mod tests {
     fn a_missing_type_is_breaking_and_says_which_version() {
         // 580.178.04 has no NVA083 class at all.
         let a = manifest("580", &[], &[]);
-        let b = manifest("595", &[("NVA083_CTRL_P", ty(4, vec![f("x", 0, "NvU32")]))], &[]);
+        let b = manifest(
+            "595",
+            &[("NVA083_CTRL_P", ty(4, vec![f("x", 0, "NvU32")]))],
+            &[],
+        );
         let r = classify(&a, &b);
         assert_eq!(r.verdict(), Verdict::Breaking);
         assert!(r.types[0].reasons[0].contains("absent in 580"));
@@ -453,8 +572,16 @@ mod tests {
 
     #[test]
     fn a_field_that_keeps_its_offset_and_changes_type_is_breaking() {
-        let a = manifest("1.0", &[("P", ty(8, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))], &[]);
-        let b = manifest("2.0", &[("P", ty(8, vec![f("x", 0, "NvHandle"), f("y", 4, "NvU32")]))], &[]);
+        let a = manifest(
+            "1.0",
+            &[("P", ty(8, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))],
+            &[],
+        );
+        let b = manifest(
+            "2.0",
+            &[("P", ty(8, vec![f("x", 0, "NvHandle"), f("y", 4, "NvU32")]))],
+            &[],
+        );
         let r = classify(&a, &b);
         assert_eq!(r.verdict(), Verdict::Breaking);
         assert!(r.types[0].reasons[0].contains("type NvU32 -> NvHandle"));

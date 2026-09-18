@@ -52,7 +52,11 @@ static int try_ioctl(unsigned long req, void *arg, const char *what)
 	return 0;
 }
 
-#define MUST(req, arg, what) do { if (try_ioctl(req, arg, what)) return 1; } while (0)
+#define MUST(req, arg, what)                   \
+	do {                                   \
+		if (try_ioctl(req, arg, what)) \
+			return 1;              \
+	} while (0)
 
 /* One dumb buffer, filled with a solid colour, registered as a framebuffer. */
 struct buf {
@@ -63,7 +67,9 @@ struct buf {
 
 static int make_buf(struct buf *b, uint32_t w, uint32_t h, uint32_t colour)
 {
-	struct drm_mode_create_dumb create = { .width = w, .height = h, .bpp = 32 };
+	struct drm_mode_create_dumb create = { .width = w,
+					       .height = h,
+					       .bpp = 32 };
 	struct drm_mode_map_dumb map = { 0 };
 	struct drm_mode_fb_cmd fb = { 0 };
 	void *p;
@@ -71,20 +77,26 @@ static int make_buf(struct buf *b, uint32_t w, uint32_t h, uint32_t colour)
 
 	MUST(DRM_IOCTL_MODE_CREATE_DUMB, &create, "CREATE_DUMB");
 	b->handle = create.handle;
-	b->pitch  = create.pitch;
-	b->size   = create.size;
+	b->pitch = create.pitch;
+	b->size = create.size;
 
-	fb.width = w; fb.height = h; fb.bpp = 32; fb.depth = 24;
-	fb.pitch = b->pitch; fb.handle = b->handle;
+	fb.width = w;
+	fb.height = h;
+	fb.bpp = 32;
+	fb.depth = 24;
+	fb.pitch = b->pitch;
+	fb.handle = b->handle;
 	MUST(DRM_IOCTL_MODE_ADDFB, &fb, "ADDFB");
 	b->fb_id = fb.fb_id;
 
 	map.handle = b->handle;
 	MUST(DRM_IOCTL_MODE_MAP_DUMB, &map, "MAP_DUMB");
 
-	p = mmap(NULL, b->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, map.offset);
+	p = mmap(NULL, b->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd,
+		 map.offset);
 	if (p == MAP_FAILED) {
-		fprintf(stderr, "  mmap of the dumb buffer: %s\n", strerror(errno));
+		fprintf(stderr, "  mmap of the dumb buffer: %s\n",
+			strerror(errno));
 		return 1;
 	}
 	b->px = p;
@@ -119,7 +131,8 @@ static int find_node(const char *want)
 		f = open(path, O_RDWR | O_CLOEXEC);
 		if (f < 0)
 			continue;
-		if (drm_name(f, name, sizeof(name)) == 0 && strcmp(name, want) == 0) {
+		if (drm_name(f, name, sizeof(name)) == 0 &&
+		    strcmp(name, want) == 0) {
 			close(f);
 			printf("%s\n", path);
 			return 0;
@@ -179,23 +192,24 @@ int main(int argc, char **argv)
 			strerror(errno));
 
 	res.connector_id_ptr = (uint64_t)(uintptr_t)conn_ids;
-	res.crtc_id_ptr      = (uint64_t)(uintptr_t)crtc_ids;
-	res.encoder_id_ptr   = (uint64_t)(uintptr_t)enc_ids;
-	res.fb_id_ptr        = (uint64_t)(uintptr_t)fb_ids;
+	res.crtc_id_ptr = (uint64_t)(uintptr_t)crtc_ids;
+	res.encoder_id_ptr = (uint64_t)(uintptr_t)enc_ids;
+	res.fb_id_ptr = (uint64_t)(uintptr_t)fb_ids;
 	res.count_connectors = res.count_crtcs = 32;
-	res.count_encoders   = res.count_fbs   = 32;
+	res.count_encoders = res.count_fbs = 32;
 	MUST(DRM_IOCTL_MODE_GETRESOURCES, &res, "GETRESOURCES");
-	printf("crtcs %u, connectors %u\n", res.count_crtcs, res.count_connectors);
+	printf("crtcs %u, connectors %u\n", res.count_crtcs,
+	       res.count_connectors);
 	if (!res.count_crtcs || !res.count_connectors)
 		return 1;
 
-	conn.connector_id  = conn_ids[0];
-	conn.modes_ptr     = (uint64_t)(uintptr_t)modes;
-	conn.props_ptr     = (uint64_t)(uintptr_t)props;
+	conn.connector_id = conn_ids[0];
+	conn.modes_ptr = (uint64_t)(uintptr_t)modes;
+	conn.props_ptr = (uint64_t)(uintptr_t)props;
 	conn.prop_values_ptr = (uint64_t)(uintptr_t)prop_vals;
-	conn.encoders_ptr  = (uint64_t)(uintptr_t)conn_enc_ids;
-	conn.count_modes   = 64;
-	conn.count_props   = 64;
+	conn.encoders_ptr = (uint64_t)(uintptr_t)conn_enc_ids;
+	conn.count_modes = 64;
+	conn.count_props = 64;
 	conn.count_encoders = 32;
 	MUST(DRM_IOCTL_MODE_GETCONNECTOR, &conn, "GETCONNECTOR");
 	printf("connector %u: connection %u (1 = connected), %u modes\n",
@@ -216,14 +230,14 @@ int main(int argc, char **argv)
 		return 1;
 	if (make_buf(&bb, modes[0].hdisplay, modes[0].vdisplay, 0x00c05020))
 		return 1;
-	printf("  fb %u and fb %u, pitch %u, %llu bytes each\n",
-	       a.fb_id, bb.fb_id, a.pitch, (unsigned long long)a.size);
+	printf("  fb %u and fb %u, pitch %u, %llu bytes each\n", a.fb_id,
+	       bb.fb_id, a.pitch, (unsigned long long)a.size);
 
-	set.crtc_id   = crtc_ids[0];
-	set.fb_id     = a.fb_id;
+	set.crtc_id = crtc_ids[0];
+	set.fb_id = a.fb_id;
 	set.set_connectors_ptr = (uint64_t)(uintptr_t)&conn.connector_id;
-	set.count_connectors   = 1;
-	set.mode      = modes[0];
+	set.count_connectors = 1;
+	set.mode = modes[0];
 	set.mode_valid = 1;
 	MUST(DRM_IOCTL_MODE_SETCRTC, &set, "SETCRTC");
 	printf("SETCRTC ok\n");
@@ -232,8 +246,8 @@ int main(int argc, char **argv)
 	 * different fb has not taken the frame, whatever SETCRTC returned. */
 	got.crtc_id = crtc_ids[0];
 	MUST(DRM_IOCTL_MODE_GETCRTC, &got, "GETCRTC");
-	printf("GETCRTC: fb %u, mode_valid %u, %ux%u\n",
-	       got.fb_id, got.mode_valid, got.mode.hdisplay, got.mode.vdisplay);
+	printf("GETCRTC: fb %u, mode_valid %u, %ux%u\n", got.fb_id,
+	       got.mode_valid, got.mode.hdisplay, got.mode.vdisplay);
 
 	/* One flip is enough to show the path works at all; it is NOT enough
 	 * to show it keeps working. Measured 2026-08-16: weston brings the
@@ -260,17 +274,19 @@ int main(int argc, char **argv)
 		 * perfectly good run. */
 		last_fb = a.fb_id;
 
-		printf("flipping %u times, %d ms timeout each\n", flips, flip_wait_ms);
+		printf("flipping %u times, %d ms timeout each\n", flips,
+		       flip_wait_ms);
 		for (f = 0; f < flips; f++) {
 			struct pollfd pfd = { .fd = fd, .events = POLLIN };
 			struct drm_event_vblank ev;
 			int pr;
 
 			flip.crtc_id = crtc_ids[0];
-			flip.fb_id   = (f & 1) ? a.fb_id : bb.fb_id;
-			flip.flags   = DRM_MODE_PAGE_FLIP_EVENT;
+			flip.fb_id = (f & 1) ? a.fb_id : bb.fb_id;
+			flip.flags = DRM_MODE_PAGE_FLIP_EVENT;
 			if (ioctl(fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip) < 0) {
-				printf("  flip %u: PAGE_FLIP: %s\n", f, strerror(errno));
+				printf("  flip %u: PAGE_FLIP: %s\n", f,
+				       strerror(errno));
 				break;
 			}
 			issued++;
@@ -278,7 +294,8 @@ int main(int argc, char **argv)
 
 			pr = poll(&pfd, 1, flip_wait_ms);
 			if (pr < 0) {
-				printf("  flip %u: poll: %s\n", f, strerror(errno));
+				printf("  flip %u: poll: %s\n", f,
+				       strerror(errno));
 				break;
 			}
 			if (pr == 0) {

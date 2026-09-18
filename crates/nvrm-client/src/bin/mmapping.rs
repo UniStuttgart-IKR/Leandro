@@ -38,7 +38,10 @@ use nvrm_abi::NvDevice;
 use nvrm_client::{mem, RmClient};
 
 fn now_ns() -> u64 {
-    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
     ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
 }
@@ -86,7 +89,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The allocation stands ONCE and outside the measuring loop -- what is
     // measured is the mapping, not the getting of the memory.
-    let handle = mem::alloc_sysmem(&mut rm, device, bytes, nvrm_sys::NVOS32_ATTR_COHERENCY_CACHED)?;
+    let handle = mem::alloc_sysmem(
+        &mut rm,
+        device,
+        bytes,
+        nvrm_sys::NVOS32_ATTR_COHERENCY_CACHED,
+    )?;
 
     // One trial mapping before measuring: a measurement against a path
     // that fails quietly would be worthless.

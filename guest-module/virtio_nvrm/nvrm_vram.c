@@ -17,12 +17,12 @@
  */
 
 #ifdef __KERNEL__
-# include <linux/string.h>
-# include <linux/types.h>
+#include <linux/string.h>
+#include <linux/types.h>
 #else
-# include <stddef.h>
-# include <stdint.h>
-# include <string.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 typedef uint8_t u8;
 typedef uint32_t u32;
 typedef uint64_t u64;
@@ -102,13 +102,13 @@ static u64 nvrm_scanout_bytes(u32 w, u32 h)
  *
  *   1920x1080  44 MiB    2560x1440  76 MiB    3840x2160  161 MiB
  */
-#define NVRM_RESERVE_SCANOUTS		5
-#define NVRM_RESERVE_CURSOR_BYTES	(4u * 256 * 256 * 4)
+#define NVRM_RESERVE_SCANOUTS 5
+#define NVRM_RESERVE_CURSOR_BYTES (4u * 256 * 256 * 4)
 
 /* The ceiling past which a size is not a display: the module's own maximum
  * (vdisplay_max_*) never gets near it, and it keeps the product in 64 bits
  * whatever a parameter says. */
-#define NVRM_RESERVE_MAX_DIM		32768
+#define NVRM_RESERVE_MAX_DIM 32768
 
 static u32 nvrm_display_reserve_auto_mib(u32 w, u32 h)
 {
@@ -116,7 +116,8 @@ static u32 nvrm_display_reserve_auto_mib(u32 w, u32 h)
 
 	if (!w || !h || w > NVRM_RESERVE_MAX_DIM || h > NVRM_RESERVE_MAX_DIM)
 		return 0;
-	b = NVRM_RESERVE_SCANOUTS * nvrm_scanout_bytes(w, h) + NVRM_RESERVE_CURSOR_BYTES;
+	b = NVRM_RESERVE_SCANOUTS * nvrm_scanout_bytes(w, h) +
+	    NVRM_RESERVE_CURSOR_BYTES;
 	return (u32)((b + (1u << 20) - 1) >> 20);
 }
 
@@ -138,13 +139,13 @@ static u32 nvrm_display_reserve_auto_mib(u32 w, u32 h)
  * 1920x1080 is 64 chunks of 16 MiB): a refusal then takes more room than it
  * needs, which is the price of a fixed value that large.
  */
-#define NVRM_BALLOON_MAX_CHUNKS		64u
-#define NVRM_BALLOON_ALIGN		0x10000ull	/* 64 KiB, as a scanout buffer */
+#define NVRM_BALLOON_MAX_CHUNKS 64u
+#define NVRM_BALLOON_ALIGN 0x10000ull /* 64 KiB, as a scanout buffer */
 
 struct nvrm_balloon_shape {
-	u64 chunk;	/* bytes per full chunk */
-	u32 full;	/* how many of those */
-	u64 rest;	/* bytes of the last chunk, 0 = none */
+	u64 chunk; /* bytes per full chunk */
+	u32 full; /* how many of those */
+	u64 rest; /* bytes of the last chunk, 0 = none */
 };
 
 static void nvrm_balloon_shape(u64 r, u64 s, struct nvrm_balloon_shape *b)
@@ -198,9 +199,11 @@ static int nvrm_balloon_eligible(u32 hclass, const u8 *alloc)
 	flags = nvrm_vram_rd32(alloc, NVRM_MEMALLOC_FLAGS_OFF);
 	attr = nvrm_vram_rd32(alloc, NVRM_MEMALLOC_ATTR_OFF);
 	attr2 = nvrm_vram_rd32(alloc, NVRM_MEMALLOC_ATTR2_OFF);
-	return (attr & NVRM_NVOS32_ATTR_LOCATION_MASK) == NVRM_NVOS32_ATTR_LOCATION_VIDMEM &&
+	return (attr & NVRM_NVOS32_ATTR_LOCATION_MASK) ==
+		       NVRM_NVOS32_ATTR_LOCATION_VIDMEM &&
 	       (attr2 & NVRM_NVOS32_ATTR2_ISO_YES) &&
-	       !(flags & (NVRM_NVOS32_ALLOC_FLAGS_NO_SCANOUT | NVRM_NVOS32_ALLOC_FLAGS_VIRTUAL));
+	       !(flags & (NVRM_NVOS32_ALLOC_FLAGS_NO_SCANOUT |
+			  NVRM_NVOS32_ALLOC_FLAGS_VIRTUAL));
 }
 
 /*
@@ -216,7 +219,7 @@ static int nvrm_balloon_eligible(u32 hclass, const u8 *alloc)
  * NVKMS tags its buffers 0xDCBA (nvkms-types.h:116); "nvbl" keeps the
  * balloon's apart in an RM heap dump.
  */
-#define NVRM_BALLOON_OWNER		0x6c62766eu	/* "nvbl" */
+#define NVRM_BALLOON_OWNER 0x6c62766eu /* "nvbl" */
 
 static void nvrm_balloon_chunk_params(u8 *alloc, u64 bytes)
 {
@@ -225,12 +228,14 @@ static void nvrm_balloon_chunk_params(u8 *alloc, u64 bytes)
 	nvrm_vram_wr32(alloc, NVRM_MEMALLOC_TYPE_OFF, NVRM_NVOS32_TYPE_PRIMARY);
 	nvrm_vram_wr32(alloc, NVRM_MEMALLOC_FLAGS_OFF,
 		       NVRM_NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE |
-		       NVRM_NVOS32_ALLOC_FLAGS_FORCE_MEM_GROWS_UP);
-	nvrm_vram_wr64(alloc, NVRM_MEMALLOC_ALIGNMENT_OFF, NVRM_NV_EVO_SURFACE_ALIGNMENT);
+			       NVRM_NVOS32_ALLOC_FLAGS_FORCE_MEM_GROWS_UP);
+	nvrm_vram_wr64(alloc, NVRM_MEMALLOC_ALIGNMENT_OFF,
+		       NVRM_NV_EVO_SURFACE_ALIGNMENT);
 	nvrm_vram_wr32(alloc, NVRM_MEMALLOC_ATTR_OFF,
 		       NVRM_NVOS32_ATTR_LOCATION_VIDMEM |
-		       NVRM_NVOS32_ATTR_PHYSICALITY_CONTIGUOUS);
+			       NVRM_NVOS32_ATTR_PHYSICALITY_CONTIGUOUS);
 	nvrm_vram_wr32(alloc, NVRM_MEMALLOC_ATTR2_OFF,
-		       NVRM_NVOS32_ATTR2_ISO_YES | NVRM_NVOS32_ATTR2_GPU_CACHEABLE_NO);
+		       NVRM_NVOS32_ATTR2_ISO_YES |
+			       NVRM_NVOS32_ATTR2_GPU_CACHEABLE_NO);
 	nvrm_vram_wr64(alloc, NVRM_MEMALLOC_SIZE_OFF, bytes);
 }

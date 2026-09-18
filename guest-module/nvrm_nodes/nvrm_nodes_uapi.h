@@ -42,11 +42,11 @@ struct nvrm_nodes_gpa_run {
  * `runs_len` carries the required count; nothing is pinned.
  */
 struct nvrm_nodes_gpa_req {
-	__u64 va;        /* IN,  page-aligned */
-	__u64 len;       /* IN,  multiple of the page size */
-	__u64 runs_ptr;  /* IN,  pointer to struct nvrm_nodes_gpa_run[] */
-	__u32 runs_max;  /* IN */
-	__u32 runs_len;  /* OUT */
+	__u64 va; /* IN,  page-aligned */
+	__u64 len; /* IN,  multiple of the page size */
+	__u64 runs_ptr; /* IN,  pointer to struct nvrm_nodes_gpa_run[] */
+	__u32 runs_max; /* IN */
+	__u32 runs_len; /* OUT */
 };
 
 /**
@@ -59,16 +59,18 @@ struct nvrm_nodes_gpa_req {
 #define NVRM_NODES_PROC_DATA_MAX (64 * 1024)
 
 struct nvrm_nodes_proc_req {
-	char  name[NVRM_NODES_PROC_NAME_MAX]; /* IN, NUL-terminated */
-	__u64 data_ptr;                   /* IN */
-	__u32 data_len;                   /* IN */
+	char name[NVRM_NODES_PROC_NAME_MAX]; /* IN, NUL-terminated */
+	__u64 data_ptr; /* IN */
+	__u32 data_len; /* IN */
 	__u32 _pad;
 };
 
 #define NVRM_NODES_IOC_MAGIC 'S'
-#define NVRM_NODES_IOC_VA2GPA   _IOWR(NVRM_NODES_IOC_MAGIC, 1, struct nvrm_nodes_gpa_req)
-#define NVRM_NODES_IOC_SET_PROC _IOW(NVRM_NODES_IOC_MAGIC, 2, struct nvrm_nodes_proc_req)
-#define NVRM_NODES_IOC_VERSION  _IOR(NVRM_NODES_IOC_MAGIC, 3, __u32)
+#define NVRM_NODES_IOC_VA2GPA \
+	_IOWR(NVRM_NODES_IOC_MAGIC, 1, struct nvrm_nodes_gpa_req)
+#define NVRM_NODES_IOC_SET_PROC \
+	_IOW(NVRM_NODES_IOC_MAGIC, 2, struct nvrm_nodes_proc_req)
+#define NVRM_NODES_IOC_VERSION _IOR(NVRM_NODES_IOC_MAGIC, 3, __u32)
 
 /** Bumped whenever the meaning of the ioctls changes. */
 #define NVRM_NODES_ABI_VERSION 1

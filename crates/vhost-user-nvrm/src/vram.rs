@@ -30,12 +30,12 @@
 //! `attr.LOCATION == VIDMEM` without `ALLOC_FLAGS_VIRTUAL` lands in FB.
 //! Evidence and the counter-examples are at [`request_bytes`].
 
+use nvrm_sys::RmAbi;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
-use nvrm_sys::RmAbi;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use nvrm_abi::nvgpu::nvos32_attr;
 use nvrm_abi::{sys, vgpu};
@@ -182,15 +182,14 @@ pub struct Profile {
 
 impl Profile {
     /// No policy: the default configuration.
-    pub const OFF: Profile =
-        Profile {
-            policy: Policy::Off,
-            size: 0,
-            reservation: 0,
-            fb_length: 0,
-            vgpu_type: "",
-            encoder_capacity: 0,
-        };
+    pub const OFF: Profile = Profile {
+        policy: Policy::Off,
+        size: 0,
+        reservation: 0,
+        fb_length: 0,
+        vgpu_type: "",
+        encoder_capacity: 0,
+    };
 
     /// The old cap, in bytes -- for tests and for the `Accounting` path.
     pub fn accounting(bytes: u64) -> Profile {
@@ -230,7 +229,11 @@ impl Profile {
                 mib(self.fb_length),
                 mib(self.reservation),
                 self.policy.knob(),
-                if self.policy == Policy::Grid { self.vgpu_type } else { "/ LEA_VRAM_RESERVE_MIB" },
+                if self.policy == Policy::Grid {
+                    self.vgpu_type
+                } else {
+                    "/ LEA_VRAM_RESERVE_MIB"
+                },
                 mib(self.fb_length),
             )),
         }
@@ -287,7 +290,9 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
             Ok(0) => None,
             Ok(v) => Some(v),
             Err(_) => {
-                let hint = vgpu::parse_mib(s).map(|m| format!(" -- write {m}")).unwrap_or_default();
+                let hint = vgpu::parse_mib(s)
+                    .map(|m| format!(" -- write {m}"))
+                    .unwrap_or_default();
                 unusable.push(format!("{name}={s:?} is not a number of MiB{hint}"));
                 None
             }
@@ -373,7 +378,9 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
                             .to_string(),
                     );
                 }
-                let Some(l) = limit else { return Ok((Profile::OFF, notes)) };
+                let Some(l) = limit else {
+                    return Ok((Profile::OFF, notes));
+                };
                 (Policy::Accounting, l, l, "")
             }
         }
@@ -384,7 +391,10 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
     let encoder_capacity = if env.card_total != 0 {
         vgpu::encoder_share(fb << 20, env.card_total)
     } else {
-        env.vgpu_encoder.and_then(|v| v.trim().parse::<u32>().ok()).filter(|p| (1..=100).contains(p)).unwrap_or(0)
+        env.vgpu_encoder
+            .and_then(|v| v.trim().parse::<u32>().ok())
+            .filter(|p| (1..=100).contains(p))
+            .unwrap_or(0)
     };
     Ok((
         Profile {
@@ -817,7 +827,9 @@ impl Ledger {
     /// that comes up under a policy nobody chose is worse than one that
     /// does not come up.
     pub fn new() -> Result<Arc<Self>, String> {
-        Ok(Self::with_profile(profile_from_env(crate::grid::card().map_or(0, |c| c.total))?))
+        Ok(Self::with_profile(profile_from_env(
+            crate::grid::card().map_or(0, |c| c.total),
+        )?))
     }
 
     fn with_profile(profile: Profile) -> Arc<Self> {
@@ -894,9 +906,10 @@ impl Ledger {
             if self.profile.fb_length != 0 && next > self.profile.fb_length {
                 return false;
             }
-            match self.used.compare_exchange_weak(
-                cur, next, Ordering::Relaxed, Ordering::Relaxed,
-            ) {
+            match self
+                .used
+                .compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
                 Ok(_) => return true,
                 Err(now) => cur = now,
             }
@@ -908,7 +921,11 @@ impl Ledger {
     /// the same data.
     pub fn register(&self, sub_id: u32, guest_pid: u32, name: &str) {
         let mut r = self.roster.lock().unwrap();
-        let row = r.entry(sub_id).or_insert(ProcRow { guest_pid, bytes: 0, name: String::new() });
+        let row = r.entry(sub_id).or_insert(ProcRow {
+            guest_pid,
+            bytes: 0,
+            name: String::new(),
+        });
         row.guest_pid = guest_pid;
         row.name = name.to_string();
     }
@@ -936,7 +953,12 @@ impl Ledger {
                 empty += 1;
                 continue;
             }
-            s.push_str(&format!(" {sub}={}[{}] {:.1}", r.name, r.guest_pid, mib(r.bytes)));
+            s.push_str(&format!(
+                " {sub}={}[{}] {:.1}",
+                r.name,
+                r.guest_pid,
+                mib(r.bytes)
+            ));
         }
         s.push_str(&format!(
             "; unnamed {:.1}; {empty} more processes hold nothing",
@@ -950,7 +972,10 @@ impl Ledger {
     /// with.
     fn first_placement(&self, ask: &Ask, outcome: Result<u32, u32>) -> bool {
         let (door, class, loc) = ask.kind();
-        self.placements.lock().unwrap().insert((door, class, loc, outcome))
+        self.placements
+            .lock()
+            .unwrap()
+            .insert((door, class, loc, outcome))
     }
 
     /// The guest process is gone -- its session fell.
@@ -992,9 +1017,10 @@ impl Ledger {
         let mut cur = self.used.load(Ordering::Relaxed);
         loop {
             let next = cur.saturating_sub(bytes);
-            match self.used.compare_exchange_weak(
-                cur, next, Ordering::Relaxed, Ordering::Relaxed,
-            ) {
+            match self
+                .used
+                .compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
                 Ok(_) => return,
                 Err(now) => cur = now,
             }
@@ -1059,7 +1085,13 @@ pub struct Books {
 
 impl Books {
     pub fn new(sub_id: u32, ledger: Arc<Ledger>) -> Self {
-        Books { ledger, sub_id, open: HashMap::new(), owed: 0, refusals: HashMap::new() }
+        Books {
+            ledger,
+            sub_id,
+            open: HashMap::new(),
+            owed: 0,
+            refusals: HashMap::new(),
+        }
     }
 
     /// The guest process stated who it is. Only from here on can it appear
@@ -1105,7 +1137,11 @@ impl Books {
     /// once per VM per (door, class, LOCATION asked, LOCATION written
     /// back or failure status), `None` every other time.
     pub fn placement(&self, ask: &Ask, ok: bool, status: u32, attr_out: u32) -> Option<String> {
-        let outcome = if ok { Ok(nvos32_attr::LOCATION.get(attr_out)) } else { Err(status) };
+        let outcome = if ok {
+            Ok(nvos32_attr::LOCATION.get(attr_out))
+        } else {
+            Err(status)
+        };
         if !self.ledger.first_placement(ask, outcome) {
             return None;
         }
@@ -1113,7 +1149,11 @@ impl Books {
             format!(
                 "RM placed it in {} (attr out {attr_out:#010x}), {}",
                 location_name(attr_out),
-                if is_vidmem(attr_out) { "charged" } else { "charge given back" }
+                if is_vidmem(attr_out) {
+                    "charged"
+                } else {
+                    "charge given back"
+                }
             )
         } else {
             format!("RM refused it with status {status:#x}, charge given back")
@@ -1197,8 +1237,8 @@ impl Books {
         self.open.retain(|_, c| {
             // Same client only: two clients may well use the same handle
             // number, and freeing one must not release the other's.
-            let dies = c.root == root && (c.handle == handle || c.parent == handle)
-                || c.root == handle;
+            let dies =
+                c.root == root && (c.handle == handle || c.parent == handle) || c.root == handle;
             if dies {
                 freed += c.bytes;
             }
@@ -1319,7 +1359,9 @@ pub fn rewrite_get_pid_info(aux: &mut [u8], roster: &[ProcRow]) -> Option<usize>
         return None;
     }
     let asked = u32::from_le_bytes(
-        aux[PIDINFO_COUNT_OFF..PIDINFO_COUNT_OFF + 4].try_into().unwrap(),
+        aux[PIDINFO_COUNT_OFF..PIDINFO_COUNT_OFF + 4]
+            .try_into()
+            .unwrap(),
     ) as usize;
     let fits = (aux.len() - PIDINFO_LIST_OFF) / PIDINFO_ENTRY;
     let n = asked.min(PIDINFO_MAX).min(fits);
@@ -1328,7 +1370,10 @@ pub fn rewrite_get_pid_info(aux: &mut [u8], roster: &[ProcRow]) -> Option<usize>
         let pid = u32::from_le_bytes(aux[base..base + 4].try_into().unwrap());
         let index = u32::from_le_bytes(aux[base + 4..base + 8].try_into().unwrap());
         let bytes = if index == PIDINFO_INDEX_VIDEO_MEMORY_USAGE {
-            roster.iter().find(|r| r.guest_pid == pid).map_or(0, |r| r.bytes)
+            roster
+                .iter()
+                .find(|r| r.guest_pid == pid)
+                .map_or(0, |r| r.bytes)
         } else {
             // An index we do not serve. Zero the payload rather than let
             // RM's answer about a foreign PID through.
@@ -1392,8 +1437,6 @@ const _: () = {
 // worse than not capping it at all. total, heap and free therefore all
 // come from one source -- this ledger.
 
-/// `NV2080_CTRL_CMD_FB_GET_INFO_V2` (ctrl2080fb.h:489).
-pub use nvrm_abi::mediate::CMD_FB_GET_INFO_V2;
 /// `NV2080_CTRL_CMD_FB_GET_INFO` (ctrl2080fb.h:480), the V1 form -- the
 /// SAME index list, but the array hangs off an `NvP64` instead of sitting
 /// in the params buffer (`xlate::nested_ptrs`, ptr_off 8).
@@ -1407,6 +1450,8 @@ pub use nvrm_abi::mediate::CMD_FB_GET_INFO_V2;
 /// that heap, so an uncapped answer here is not a cosmetic leak: it is the
 /// VM being invited to overcommit the card.
 pub use nvrm_abi::mediate::CMD_FB_GET_INFO;
+/// `NV2080_CTRL_CMD_FB_GET_INFO_V2` (ctrl2080fb.h:489).
+pub use nvrm_abi::mediate::CMD_FB_GET_INFO_V2;
 /// `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` (ctrl2080gpu.h:325).
 pub use nvrm_abi::mediate::CMD_GPU_GET_NAME_STRING;
 
@@ -1444,7 +1489,9 @@ pub fn rewrite_fb_info(aux: &mut [u8], limit: u64, used: u64) -> Option<usize> {
         return None;
     }
     let asked = u32::from_le_bytes(
-        aux[FBINFO_COUNT_OFF..FBINFO_COUNT_OFF + 4].try_into().unwrap(),
+        aux[FBINFO_COUNT_OFF..FBINFO_COUNT_OFF + 4]
+            .try_into()
+            .unwrap(),
     ) as usize;
     cap_fb_entries(&mut aux[FBINFO_LIST_OFF..], asked, limit, used)
 }
@@ -1456,9 +1503,7 @@ pub fn rewrite_fb_info(aux: &mut [u8], limit: u64, used: u64) -> Option<usize> {
 /// `fbInfoListSize` out of that params buffer. Everything after that is the
 /// V2 path verbatim -- deliberately, because two index tables that could
 /// drift apart is the bug this function exists to prevent.
-pub fn rewrite_fb_info_list(
-    list: &mut [u8], asked: usize, limit: u64, used: u64,
-) -> Option<usize> {
+pub fn rewrite_fb_info_list(list: &mut [u8], asked: usize, limit: u64, used: u64) -> Option<usize> {
     if limit == 0 || list.len() < FBINFO_ENTRY {
         return None;
     }
@@ -1593,15 +1638,23 @@ pub fn rewrite_gpu_name<A: RmAbi>(aux: &mut [u8], profile: Profile) -> Option<St
     if aux.len() < name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>() {
         return None;
     }
-    let raw = &aux[name_off::<nvrm_sys::DefaultAbi>()..name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>()];
-    let end = raw.iter().position(|&c| c == 0).unwrap_or(name_max::<nvrm_sys::DefaultAbi>());
+    let raw = &aux[name_off::<nvrm_sys::DefaultAbi>()
+        ..name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>()];
+    let end = raw
+        .iter()
+        .position(|&c| c == 0)
+        .unwrap_or(name_max::<nvrm_sys::DefaultAbi>());
     let real = String::from_utf8_lossy(&raw[..end]).to_string();
 
     let name = guest_card_name::<nvrm_sys::DefaultAbi>(&real, profile);
     let b = name.as_bytes();
     let n = b.len().min(name_max::<nvrm_sys::DefaultAbi>() - 1);
-    aux[name_off::<nvrm_sys::DefaultAbi>()..name_off::<nvrm_sys::DefaultAbi>() + n].copy_from_slice(&b[..n]);
-    for byte in aux[name_off::<nvrm_sys::DefaultAbi>() + n..name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>()].iter_mut() {
+    aux[name_off::<nvrm_sys::DefaultAbi>()..name_off::<nvrm_sys::DefaultAbi>() + n]
+        .copy_from_slice(&b[..n]);
+    for byte in aux[name_off::<nvrm_sys::DefaultAbi>() + n
+        ..name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>()]
+        .iter_mut()
+    {
         *byte = 0;
     }
     Some(name)
@@ -1628,13 +1681,22 @@ mod tests {
             Some(0x2000_0000)
         );
         // Sysmem staging buffer (hClass 0x3e, LOCATION_PCI).
-        assert_eq!(request_bytes(0x3e, &params(0xc001, 0x3a000000, 0x1000)), None);
+        assert_eq!(
+            request_bytes(0x3e, &params(0xc001, 0x3a000000, 0x1000)),
+            None
+        );
         // 4.2 GB of VIRTUAL address space (hClass 0x50a0) -- occupies nothing.
-        assert_eq!(request_bytes(0x50a0, &params(0x8c415, 0x16000000, 0xfb00_0000)), None);
+        assert_eq!(
+            request_bytes(0x50a0, &params(0x8c415, 0x16000000, 0xfb00_0000)),
+            None
+        );
         // 0x71 carries a 40-byte struct; it must never be decoded here.
         assert_eq!(request_bytes(0x71, &params(0, 0, 0x2000_0000)), None);
         // Short aux is not this struct.
-        assert_eq!(request_bytes(0x40, &params(0x1c101, 0x18000000, 1)[..64]), None);
+        assert_eq!(
+            request_bytes(0x40, &params(0x1c101, 0x18000000, 1)[..64]),
+            None
+        );
     }
 
     /// The table at [`request_bytes`], row by row: of every class and
@@ -1648,19 +1710,36 @@ mod tests {
             nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY),
         );
         assert_eq!(request_bytes(0x40, &params(0, vid, 4096)), Some(4096));
-        assert_eq!(request_bytes(0x40, &params(0, any, 4096)), None, "RM refuses ANY on 0x40");
+        assert_eq!(
+            request_bytes(0x40, &params(0, any, 4096)),
+            None,
+            "RM refuses ANY on 0x40"
+        );
         assert_eq!(request_bytes(0x40, &params(0, pci, 4096)), None, "and PCI");
         for attr in [vid, pci, any] {
-            assert_eq!(request_bytes(0x3e, &params(0, attr, 4096)), None, "0x3e is system memory");
-            assert_eq!(request_bytes(0x50a0, &params(0, attr, 4096)), None, "0x50a0 is address space");
+            assert_eq!(
+                request_bytes(0x3e, &params(0, attr, 4096)),
+                None,
+                "0x3e is system memory"
+            );
+            assert_eq!(
+                request_bytes(0x50a0, &params(0, attr, 4096)),
+                None,
+                "0x50a0 is address space"
+            );
         }
         // PROTECTED 0x3e comes BACK as VIDMEM and is still sysmem: it must
         // not be charged on the way in, because settle would keep it.
         const ALLOC_FLAGS_PROTECTED: u32 = 0x0100_0000;
-        assert_eq!(request_bytes(0x3e, &params(ALLOC_FLAGS_PROTECTED, any, 4096)), None);
+        assert_eq!(
+            request_bytes(0x3e, &params(ALLOC_FLAGS_PROTECTED, any, 4096)),
+            None
+        );
 
         // The other door: RM picks the class from the same two fields.
-        let ask = |flags, attr| vidheap_request_bytes(&nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, flags, attr, 4096));
+        let ask = |flags, attr| {
+            vidheap_request_bytes(&nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, flags, attr, 4096))
+        };
         assert_eq!(ask(0, vid), Some(4096), "VIDMEM -> 0x40");
         assert_eq!(ask(0, any), None, "ANY -> 0x3e, system memory");
         assert_eq!(ask(0, pci), None, "PCI -> 0x3e");
@@ -1678,7 +1757,17 @@ mod tests {
         assert_eq!(led.used(), 4096);
         // RM wrote something other than VIDMEM back -> the charge goes back.
         let pci = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_PCI);
-        b.settle(true, pci, Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: 0x5c0000ab, bytes: 4096 });
+        b.settle(
+            true,
+            pci,
+            Charge {
+                token: 1,
+                root: 0xc1d8,
+                parent: 0x5c000002,
+                handle: 0x5c0000ab,
+                bytes: 4096,
+            },
+        );
         assert_eq!(led.used(), 0);
     }
 
@@ -1687,7 +1776,17 @@ mod tests {
         let led = Ledger::for_test(1 << 20);
         let mut b = Books::new(7, led.clone());
         assert!(b.reserve(4096));
-        b.settle(false, 0, Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: 0x5c0000ab, bytes: 4096 });
+        b.settle(
+            false,
+            0,
+            Charge {
+                token: 1,
+                root: 0xc1d8,
+                parent: 0x5c000002,
+                handle: 0x5c0000ab,
+                bytes: 4096,
+            },
+        );
         assert_eq!(led.used(), 0);
         assert_eq!(b.owed(), 0);
     }
@@ -1699,9 +1798,29 @@ mod tests {
         let vid = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM);
 
         assert!(b.reserve(4096));
-        b.settle(true, vid, Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: 0xaa, bytes: 4096 });
+        b.settle(
+            true,
+            vid,
+            Charge {
+                token: 1,
+                root: 0xc1d8,
+                parent: 0x5c000002,
+                handle: 0xaa,
+                bytes: 4096,
+            },
+        );
         assert!(b.reserve(4096));
-        b.settle(true, vid, Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: 0xbb, bytes: 4096 });
+        b.settle(
+            true,
+            vid,
+            Charge {
+                token: 1,
+                root: 0xc1d8,
+                parent: 0x5c000002,
+                handle: 0xbb,
+                bytes: 4096,
+            },
+        );
         assert_eq!(led.used(), 8192);
 
         // Full.
@@ -1721,11 +1840,25 @@ mod tests {
             let mut b = Books::new(7, led.clone());
             for h in [0xaau32, 0xbb, 0xcc] {
                 assert!(b.reserve(4096));
-                b.settle(true, vid, Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: h, bytes: 4096 });
+                b.settle(
+                    true,
+                    vid,
+                    Charge {
+                        token: 1,
+                        root: 0xc1d8,
+                        parent: 0x5c000002,
+                        handle: h,
+                        bytes: 4096,
+                    },
+                );
             }
             assert_eq!(led.used(), 12288);
             b.free_object(0xc1d8, victim);
-            assert_eq!(led.used(), 0, "freeing {victim:#x} must take the memory objects");
+            assert_eq!(
+                led.used(),
+                0,
+                "freeing {victim:#x} must take the memory objects"
+            );
         }
     }
 
@@ -1740,9 +1873,29 @@ mod tests {
         let mut b = Books::new(7, led.clone());
 
         assert!(b.reserve(4096));
-        b.settle(true, vid, Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: 0xaa, bytes: 4096 });
+        b.settle(
+            true,
+            vid,
+            Charge {
+                token: 1,
+                root: 0xc1d8,
+                parent: 0x5c000002,
+                handle: 0xaa,
+                bytes: 4096,
+            },
+        );
         assert!(b.reserve(4096));
-        b.settle(true, vid, Charge { token: 1, root: 0xdddd, parent: 0x5c000002, handle: 0xaa, bytes: 4096 });
+        b.settle(
+            true,
+            vid,
+            Charge {
+                token: 1,
+                root: 0xdddd,
+                parent: 0x5c000002,
+                handle: 0xaa,
+                bytes: 4096,
+            },
+        );
         assert_eq!(led.used(), 8192, "two clients, two charges");
 
         b.free_object(0xc1d8, 0xaa);
@@ -1757,9 +1910,29 @@ mod tests {
         let led = Ledger::for_test(1 << 30);
         let mut b = Books::new(7, led.clone());
         b.reserve(4096);
-        b.settle(true, vid, Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: 0xaa, bytes: 4096 });
+        b.settle(
+            true,
+            vid,
+            Charge {
+                token: 1,
+                root: 0xc1d8,
+                parent: 0x5c000002,
+                handle: 0xaa,
+                bytes: 4096,
+            },
+        );
         b.reserve(4096);
-        b.settle(true, vid, Charge { token: 2, root: 0xdddd, parent: 0x5c000002, handle: 0xbb, bytes: 4096 });
+        b.settle(
+            true,
+            vid,
+            Charge {
+                token: 2,
+                root: 0xdddd,
+                parent: 0x5c000002,
+                handle: 0xbb,
+                bytes: 4096,
+            },
+        );
 
         b.close_token(1);
         assert_eq!(led.used(), 4096, "only the charge on token 1 goes");
@@ -1775,7 +1948,17 @@ mod tests {
             let mut b = Books::new(7, led.clone());
             for h in 0..10u32 {
                 assert!(b.reserve(1 << 20));
-                b.settle(true, vid, Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: h, bytes: 1 << 20 });
+                b.settle(
+                    true,
+                    vid,
+                    Charge {
+                        token: 1,
+                        root: 0xc1d8,
+                        parent: 0x5c000002,
+                        handle: h,
+                        bytes: 1 << 20,
+                    },
+                );
             }
             assert_eq!(led.used(), 10 << 20);
         }
@@ -1809,9 +1992,17 @@ mod tests {
         let mut b = Books::new(7, led.clone());
 
         assert!(b.reserve(8 << 30), "without a limit nothing is refused");
-        b.settle(true, vid, Charge {
-            token: 1, root: 0xc1d8, parent: 0x5c000002, handle: 0xaa, bytes: 8 << 30,
-        });
+        b.settle(
+            true,
+            vid,
+            Charge {
+                token: 1,
+                root: 0xc1d8,
+                parent: 0x5c000002,
+                handle: 0xaa,
+                bytes: 8 << 30,
+            },
+        );
         assert_eq!(led.used(), 8 << 30, "and it is still counted");
         assert_eq!(b.owed(), 8 << 30);
 
@@ -1837,9 +2028,17 @@ mod tests {
             assert_eq!(led.roster()[0].bytes, 0);
 
             b.reserve(4 << 20);
-            b.settle(true, vid, Charge {
-                token: 1, root: 0xc1d8, parent: 0x5c000002, handle: 0xaa, bytes: 4 << 20,
-            });
+            b.settle(
+                true,
+                vid,
+                Charge {
+                    token: 1,
+                    root: 0xc1d8,
+                    parent: 0x5c000002,
+                    handle: 0xaa,
+                    bytes: 4 << 20,
+                },
+            );
             assert_eq!(led.roster()[0].bytes, 4 << 20, "the row tracks the bytes");
 
             b.free_object(0xc1d8, 0xaa);
@@ -1849,7 +2048,6 @@ mod tests {
     }
 
     // ---- the card the guest sees ---------------------------------------
-
 
     fn pids_buf() -> Vec<u8> {
         // As RM leaves it: three HOST pids, count 3.
@@ -1875,8 +2073,16 @@ mod tests {
         let mut v = pids_buf();
         assert_eq!(pid_at(&v, 0), 1036, "RM really did put a host PID there");
         let roster = vec![
-            ProcRow { guest_pid: 4674, bytes: 380 << 20, name: "python3".into() },
-            ProcRow { guest_pid: 4676, bytes: 648 << 20, name: "python3".into() },
+            ProcRow {
+                guest_pid: 4674,
+                bytes: 380 << 20,
+                name: "python3".into(),
+            },
+            ProcRow {
+                guest_pid: 4676,
+                bytes: 648 << 20,
+                name: "python3".into(),
+            },
         ];
         assert_eq!(rewrite_get_pids(&mut v, &roster), Some(2));
         assert_eq!(
@@ -1885,9 +2091,17 @@ mod tests {
         );
         assert_eq!(pid_at(&v, 0), 4674);
         assert_eq!(pid_at(&v, 1), 4676);
-        assert_eq!(pid_at(&v, 2), 0, "the third host PID was overwritten, not left behind");
+        assert_eq!(
+            pid_at(&v, 2),
+            0,
+            "the third host PID was overwritten, not left behind"
+        );
         for i in 2..PIDS_MAX {
-            assert_eq!(pid_at(&v, i), 0, "no host PID survives anywhere in the table");
+            assert_eq!(
+                pid_at(&v, i),
+                0,
+                "no host PID survives anywhere in the table"
+            );
         }
     }
 
@@ -1924,16 +2138,31 @@ mod tests {
     fn pid_info_is_answered_from_our_own_books() {
         let mut v = info_buf(&[(4674, 0), (4676, 0), (9999, 0)], PIDINFO_LEN);
         let roster = vec![
-            ProcRow { guest_pid: 4674, bytes: 380 << 20, name: "python3".into() },
-            ProcRow { guest_pid: 4676, bytes: 648 << 20, name: "python3".into() },
+            ProcRow {
+                guest_pid: 4674,
+                bytes: 380 << 20,
+                name: "python3".into(),
+            },
+            ProcRow {
+                guest_pid: 4676,
+                bytes: 648 << 20,
+                name: "python3".into(),
+            },
         ];
         assert_eq!(rewrite_get_pid_info(&mut v, &roster), Some(3));
         assert_eq!(priv_at(&v, 0), 380 << 20);
         assert_eq!(priv_at(&v, 1), 648 << 20);
-        assert_eq!(priv_at(&v, 2), 0, "a PID that is not ours holds nothing of ours");
+        assert_eq!(
+            priv_at(&v, 2),
+            0,
+            "a PID that is not ours holds nothing of ours"
+        );
         for i in 0..3 {
             let o = PIDINFO_LIST_OFF + PIDINFO_ENTRY * i + 8;
-            assert_eq!(u32::from_le_bytes(v[o..o + 4].try_into().unwrap()), sys::NV_OK);
+            assert_eq!(
+                u32::from_le_bytes(v[o..o + 4].try_into().unwrap()),
+                sys::NV_OK
+            );
         }
     }
 
@@ -1946,9 +2175,17 @@ mod tests {
         let mut v = vec![0u8; len];
         v[PIDINFO_COUNT_OFF..PIDINFO_COUNT_OFF + 4]
             .copy_from_slice(&(PIDINFO_MAX as u32).to_le_bytes());
-        assert_eq!(rewrite_get_pid_info(&mut v, &[]), Some(2), "clamped to what fits");
         assert_eq!(
-            u32::from_le_bytes(v[PIDINFO_COUNT_OFF..PIDINFO_COUNT_OFF + 4].try_into().unwrap()),
+            rewrite_get_pid_info(&mut v, &[]),
+            Some(2),
+            "clamped to what fits"
+        );
+        assert_eq!(
+            u32::from_le_bytes(
+                v[PIDINFO_COUNT_OFF..PIDINFO_COUNT_OFF + 4]
+                    .try_into()
+                    .unwrap()
+            ),
             2,
             "and the guest is told the truth about how many it got"
         );
@@ -1984,16 +2221,27 @@ mod tests {
         let limit = 2048u64 << 20;
         let used = 982u64 << 20;
         assert_eq!(rewrite_fb_info(&mut v, limit, used), Some(3));
-        assert_eq!(fb_at(&v, 0), ((limit - used) / 1024) as u32, "free = limit - used");
+        assert_eq!(
+            fb_at(&v, 0),
+            ((limit - used) / 1024) as u32,
+            "free = limit - used"
+        );
         assert_eq!(fb_at(&v, 1), (limit / 1024) as u32);
         assert_eq!(fb_at(&v, 2), (limit / 1024) as u32);
-        assert!(fb_at(&v, 0) < fb_at(&v, 1), "free below total, in every case");
+        assert!(
+            fb_at(&v, 0) < fb_at(&v, 1),
+            "free below total, in every case"
+        );
     }
 
     /// Indices that are not sizes are RM's business and stay untouched.
     #[test]
     fn non_size_indices_are_left_alone() {
-        let mut v = fb_buf(&[(0x1a, 0xf), (FB_INFO_INDEX_HEAP_SIZE, 0x797240), (0x23, 0x20)]);
+        let mut v = fb_buf(&[
+            (0x1a, 0xf),
+            (FB_INFO_INDEX_HEAP_SIZE, 0x797240),
+            (0x23, 0x20),
+        ]);
         assert_eq!(rewrite_fb_info(&mut v, 1 << 30, 0), Some(1));
         assert_eq!(fb_at(&v, 0), 0xf);
         assert_eq!(fb_at(&v, 2), 0x20);
@@ -2041,13 +2289,23 @@ mod tests {
         let mut v2 = fb_buf(&entries);
         let mut v1 = fb_list(&entries);
         assert_eq!(rewrite_fb_info(&mut v2, limit, used), Some(3));
-        assert_eq!(rewrite_fb_info_list(&mut v1, entries.len(), limit, used), Some(3));
+        assert_eq!(
+            rewrite_fb_info_list(&mut v1, entries.len(), limit, used),
+            Some(3)
+        );
 
         for i in 0..entries.len() {
-            assert_eq!(list_at(&v1, i), fb_at(&v2, i),
-                "entry {i}: the two doors disagree about the same card");
+            assert_eq!(
+                list_at(&v1, i),
+                fb_at(&v2, i),
+                "entry {i}: the two doors disagree about the same card"
+            );
         }
-        assert_eq!(list_at(&v1, 1), (limit / 1024) as u32, "8 GiB card capped to 2 GiB");
+        assert_eq!(
+            list_at(&v1, 1),
+            (limit / 1024) as u32,
+            "8 GiB card capped to 2 GiB"
+        );
     }
 
     /// The count comes from the params buffer, the room from the nested
@@ -2091,7 +2349,11 @@ mod tests {
         let nvos32 = nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, attr, size);
 
         assert_eq!(request_bytes(0x0040, &nvos64), Some(size));
-        assert_eq!(vidheap_request_bytes(&nvos32), Some(size), "the other door must agree");
+        assert_eq!(
+            vidheap_request_bytes(&nvos32),
+            Some(size),
+            "the other door must agree"
+        );
     }
 
     /// The three refusals are the same three, in the same order.
@@ -2100,22 +2362,35 @@ mod tests {
         let size = 64u64 << 20;
         assert_eq!(
             vidheap_request_bytes(&nvos32(
-                sys::NVOS32_FUNCTION_ALLOC_SIZE, ALLOC_FLAGS_VIRTUAL, vidmem_attr(), size)),
-            None, "a virtual reservation holds no memory"
+                sys::NVOS32_FUNCTION_ALLOC_SIZE,
+                ALLOC_FLAGS_VIRTUAL,
+                vidmem_attr(),
+                size
+            )),
+            None,
+            "a virtual reservation holds no memory"
         );
         let sysmem = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_PCI);
         assert_eq!(
             vidheap_request_bytes(&nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, sysmem, size)),
-            None, "sysmem is not this cap's business"
+            None,
+            "sysmem is not this cap's business"
         );
         let any = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY);
         assert_eq!(
             vidheap_request_bytes(&nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, any, size)),
-            None, "neither is ANY, which RM allocates as 0x3e"
+            None,
+            "neither is ANY, which RM allocates as 0x3e"
         );
         assert_eq!(
-            vidheap_request_bytes(&nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, vidmem_attr(), 0)),
-            None, "a zero-size allocation is RM's problem"
+            vidheap_request_bytes(&nvos32(
+                sys::NVOS32_FUNCTION_ALLOC_SIZE,
+                0,
+                vidmem_attr(),
+                0
+            )),
+            None,
+            "a zero-size allocation is RM's problem"
         );
     }
 
@@ -2124,13 +2399,21 @@ mod tests {
     /// handle and flags exactly where AllocSize holds a size.
     #[test]
     fn only_alloc_size_is_an_allocation() {
-        for f in [sys::NVOS32_FUNCTION_FREE, sys::NVOS32_FUNCTION_INFO,
-                  sys::NVOS32_FUNCTION_ALLOC_SIZE_RANGE, sys::NVOS32_FUNCTION_HW_FREE] {
+        for f in [
+            sys::NVOS32_FUNCTION_FREE,
+            sys::NVOS32_FUNCTION_INFO,
+            sys::NVOS32_FUNCTION_ALLOC_SIZE_RANGE,
+            sys::NVOS32_FUNCTION_HW_FREE,
+        ] {
             let mut v = nvos32(f, 0, vidmem_attr(), 4 << 20);
             // Whatever those bytes mean for THIS function, they are not a
             // size, and nothing may be charged for them.
             v[VA_SIZE..VA_SIZE + 8].copy_from_slice(&u64::MAX.to_le_bytes());
-            assert_eq!(vidheap_request_bytes(&v), None, "function {f} is not an allocation");
+            assert_eq!(
+                vidheap_request_bytes(&v),
+                None,
+                "function {f} is not an allocation"
+            );
         }
     }
 
@@ -2180,9 +2463,21 @@ mod tests {
             (FB_INFO_INDEX_HEAP_SIZE, 0x797240),
         ]);
         assert_eq!(rewrite_fb_info(&mut v2, limit, used), Some(2));
-        assert_eq!(u64_at(&info, V_FREE), fb_at(&v2, 0) as u64 * 1024, "free agrees");
-        assert_eq!(u64_at(&info, V_TOTAL), fb_at(&v2, 1) as u64 * 1024, "total agrees with the heap");
-        assert_eq!(u64_at(&info, V_DATA + 16), 0x1234_5000, "data.Info is RM's and stays");
+        assert_eq!(
+            u64_at(&info, V_FREE),
+            fb_at(&v2, 0) as u64 * 1024,
+            "free agrees"
+        );
+        assert_eq!(
+            u64_at(&info, V_TOTAL),
+            fb_at(&v2, 1) as u64 * 1024,
+            "total agrees with the heap"
+        );
+        assert_eq!(
+            u64_at(&info, V_DATA + 16),
+            0x1234_5000,
+            "data.Info is RM's and stays"
+        );
     }
 
     /// Past the limit there is nothing free, not a wrapped 16 EiB.
@@ -2199,8 +2494,12 @@ mod tests {
     /// the VM has the whole card, on this door as on the others.
     #[test]
     fn nvos32_info_is_rewritten_only_for_info_and_only_under_a_cap() {
-        for f in [sys::NVOS32_FUNCTION_ALLOC_SIZE, sys::NVOS32_FUNCTION_FREE,
-                  sys::NVOS32_FUNCTION_ALLOC_SIZE_RANGE, sys::NVOS32_FUNCTION_HW_FREE] {
+        for f in [
+            sys::NVOS32_FUNCTION_ALLOC_SIZE,
+            sys::NVOS32_FUNCTION_FREE,
+            sys::NVOS32_FUNCTION_ALLOC_SIZE_RANGE,
+            sys::NVOS32_FUNCTION_HW_FREE,
+        ] {
             let v = nvos32(f, 0, vidmem_attr(), 4 << 20);
             let mut w = v.clone();
             assert!(!rewrite_vidheap_info(&mut w, 1 << 30, 0), "function {f}");
@@ -2225,12 +2524,27 @@ mod tests {
     #[test]
     fn the_card_says_what_it_is() {
         let real = "NVIDIA GeForce RTX 2070";
-        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::OFF), "Leandro RTX 2070");
-        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::accounting(2048 << 20)), "Leandro RTX 2070-2G");
-        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::accounting(1024 << 20)), "Leandro RTX 2070-1G");
-        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::accounting(1536 << 20)), "Leandro RTX 2070-1536M");
         assert_eq!(
-            guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA A100-SXM4-40GB", Profile::accounting(10240 << 20)),
+            guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::OFF),
+            "Leandro RTX 2070"
+        );
+        assert_eq!(
+            guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::accounting(2048 << 20)),
+            "Leandro RTX 2070-2G"
+        );
+        assert_eq!(
+            guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::accounting(1024 << 20)),
+            "Leandro RTX 2070-1G"
+        );
+        assert_eq!(
+            guest_card_name::<nvrm_sys::DefaultAbi>(real, Profile::accounting(1536 << 20)),
+            "Leandro RTX 2070-1536M"
+        );
+        assert_eq!(
+            guest_card_name::<nvrm_sys::DefaultAbi>(
+                "NVIDIA A100-SXM4-40GB",
+                Profile::accounting(10240 << 20)
+            ),
             "Leandro A100-SXM4-40GB-10G"
         );
     }
@@ -2247,28 +2561,58 @@ mod tests {
         // rather than being truncated into a wrong profile size.
         let b53 = "X".repeat(53);
         assert_eq!(
-            guest_card_name::<nvrm_sys::DefaultAbi>(&format!("NVIDIA GeForce {b53}"), Profile::accounting(2048 << 20)),
+            guest_card_name::<nvrm_sys::DefaultAbi>(
+                &format!("NVIDIA GeForce {b53}"),
+                Profile::accounting(2048 << 20)
+            ),
             format!("Leandro {b53}")
         );
         // 8 + 56 = 64 -> even the bare name does not fit. Say the one thing
         // that matters and stop.
         let b56 = "X".repeat(56);
-        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(&format!("NVIDIA GeForce {b56}"), Profile::accounting(2048 << 20)), "Leandro GPU");
+        assert_eq!(
+            guest_card_name::<nvrm_sys::DefaultAbi>(
+                &format!("NVIDIA GeForce {b56}"),
+                Profile::accounting(2048 << 20)
+            ),
+            "Leandro GPU"
+        );
         // and the longest name that DOES fit still fits, to the last byte
         let b55 = "X".repeat(55);
-        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>(&format!("NVIDIA GeForce {b55}"), Profile::OFF).len(), 63);
+        assert_eq!(
+            guest_card_name::<nvrm_sys::DefaultAbi>(&format!("NVIDIA GeForce {b55}"), Profile::OFF)
+                .len(),
+            63
+        );
     }
 
     #[test]
     fn the_name_is_written_nul_terminated() {
-        let mut v = vec![0xffu8; name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>()];
+        let mut v =
+            vec![0xffu8; name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>()];
         let real = b"NVIDIA GeForce RTX 2070";
-        v[name_off::<nvrm_sys::DefaultAbi>()..name_off::<nvrm_sys::DefaultAbi>() + real.len()].copy_from_slice(real);
+        v[name_off::<nvrm_sys::DefaultAbi>()..name_off::<nvrm_sys::DefaultAbi>() + real.len()]
+            .copy_from_slice(real);
         v[name_off::<nvrm_sys::DefaultAbi>() + real.len()] = 0;
-        assert_eq!(rewrite_gpu_name::<nvrm_sys::DefaultAbi>(&mut v, Profile::accounting(2048 << 20)).as_deref(), Some("Leandro RTX 2070-2G"));
-        let end = v[name_off::<nvrm_sys::DefaultAbi>()..].iter().position(|&c| c == 0).unwrap();
-        assert_eq!(&v[name_off::<nvrm_sys::DefaultAbi>()..name_off::<nvrm_sys::DefaultAbi>() + end], b"Leandro RTX 2070-2G");
-        assert!(v[name_off::<nvrm_sys::DefaultAbi>() + end..].iter().all(|&c| c == 0), "the tail is padded, not left over");
+        assert_eq!(
+            rewrite_gpu_name::<nvrm_sys::DefaultAbi>(&mut v, Profile::accounting(2048 << 20))
+                .as_deref(),
+            Some("Leandro RTX 2070-2G")
+        );
+        let end = v[name_off::<nvrm_sys::DefaultAbi>()..]
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap();
+        assert_eq!(
+            &v[name_off::<nvrm_sys::DefaultAbi>()..name_off::<nvrm_sys::DefaultAbi>() + end],
+            b"Leandro RTX 2070-2G"
+        );
+        assert!(
+            v[name_off::<nvrm_sys::DefaultAbi>() + end..]
+                .iter()
+                .all(|&c| c == 0),
+            "the tail is padded, not left over"
+        );
     }
 
     /// A caller that never stated who it is has no guest PID -- and an
@@ -2293,13 +2637,22 @@ mod tests {
     const MIB: u64 = 1 << 20;
 
     fn three<'a>(
-        limit: Option<&'a str>, profile: Option<&'a str>, reserve: Option<&'a str>,
+        limit: Option<&'a str>,
+        profile: Option<&'a str>,
+        reserve: Option<&'a str>,
     ) -> RawEnv<'a> {
-        RawEnv { limit, profile, reserve, ..RawEnv::default() }
+        RawEnv {
+            limit,
+            profile,
+            reserve,
+            ..RawEnv::default()
+        }
     }
 
     fn ok(limit: Option<&str>, profile: Option<&str>, reserve: Option<&str>) -> Profile {
-        decide(three(limit, profile, reserve)).expect("configuration refused").0
+        decide(three(limit, profile, reserve))
+            .expect("configuration refused")
+            .0
     }
 
     #[test]
@@ -2308,7 +2661,10 @@ mod tests {
         // ... and neither has the shape the rig actually passes.
         let (p, notes) = decide(three(Some(""), Some(""), Some(""))).unwrap();
         assert_eq!(p, Profile::OFF);
-        assert!(notes.is_empty(), "an unset knob is not worth a warning: {notes:?}");
+        assert!(
+            notes.is_empty(),
+            "an unset knob is not worth a warning: {notes:?}"
+        );
     }
 
     #[test]
@@ -2362,7 +2718,10 @@ mod tests {
     #[test]
     fn a_reservation_that_eats_the_profile_is_refused() {
         assert!(decide(three(None, Some("256"), Some("256"))).is_err());
-        assert!(decide(three(None, Some("128"), None)).is_err(), "the default eats a small profile");
+        assert!(
+            decide(three(None, Some("128"), None)).is_err(),
+            "the default eats a small profile"
+        );
         // One MiB of framebuffer is a policy, not a contradiction.
         assert_eq!(ok(None, Some("257"), Some("256")).fb_length, MIB);
     }
@@ -2373,10 +2732,19 @@ mod tests {
     #[test]
     fn a_value_that_is_not_mib_refuses_to_start() {
         let e = decide(three(Some("3 GiB"), None, None)).unwrap_err();
-        assert!(e.contains("LEA_VRAM_LIMIT_MIB=\"3 GiB\"") && e.contains("write 3072"), "{e}");
+        assert!(
+            e.contains("LEA_VRAM_LIMIT_MIB=\"3 GiB\"") && e.contains("write 3072"),
+            "{e}"
+        );
         let e = decide(grid("RTX2070-4Q", "4G", "3072")).unwrap_err();
-        assert!(e.contains("LEA_VGPU_PROFILE_MIB") && e.contains("write 4096"), "{e}");
-        assert!(decide(three(None, Some("-1"), None)).is_err(), "a negative number is no size either");
+        assert!(
+            e.contains("LEA_VGPU_PROFILE_MIB") && e.contains("write 4096"),
+            "{e}"
+        );
+        assert!(
+            decide(three(None, Some("-1"), None)).is_err(),
+            "a negative number is no size either"
+        );
         // A reservation without a profile reserves from nothing. That is
         // worth a line, because the operator plainly meant something.
         let (p, notes) = decide(three(None, None, Some("256"))).unwrap();
@@ -2395,7 +2763,10 @@ mod tests {
         let p = ok(None, Some("3072"), None);
         let led = Ledger::for_test_profile(p);
         assert_eq!(led.limit(), p.fb_length);
-        assert!(led.limit() < p.size, "the reservation is real, or it is nothing");
+        assert!(
+            led.limit() < p.size,
+            "the reservation is real, or it is nothing"
+        );
 
         // What the guest's nvidia-smi and every Vulkan client are told.
         let mut v = fb_buf(&[
@@ -2404,12 +2775,23 @@ mod tests {
             (FB_INFO_INDEX_HEAP_FREE, 0x69f000),
         ]);
         assert_eq!(rewrite_fb_info(&mut v, led.limit(), led.used()), Some(3));
-        assert_eq!(fb_at(&v, 0), (p.fb_length / 1024) as u32, "total is fbLength");
+        assert_eq!(
+            fb_at(&v, 0),
+            (p.fb_length / 1024) as u32,
+            "total is fbLength"
+        );
         assert_eq!(fb_at(&v, 1), (p.fb_length / 1024) as u32);
-        assert_eq!(fb_at(&v, 2), (p.fb_length / 1024) as u32, "and so is free, empty");
+        assert_eq!(
+            fb_at(&v, 2),
+            (p.fb_length / 1024) as u32,
+            "and so is free, empty"
+        );
 
         // ... and the card's name says the same number, not the profile.
-        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", p), "Leandro RTX 2070-2816M");
+        assert_eq!(
+            guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", p),
+            "Leandro RTX 2070-2816M"
+        );
 
         // The enforced number is fbLength: the last byte of it goes in, the
         // next one does not, and the reservation is never available.
@@ -2429,10 +2811,16 @@ mod tests {
         let resv = Ledger::for_test_profile(ok(None, Some("3072"), None));
         assert_eq!(acct.limit(), 3072 * MIB);
         assert_eq!(resv.limit(), 2816 * MIB);
-        assert_eq!(acct.profile().size, resv.profile().size, "same bill to the card");
-        assert!(resv.limit() < acct.limit(), "and a different one to the guest");
+        assert_eq!(
+            acct.profile().size,
+            resv.profile().size,
+            "same bill to the card"
+        );
+        assert!(
+            resv.limit() < acct.limit(),
+            "and a different one to the guest"
+        );
     }
-
 
     // =======================================================================
     // The vGPU-shaped policy (number 69)
@@ -2464,8 +2852,11 @@ mod tests {
         assert_eq!(p.vgpu_type, "RTX2070-2Q");
 
         // A name on its own is a name for something nobody computed.
-        let e = decide(RawEnv { vgpu_type: Some("RTX2070-2Q"), ..RawEnv::default() })
-            .unwrap_err();
+        let e = decide(RawEnv {
+            vgpu_type: Some("RTX2070-2Q"),
+            ..RawEnv::default()
+        })
+        .unwrap_err();
         assert!(e.contains("vgpuprofile"), "{e}");
         // ... and a profile that reserves nothing is not a vGPU profile.
         assert!(decide(grid("RTX2070-2Q", "2048", "2048")).is_err());
@@ -2489,7 +2880,10 @@ mod tests {
     #[test]
     fn the_grid_card_is_named_after_its_framebuffer() {
         let p = decide(grid("RTX2070-2Q", "2048", "1536")).unwrap().0;
-        assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", p), "Leandro RTX 2070-1536M");
+        assert_eq!(
+            guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", p),
+            "Leandro RTX 2070-1536M"
+        );
 
         // ... and the sizes it is told are the type's, not the card's.
         let led = Ledger::for_test_profile(p);
@@ -2510,21 +2904,45 @@ mod tests {
     #[test]
     fn the_same_framebuffer_is_the_same_card_under_every_policy() {
         let card = 8192 * MIB;
-        let with_card = |env: RawEnv| decide(RawEnv { card_total: card, ..env }).unwrap().0;
+        let with_card = |env: RawEnv| {
+            decide(RawEnv {
+                card_total: card,
+                ..env
+            })
+            .unwrap()
+            .0
+        };
         let profiles = [
             with_card(three(Some("3072"), None, None)),
             with_card(three(None, Some("3328"), None)),
-            with_card(RawEnv { vgpu_encoder: Some("50"), ..grid("RTX2070-4Q", "3968", "3072") }),
+            with_card(RawEnv {
+                vgpu_encoder: Some("50"),
+                ..grid("RTX2070-4Q", "3968", "3072")
+            }),
             with_card(grid("RTX2070-3G", "3968", "3072")),
         ];
         for p in profiles {
             assert_eq!(p.fb_length, 3072 * MIB);
             assert_eq!(p.encoder_capacity, 37, "{:?}", p.policy);
-            assert_eq!(guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", p), "Leandro RTX 2070-3G");
+            assert_eq!(
+                guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", p),
+                "Leandro RTX 2070-3G"
+            );
         }
-        let launcher = RawEnv { vgpu_encoder: Some("37"), ..grid("RTX2070-3G", "3968", "3072") };
-        assert_eq!(decide(launcher).unwrap().0.encoder_capacity, 37, "no card: the launcher's share");
-        assert_eq!(with_card(RawEnv::default()).encoder_capacity, 0, "no cap: RM's own answer");
+        let launcher = RawEnv {
+            vgpu_encoder: Some("37"),
+            ..grid("RTX2070-3G", "3968", "3072")
+        };
+        assert_eq!(
+            decide(launcher).unwrap().0.encoder_capacity,
+            37,
+            "no card: the launcher's share"
+        );
+        assert_eq!(
+            with_card(RawEnv::default()).encoder_capacity,
+            0,
+            "no cap: RM's own answer"
+        );
     }
 
     /// The other two policies keep the name they had, and this is the
@@ -2532,11 +2950,17 @@ mod tests {
     #[test]
     fn the_older_policies_keep_their_names() {
         assert_eq!(
-            guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", Profile::accounting(3072 * MIB)),
+            guest_card_name::<nvrm_sys::DefaultAbi>(
+                "NVIDIA GeForce RTX 2070",
+                Profile::accounting(3072 * MIB)
+            ),
             "Leandro RTX 2070-3G"
         );
         assert_eq!(
-            guest_card_name::<nvrm_sys::DefaultAbi>("NVIDIA GeForce RTX 2070", ok(None, Some("3072"), None)),
+            guest_card_name::<nvrm_sys::DefaultAbi>(
+                "NVIDIA GeForce RTX 2070",
+                ok(None, Some("3072"), None)
+            ),
             "Leandro RTX 2070-2816M"
         );
     }
@@ -2553,16 +2977,28 @@ mod tests {
         let any = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY);
         let ask = Ask::of_alloc(Door::Nvos64, 0x40, &params(0x1c101, any, 512 << 20)).unwrap();
         let line = ask.to_string();
-        assert!(line.starts_with("NVOS64 RM_ALLOC class 0x40 flags 0x1c101"), "{line}");
-        assert!(line.contains("(ANY)") && line.contains("(512.0 MiB)"), "{line}");
+        assert!(
+            line.starts_with("NVOS64 RM_ALLOC class 0x40 flags 0x1c101"),
+            "{line}"
+        );
+        assert!(
+            line.contains("(ANY)") && line.contains("(512.0 MiB)"),
+            "{line}"
+        );
 
         let v = nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, vidmem_attr(), 4 << 20);
         let line = Ask::of_vidheap(&v).unwrap().to_string();
-        assert!(line.starts_with("NVOS32 VID_HEAP ALLOC_SIZE flags 0x0"), "{line}");
+        assert!(
+            line.starts_with("NVOS32 VID_HEAP ALLOC_SIZE flags 0x0"),
+            "{line}"
+        );
         assert!(line.contains("(VIDMEM)"), "{line}");
 
         // FREE shares the struct and is not a request.
-        assert_eq!(Ask::of_vidheap(&nvos32(sys::NVOS32_FUNCTION_FREE, 0, 0, 0)), None);
+        assert_eq!(
+            Ask::of_vidheap(&nvos32(sys::NVOS32_FUNCTION_FREE, 0, 0, 0)),
+            None
+        );
     }
 
     /// One process retrying one kind a thousand times must not use up the
@@ -2572,14 +3008,26 @@ mod tests {
         let led = Ledger::for_test(1 << 20);
         let mut b = Books::new(7, led);
         let vid = Ask::of_alloc(Door::Nvos64, 0x40, &params(0, vidmem_attr(), 4096)).unwrap();
-        let logged = (0..1000).filter(|_| b.count_refusal(&vid).is_some()).count();
+        let logged = (0..1000)
+            .filter(|_| b.count_refusal(&vid).is_some())
+            .count();
         assert_eq!(logged, 8 + 10, "the first eight, then every hundredth");
 
         let pci = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_PCI);
         let other = Ask::of_alloc(Door::Nvos64, 0x3e, &params(0, pci, 4096)).unwrap();
         assert_eq!(b.count_refusal(&other), Some(1));
-        let door = Ask::of_vidheap(&nvos32(sys::NVOS32_FUNCTION_ALLOC_SIZE, 0, vidmem_attr(), 4096)).unwrap();
-        assert_eq!(b.count_refusal(&door), Some(1), "the other door is another kind");
+        let door = Ask::of_vidheap(&nvos32(
+            sys::NVOS32_FUNCTION_ALLOC_SIZE,
+            0,
+            vidmem_attr(),
+            4096,
+        ))
+        .unwrap();
+        assert_eq!(
+            b.count_refusal(&door),
+            Some(1),
+            "the other door is another kind"
+        );
     }
 
     /// Where RM put a LOCATION_ANY is said once per VM per outcome, not
@@ -2592,14 +3040,27 @@ mod tests {
         let any = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY);
         let ask = Ask::of_alloc(Door::Nvos64, 0x40, &params(0, any, 4096)).unwrap();
 
-        let line = b1.placement(&ask, true, 0, vidmem_attr()).expect("the first is named");
-        assert!(line.contains("RM placed it in VIDMEM") && line.contains("charged"), "{line}");
-        assert_eq!(b2.placement(&ask, true, 0, vidmem_attr()), None, "per VM, not per process");
+        let line = b1
+            .placement(&ask, true, 0, vidmem_attr())
+            .expect("the first is named");
+        assert!(
+            line.contains("RM placed it in VIDMEM") && line.contains("charged"),
+            "{line}"
+        );
+        assert_eq!(
+            b2.placement(&ask, true, 0, vidmem_attr()),
+            None,
+            "per VM, not per process"
+        );
 
         let pci = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_PCI);
-        let line = b2.placement(&ask, true, 0, pci).expect("a new outcome is named");
+        let line = b2
+            .placement(&ask, true, 0, pci)
+            .expect("a new outcome is named");
         assert!(line.contains("charge given back"), "{line}");
-        let line = b2.placement(&ask, false, sys::NV_ERR_NO_MEMORY, any).expect("and a failure");
+        let line = b2
+            .placement(&ask, false, sys::NV_ERR_NO_MEMORY, any)
+            .expect("and a failure");
         assert!(line.contains("status 0x51"), "{line}");
     }
 
@@ -2613,15 +3074,31 @@ mod tests {
         let mut kernel = Books::new(1, led.clone());
         game.announce(4711, "ShadowOfTheTomb");
         shell.announce(1201, "gnome-shell");
-        for (b, bytes, h) in [(&mut game, 2048 * MIB, 1u32), (&mut shell, 256 * MIB, 2), (&mut kernel, 64 * MIB, 3)] {
+        for (b, bytes, h) in [
+            (&mut game, 2048 * MIB, 1u32),
+            (&mut shell, 256 * MIB, 2),
+            (&mut kernel, 64 * MIB, 3),
+        ] {
             assert!(b.reserve(bytes));
-            b.settle(true, vidmem_attr(), Charge { token: 1, root: 0xc1d8, parent: 0x5c000002, handle: h, bytes });
+            b.settle(
+                true,
+                vidmem_attr(),
+                Charge {
+                    token: 1,
+                    root: 0xc1d8,
+                    parent: 0x5c000002,
+                    handle: h,
+                    bytes,
+                },
+            );
         }
         let c = led.census();
         assert!(c.starts_with("ledger 2368.0 of 2816.0 MiB:"), "{c}");
-        let (g, s) = (c.find("9=ShadowOfTheTomb[4711] 2048.0").unwrap(), c.find("3=gnome-shell[1201] 256.0").unwrap());
+        let (g, s) = (
+            c.find("9=ShadowOfTheTomb[4711] 2048.0").unwrap(),
+            c.find("3=gnome-shell[1201] 256.0").unwrap(),
+        );
         assert!(g < s, "largest first: {c}");
         assert!(c.contains("unnamed 64.0"), "{c}");
     }
-
 }

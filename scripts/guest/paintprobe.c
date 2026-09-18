@@ -45,7 +45,8 @@ static unsigned long parse_hex(const char *s)
 }
 
 /* Fill the whole window and make sure the request has actually left. */
-static void paint(Display *d, Window w, GC gc, unsigned long rgb, int wd, int ht)
+static void paint(Display *d, Window w, GC gc, unsigned long rgb, int wd,
+		  int ht)
 {
 	XSetForeground(d, gc, rgb);
 	XFillRectangle(d, w, gc, 0, 0, wd, ht);
@@ -70,7 +71,8 @@ int main(int argc, char **argv)
 		if (!strcmp(argv[i], "--seq") && i + 1 < argc) {
 			char *s = argv[++i], *t;
 
-			for (t = strtok(s, ","); t && nseq < MAX_SEQ; t = strtok(NULL, ","))
+			for (t = strtok(s, ","); t && nseq < MAX_SEQ;
+			     t = strtok(NULL, ","))
 				seq[nseq++] = parse_hex(t);
 		} else if (!strcmp(argv[i], "--hold") && i + 1 < argc) {
 			hold_ms = atoi(argv[++i]);
@@ -81,7 +83,8 @@ int main(int argc, char **argv)
 		}
 	}
 	if (!nseq) {
-		fprintf(stderr, "usage: paintprobe <rrggbb>... [--seq a,b,c] [--hold ms] [--geometry WxH+X+Y]\n");
+		fprintf(stderr,
+			"usage: paintprobe <rrggbb>... [--seq a,b,c] [--hold ms] [--geometry WxH+X+Y]\n");
 		return 2;
 	}
 	if (geom && sscanf(geom, "%dx%d+%d+%d", &wd, &ht, &x, &y) != 4) {

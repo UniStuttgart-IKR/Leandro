@@ -51,7 +51,7 @@
 #define DRM_CLIENT_CAP_ATOMIC 3
 #endif
 #ifndef DRM_MODE_ATOMIC_NONBLOCK
-#define DRM_MODE_ATOMIC_NONBLOCK   0x0200
+#define DRM_MODE_ATOMIC_NONBLOCK 0x0200
 #endif
 #ifndef DRM_MODE_ATOMIC_ALLOW_MODESET
 #define DRM_MODE_ATOMIC_ALLOW_MODESET 0x0400
@@ -87,7 +87,8 @@ static int open_node(const char *want, char *chosen, size_t len)
 		f = open(path, O_RDWR | O_CLOEXEC);
 		if (f < 0)
 			continue;
-		if (drm_name(f, name, sizeof(name)) == 0 && !strcmp(name, want)) {
+		if (drm_name(f, name, sizeof(name)) == 0 &&
+		    !strcmp(name, want)) {
 			snprintf(chosen, len, "%s", path);
 			return f;
 		}
@@ -184,7 +185,10 @@ static int req_commit(struct req *r, uint32_t flags, uint64_t user_data)
 }
 
 /* A dumb buffer with a solid colour, registered as a framebuffer. */
-struct buf { uint32_t handle, fb_id, pitch; uint64_t size; };
+struct buf {
+	uint32_t handle, fb_id, pitch;
+	uint64_t size;
+};
 
 static int make_buf(struct buf *b, uint32_t w, uint32_t h, uint32_t colour)
 {
@@ -196,16 +200,24 @@ static int make_buf(struct buf *b, uint32_t w, uint32_t h, uint32_t colour)
 	void *p;
 
 	memset(&create, 0, sizeof(create));
-	create.width = w; create.height = h; create.bpp = 32;
+	create.width = w;
+	create.height = h;
+	create.bpp = 32;
 	if (ioctl(fd, DRM_IOCTL_MODE_CREATE_DUMB, &create) < 0) {
 		fprintf(stderr, "CREATE_DUMB: %s\n", strerror(errno));
 		return -1;
 	}
-	b->handle = create.handle; b->pitch = create.pitch; b->size = create.size;
+	b->handle = create.handle;
+	b->pitch = create.pitch;
+	b->size = create.size;
 
 	memset(&fb, 0, sizeof(fb));
-	fb.width = w; fb.height = h; fb.bpp = 32; fb.depth = 24;
-	fb.pitch = b->pitch; fb.handle = b->handle;
+	fb.width = w;
+	fb.height = h;
+	fb.bpp = 32;
+	fb.depth = 24;
+	fb.pitch = b->pitch;
+	fb.handle = b->handle;
 	if (ioctl(fd, DRM_IOCTL_MODE_ADDFB, &fb) < 0) {
 		fprintf(stderr, "ADDFB: %s\n", strerror(errno));
 		return -1;
@@ -218,7 +230,8 @@ static int make_buf(struct buf *b, uint32_t w, uint32_t h, uint32_t colour)
 		fprintf(stderr, "MAP_DUMB: %s\n", strerror(errno));
 		return -1;
 	}
-	p = mmap(NULL, b->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, map.offset);
+	p = mmap(NULL, b->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd,
+		 map.offset);
 	if (p == MAP_FAILED) {
 		fprintf(stderr, "mmap dumb: %s\n", strerror(errno));
 		return -1;
@@ -256,12 +269,13 @@ static int watch_vblank(unsigned samples, int gap_ms)
 		else if (vb.reply.sequence != last)
 			advanced++;
 		last = vb.reply.sequence;
-		printf("  sample %2u: sequence %u, stamp %ld.%06ld\n",
-		       i, vb.reply.sequence, (long)vb.reply.tval_sec,
+		printf("  sample %2u: sequence %u, stamp %ld.%06ld\n", i,
+		       vb.reply.sequence, (long)vb.reply.tval_sec,
 		       (long)vb.reply.tval_usec);
 		if (gap_ms > 0) {
-			struct timespec ts = { gap_ms / 1000,
-					       (long)(gap_ms % 1000) * 1000000L };
+			struct timespec ts = {
+				gap_ms / 1000, (long)(gap_ms % 1000) * 1000000L
+			};
 			nanosleep(&ts, NULL);
 		}
 	}
@@ -307,16 +321,24 @@ int main(int argc, char **argv)
 	unsigned gap_n = 0;
 
 	for (i = 1; i < argc; i++) {
-		if (!strcmp(argv[i], "--flips") && i + 1 < argc) flips = (unsigned)atoi(argv[++i]);
-		else if (!strcmp(argv[i], "--wait") && i + 1 < argc) wait_ms = atoi(argv[++i]);
-		else if (!strcmp(argv[i], "--gap") && i + 1 < argc) gap_ms = atoi(argv[++i]);
-		else if (!strcmp(argv[i], "--watch") && i + 1 < argc) watch = (unsigned)atoi(argv[++i]);
-		else if (!strcmp(argv[i], "-v")) verbose = 1;
-		else node = argv[i];
+		if (!strcmp(argv[i], "--flips") && i + 1 < argc)
+			flips = (unsigned)atoi(argv[++i]);
+		else if (!strcmp(argv[i], "--wait") && i + 1 < argc)
+			wait_ms = atoi(argv[++i]);
+		else if (!strcmp(argv[i], "--gap") && i + 1 < argc)
+			gap_ms = atoi(argv[++i]);
+		else if (!strcmp(argv[i], "--watch") && i + 1 < argc)
+			watch = (unsigned)atoi(argv[++i]);
+		else if (!strcmp(argv[i], "-v"))
+			verbose = 1;
+		else
+			node = argv[i];
 	}
 
-	fd = node ? open(node, O_RDWR | O_CLOEXEC) : open_node("nvidia-drm", chosen, sizeof(chosen));
-	if (node && fd >= 0) snprintf(chosen, sizeof(chosen), "%s", node);
+	fd = node ? open(node, O_RDWR | O_CLOEXEC) :
+		    open_node("nvidia-drm", chosen, sizeof(chosen));
+	if (node && fd >= 0)
+		snprintf(chosen, sizeof(chosen), "%s", node);
 	if (fd < 0) {
 		fprintf(stderr, "no nvidia-drm node (%s)\n", strerror(errno));
 		return 2;
@@ -334,14 +356,19 @@ int main(int argc, char **argv)
 	{
 		struct drm_set_client_cap cap;
 
-		cap.capability = DRM_CLIENT_CAP_UNIVERSAL_PLANES; cap.value = 1;
+		cap.capability = DRM_CLIENT_CAP_UNIVERSAL_PLANES;
+		cap.value = 1;
 		if (ioctl(fd, DRM_IOCTL_SET_CLIENT_CAP, &cap) < 0)
-			fprintf(stderr, "UNIVERSAL_PLANES: %s\n", strerror(errno));
-		cap.capability = DRM_CLIENT_CAP_ATOMIC; cap.value = 1;
+			fprintf(stderr, "UNIVERSAL_PLANES: %s\n",
+				strerror(errno));
+		cap.capability = DRM_CLIENT_CAP_ATOMIC;
+		cap.value = 1;
 		if (ioctl(fd, DRM_IOCTL_SET_CLIENT_CAP, &cap) < 0) {
-			fprintf(stderr, "ATOMIC cap refused: %s -- this driver has no "
+			fprintf(stderr,
+				"ATOMIC cap refused: %s -- this driver has no "
 				"atomic path for a client, so weston cannot be using "
-				"one either\n", strerror(errno));
+				"one either\n",
+				strerror(errno));
 			return 1;
 		}
 	}
@@ -354,7 +381,8 @@ int main(int argc, char **argv)
 	res.crtc_id_ptr = (uint64_t)(uintptr_t)crtc_ids;
 	res.encoder_id_ptr = (uint64_t)(uintptr_t)enc_ids;
 	res.fb_id_ptr = (uint64_t)(uintptr_t)fb_ids;
-	res.count_connectors = res.count_crtcs = res.count_encoders = res.count_fbs = 32;
+	res.count_connectors = res.count_crtcs = res.count_encoders =
+		res.count_fbs = 32;
 	if (ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, &res) < 0) {
 		fprintf(stderr, "GETRESOURCES: %s\n", strerror(errno));
 		return 1;
@@ -372,13 +400,16 @@ int main(int argc, char **argv)
 	conn.props_ptr = (uint64_t)(uintptr_t)cprops;
 	conn.prop_values_ptr = (uint64_t)(uintptr_t)cvals;
 	conn.encoders_ptr = (uint64_t)(uintptr_t)conn_enc;
-	conn.count_modes = 64; conn.count_props = 64; conn.count_encoders = 32;
+	conn.count_modes = 64;
+	conn.count_props = 64;
+	conn.count_encoders = 32;
 	if (ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, &conn) < 0) {
 		fprintf(stderr, "GETCONNECTOR: %s\n", strerror(errno));
 		return 1;
 	}
 	if (conn.connection != 1 || !conn.count_modes) {
-		fprintf(stderr, "connector %u: connection %u, %u modes -- nothing to drive\n",
+		fprintf(stderr,
+			"connector %u: connection %u, %u modes -- nothing to drive\n",
 			connector, conn.connection, conn.count_modes);
 		return 1;
 	}
@@ -393,13 +424,18 @@ int main(int argc, char **argv)
 		fprintf(stderr, "GETPLANERESOURCES: %s\n", strerror(errno));
 		return 1;
 	}
-	if (pres.count_planes > 64) pres.count_planes = 64;
+	if (pres.count_planes > 64)
+		pres.count_planes = 64;
 	for (i = 0; i < (int)pres.count_planes; i++) {
 		uint64_t type = 0;
 
-		if (!prop_id(plane_ids[i], DRM_MODE_OBJECT_PLANE, "type", &type))
+		if (!prop_id(plane_ids[i], DRM_MODE_OBJECT_PLANE, "type",
+			     &type))
 			continue;
-		if (type == PLANE_TYPE_PRIMARY) { plane = plane_ids[i]; break; }
+		if (type == PLANE_TYPE_PRIMARY) {
+			plane = plane_ids[i];
+			break;
+		}
 	}
 	if (!plane) {
 		fprintf(stderr, "no primary plane\n");
@@ -407,22 +443,26 @@ int main(int argc, char **argv)
 	}
 	printf("primary plane %u\n", plane);
 
-#define NEED(var, obj, otype, name) do { \
-		var = prop_id(obj, otype, name, NULL); \
-		if (!var) { fprintf(stderr, "missing property \"%s\"\n", name); return 1; } \
+#define NEED(var, obj, otype, name)                                         \
+	do {                                                                \
+		var = prop_id(obj, otype, name, NULL);                      \
+		if (!var) {                                                 \
+			fprintf(stderr, "missing property \"%s\"\n", name); \
+			return 1;                                           \
+		}                                                           \
 	} while (0)
-	NEED(p_fb,      plane, DRM_MODE_OBJECT_PLANE, "FB_ID");
+	NEED(p_fb, plane, DRM_MODE_OBJECT_PLANE, "FB_ID");
 	NEED(p_crtc_id, plane, DRM_MODE_OBJECT_PLANE, "CRTC_ID");
-	NEED(p_src_x,   plane, DRM_MODE_OBJECT_PLANE, "SRC_X");
-	NEED(p_src_y,   plane, DRM_MODE_OBJECT_PLANE, "SRC_Y");
-	NEED(p_src_w,   plane, DRM_MODE_OBJECT_PLANE, "SRC_W");
-	NEED(p_src_h,   plane, DRM_MODE_OBJECT_PLANE, "SRC_H");
-	NEED(p_crtc_x,  plane, DRM_MODE_OBJECT_PLANE, "CRTC_X");
-	NEED(p_crtc_y,  plane, DRM_MODE_OBJECT_PLANE, "CRTC_Y");
-	NEED(p_crtc_w,  plane, DRM_MODE_OBJECT_PLANE, "CRTC_W");
-	NEED(p_crtc_h,  plane, DRM_MODE_OBJECT_PLANE, "CRTC_H");
-	NEED(c_mode_id, crtc,  DRM_MODE_OBJECT_CRTC,  "MODE_ID");
-	NEED(c_active,  crtc,  DRM_MODE_OBJECT_CRTC,  "ACTIVE");
+	NEED(p_src_x, plane, DRM_MODE_OBJECT_PLANE, "SRC_X");
+	NEED(p_src_y, plane, DRM_MODE_OBJECT_PLANE, "SRC_Y");
+	NEED(p_src_w, plane, DRM_MODE_OBJECT_PLANE, "SRC_W");
+	NEED(p_src_h, plane, DRM_MODE_OBJECT_PLANE, "SRC_H");
+	NEED(p_crtc_x, plane, DRM_MODE_OBJECT_PLANE, "CRTC_X");
+	NEED(p_crtc_y, plane, DRM_MODE_OBJECT_PLANE, "CRTC_Y");
+	NEED(p_crtc_w, plane, DRM_MODE_OBJECT_PLANE, "CRTC_W");
+	NEED(p_crtc_h, plane, DRM_MODE_OBJECT_PLANE, "CRTC_H");
+	NEED(c_mode_id, crtc, DRM_MODE_OBJECT_CRTC, "MODE_ID");
+	NEED(c_active, crtc, DRM_MODE_OBJECT_CRTC, "ACTIVE");
 	NEED(k_crtc_id, connector, DRM_MODE_OBJECT_CONNECTOR, "CRTC_ID");
 #undef NEED
 
@@ -466,7 +506,8 @@ int main(int argc, char **argv)
 
 	/* And now the question: does every flip get its event back? */
 	printf("flipping %u times through DRM_IOCTL_MODE_ATOMIC, %d ms timeout each, "
-	       "%d ms gap\n", flips, wait_ms, gap_ms);
+	       "%d ms gap\n",
+	       flips, wait_ms, gap_ms);
 	for (f = 0; f < flips; f++) {
 		struct pollfd pfd = { .fd = fd, .events = POLLIN };
 		struct drm_event_vblank ev;
@@ -480,15 +521,18 @@ int main(int argc, char **argv)
 		 * unmistakable linear drift. Back-to-back flips finish in a
 		 * couple of milliseconds and cannot tell the two apart. */
 		if (gap_ms > 0) {
-			struct timespec ts = { gap_ms / 1000,
-					       (long)(gap_ms % 1000) * 1000000L };
+			struct timespec ts = {
+				gap_ms / 1000, (long)(gap_ms % 1000) * 1000000L
+			};
 			nanosleep(&ts, NULL);
 		}
 
 		req_reset(&r);
 		req_obj(&r, plane);
 		req_prop(&r, p_fb, (f & 1) ? a.fb_id : b.fb_id);
-		if (req_commit(&r, DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK,
+		if (req_commit(&r,
+			       DRM_MODE_PAGE_FLIP_EVENT |
+				       DRM_MODE_ATOMIC_NONBLOCK,
 			       (uint64_t)f) < 0) {
 			printf("  flip %u: ATOMIC: %s  (issued %u, completed %u)\n",
 			       f, strerror(errno), issued, completed);
@@ -497,7 +541,10 @@ int main(int argc, char **argv)
 		issued++;
 
 		pr = poll(&pfd, 1, wait_ms);
-		if (pr < 0) { printf("  poll: %s\n", strerror(errno)); break; }
+		if (pr < 0) {
+			printf("  poll: %s\n", strerror(errno));
+			break;
+		}
 		if (pr == 0) {
 			timedout++;
 			printf("  flip %u: NO COMPLETION within %d ms  "
@@ -533,8 +580,10 @@ int main(int argc, char **argv)
 				first_seq = ev.sequence;
 				min_skew = max_skew = skew;
 			} else {
-				if (skew < min_skew) min_skew = skew;
-				if (skew > max_skew) max_skew = skew;
+				if (skew < min_skew)
+					min_skew = skew;
+				if (skew > max_skew)
+					max_skew = skew;
 				if (ev.sequence == last_seq)
 					seq_stuck++;
 				else if (ev.sequence < last_seq)
@@ -552,8 +601,10 @@ int main(int argc, char **argv)
 
 				gap_sum += d;
 				gap_n++;
-				if (d < gap_min || gap_n == 1) gap_min = d;
-				if (d > gap_max) gap_max = d;
+				if (d < gap_min || gap_n == 1)
+					gap_min = d;
+				if (d > gap_max)
+					gap_max = d;
 			}
 			prev_done = nowt;
 			last_seq = ev.sequence;
@@ -563,26 +614,29 @@ int main(int argc, char **argv)
 		}
 	}
 
-	printf("ATOMIC: %u issued, %u completed, %u timed out\n",
-	       issued, completed, timedout);
+	printf("ATOMIC: %u issued, %u completed, %u timed out\n", issued,
+	       completed, timedout);
 	if (completed) {
 		printf("sequence: first %u, last %u, %u repeat(s), %u backward step(s)\n",
 		       first_seq, last_seq, seq_stuck, seq_back);
 		printf("completion stamp vs CLOCK_MONOTONIC: skew %+.6f s .. %+.6f s "
-		       "(drift %.6f s)\n", min_skew, max_skew, max_skew - min_skew);
+		       "(drift %.6f s)\n",
+		       min_skew, max_skew, max_skew - min_skew);
 		/* A compositor arms an ABSOLUTE timer at stamp + refresh. A
 		 * stamp ahead of the clock therefore becomes dead sleep of
 		 * exactly that size, once per frame, with no error anywhere. */
 		if (max_skew > 0.001)
 			printf("the completion timestamp RUNS AHEAD of the monotonic "
 			       "clock by up to %.3f s -- a compositor that schedules on "
-			       "it sleeps that long\n", max_skew);
+			       "it sleeps that long\n",
+			       max_skew);
 		if (seq_stuck)
 			printf("the sequence did not advance on %u of %u completions\n",
 			       seq_stuck, completed - 1);
 		if (gap_n) {
 			double mean = gap_sum / gap_n;
-			double refresh = modes[0].vrefresh ? 1.0 / modes[0].vrefresh : 0;
+			double refresh =
+				modes[0].vrefresh ? 1.0 / modes[0].vrefresh : 0;
 
 			printf("completion spacing: mean %.3f ms (min %.3f, max %.3f) "
 			       "-- one refresh at %u Hz is %.3f ms\n",
@@ -596,7 +650,8 @@ int main(int argc, char **argv)
 	}
 	if (timedout)
 		printf("the completion for atomic flip %u never arrived -- "
-		       "this is what strands a compositor's repaint loop\n", completed);
+		       "this is what strands a compositor's repaint loop\n",
+		       completed);
 	else
 		printf("every atomic flip got its event back\n");
 	return timedout ? 1 : 0;

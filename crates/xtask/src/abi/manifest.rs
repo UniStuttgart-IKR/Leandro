@@ -107,7 +107,6 @@ struct Layouts {
 
 impl Manifest {
     pub fn parse(version: &str, headers: &str, commit: &str, file: &syn::File) -> Result<Self> {
-
         let mut decls: BTreeMap<String, Decl> = BTreeMap::new();
         let mut aliases: BTreeMap<String, String> = BTreeMap::new();
         let mut constants: BTreeMap<String, Constant> = BTreeMap::new();
@@ -116,7 +115,13 @@ impl Manifest {
         for item in &file.items {
             match item {
                 Item::Struct(s) => {
-                    decls.insert(s.ident.to_string(), Decl { kind: Kind::Struct, fields: named(&s.fields) });
+                    decls.insert(
+                        s.ident.to_string(),
+                        Decl {
+                            kind: Kind::Struct,
+                            fields: named(&s.fields),
+                        },
+                    );
                 }
                 Item::Union(u) => {
                     let fields = u
@@ -126,7 +131,13 @@ impl Manifest {
                         .filter(is_public)
                         .filter_map(|f| f.ident.as_ref().map(|i| (i.to_string(), f.ty.clone())))
                         .collect();
-                    decls.insert(u.ident.to_string(), Decl { kind: Kind::Union, fields });
+                    decls.insert(
+                        u.ident.to_string(),
+                        Decl {
+                            kind: Kind::Union,
+                            fields,
+                        },
+                    );
                 }
                 Item::Type(t) => {
                     aliases.insert(t.ident.to_string(), spell(&t.ty));
@@ -135,7 +146,10 @@ impl Manifest {
                 Item::Const(c) => {
                     constants.insert(
                         c.ident.to_string(),
-                        Constant { ty: spell(&c.ty), value: tokens(&c.expr) },
+                        Constant {
+                            ty: spell(&c.ty),
+                            value: tokens(&c.expr),
+                        },
                     );
                 }
                 _ => {}
@@ -197,9 +211,22 @@ impl Manifest {
                         embeds.insert(r);
                     }
                 }
-                fields.push(Field { name: fname.clone(), offset, ty: spell(fty) });
+                fields.push(Field {
+                    name: fname.clone(),
+                    offset,
+                    ty: spell(fty),
+                });
             }
-            types.insert(name.clone(), TypeLayout { kind: decl.kind, size, align, fields, embeds });
+            types.insert(
+                name.clone(),
+                TypeLayout {
+                    kind: decl.kind,
+                    size,
+                    align,
+                    fields,
+                    embeds,
+                },
+            );
         }
 
         Ok(Manifest {
@@ -249,7 +276,11 @@ impl Manifest {
 
         s.push_str("  \"constants\": {\n");
         for (i, (k, c)) in self.constants.iter().enumerate() {
-            let comma = if i + 1 == self.constants.len() { "" } else { "," };
+            let comma = if i + 1 == self.constants.len() {
+                ""
+            } else {
+                ","
+            };
             let _ = writeln!(
                 s,
                 "    {}: {{ \"type\": {}, \"value\": {} }}{comma}",
@@ -276,7 +307,10 @@ impl Manifest {
                     s,
                     "        {{ \"name\": {}, \"offset\": {}, \"type\": {} }}{fcomma}",
                     json_str(&f.name),
-                    match f.offset { Some(o) => o.to_string(), None => "null".into() },
+                    match f.offset {
+                        Some(o) => o.to_string(),
+                        None => "null".into(),
+                    },
                     json_str(&f.ty)
                 );
             }
@@ -309,7 +343,9 @@ fn is_public(f: &&syn::Field) -> bool {
 }
 
 fn read_layout_block(c: &syn::ItemConst, out: &mut Layouts) -> Result<()> {
-    let Expr::Block(block) = &*c.expr else { return Ok(()) };
+    let Expr::Block(block) = &*c.expr else {
+        return Ok(());
+    };
     for stmt in &block.block.stmts {
         let expr = match stmt {
             Stmt::Expr(e, _) => e,
@@ -317,10 +353,16 @@ fn read_layout_block(c: &syn::ItemConst, out: &mut Layouts) -> Result<()> {
         };
         let Expr::Index(idx) = expr else { continue };
         // `["Size of X"][ size_of::<X>() - 48usize ]`
-        let Expr::Array(arr) = &*idx.expr else { continue };
-        let Some(Expr::Lit(lit)) = arr.elems.first() else { continue };
+        let Expr::Array(arr) = &*idx.expr else {
+            continue;
+        };
+        let Some(Expr::Lit(lit)) = arr.elems.first() else {
+            continue;
+        };
         let Lit::Str(label) = &lit.lit else { continue };
-        let Expr::Binary(bin) = &*idx.index else { continue };
+        let Expr::Binary(bin) = &*idx.index else {
+            continue;
+        };
         if !matches!(bin.op, syn::BinOp::Sub(_)) {
             continue;
         }
@@ -337,7 +379,8 @@ fn read_layout_block(c: &syn::ItemConst, out: &mut Layouts) -> Result<()> {
             let Some((ty, field)) = rest.split_once("::") else {
                 bail!("layout assertion {label:?} is not TYPE::FIELD");
             };
-            out.offset.insert((ty.to_string(), field.to_string()), value);
+            out.offset
+                .insert((ty.to_string(), field.to_string()), value);
         }
     }
     Ok(())
@@ -379,11 +422,23 @@ fn tokens(e: &Expr) -> String {
 /// manifest diff. Collapsing the spacing changes nothing about what is
 /// compared -- both sides go through here.
 fn normalise(s: &str) -> String {
-    let mut out = s.replace(" :: ", "::").replace(":: ", "::").replace(" ::", "::");
+    let mut out = s
+        .replace(" :: ", "::")
+        .replace(":: ", "::")
+        .replace(" ::", "::");
     for (from, to) in [
-        (" <", "<"), ("< ", "<"), (" >", ">"), ("> ", ">"),
-        (" ,", ","), (" ;", ";"), ("[ ", "["), (" ]", "]"),
-        ("( ", "("), (" )", ")"), ("* ", "*"), (" !", "!"),
+        (" <", "<"),
+        ("< ", "<"),
+        (" >", ">"),
+        ("> ", ">"),
+        (" ,", ","),
+        (" ;", ";"),
+        ("[ ", "["),
+        (" ]", "]"),
+        ("( ", "("),
+        (" )", ")"),
+        ("* ", "*"),
+        (" !", "!"),
     ] {
         out = out.replace(from, to);
     }

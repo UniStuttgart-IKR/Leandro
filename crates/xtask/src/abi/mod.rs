@@ -16,8 +16,8 @@ pub mod classify;
 pub mod config;
 pub mod emit;
 pub mod items;
-pub mod mediated;
 pub mod manifest;
+pub mod mediated;
 
 use anyhow::{bail, Context, Result};
 use classify::{PairReport, Verdict};
@@ -49,9 +49,7 @@ pub fn run(args: &[String]) -> Result<()> {
         match a.as_str() {
             "--check" => check = true,
             "--report" => {
-                report_to = Some(PathBuf::from(
-                    it.next().context("--report needs a path")?,
-                ))
+                report_to = Some(PathBuf::from(it.next().context("--report needs a path")?))
             }
             // Not part of the pipeline: what bindgen produced, so that a
             // version whose manifest this refuses to build can be looked at.
@@ -64,10 +62,14 @@ pub fn run(args: &[String]) -> Result<()> {
                 config_path = Some(PathBuf::from(it.next().context("--config needs a path")?))
             }
             "--manifests" => {
-                manifest_out = Some(PathBuf::from(it.next().context("--manifests needs a path")?))
+                manifest_out = Some(PathBuf::from(
+                    it.next().context("--manifests needs a path")?,
+                ))
             }
             "--dump-bindings" => {
-                dump_to = Some(PathBuf::from(it.next().context("--dump-bindings needs a path")?))
+                dump_to = Some(PathBuf::from(
+                    it.next().context("--dump-bindings needs a path")?,
+                ))
             }
             other => bail!("unknown option: {other}"),
         }
@@ -78,8 +80,12 @@ pub fn run(args: &[String]) -> Result<()> {
     let cfg = AbiToml::load(&abi_path)?;
 
     let versions = cfg.ordered();
-    eprintln!("abi: {} versions, {} struct patterns, {} constant patterns",
-        versions.len(), cfg.footprint.structs.len(), cfg.footprint.constants.len());
+    eprintln!(
+        "abi: {} versions, {} struct patterns, {} constant patterns",
+        versions.len(),
+        cfg.footprint.structs.len(),
+        cfg.footprint.constants.len()
+    );
 
     let manifest_dir = manifest_out.unwrap_or_else(|| root.join("crates/nvrm-sys/manifests"));
     if !check {
@@ -121,8 +127,16 @@ pub fn run(args: &[String]) -> Result<()> {
         }
         let file = syn::parse_file(&src)
             .with_context(|| format!("parsing bindgen output for {v} as Rust"))?;
-        let mut m = Manifest::parse(v, &cfg.versions[*v].headers, &provenance_commit(&headers)?, &file)?;
-        m.renames = renames.iter().map(|(old, c)| (c.clone(), old.clone())).collect();
+        let mut m = Manifest::parse(
+            v,
+            &cfg.versions[*v].headers,
+            &provenance_commit(&headers)?,
+            &file,
+        )?;
+        m.renames = renames
+            .iter()
+            .map(|(old, c)| (c.clone(), old.clone()))
+            .collect();
         let its = items::Items::collect(&file)
             .with_context(|| format!("cutting the bindgen output for {v} into items"))?;
         eprintln!(
@@ -143,7 +157,12 @@ pub fn run(args: &[String]) -> Result<()> {
                     .with_context(|| format!("writing {}", path.display()))?;
             }
         }
-        built.push(emit::Version { name: v.to_string(), manifest: m, items: its, json });
+        built.push(emit::Version {
+            name: v.to_string(),
+            manifest: m,
+            items: its,
+            json,
+        });
     }
     let manifests: Vec<Manifest> = built.iter().map(|v| v.manifest.clone()).collect();
 
@@ -202,7 +221,11 @@ pub fn run(args: &[String]) -> Result<()> {
         "abi: {} names stable, {} version-specific; RmAbi over {}",
         out.stable_count,
         out.volatile_count,
-        if out.abstracted.is_empty() { "nothing".to_string() } else { out.abstracted.join(", ") }
+        if out.abstracted.is_empty() {
+            "nothing".to_string()
+        } else {
+            out.abstracted.join(", ")
+        }
     );
     for n in &out.not_abstractable {
         eprintln!("abi: not abstractable -- {n}");
@@ -234,7 +257,11 @@ pub fn run(args: &[String]) -> Result<()> {
     if !stale.is_empty() {
         bail!(
             "--check: these are out of date, run `cargo xtask abi`:\n  {}",
-            stale.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join("\n  ")
+            stale
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join("\n  ")
         );
     }
     Ok(())
@@ -273,7 +300,11 @@ fn rename_ident(src: &str, old: &str, canonical: &str) -> Result<String> {
         let end = at + old.len();
         let after_ok = end >= bytes.len() || !is_ident_byte(bytes[end]);
         out.push_str(&src[i..at]);
-        out.push_str(if before_ok && after_ok { canonical } else { old });
+        out.push_str(if before_ok && after_ok {
+            canonical
+        } else {
+            old
+        });
         i = end;
     }
     out.push_str(&src[i..]);
@@ -374,9 +405,11 @@ fn render(manifests: &[Manifest], pairs: &[PairReport]) -> String {
     }
 
     s.push_str("\n## Pairwise\n\n");
-    s.push_str("Rows are the version a caller was built for, columns the version it meets. \
+    s.push_str(
+        "Rows are the version a caller was built for, columns the version it meets. \
                 `append-only` is directional: it means the row's fields are all still there, \
-                at the same offsets, inside the column's larger struct.\n\n");
+                at the same offsets, inside the column's larger struct.\n\n",
+    );
     let _ = write!(s, "| from \\ to |");
     for to in &v {
         let _ = write!(s, " {to} |");
@@ -475,10 +508,16 @@ fn matrix(manifests: &[Manifest], pairs: &[PairReport]) -> String {
 }
 
 fn detail(s: &mut String, p: &PairReport) {
-    let mut append: Vec<&classify::Change> =
-        p.types.iter().filter(|c| c.verdict == Verdict::AppendOnly).collect();
-    let mut breaking: Vec<&classify::Change> =
-        p.types.iter().filter(|c| c.verdict == Verdict::Breaking).collect();
+    let mut append: Vec<&classify::Change> = p
+        .types
+        .iter()
+        .filter(|c| c.verdict == Verdict::AppendOnly)
+        .collect();
+    let mut breaking: Vec<&classify::Change> = p
+        .types
+        .iter()
+        .filter(|c| c.verdict == Verdict::Breaking)
+        .collect();
     append.sort_by(|a, b| a.name.cmp(&b.name));
     breaking.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -515,5 +554,9 @@ fn first_reasons(reasons: &[String]) -> String {
     if reasons.len() <= N {
         return reasons.join("; ");
     }
-    format!("{}; and {} more", reasons[..N].join("; "), reasons.len() - N)
+    format!(
+        "{}; and {} more",
+        reasons[..N].join("; "),
+        reasons.len() - N
+    )
 }

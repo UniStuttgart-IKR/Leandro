@@ -165,10 +165,18 @@ const MIB: u64 = 1 << 20;
 const GIB: u64 = 1 << 30;
 
 fn align_up(v: u64, a: u64) -> u64 {
-    if a == 0 { v } else { v.div_ceil(a) * a }
+    if a == 0 {
+        v
+    } else {
+        v.div_ceil(a) * a
+    }
 }
 fn align_down(v: u64, a: u64) -> u64 {
-    if a == 0 { v } else { (v / a) * a }
+    if a == 0 {
+        v
+    } else {
+        (v / a) * a
+    }
 }
 
 impl Catalogue {
@@ -193,8 +201,14 @@ impl Catalogue {
     /// share is rounded UP, so the rule never costs a type more than its
     /// share of the card: every set of types that fitted still fits.
     pub fn derive(board: &str, total: u64, usable: u64, segment: u64, overhead: u64) -> Catalogue {
-        let mut cat =
-            Catalogue { board: board.to_string(), total, usable, segment, overhead, profiles: Vec::new() };
+        let mut cat = Catalogue {
+            board: board.to_string(),
+            total,
+            usable,
+            segment,
+            overhead,
+            profiles: Vec::new(),
+        };
         if segment == 0 || total == 0 {
             return cat;
         }
@@ -206,7 +220,10 @@ impl Catalogue {
                 continue;
             }
             let reserved = (carve_out as u128 * share as u128).div_ceil(available as u128) as u64;
-            let fb = align_down(share.saturating_sub(align_up(reserved + overhead, segment)), segment);
+            let fb = align_down(
+                share.saturating_sub(align_up(reserved + overhead, segment)),
+                segment,
+            );
             // The card has to be able to hand out what the catalogue
             // promises. This is the check vGPU does not need, because its
             // reserve accounting is exact and ours is a measurement.
@@ -223,7 +240,11 @@ impl Catalogue {
     /// VMMU segments, which is vGPU's `totalAvailableFb`
     /// (kernel_vgpu_mgr.c:3797). Profile sizes are measured against this.
     pub fn available(&self) -> u64 {
-        if self.segment == 0 { self.total } else { align_up(self.total, 8 * self.segment) }
+        if self.segment == 0 {
+            self.total
+        } else {
+            align_up(self.total, 8 * self.segment)
+        }
     }
 
     /// THE RULE: what a VM whose guest is told `fb_length` costs this card.
@@ -249,7 +270,10 @@ impl Catalogue {
         if fb_length == 0 || need > usable {
             return None;
         }
-        let cost = align_up((need as u128 * available as u128).div_ceil(usable as u128) as u64, MIB);
+        let cost = align_up(
+            (need as u128 * available as u128).div_ceil(usable as u128) as u64,
+            MIB,
+        );
         Some(Profile {
             name,
             max_instance: (available / cost) as u32,
@@ -287,11 +311,19 @@ impl Catalogue {
         let board = format!("{}-", self.board.to_ascii_uppercase());
         let w = want.trim().to_ascii_uppercase();
         let short = w.strip_prefix(&board).unwrap_or(&w);
-        if let Some(p) = self.profiles.iter().find(|p| p.name.to_ascii_uppercase() == board.clone() + short) {
+        if let Some(p) = self
+            .profiles
+            .iter()
+            .find(|p| p.name.to_ascii_uppercase() == board.clone() + short)
+        {
             return Some(p.clone());
         }
         let mib = parse_mib(short)?;
-        let size = if mib % 1024 == 0 { format!("{}G", mib / 1024) } else { format!("{mib}M") };
+        let size = if mib % 1024 == 0 {
+            format!("{}G", mib / 1024)
+        } else {
+            format!("{mib}M")
+        };
         self.profile_for(format!("{}-{size}", self.board), mib * MIB)
     }
 
@@ -348,7 +380,13 @@ mod tests {
     /// host desktop is holding, which is what `vgpuprofile` passes in and
     /// is where the published 2Q = 1280 MiB comes from.
     fn rtx2070_with_a_busy_host() -> Catalogue {
-        Catalogue::derive("RTX2070", 8192 * MIB, (7771 - 900) * MIB, 256 * MIB, 256 * MIB)
+        Catalogue::derive(
+            "RTX2070",
+            8192 * MIB,
+            (7771 - 900) * MIB,
+            256 * MIB,
+            256 * MIB,
+        )
     }
 
     fn cards() -> impl Iterator<Item = Catalogue> {
@@ -366,13 +404,25 @@ mod tests {
         let p = cat.resolve("3G").expect("3 GiB fits");
         assert_eq!(p.name, "RTX2070-3G");
         assert_eq!(
-            (p.fb_length, p.profile_size, p.reservation, p.max_instance, p.encoder_capacity),
+            (
+                p.fb_length,
+                p.profile_size,
+                p.reservation,
+                p.max_instance,
+                p.encoder_capacity
+            ),
             (3072 * MIB, 3968 * MIB, 896 * MIB, 2, 37)
         );
         let p = cat.resolve("130MiB").expect("130 MiB fits");
         assert_eq!(p.name, "RTX2070-130M");
         assert_eq!(
-            (p.fb_length, p.profile_size, p.reservation, p.max_instance, p.encoder_capacity),
+            (
+                p.fb_length,
+                p.profile_size,
+                p.reservation,
+                p.max_instance,
+                p.encoder_capacity
+            ),
             (130 * MIB, 461 * MIB, 331 * MIB, 17, 1)
         );
         // More than the card leaves usable, overhead included, is no profile.
@@ -388,8 +438,16 @@ mod tests {
     fn a_type_and_its_size_are_the_same_profile() {
         for cat in cards() {
             for row in &cat.profiles {
-                let size = cat.resolve(&format!("{}M", row.fb_length / MIB)).expect("the row's size");
-                assert_eq!(Profile { name: row.name.clone(), ..size }, *row);
+                let size = cat
+                    .resolve(&format!("{}M", row.fb_length / MIB))
+                    .expect("the row's size");
+                assert_eq!(
+                    Profile {
+                        name: row.name.clone(),
+                        ..size
+                    },
+                    *row
+                );
             }
         }
     }
@@ -405,12 +463,26 @@ mod tests {
             .map(|u| Catalogue::derive("RTX2070", 8192 * MIB, u * MIB, 256 * MIB, 256 * MIB));
         for cat in cards().chain(pinned) {
             for p in &cat.profiles {
-                let gib: u64 = p.name.trim_start_matches("RTX2070-").trim_end_matches('Q').parse().unwrap();
+                let gib: u64 = p
+                    .name
+                    .trim_start_matches("RTX2070-")
+                    .trim_end_matches('Q')
+                    .parse()
+                    .unwrap();
                 let count = cat.available() / (gib * GIB);
-                assert!(p.profile_size <= gib * GIB, "{} costs {} MiB", p.name, p.profile_size / MIB);
+                assert!(
+                    p.profile_size <= gib * GIB,
+                    "{} costs {} MiB",
+                    p.name,
+                    p.profile_size / MIB
+                );
                 assert!(p.max_instance as u64 >= count);
                 let live = vec![p.profile_size; count as usize - 1];
-                assert!(cat.admits(&live, p.profile_size), "{}: the last instance was refused", p.name);
+                assert!(
+                    cat.admits(&live, p.profile_size),
+                    "{}: the last instance was refused",
+                    p.name
+                );
             }
         }
     }
@@ -425,7 +497,10 @@ mod tests {
             assert!(p.profile_size >= p.fb_length + cat.overhead);
             assert_eq!(p.reservation, p.profile_size - p.fb_length);
             assert!(p.max_instance as u64 * p.profile_size <= cat.available());
-            assert!(!cat.admits(&vec![p.profile_size; p.max_instance as usize], p.profile_size));
+            assert!(!cat.admits(
+                &vec![p.profile_size; p.max_instance as usize],
+                p.profile_size
+            ));
             assert_eq!(p.encoder_capacity, encoder_share(p.fb_length, cat.total));
         }
     }
@@ -440,11 +515,19 @@ mod tests {
         let p1 = cat.resolve("1Q").expect("1Q");
         assert!(cat.admits(&[p4.profile_size], p2.profile_size));
         assert!(cat.admits(&[p4.profile_size, p2.profile_size], p2.profile_size));
-        assert!(!cat.admits(&[p4.profile_size, p2.profile_size, p2.profile_size], p1.profile_size));
+        assert!(!cat.admits(
+            &[p4.profile_size, p2.profile_size, p2.profile_size],
+            p1.profile_size
+        ));
         // what the three of them actually ask the heap for, which is the
         // number the run has to survive
         let asked = p4.fb_length + 2 * p2.fb_length + 3 * cat.overhead;
-        assert!(asked <= cat.usable, "{} MiB asked of {} MiB", asked / MIB, cat.usable / MIB);
+        assert!(
+            asked <= cat.usable,
+            "{} MiB asked of {} MiB",
+            asked / MIB,
+            cat.usable / MIB
+        );
     }
 
     #[test]
@@ -517,7 +600,14 @@ mod tests {
 
     #[test]
     fn sizes_are_binary_and_whole() {
-        for (s, mib) in [("4G", 4096), ("4GiB", 4096), ("130MiB", 130), ("130M", 130), ("3072", 3072), (" 3 gib ", 3072)] {
+        for (s, mib) in [
+            ("4G", 4096),
+            ("4GiB", 4096),
+            ("130MiB", 130),
+            ("130M", 130),
+            ("3072", 3072),
+            (" 3 gib ", 3072),
+        ] {
             assert_eq!(parse_mib(s), Some(mib), "{s:?}");
         }
         for s in ["3GB", "130MB", "1.5G", "", "0", "-1", "4T", "G"] {

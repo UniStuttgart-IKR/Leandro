@@ -85,7 +85,6 @@ pub fn rewrite_encoder_capacity(aux: &mut [u8], percent: u32) -> Option<u32> {
     Some(percent)
 }
 
-
 // ===========================================================================
 // The VM's own identity
 // ===========================================================================
@@ -190,8 +189,15 @@ pub fn mediate_enc() -> bool {
 /// because the path is.
 pub fn name_from_socket(socket: &str) -> String {
     let p = std::path::Path::new(socket);
-    let part = |o: Option<&std::ffi::OsStr>| o.map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    format!("{}/{}", part(p.parent().and_then(|d| d.file_name())), part(p.file_stem()))
+    let part = |o: Option<&std::ffi::OsStr>| {
+        o.map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default()
+    };
+    format!(
+        "{}/{}",
+        part(p.parent().and_then(|d| d.file_name())),
+        part(p.file_stem())
+    )
 }
 
 /// The card this backend serves, asked once at start-up
@@ -209,7 +215,12 @@ pub struct Card {
 impl Card {
     pub fn new(socket: &str, host: [u8; 16], total: u64) -> Card {
         let guest = vm_uuid(&name_from_socket(socket));
-        Card { host, guest, total, ascii: (format_uuid(&host), format_uuid(&guest)) }
+        Card {
+            host,
+            guest,
+            total,
+            ascii: (format_uuid(&host), format_uuid(&guest)),
+        }
     }
 
     /// The card's UUID where the VM's stands: before the driver sees a
@@ -256,7 +267,9 @@ static CARD: std::sync::OnceLock<Card> = std::sync::OnceLock::new();
 /// share and the VM's own UUID, not the VM: the backend still serves.
 pub fn set_card(socket: &str, asked: anyhow::Result<([u8; 16], u64)>) {
     match asked {
-        Ok((host, total)) => { let _ = CARD.set(Card::new(socket, host, total)); }
+        Ok((host, total)) => {
+            let _ = CARD.set(Card::new(socket, host, total));
+        }
         Err(e) => eprintln!(
             "vhost-user-nvrm: the card did not answer at start-up ({e:#}) -- no encoder \
              share and no UUID of this VM's own"
@@ -353,13 +366,19 @@ mod tests {
         assert_eq!(rewrite_encoder_capacity(&mut v, 25), Some(25));
         assert_eq!(
             u32::from_le_bytes(
-                v[mediate::ENCCAP_QUERY_OFF..mediate::ENCCAP_QUERY_OFF + 4].try_into().unwrap()
+                v[mediate::ENCCAP_QUERY_OFF..mediate::ENCCAP_QUERY_OFF + 4]
+                    .try_into()
+                    .unwrap()
             ),
             1,
             "the question is carried unchanged"
         );
         assert_eq!(
-            u32::from_le_bytes(v[mediate::ENCCAP_OFF..mediate::ENCCAP_OFF + 4].try_into().unwrap()),
+            u32::from_le_bytes(
+                v[mediate::ENCCAP_OFF..mediate::ENCCAP_OFF + 4]
+                    .try_into()
+                    .unwrap()
+            ),
             25
         );
     }
@@ -386,8 +405,14 @@ mod tests {
         let s = format_uuid(&vm_uuid("desktop"));
         assert!(s.starts_with("GPU-"), "{s}");
         let hex: Vec<&str> = s.trim_start_matches("GPU-").split('-').collect();
-        assert_eq!(hex.iter().map(|p| p.len()).collect::<Vec<_>>(), vec![8, 4, 4, 4, 12]);
-        assert!(hex.iter().all(|p| p.chars().all(|c| c.is_ascii_hexdigit())), "{s}");
+        assert_eq!(
+            hex.iter().map(|p| p.len()).collect::<Vec<_>>(),
+            vec![8, 4, 4, 4, 12]
+        );
+        assert!(
+            hex.iter().all(|p| p.chars().all(|c| c.is_ascii_hexdigit())),
+            "{s}"
+        );
         // Version 4, variant 1, where NVML's readers expect them.
         let u = vm_uuid("desktop");
         assert_eq!(u[6] >> 4, 4);
@@ -419,11 +444,24 @@ mod tests {
 
     #[test]
     fn every_vm_is_named_apart_in_both_layouts() {
-        assert_eq!(name_from_socket("/mnt/vmstore/leandro/vm/desktop2/nvrm.sock"), "desktop2/nvrm");
-        let (a, b) = (name_from_socket("/run/ms/nvrm/0f3a.sock"), name_from_socket("/run/ms/nvrm/77c1.sock"));
-        assert_ne!(vm_uuid(&a), vm_uuid(&b), "one directory, two VMs, two UUIDs");
-        assert_eq!(vm_uuid(&a), vm_uuid(&name_from_socket("/run/ms/nvrm/0f3a.sock")), "a restart keeps it");
+        assert_eq!(
+            name_from_socket("/mnt/vmstore/leandro/vm/desktop2/nvrm.sock"),
+            "desktop2/nvrm"
+        );
+        let (a, b) = (
+            name_from_socket("/run/ms/nvrm/0f3a.sock"),
+            name_from_socket("/run/ms/nvrm/77c1.sock"),
+        );
+        assert_ne!(
+            vm_uuid(&a),
+            vm_uuid(&b),
+            "one directory, two VMs, two UUIDs"
+        );
+        assert_eq!(
+            vm_uuid(&a),
+            vm_uuid(&name_from_socket("/run/ms/nvrm/0f3a.sock")),
+            "a restart keeps it"
+        );
         assert_eq!(name_from_socket("nvrm.sock"), "/nvrm");
     }
-
 }

@@ -87,12 +87,7 @@ pub fn sysmem_attr(coherency: u32) -> u32 {
 /// MAP_NOT_REQUIRED (0x8000) itself in standard_mem.c:68;
 /// IGNORE_BANK_PLACEMENT (0x1) and MEMORY_HANDLE_PROVIDED (0x4000) are
 /// not replicated yet.
-pub fn alloc_sysmem(
-    rm: &mut RmClient,
-    device: u32,
-    size: usize,
-    coherency: u32,
-) -> Result<u32> {
+pub fn alloc_sysmem(rm: &mut RmClient, device: u32, size: usize, coherency: u32) -> Result<u32> {
     let handle = rm.next_handle();
 
     let mut p = sys::NV_MEMORY_ALLOCATION_PARAMS::default();
@@ -164,12 +159,7 @@ impl VaRange {
 ///
 /// `size` is the size of the reserved VA range, not of the memory.
 /// Everything this client maps must fit into it together.
-pub fn alloc_virtual(
-    rm: &mut RmClient,
-    device: u32,
-    vaspace: u32,
-    size: u64,
-) -> Result<VaRange> {
+pub fn alloc_virtual(rm: &mut RmClient, device: u32, vaspace: u32, size: u64) -> Result<VaRange> {
     let handle = rm.next_handle();
 
     let mut p = sys::NV_MEMORY_ALLOCATION_PARAMS::default();
@@ -187,7 +177,12 @@ pub fn alloc_virtual(
     rm.alloc(device, handle, sys::NV50_MEMORY_VIRTUAL, Some(&mut p))?;
 
     eprintln!("vamem h={handle:#x} base={:#x} size={size:#x}", p.offset);
-    Ok(VaRange { handle, base: p.offset, size, next: p.offset })
+    Ok(VaRange {
+        handle,
+        base: p.offset,
+        size,
+        next: p.offset,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -224,8 +219,7 @@ pub fn map_gpu(
         eprintln!(
             "MAP_MEMORY_DMA failed: hClient={:#x} hDevice={:#x} hDma={:#x} \
              hMemory={:#x} offset={:#x} length={:#x} flags={:#x} dmaOffset={:#x}",
-            p.hClient, p.hDevice, p.hDma, p.hMemory,
-            p.offset, p.length, p.flags, p.dmaOffset,
+            p.hClient, p.hDevice, p.hDma, p.hMemory, p.offset, p.length, p.flags, p.dmaOffset,
         );
     }
     check_status(sys::NV_ESC_RM_MAP_MEMORY_DMA, p.status as u32)?;
@@ -267,7 +261,10 @@ impl CpuMap {
     /// # Panics
     /// If `off` is not 4-byte-aligned or out of range.
     pub fn write_u32(&self, off: usize, v: u32) {
-        assert!(off % 4 == 0 && off + 4 <= self.len, "write_u32 out of range");
+        assert!(
+            off % 4 == 0 && off + 4 <= self.len,
+            "write_u32 out of range"
+        );
         unsafe { std::ptr::write_volatile(self.ptr.add(off) as *mut u32, v) };
     }
 
@@ -277,7 +274,10 @@ impl CpuMap {
     }
 
     pub fn write_u64(&self, off: usize, v: u64) {
-        assert!(off % 8 == 0 && off + 8 <= self.len, "write_u64 out of range");
+        assert!(
+            off % 8 == 0 && off + 8 <= self.len,
+            "write_u64 out of range"
+        );
         unsafe { std::ptr::write_volatile(self.ptr.add(off) as *mut u64, v) };
     }
 }
@@ -349,9 +349,14 @@ pub fn map_cpu(
             "MAP_MEMORY failed ({}): hClient={:#x} hDevice={:#x} hMemory={:#x} \
              offset={:#x} length={:#x} flags={:#x} pLinear={:#x} fd={}",
             fd.path(),
-            p.params.hClient, p.params.hDevice, p.params.hMemory,
-            p.params.offset, p.params.length, p.params.flags,
-            p.params.pLinearAddress as u64, p.fd,
+            p.params.hClient,
+            p.params.hDevice,
+            p.params.hMemory,
+            p.params.offset,
+            p.params.length,
+            p.params.flags,
+            p.params.pLinearAddress as u64,
+            p.fd,
         );
         eprint!("  raw:");
         for (i, b) in raw.iter().enumerate() {
@@ -381,7 +386,11 @@ pub fn map_cpu(
         });
     }
 
-    Ok(CpuMap { _fd: fd, ptr: ptr as *mut u8, len: size })
+    Ok(CpuMap {
+        _fd: fd,
+        ptr: ptr as *mut u8,
+        len: size,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -419,7 +428,12 @@ pub fn buffer(
         None => 0,
     };
     let cpu = map_cpu(rm, gpu, device, handle, size)?;
-    Ok(Buffer { handle, size, gpu_va, cpu })
+    Ok(Buffer {
+        handle,
+        size,
+        gpu_va,
+        cpu,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -443,8 +457,8 @@ pub fn map_doorbell(
     subdevice: u32,
     usermode: u32,
 ) -> Result<CpuMap> {
-    use std::os::fd::AsRawFd;
     use nvrm_abi::doorbell;
+    use std::os::fd::AsRawFd;
 
     let fd = gpu.open_for_mapping(rm.ctl())?;
 
@@ -464,8 +478,12 @@ pub fn map_doorbell(
         eprintln!(
             "MAP_MEMORY (doorbell) failed: hClient={:#x} hDevice={:#x} \
              hMemory={:#x} length={:#x} flags={:#x} fd={}",
-            p.params.hClient, p.params.hDevice, p.params.hMemory,
-            p.params.length, p.params.flags, p.fd,
+            p.params.hClient,
+            p.params.hDevice,
+            p.params.hMemory,
+            p.params.length,
+            p.params.flags,
+            p.fd,
         );
     }
     check_status(sys::NV_ESC_RM_MAP_MEMORY, p.params.status as u32)?;
@@ -487,7 +505,11 @@ pub fn map_doorbell(
         });
     }
 
-    Ok(CpuMap { _fd: fd, ptr: ptr as *mut u8, len: doorbell::USERMODE_SIZE })
+    Ok(CpuMap {
+        _fd: fd,
+        ptr: ptr as *mut u8,
+        len: doorbell::USERMODE_SIZE,
+    })
 }
 
 #[cfg(test)]
@@ -498,7 +520,12 @@ mod tests {
     /// and nothing but [`VaRange::bump`] ever moves it. Built here by hand
     /// because the real constructor needs a GPU.
     fn range(base: u64, size: u64, next: u64) -> VaRange {
-        VaRange { handle: 0xdead_beef, base, size, next }
+        VaRange {
+            handle: 0xdead_beef,
+            base,
+            size,
+            next,
+        }
     }
 
     /// The GPU VA has to satisfy the page size the mapping is made with:

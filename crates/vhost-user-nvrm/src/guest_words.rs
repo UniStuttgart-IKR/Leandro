@@ -111,7 +111,11 @@ mod tests {
     fn end_is_none_exactly_when_the_sum_wraps() {
         assert_eq!(a(0x1000).end(l(0x1000)), Some(a(0x2000)));
         assert_eq!(a(0).end(l(0)), Some(a(0)), "zero length is not an error");
-        assert_eq!(a(u64::MAX).end(l(0)), Some(a(u64::MAX)), "the last byte, no wrap");
+        assert_eq!(
+            a(u64::MAX).end(l(0)),
+            Some(a(u64::MAX)),
+            "the last byte, no wrap"
+        );
         // The first three that DO wrap, at the exact boundary.
         assert_eq!(a(u64::MAX).end(l(1)), None);
         assert_eq!(a(1).end(l(u64::MAX)), None);
@@ -130,10 +134,22 @@ mod tests {
     #[test]
     fn offset_from_refuses_addresses_below_the_base() {
         assert_eq!(a(0x2000).offset_from(a(0x1000)), Some(0x1000));
-        assert_eq!(a(0x1000).offset_from(a(0x1000)), Some(0), "the base itself is offset 0");
-        assert_eq!(a(0x0fff).offset_from(a(0x1000)), None, "one byte below the base");
+        assert_eq!(
+            a(0x1000).offset_from(a(0x1000)),
+            Some(0),
+            "the base itself is offset 0"
+        );
+        assert_eq!(
+            a(0x0fff).offset_from(a(0x1000)),
+            None,
+            "one byte below the base"
+        );
         assert_eq!(a(0).offset_from(a(1)), None);
-        assert_eq!(a(u64::MAX).offset_from(a(0)), Some(u64::MAX), "the widest legal distance");
+        assert_eq!(
+            a(u64::MAX).offset_from(a(0)),
+            Some(u64::MAX),
+            "the widest legal distance"
+        );
     }
 
     /// `plus` sums two guest lengths and answers `None` on overflow --
@@ -143,7 +159,11 @@ mod tests {
     fn plus_is_none_exactly_on_overflow() {
         assert_eq!(l(0x1000).plus(l(0x2000)), Some(l(0x3000)));
         assert_eq!(l(0).plus(l(0)), Some(l(0)));
-        assert_eq!(l(u64::MAX).plus(l(0)), Some(l(u64::MAX)), "the largest sum that fits");
+        assert_eq!(
+            l(u64::MAX).plus(l(0)),
+            Some(l(u64::MAX)),
+            "the largest sum that fits"
+        );
         assert_eq!(l(u64::MAX).plus(l(1)), None);
         assert_eq!(l(u64::MAX).plus(l(u64::MAX)), None);
         // A wrapping sum must not be mistaken for a small legal one: this
@@ -191,7 +211,11 @@ mod tests {
     fn formatting_prints_the_bare_number() {
         assert_eq!(format!("{:x}", a(0xdead_beef)), "deadbeef");
         assert_eq!(format!("{:#x}", a(0xdead_beef)), "0xdeadbeef");
-        assert_eq!(format!("{:#010x}", a(0x1000)), "0x00001000", "width and fill survive");
+        assert_eq!(
+            format!("{:#010x}", a(0x1000)),
+            "0x00001000",
+            "width and fill survive"
+        );
         assert_eq!(format!("{:x}", l(0x1000)), "1000");
         assert_eq!(format!("{:#x}", l(0x1000)), "0x1000");
         assert_eq!(format!("{}", l(4096)), "4096", "Display is decimal");

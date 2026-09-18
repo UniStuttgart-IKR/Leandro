@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
+# SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
+# Kernel C layout, also used for userspace probes. Requires clang-format 22.1.8.
+# Reference: https://github.com/torvalds/linux/blob/master/.clang-format
+BasedOnStyle: LLVM
+IndentWidth: 8
+TabWidth: 8
+UseTab: Always
+ContinuationIndentWidth: 8
+ColumnLimit: 80
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterStruct: false
+  AfterUnion: false
+  BeforeElse: false
+IndentCaseLabels: false
+IndentGotoLabels: false
+IndentPPDirectives: None
+AlignEscapedNewlines: Left
+AlignTrailingComments:
+  Kind: Never
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: false
+BreakStringLiterals: false
+Cpp11BracedListStyle: false
+PointerAlignment: Right
+SpaceBeforeParens: ControlStatementsExceptForEachMacros
+KeepEmptyLines:
+  AtStartOfBlock: false
+PenaltyBreakAssignment: 10
+PenaltyBreakBeforeFirstCallParameter: 30
+PenaltyBreakComment: 10
+PenaltyBreakString: 10
+PenaltyExcessCharacter: 100
+ReflowComments: IndentOnly
+SortIncludes:
+  Enabled: false
+IncludeBlocks: Preserve
+# Kernel loops used in the guest modules.
+ForEachMacros:
+  - for_each_sgtable_sg
+  - list_for_each_entry
+  - list_for_each_entry_safe

@@ -36,8 +36,8 @@ static void report(const char *how, XImage *img, int x, int y)
 	}
 	p = XGetPixel(img, x, y);
 	printf("  %-16s pixel %#08lx  (R %3lu G %3lu B %3lu)  depth %d bpp %d\n",
-	       how, p, (p >> 16) & 0xff, (p >> 8) & 0xff, p & 0xff,
-	       img->depth, img->bits_per_pixel);
+	       how, p, (p >> 16) & 0xff, (p >> 8) & 0xff, p & 0xff, img->depth,
+	       img->bits_per_pixel);
 }
 
 int main(int argc, char **argv)
@@ -83,7 +83,8 @@ int main(int argc, char **argv)
 		printf("  XShmCreateImage  FAILED\n");
 		goto done;
 	}
-	si.shmid = shmget(IPC_PRIVATE, (size_t)shm->bytes_per_line * shm->height,
+	si.shmid = shmget(IPC_PRIVATE,
+			  (size_t)shm->bytes_per_line * shm->height,
 			  IPC_CREAT | 0600);
 	if (si.shmid < 0) {
 		perror("  shmget");

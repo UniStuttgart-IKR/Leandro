@@ -101,7 +101,12 @@ mod tests {
     fn an_ordinary_command_is_not_unwrapped() {
         let mut payload = [0u8; 32];
         let x = wrapper(sys::NV_ESC_RM_CONTROL, 32, payload.as_mut_ptr().cast());
-        for nr in [sys::NV_ESC_RM_CONTROL, sys::NV_ESC_RM_ALLOC, sys::NV_ESC_RM_FREE, 0] {
+        for nr in [
+            sys::NV_ESC_RM_CONTROL,
+            sys::NV_ESC_RM_ALLOC,
+            sys::NV_ESC_RM_FREE,
+            0,
+        ] {
             assert!(call(crate::iowr_raw(nr, 32), &x).is_none(), "nr {nr:#x}");
         }
     }
@@ -127,7 +132,10 @@ mod tests {
         let mut payload = [0u8; 64];
         let p: *mut libc::c_void = payload.as_mut_ptr().cast();
         let x = wrapper(sys::NV_ESC_RM_CONTROL, 64, p);
-        assert_eq!(call(xfer_cmd(), &x), Some(Ok((sys::NV_ESC_RM_CONTROL, p, 64))));
+        assert_eq!(
+            call(xfer_cmd(), &x),
+            Some(Ok((sys::NV_ESC_RM_CONTROL, p, 64)))
+        );
 
         // The largest size the driver accepts (NV_ABSOLUTE_MAX_IOCTL_SIZE)
         // is still valid -- the bound is inclusive.
@@ -149,7 +157,10 @@ mod tests {
 
         // (1) size 0 -- nothing to copy, and a zero-length slice would hide
         //     a caller bug rather than report it.
-        assert_eq!(call(xfer_cmd(), &wrapper(sys::NV_ESC_RM_CONTROL, 0, p)), Some(Err(())));
+        assert_eq!(
+            call(xfer_cmd(), &wrapper(sys::NV_ESC_RM_CONTROL, 0, p)),
+            Some(Err(()))
+        );
         // (2) size past the driver's own limit, including the extreme.
         for size in [ABSOLUTE_MAX_IOCTL_SIZE as u32 + 1, 0x10_0000, u32::MAX] {
             assert_eq!(
@@ -160,7 +171,10 @@ mod tests {
         }
         // (3) the inner pointer is NULL.
         assert_eq!(
-            call(xfer_cmd(), &wrapper(sys::NV_ESC_RM_CONTROL, 64, core::ptr::null_mut())),
+            call(
+                xfer_cmd(),
+                &wrapper(sys::NV_ESC_RM_CONTROL, 64, core::ptr::null_mut())
+            ),
             Some(Err(()))
         );
     }

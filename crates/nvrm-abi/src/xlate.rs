@@ -203,7 +203,9 @@ pub fn uvm_param_size_compiled<A: RmAbi>(cmd: u32) -> Option<usize> {
         uvm::MAP_EXTERNAL_ALLOCATION => size_of::<sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS>(),
         uvm::FREE => size_of::<A::UvmFreeParams>(),
         uvm::REGISTER_GPU => size_of::<sys::UVM_REGISTER_GPU_PARAMS>(),
-        uvm::MAP_DYNAMIC_PARALLELISM_REGION => size_of::<sys::UVM_MAP_DYNAMIC_PARALLELISM_REGION_PARAMS>(),
+        uvm::MAP_DYNAMIC_PARALLELISM_REGION => {
+            size_of::<sys::UVM_MAP_DYNAMIC_PARALLELISM_REGION_PARAMS>()
+        }
         uvm::ALLOC_SEMAPHORE_POOL => size_of::<sys::UVM_ALLOC_SEMAPHORE_POOL_PARAMS>(),
         uvm::SET_PREFERRED_LOCATION => size_of::<sys::UVM_SET_PREFERRED_LOCATION_PARAMS>(),
         uvm::UNSET_PREFERRED_LOCATION => size_of::<sys::UVM_UNSET_PREFERRED_LOCATION_PARAMS>(),
@@ -241,26 +243,32 @@ pub fn alloc_param_size_compiled<A: RmAbi>(hclass: u32) -> Option<usize> {
         0x90f1 => size_of::<sys::NV_VASPACE_ALLOCATION_PARAMETERS>(),
         0xa06c => size_of::<A::TsgParams>(),
         0x9067 => size_of::<sys::NV_CTXSHARE_ALLOCATION_PARAMETERS>(),
-        0x906f | 0xa06f | 0xa16f | 0xb06f | 0xc06f | 0xc36f | 0xc46f | 0xc56f
-        | 0xc86f | 0xc96f | 0xca6f => size_of::<A::AllocChannelParams>(),
-        0x902d | 0xa140 | 0xc597 | 0xc5c0 | 0xc697 | 0xc6c0 | 0xc797 | 0xc7c0
-        | 0xc997 | 0xc9c0 | 0xcb97 | 0xcbc0 | 0xcd40 | 0xcd97 | 0xcdc0
-        | 0xce97 | 0xcec0 => size_of::<sys::NV_GR_ALLOCATION_PARAMETERS>(),
-        0xb8b0 | 0xc4b0 | 0xc6b0 | 0xc7b0 | 0xc9b0 | 0xcdb0 | 0xceb0 | 0xcfb0
-        | 0xd1b0 | 0xd2b0 => size_of::<sys::NV_NVDEC_ALLOCATION_PARAMETERS>(),
-        0xb4b7 | 0xc4b7 | 0xc7b7 | 0xc9b7 | 0xceb7 | 0xcfb7 | 0xd1b7
-            => size_of::<sys::NV_NVENC_ALLOCATION_PARAMETERS>(),
-        0xb8fa | 0xc6fa | 0xc7fa | 0xc9fa | 0xcdfa | 0xcefa | 0xcffa | 0xd1fa
-        | 0xd2fa => size_of::<sys::NV_OFA_ALLOCATION_PARAMETERS>(),
-        0xb8d1 | 0xc4d1 | 0xc9d1 | 0xcdd1 | 0xced0 | 0xcfd1 | 0xd2d1
-            => size_of::<sys::NV_NVJPG_ALLOCATION_PARAMETERS>(),
+        0x906f | 0xa06f | 0xa16f | 0xb06f | 0xc06f | 0xc36f | 0xc46f | 0xc56f | 0xc86f | 0xc96f
+        | 0xca6f => size_of::<A::AllocChannelParams>(),
+        0x902d | 0xa140 | 0xc597 | 0xc5c0 | 0xc697 | 0xc6c0 | 0xc797 | 0xc7c0 | 0xc997 | 0xc9c0
+        | 0xcb97 | 0xcbc0 | 0xcd40 | 0xcd97 | 0xcdc0 | 0xce97 | 0xcec0 => {
+            size_of::<sys::NV_GR_ALLOCATION_PARAMETERS>()
+        }
+        0xb8b0 | 0xc4b0 | 0xc6b0 | 0xc7b0 | 0xc9b0 | 0xcdb0 | 0xceb0 | 0xcfb0 | 0xd1b0 | 0xd2b0 => {
+            size_of::<sys::NV_NVDEC_ALLOCATION_PARAMETERS>()
+        }
+        0xb4b7 | 0xc4b7 | 0xc7b7 | 0xc9b7 | 0xceb7 | 0xcfb7 | 0xd1b7 => {
+            size_of::<sys::NV_NVENC_ALLOCATION_PARAMETERS>()
+        }
+        0xb8fa | 0xc6fa | 0xc7fa | 0xc9fa | 0xcdfa | 0xcefa | 0xcffa | 0xd1fa | 0xd2fa => {
+            size_of::<sys::NV_OFA_ALLOCATION_PARAMETERS>()
+        }
+        0xb8d1 | 0xc4d1 | 0xc9d1 | 0xcdd1 | 0xced0 | 0xcfd1 | 0xd2d1 => {
+            size_of::<sys::NV_NVJPG_ALLOCATION_PARAMETERS>()
+        }
         0x0002 => size_of::<sys::NV_CONTEXT_DMA_ALLOCATION_PARAMS>(),
         0x0005 | 0x0078 | 0x0079 | 0x007e => size_of::<sys::NV0005_ALLOC_PARAMETERS>(),
         0x2080 => size_of::<sys::NV2080_ALLOC_PARAMETERS>(),
         0xc661 | 0xc761 => size_of::<sys::NV_HOPPER_USERMODE_A_PARAMS>(),
         0xc763 | 0xc863 => size_of::<sys::NV_VIDMEM_ACCESS_BIT_ALLOCATION_PARAMS>(),
-        0xb0b5 | 0xc0b5 | 0xc5b5 | 0xc6b5 | 0xc7b5 | 0xc8b5 | 0xc9b5 | 0xcab5
-            => size_of::<sys::NVB0B5_ALLOCATION_PARAMETERS>(),
+        0xb0b5 | 0xc0b5 | 0xc5b5 | 0xc6b5 | 0xc7b5 | 0xc8b5 | 0xc9b5 | 0xcab5 => {
+            size_of::<sys::NVB0B5_ALLOCATION_PARAMETERS>()
+        }
         0x0070 => size_of::<sys::NV_MEMORY_VIRTUAL_ALLOCATION_PARAMS>(),
         0x9072 => size_of::<sys::NV9072_ALLOCATION_PARAMETERS>(),
         0x2081 => size_of::<sys::NV2081_ALLOC_PARAMETERS>(),
@@ -308,54 +316,113 @@ pub fn ctrl_nested_compiled(cmd: u32) -> &'static [(usize, usize, u32)] {
     match cmd {
         // Three string buffers, one shared size, in BYTES.
         0x101 => &[
-            (offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, pDriverVersionBuffer),
-             offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, sizeOfStrings), 1),
-            (offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, pVersionBuffer),
-             offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, sizeOfStrings), 1),
-            (offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, pTitleBuffer),
-             offset_of!(sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS, sizeOfStrings), 1),
+            (
+                offset_of!(
+                    sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS,
+                    pDriverVersionBuffer
+                ),
+                offset_of!(
+                    sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS,
+                    sizeOfStrings
+                ),
+                1,
+            ),
+            (
+                offset_of!(
+                    sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS,
+                    pVersionBuffer
+                ),
+                offset_of!(
+                    sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS,
+                    sizeOfStrings
+                ),
+                1,
+            ),
+            (
+                offset_of!(
+                    sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS,
+                    pTitleBuffer
+                ),
+                offset_of!(
+                    sys::NV0000_CTRL_SYSTEM_GET_BUILD_VERSION_PARAMS,
+                    sizeOfStrings
+                ),
+                1,
+            ),
         ],
         // Entry lists: the count is a number of NVXXXX_CTRL_XXX_INFO.
-        0x20800802 => &[
-            (offset_of!(sys::NV2080_CTRL_BIOS_GET_INFO_PARAMS, biosInfoList),
-             offset_of!(sys::NV2080_CTRL_BIOS_GET_INFO_PARAMS, biosInfoListSize), INFO)],
-        0x20801201 => &[
-            (offset_of!(sys::NV2080_CTRL_GR_GET_INFO_PARAMS, grInfoList),
-             offset_of!(sys::NV2080_CTRL_GR_GET_INFO_PARAMS, grInfoListSize), INFO)],
-        0x20801301 => &[
-            (offset_of!(sys::NV2080_CTRL_FB_GET_INFO_PARAMS, fbInfoList),
-             offset_of!(sys::NV2080_CTRL_FB_GET_INFO_PARAMS, fbInfoListSize), INFO)],
-        0x20801802 => &[
-            (offset_of!(sys::NV2080_CTRL_BUS_GET_INFO_PARAMS, busInfoList),
-             offset_of!(sys::NV2080_CTRL_BUS_GET_INFO_PARAMS, busInfoListSize), INFO)],
-        0x801104 => &[
-            (offset_of!(sys::NV0080_CTRL_GR_GET_INFO_PARAMS, grInfoList),
-             offset_of!(sys::NV0080_CTRL_GR_GET_INFO_PARAMS, grInfoListSize), INFO)],
+        0x20800802 => &[(
+            offset_of!(sys::NV2080_CTRL_BIOS_GET_INFO_PARAMS, biosInfoList),
+            offset_of!(sys::NV2080_CTRL_BIOS_GET_INFO_PARAMS, biosInfoListSize),
+            INFO,
+        )],
+        0x20801201 => &[(
+            offset_of!(sys::NV2080_CTRL_GR_GET_INFO_PARAMS, grInfoList),
+            offset_of!(sys::NV2080_CTRL_GR_GET_INFO_PARAMS, grInfoListSize),
+            INFO,
+        )],
+        0x20801301 => &[(
+            offset_of!(sys::NV2080_CTRL_FB_GET_INFO_PARAMS, fbInfoList),
+            offset_of!(sys::NV2080_CTRL_FB_GET_INFO_PARAMS, fbInfoListSize),
+            INFO,
+        )],
+        0x20801802 => &[(
+            offset_of!(sys::NV2080_CTRL_BUS_GET_INFO_PARAMS, busInfoList),
+            offset_of!(sys::NV2080_CTRL_BUS_GET_INFO_PARAMS, busInfoListSize),
+            INFO,
+        )],
+        0x801104 => &[(
+            offset_of!(sys::NV0080_CTRL_GR_GET_INFO_PARAMS, grInfoList),
+            offset_of!(sys::NV0080_CTRL_GR_GET_INFO_PARAMS, grInfoListSize),
+            INFO,
+        )],
         // NvU32 arrays: the count is a number of 4-byte items.
-        0x20800123 => &[
-            (offset_of!(sys::NV2080_CTRL_GPU_GET_ENGINES_PARAMS, engineList),
-             offset_of!(sys::NV2080_CTRL_GPU_GET_ENGINES_PARAMS, engineCount), 4)],
-        0x800201 => &[
-            (offset_of!(sys::NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS, classList),
-             offset_of!(sys::NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS, numClasses), 4)],
+        0x20800123 => &[(
+            offset_of!(sys::NV2080_CTRL_GPU_GET_ENGINES_PARAMS, engineList),
+            offset_of!(sys::NV2080_CTRL_GPU_GET_ENGINES_PARAMS, engineCount),
+            4,
+        )],
+        0x800201 => &[(
+            offset_of!(sys::NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS, classList),
+            offset_of!(sys::NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS, numClasses),
+            4,
+        )],
         0x80170d => &[
-            (offset_of!(sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS, pChannelHandleList),
-             offset_of!(sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS, numChannels), 4),
-            (offset_of!(sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS, pChannelList),
-             offset_of!(sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS, numChannels), 4)],
+            (
+                offset_of!(
+                    sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS,
+                    pChannelHandleList
+                ),
+                offset_of!(sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS, numChannels),
+                4,
+            ),
+            (
+                offset_of!(sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS, pChannelList),
+                offset_of!(sys::NV0080_CTRL_FIFO_GET_CHANNELLIST_PARAMS, numChannels),
+                4,
+            ),
+        ],
         // Caps tables: the count is in BYTES, however identical the struct.
-        0x801102 => &[
-            (offset_of!(sys::NV0080_CTRL_GR_GET_CAPS_PARAMS, capsTbl),
-             offset_of!(sys::NV0080_CTRL_GR_GET_CAPS_PARAMS, capsTblSize), 1)],
-        0x801301 => &[
-            (offset_of!(sys::NV0080_CTRL_FB_GET_CAPS_PARAMS, capsTbl),
-             offset_of!(sys::NV0080_CTRL_FB_GET_CAPS_PARAMS, capsTblSize), 1)],
-        0x801701 => &[
-            (offset_of!(sys::NV0080_CTRL_FIFO_GET_CAPS_PARAMS, capsTbl),
-             offset_of!(sys::NV0080_CTRL_FIFO_GET_CAPS_PARAMS, capsTblSize), 1)],
-        0x801b01 => &[
-            (offset_of!(sys::NV0080_CTRL_NVENC_GET_CAPS_PARAMS, capsTbl),
-             offset_of!(sys::NV0080_CTRL_NVENC_GET_CAPS_PARAMS, capsTblSize), 1)],
+        0x801102 => &[(
+            offset_of!(sys::NV0080_CTRL_GR_GET_CAPS_PARAMS, capsTbl),
+            offset_of!(sys::NV0080_CTRL_GR_GET_CAPS_PARAMS, capsTblSize),
+            1,
+        )],
+        0x801301 => &[(
+            offset_of!(sys::NV0080_CTRL_FB_GET_CAPS_PARAMS, capsTbl),
+            offset_of!(sys::NV0080_CTRL_FB_GET_CAPS_PARAMS, capsTblSize),
+            1,
+        )],
+        0x801701 => &[(
+            offset_of!(sys::NV0080_CTRL_FIFO_GET_CAPS_PARAMS, capsTbl),
+            offset_of!(sys::NV0080_CTRL_FIFO_GET_CAPS_PARAMS, capsTblSize),
+            1,
+        )],
+        0x801b01 => &[(
+            offset_of!(sys::NV0080_CTRL_NVENC_GET_CAPS_PARAMS, capsTbl),
+            offset_of!(sys::NV0080_CTRL_NVENC_GET_CAPS_PARAMS, capsTblSize),
+            1,
+        )],
         _ => &[],
     }
 }
@@ -382,24 +449,32 @@ mod ctrl_nested_tests {
         for cmd in nested_cmds() {
             let compiled = ctrl_nested_compiled(*cmd);
             if compiled.is_empty() {
-                continue;   // no bindgen struct for it; nothing to check
+                continue; // no bindgen struct for it; nothing to check
             }
             let table = nested_ptrs(*cmd);
             assert_eq!(
-                compiled.len(), table.len(),
+                compiled.len(),
+                table.len(),
                 "command {cmd:#x}: {} compiled pointers against {} in the table",
-                compiled.len(), table.len()
+                compiled.len(),
+                table.len()
             );
             for (i, (ptr_off, len_off, elem)) in compiled.iter().enumerate() {
-                assert_eq!(table[i].ptr_off as usize, *ptr_off,
-                           "command {cmd:#x} pointer {i}: table says +{}, the compiler +{ptr_off}",
-                           table[i].ptr_off);
+                assert_eq!(
+                    table[i].ptr_off as usize, *ptr_off,
+                    "command {cmd:#x} pointer {i}: table says +{}, the compiler +{ptr_off}",
+                    table[i].ptr_off
+                );
                 match table[i].len {
                     LenSource::Field { off, elem: e } => {
-                        assert_eq!(off as usize, *len_off,
-                                   "command {cmd:#x} pointer {i}: count at +{off} against +{len_off}");
-                        assert_eq!(e, *elem,
-                                   "command {cmd:#x} pointer {i}: elem {e} against {elem}");
+                        assert_eq!(
+                            off as usize, *len_off,
+                            "command {cmd:#x} pointer {i}: count at +{off} against +{len_off}"
+                        );
+                        assert_eq!(
+                            e, *elem,
+                            "command {cmd:#x} pointer {i}: elem {e} against {elem}"
+                        );
                     }
                     _ => panic!("command {cmd:#x} pointer {i}: not a Field length"),
                 }
@@ -446,27 +521,72 @@ mod uvm_size_tests {
             }};
         }
         // Graphics/compute, one struct for every architecture (nvos.h:2724).
-        check!(sys::NV_GR_ALLOCATION_PARAMETERS,
-               0xc5c0u32, 0x902d, 0xa140, 0xc597, 0xc6c0, 0xc797, 0xc9c0, 0xcdc0);
+        check!(
+            sys::NV_GR_ALLOCATION_PARAMETERS,
+            0xc5c0u32,
+            0x902d,
+            0xa140,
+            0xc597,
+            0xc6c0,
+            0xc797,
+            0xc9c0,
+            0xcdc0
+        );
         // Video engines. NV_BSP_/NV_MSENC_ are #defines onto these.
-        check!(sys::NV_NVDEC_ALLOCATION_PARAMETERS, 0xc4b0u32, 0xb8b0, 0xc6b0, 0xd2b0);
-        check!(sys::NV_NVENC_ALLOCATION_PARAMETERS, 0xc4b7u32, 0xb4b7, 0xc7b7, 0xd1b7);
+        check!(
+            sys::NV_NVDEC_ALLOCATION_PARAMETERS,
+            0xc4b0u32,
+            0xb8b0,
+            0xc6b0,
+            0xd2b0
+        );
+        check!(
+            sys::NV_NVENC_ALLOCATION_PARAMETERS,
+            0xc4b7u32,
+            0xb4b7,
+            0xc7b7,
+            0xd1b7
+        );
         check!(sys::NV_OFA_ALLOCATION_PARAMETERS, 0xb8fau32, 0xc6fa, 0xd2fa);
-        check!(sys::NV_NVJPG_ALLOCATION_PARAMETERS, 0xb8d1u32, 0xc4d1, 0xd2d1);
+        check!(
+            sys::NV_NVJPG_ALLOCATION_PARAMETERS,
+            0xb8d1u32,
+            0xc4d1,
+            0xd2d1
+        );
         // NV01_CONTEXT_DMA (nvos.h:1594).
         check!(sys::NV_CONTEXT_DMA_ALLOCATION_PARAMS, 0x0002u32);
         // Hopper/Blackwell USERMODE take an optional params struct where
         // Volta/Turing/Ampere take none (nvos.h:3327).
         check!(sys::NV_HOPPER_USERMODE_A_PARAMS, 0xc661u32, 0xc761);
         // MMU access-bit buffer (nvos.h:3310).
-        check!(sys::NV_VIDMEM_ACCESS_BIT_ALLOCATION_PARAMS, 0xc763u32, 0xc863);
+        check!(
+            sys::NV_VIDMEM_ACCESS_BIT_ALLOCATION_PARAMS,
+            0xc763u32,
+            0xc863
+        );
         // The event classes, which share NV01_EVENT_OS_EVENT's struct.
-        check!(sys::NV0005_ALLOC_PARAMETERS, 0x0079u32, 0x0005, 0x0078, 0x007e);
+        check!(
+            sys::NV0005_ALLOC_PARAMETERS,
+            0x0079u32,
+            0x0005,
+            0x0078,
+            0x007e
+        );
         // NV20_SUBDEVICE_0 (cl2080.h).
         check!(sys::NV2080_ALLOC_PARAMETERS, 0x2080u32);
         // The classes whose params live in their own class header.
-        check!(sys::NVB0B5_ALLOCATION_PARAMETERS,
-               0xc5b5u32, 0xb0b5, 0xc0b5, 0xc6b5, 0xc7b5, 0xc8b5, 0xc9b5, 0xcab5);
+        check!(
+            sys::NVB0B5_ALLOCATION_PARAMETERS,
+            0xc5b5u32,
+            0xb0b5,
+            0xc0b5,
+            0xc6b5,
+            0xc7b5,
+            0xc8b5,
+            0xc9b5,
+            0xcab5
+        );
         check!(sys::NV_MEMORY_VIRTUAL_ALLOCATION_PARAMS, 0x0070u32);
         check!(sys::NV9072_ALLOCATION_PARAMETERS, 0x9072u32);
         check!(sys::NV2081_ALLOC_PARAMETERS, 0x2081u32);
@@ -524,10 +644,17 @@ mod uvm_size_tests {
                 "UVM command {cmd:#x}: the table says {hand} bytes, the compiler {compiled}"
             );
         }
-        assert_eq!(cmds.len(), 22, "every command with a compiled struct is checked");
+        assert_eq!(
+            cmds.len(),
+            22,
+            "every command with a compiled struct is checked"
+        );
         // The one command that genuinely has no parameter block.
         assert_eq!(uvm_param_size(uvm::DEINITIALIZE), Some(0));
-        assert_eq!(uvm_param_size_compiled::<sys::DefaultAbi>(uvm::DEINITIALIZE), None);
+        assert_eq!(
+            uvm_param_size_compiled::<sys::DefaultAbi>(uvm::DEINITIALIZE),
+            None
+        );
     }
 }
 
@@ -613,16 +740,19 @@ pub struct Embedded {
 /// # Safety
 /// `buf` must be valid for at least `size` bytes.
 #[allow(clippy::result_unit_err)] // Err(()) means "not determinable"; the caller maps it to ENOTSUP
-pub unsafe fn embedded_ptr<A: RmAbi>(dev: Dev, nr: u32, buf: *const u8, size: u32) -> Result<Option<Embedded>, ()> {
+pub unsafe fn embedded_ptr<A: RmAbi>(
+    dev: Dev,
+    nr: u32,
+    buf: *const u8,
+    size: u32,
+) -> Result<Option<Embedded>, ()> {
     if dev.is_uvm() {
         // All UVM params known so far are flat: the big MAP_EXTERNAL_-
         // ALLOCATION/ALLOC_SEMAPHORE_POOL attribute arrays are inline,
         // not pointed to.
         return Ok(None);
     }
-    let rd32 = |off: u32| -> u32 {
-        core::ptr::read_unaligned(buf.add(off as usize) as *const u32)
-    };
+    let rd32 = |off: u32| -> u32 { core::ptr::read_unaligned(buf.add(off as usize) as *const u32) };
     match nr {
         // NVOS54: params P64 @ 16, paramsSize u32 @ 24. Self-describing.
         sys::NV_ESC_RM_CONTROL if size >= 32 => {
@@ -631,7 +761,10 @@ pub unsafe fn embedded_ptr<A: RmAbi>(dev: Dev, nr: u32, buf: *const u8, size: u3
             if pptr == 0 || plen == 0 {
                 Ok(None) // a control with no params, and many have none
             } else {
-                Ok(Some(Embedded { ptr_off: 16, len: plen }))
+                Ok(Some(Embedded {
+                    ptr_off: 16,
+                    len: plen,
+                }))
             }
         }
         // RM_ALLOC comes in TWO forms. The driver accepts exactly these two
@@ -673,7 +806,10 @@ pub unsafe fn embedded_ptr<A: RmAbi>(dev: Dev, nr: u32, buf: *const u8, size: u3
             if pptr == 0 {
                 Ok(None)
             } else {
-                Ok(Some(Embedded { ptr_off: 0, len: size_of::<sys::NvUnixEvent>() as u32 }))
+                Ok(Some(Embedded {
+                    ptr_off: 0,
+                    len: size_of::<sys::NvUnixEvent>() as u32,
+                }))
             }
         }
         _ => Ok(None),
@@ -799,18 +935,18 @@ pub fn alloc_class_verified(hclass: u32) -> bool {
 pub fn alloc_param_size<A: RmAbi>(hclass: u32) -> Option<u32> {
     Some(match hclass {
         // --- derived from the bindgen types (the vendor tree governs) ---
-        0x0080 => sz::<sys::NV0080_ALLOC_PARAMETERS>(),          // NV01_DEVICE_0
+        0x0080 => sz::<sys::NV0080_ALLOC_PARAMETERS>(), // NV01_DEVICE_0
         0x90f1 => sz::<sys::NV_VASPACE_ALLOCATION_PARAMETERS>(), // FERMI_VASPACE_A
-        0xa06c => sz::<A::TsgParams>(),                          // TSG
+        0xa06c => sz::<A::TsgParams>(),                 // TSG
         0x9067 => sz::<sys::NV_CTXSHARE_ALLOCATION_PARAMETERS>(),
-        0xc46f => sz::<A::AllocChannelParams>(),                 // this version's layout
+        0xc46f => sz::<A::AllocChannelParams>(), // this version's layout
 
         // --- by hand, because not in the bindgen allowlist ---
-        0x2080 => 4,   // NV2080_ALLOC_PARAMETERS { subDeviceId } (cl2080.h)
-        0x2081 => 4,   // NV2081_ALLOC_PARAMETERS { reserved } (cl2081.h:38)
-        0x0079 => 24,  // NV0005_ALLOC_PARAMETERS (cl0005.h:40-47):
-                       // hParentClient@0, hSrcResource@4, hClass@8,
-                       // notifyIndex@12, data P64 @16 -> 24
+        0x2080 => 4,  // NV2080_ALLOC_PARAMETERS { subDeviceId } (cl2080.h)
+        0x2081 => 4,  // NV2081_ALLOC_PARAMETERS { reserved } (cl2081.h:38)
+        0x0079 => 24, // NV0005_ALLOC_PARAMETERS (cl0005.h:40-47):
+        // hParentClient@0, hSrcResource@4, hClass@8,
+        // notifyIndex@12, data P64 @16 -> 24
         // NVC640_ALLOCATION_PARAMETERS { NvU64 capDescriptor } (clc640.h:38).
         // WARNING: on Unix capDescriptor is a FILE DESCRIPTOR, not a value --
         // a process-local FD INSIDE the alloc params. `alloc_fd_field` has
@@ -834,7 +970,7 @@ pub fn alloc_param_size<A: RmAbi>(hclass: u32) -> Option<u32> {
         // The entry to add here is therefore still MISSING and still wanted,
         // but it is a prerequisite for exposing MIG to a guest, not a live
         // hole: nothing can currently drive it.
-        0xc640 => 8,   // AMPERE_SMC_MONITOR_SESSION
+        0xc640 => 8, // AMPERE_SMC_MONITOR_SESSION
         // NV_MEMORY_ALLOCATION_PARAMS for the ordinary memory classes
         // (resource_list.h:574, :542, :563).
         0x003e | 0x0040 | 0x50a0 => sz::<sys::NV_MEMORY_ALLOCATION_PARAMS>(),
@@ -875,29 +1011,29 @@ pub fn alloc_param_size<A: RmAbi>(hclass: u32) -> Option<u32> {
         // of every architecture. Turing (0xc5c0) above is the verified one; these
         // are its siblings.
         // 16 classes, resource_list.h from :2121
-        0x902d | 0xa140 | 0xc597 | 0xc697 | 0xc6c0 | 0xc797 | 0xc7c0 |
-        0xc997 | 0xc9c0 | 0xcb97 | 0xcbc0 | 0xcd40 | 0xcd97 | 0xcdc0 |
-        0xce97 | 0xcec0 => 16,
+        0x902d | 0xa140 | 0xc597 | 0xc697 | 0xc6c0 | 0xc797 | 0xc7c0 | 0xc997 | 0xc9c0 | 0xcb97
+        | 0xcbc0 | 0xcd40 | 0xcd97 | 0xcdc0 | 0xce97 | 0xcec0 => 16,
 
         // NV_BSP_ALLOCATION_PARAMETERS (nvos.h:2945) = 12. NVDEC video decoder.
         // Alias of NV_NVDEC_ALLOCATION_PARAMETERS.
         // 10 classes, resource_list.h from :1748
-        0xb8b0 | 0xc4b0 | 0xc6b0 | 0xc7b0 | 0xc9b0 | 0xcdb0 | 0xceb0 |
-        0xcfb0 | 0xd1b0 | 0xd2b0 => 12,
+        0xb8b0 | 0xc4b0 | 0xc6b0 | 0xc7b0 | 0xc9b0 | 0xcdb0 | 0xceb0 | 0xcfb0 | 0xd1b0 | 0xd2b0 => {
+            12
+        }
 
         // NV_CHANNEL_ALLOC_PARAMS (alloc/alloc_channel.h:347) = 376. GPFIFO
         // channel of every architecture -- one struct for all of them, so the
         // verified Turing entry (0xc46f) fixes the size for the rest. Without
         // these the FIRST channel allocation on a non-Turing card fails.
         // 10 classes, resource_list.h from :315
-        0x906f | 0xa06f | 0xa16f | 0xb06f | 0xc06f | 0xc36f | 0xc56f |
-        0xc86f | 0xc96f | 0xca6f => sz::<A::AllocChannelParams>(),
+        0x906f | 0xa06f | 0xa16f | 0xb06f | 0xc06f | 0xc36f | 0xc56f | 0xc86f | 0xc96f | 0xca6f => {
+            sz::<A::AllocChannelParams>()
+        }
 
         // NV_OFA_ALLOCATION_PARAMETERS (nvos.h:3014) = 12. Optical flow
         // accelerator.
         // 9 classes, resource_list.h from :1935
-        0xb8fa | 0xc6fa | 0xc7fa | 0xc9fa | 0xcdfa | 0xcefa | 0xcffa |
-        0xd1fa | 0xd2fa => 12,
+        0xb8fa | 0xc6fa | 0xc7fa | 0xc9fa | 0xcdfa | 0xcefa | 0xcffa | 0xd1fa | 0xd2fa => 12,
 
         // NVB0B5_ALLOCATION_PARAMETERS (class/clb0b5sw.h:53) = 8. Copy engine of
         // every architecture; Turing (0xc5b5) above is verified.
@@ -1174,9 +1310,8 @@ pub const MAX_NESTED: usize = 4;
 /// have an annotation. Whoever adds a command below adds it here too.
 pub fn nested_cmds() -> &'static [u32] {
     &[
-        0x101, 0x20801802, 0x20801201, 0x80170d, 0x800201, 0x801b01,
-        0x801301, 0x801102, 0x801701, 0x801104, 0x20801301, 0x20800123,
-        0x410110, 0x20800802,
+        0x101, 0x20801802, 0x20801201, 0x80170d, 0x800201, 0x801b01, 0x801301, 0x801102, 0x801701,
+        0x801104, 0x20801301, 0x20800123, 0x410110, 0x20800802,
     ]
 }
 
@@ -1283,9 +1418,18 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // All three buffers are SizeOfStrings bytes. That is the
         // "KMD Version" line in nvidia-smi.
         0x101 => &[
-            NestedPtr { ptr_off: 8,  len: LenSource::Field { off: 0, elem: 1 } },
-            NestedPtr { ptr_off: 16, len: LenSource::Field { off: 0, elem: 1 } },
-            NestedPtr { ptr_off: 24, len: LenSource::Field { off: 0, elem: 1 } },
+            NestedPtr {
+                ptr_off: 8,
+                len: LenSource::Field { off: 0, elem: 1 },
+            },
+            NestedPtr {
+                ptr_off: 16,
+                len: LenSource::Field { off: 0, elem: 1 },
+            },
+            NestedPtr {
+                ptr_off: 24,
+                len: LenSource::Field { off: 0, elem: 1 },
+            },
         ],
 
         // NV2080_CTRL_CMD_BUS_GET_INFO (legacy, not in gVisor) -- the
@@ -1295,9 +1439,10 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // ctrl2080bus.h:583-586 (busInfoListSize is "the number of entries",
         // busInfoList an NV_DECLARE_ALIGNED NvP64, NV2080_CTRL_BUS_INFO is
         // the 8-byte pair).
-        0x20801802 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 8 } },
-        ],
+        0x20801802 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 8 },
+        }],
 
         // NV2080_CTRL_CMD_BIOS_GET_INFO (ctrl2080bios.h:71, params :73-76).
         // { biosInfoListSize u32 @0; pad 4; NV_DECLARE_ALIGNED(biosInfoList
@@ -1317,9 +1462,10 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // 0x7fff4db34730 in the guest. A workload that succeeds while one of
         // its calls is refused is exactly the case a status-code gate
         // cannot see (OPEN-QUESTIONS number 51).
-        0x20800802 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 8 } },
-        ],
+        0x20800802 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 8 },
+        }],
 
         // NV0041_CTRL_CMD_GET_SURFACE_INFO (ctrl0041.h:279, params :283-286).
         // { surfaceInfoListSize u32 @0; pad 4; surfaceInfoList NvP64 @8 }.
@@ -1331,9 +1477,10 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // entry RM gets a guest pointer and answers 0x1e -- measured
         // 2026-08-08 as "Failed to allocate memory for the display color
         // lookup table."
-        0x410110 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 8 } },
-        ],
+        0x410110 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 8 },
+        }],
 
         // NV2080_CTRL_CMD_GR_GET_INFO (ctrl2080gr.h:408, params :412-416).
         // { grInfoListSize u32 @0; pad 4; grInfoList NvP64 @8;
@@ -1342,9 +1489,10 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // NV2080_CTRL_GR_INFO typedef chain ctrl2080gr.h:154 ->
         // ctrl0080gr.h:99). Status was 0x1e under the retired LD_PRELOAD
         // shim, 0x0 in the direct trace.
-        0x20801201 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 8 } },
-        ],
+        0x20801201 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 8 },
+        }],
 
         // NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST (ctrl0080fifo.h:178, params
         // :181-185). { numChannels u32 @0; pad 4; pChannelHandleList NvP64
@@ -1352,8 +1500,14 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // elements of 4 bytes (NvHandle / NvU32 channel ID). Status was
         // 0x1e under the retired LD_PRELOAD shim, 0x0 in the direct trace.
         0x80170d => &[
-            NestedPtr { ptr_off: 8,  len: LenSource::Field { off: 0, elem: 4 } },
-            NestedPtr { ptr_off: 16, len: LenSource::Field { off: 0, elem: 4 } },
+            NestedPtr {
+                ptr_off: 8,
+                len: LenSource::Field { off: 0, elem: 4 },
+            },
+            NestedPtr {
+                ptr_off: 16,
+                len: LenSource::Field { off: 0, elem: 4 },
+            },
         ],
 
         // NV0080_CTRL_CMD_GPU_GET_CLASSLIST (ctrl0080gpu.h:70, params :74-77).
@@ -1373,9 +1527,10 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // asks which classes exist before opening a session (0xc4b7), and
         // NVKMS picks its display HAL from the same list
         // (nvkms-rm.c:3692).
-        0x800201 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 4 } },
-        ],
+        0x800201 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 4 },
+        }],
 
         // NV0080_CTRL_CMD_NVENC_GET_CAPS (ctrl0080nvenc.h:59, params :65-68).
         // { capsTblSize u32 @0; NV_DECLARE_ALIGNED(capsTbl NvP64, 8) @8 }
@@ -1385,9 +1540,10 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         //
         // Never reached in the guest so far: it sits behind 0x800201, which
         // failed first.
-        0x801b01 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 1 } },
-        ],
+        0x801b01 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 1 },
+        }],
 
         // ---- the *_GET_CAPS / *_GET_INFO family on the DEVICE class ----
         // All four came out of one guest run of NVIDIA's EGL (2026-08-06):
@@ -1401,22 +1557,25 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // { capsTblSize u32 @0; NV_DECLARE_ALIGNED(capsTbl NvP64, 8) @8 }
         // = 16. The header: "the size in BYTES of the caps table" -- so
         // elem 1. NV0080_CTRL_FB_CAPS_TBL_SIZE is 3 (:99).
-        0x801301 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 1 } },
-        ],
+        0x801301 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 1 },
+        }],
 
         // NV0080_CTRL_CMD_GR_GET_CAPS (ctrl0080gr.h, params right after).
         // Same shape, same byte semantics; NV0080_CTRL_GR_CAPS_TBL_SIZE is
         // 23 (:78).
-        0x801102 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 1 } },
-        ],
+        0x801102 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 1 },
+        }],
 
         // NV0080_CTRL_CMD_FIFO_GET_CAPS (ctrl0080fifo.h).
         // NV0080_CTRL_FIFO_CAPS_TBL_SIZE is 2 (:95). Bytes again.
-        0x801701 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 1 } },
-        ],
+        0x801701 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 1 },
+        }],
 
         // NV0080_CTRL_CMD_GR_GET_INFO (ctrl0080gr.h:72).
         // NOT bytes. The header is explicit: "grInfoListSize [...] the
@@ -1425,9 +1584,10 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // of the NV0080_CTRL_GR_INFO structure". That structure is
         // NVXXXX_CTRL_XXX_INFO (:99) = { index u32; data u32 } = 8 -- the
         // same element the already-annotated 0x20801201 uses.
-        0x801104 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 8 } },
-        ],
+        0x801104 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 8 },
+        }],
 
         // NV2080_CTRL_CMD_FB_GET_INFO (ctrl2080fb.h:480, params :483-486).
         // { fbInfoListSize u32 @0; NV_DECLARE_ALIGNED(fbInfoList NvP64, 8)
@@ -1441,9 +1601,10 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // NvP64 -- 0x202, 0x801102, 0x801104, 0x801301, 0x801701, 0x20801201
         // and this one. Everything else is flat or a _V2 that embeds its
         // table.
-        0x20801301 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 8 } },
-        ],
+        0x20801301 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 8 },
+        }],
 
         // NV2080_CTRL_CMD_GPU_GET_ENGINES (ctrl2080gpu.h, params right
         // after). { engineCount u32 @0; NV_DECLARE_ALIGNED(engineList
@@ -1458,9 +1619,10 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
         // Found by NVIDIA's VULKAN driver, not by EGL: vkCreateDevice
         // fails without it (status 0x1e), and it is the only NvP64-carrying
         // control vulkaninfo adds to the seven EGL needs.
-        0x20800123 => &[
-            NestedPtr { ptr_off: 8, len: LenSource::Field { off: 0, elem: 4 } },
-        ],
+        0x20800123 => &[NestedPtr {
+            ptr_off: 8,
+            len: LenSource::Field { off: 0, elem: 4 },
+        }],
 
         // NOT annotated on purpose: NV0000_CTRL_CMD_GPU_GET_ID_INFO (0x202)
         // carries an NvP64 too, but measured it is NULL in every call this
@@ -1533,7 +1695,10 @@ mod nested_tests {
         // i.e. 16 bytes behind the pointer.
         let mut params = [0u8; 16];
         params[0..4].copy_from_slice(&2u32.to_le_bytes());
-        assert_eq!(unsafe { specs[0].len.resolve(params.as_ptr(), 16) }, Some(16));
+        assert_eq!(
+            unsafe { specs[0].len.resolve(params.as_ptr(), 16) },
+            Some(16)
+        );
     }
 
     /// NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS (ctrl0080gpu.h:74):
@@ -1581,7 +1746,10 @@ mod nested_tests {
             p
         };
         // SAFETY: params is 16 bytes, the field sits at offset 0.
-        assert_eq!(unsafe { specs[0].len.resolve(params.as_ptr(), 16) }, Some(6));
+        assert_eq!(
+            unsafe { specs[0].len.resolve(params.as_ptr(), 16) },
+            Some(6)
+        );
     }
 
     /// NV0000_CTRL_CMD_GPU_GET_ID_INFO has an NvP64 and is deliberately NOT
@@ -1647,30 +1815,66 @@ mod uvm_tests {
         }
         vec![
             row!(uvm::INITIALIZE, sys::UVM_INITIALIZE_PARAMS),
-            row!(uvm::PAGEABLE_MEM_ACCESS, sys::UVM_PAGEABLE_MEM_ACCESS_PARAMS),
+            row!(
+                uvm::PAGEABLE_MEM_ACCESS,
+                sys::UVM_PAGEABLE_MEM_ACCESS_PARAMS
+            ),
             row!(uvm::MM_INITIALIZE, sys::UVM_MM_INITIALIZE_PARAMS),
-            row!(uvm::REGISTER_GPU_VASPACE, sys::UVM_REGISTER_GPU_VASPACE_PARAMS),
-            row!(uvm::UNREGISTER_GPU_VASPACE, sys::UVM_UNREGISTER_GPU_VASPACE_PARAMS),
+            row!(
+                uvm::REGISTER_GPU_VASPACE,
+                sys::UVM_REGISTER_GPU_VASPACE_PARAMS
+            ),
+            row!(
+                uvm::UNREGISTER_GPU_VASPACE,
+                sys::UVM_UNREGISTER_GPU_VASPACE_PARAMS
+            ),
             row!(uvm::REGISTER_CHANNEL, sys::UVM_REGISTER_CHANNEL_PARAMS),
-            row!(uvm::UNREGISTER_CHANNEL, sys::default_version::UVM_UNREGISTER_CHANNEL_PARAMS),
-            row!(uvm::MAP_EXTERNAL_ALLOCATION, sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS),
+            row!(
+                uvm::UNREGISTER_CHANNEL,
+                sys::default_version::UVM_UNREGISTER_CHANNEL_PARAMS
+            ),
+            row!(
+                uvm::MAP_EXTERNAL_ALLOCATION,
+                sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS
+            ),
             row!(uvm::FREE, sys::default_version::UVM_FREE_PARAMS),
             row!(uvm::REGISTER_GPU, sys::UVM_REGISTER_GPU_PARAMS),
             row!(
                 uvm::MAP_DYNAMIC_PARALLELISM_REGION,
                 sys::UVM_MAP_DYNAMIC_PARALLELISM_REGION_PARAMS
             ),
-            row!(uvm::ALLOC_SEMAPHORE_POOL, sys::UVM_ALLOC_SEMAPHORE_POOL_PARAMS),
-            row!(uvm::PAGEABLE_MEM_ACCESS_ON_GPU, sys::UVM_PAGEABLE_MEM_ACCESS_ON_GPU_PARAMS),
-            row!(uvm::SET_PREFERRED_LOCATION, sys::UVM_SET_PREFERRED_LOCATION_PARAMS),
-            row!(uvm::UNSET_PREFERRED_LOCATION, sys::UVM_UNSET_PREFERRED_LOCATION_PARAMS),
-            row!(uvm::ENABLE_READ_DUPLICATION, sys::UVM_ENABLE_READ_DUPLICATION_PARAMS),
-            row!(uvm::DISABLE_READ_DUPLICATION, sys::UVM_DISABLE_READ_DUPLICATION_PARAMS),
+            row!(
+                uvm::ALLOC_SEMAPHORE_POOL,
+                sys::UVM_ALLOC_SEMAPHORE_POOL_PARAMS
+            ),
+            row!(
+                uvm::PAGEABLE_MEM_ACCESS_ON_GPU,
+                sys::UVM_PAGEABLE_MEM_ACCESS_ON_GPU_PARAMS
+            ),
+            row!(
+                uvm::SET_PREFERRED_LOCATION,
+                sys::UVM_SET_PREFERRED_LOCATION_PARAMS
+            ),
+            row!(
+                uvm::UNSET_PREFERRED_LOCATION,
+                sys::UVM_UNSET_PREFERRED_LOCATION_PARAMS
+            ),
+            row!(
+                uvm::ENABLE_READ_DUPLICATION,
+                sys::UVM_ENABLE_READ_DUPLICATION_PARAMS
+            ),
+            row!(
+                uvm::DISABLE_READ_DUPLICATION,
+                sys::UVM_DISABLE_READ_DUPLICATION_PARAMS
+            ),
             row!(uvm::SET_ACCESSED_BY, sys::UVM_SET_ACCESSED_BY_PARAMS),
             row!(uvm::UNSET_ACCESSED_BY, sys::UVM_UNSET_ACCESSED_BY_PARAMS),
             row!(uvm::MIGRATE, sys::UVM_MIGRATE_PARAMS),
             row!(uvm::VALIDATE_VA_RANGE, sys::UVM_VALIDATE_VA_RANGE_PARAMS),
-            row!(uvm::CREATE_EXTERNAL_RANGE, sys::UVM_CREATE_EXTERNAL_RANGE_PARAMS),
+            row!(
+                uvm::CREATE_EXTERNAL_RANGE,
+                sys::UVM_CREATE_EXTERNAL_RANGE_PARAMS
+            ),
         ]
     }
 
@@ -1754,7 +1958,10 @@ mod uvm_tests {
         };
         // UVM_MM_INITIALIZE carries `uvmFd`, an fd on /dev/nvidia-uvm
         // itself; all the others carry `rmCtrlFd`, an fd on /dev/nvidiactl.
-        want(uvm::MM_INITIALIZE, offset_of!(sys::UVM_MM_INITIALIZE_PARAMS, uvmFd) as u32);
+        want(
+            uvm::MM_INITIALIZE,
+            offset_of!(sys::UVM_MM_INITIALIZE_PARAMS, uvmFd) as u32,
+        );
         want(
             uvm::REGISTER_GPU_VASPACE,
             offset_of!(sys::UVM_REGISTER_GPU_VASPACE_PARAMS, rmCtrlFd) as u32,
@@ -1763,7 +1970,10 @@ mod uvm_tests {
             uvm::REGISTER_CHANNEL,
             offset_of!(sys::UVM_REGISTER_CHANNEL_PARAMS, rmCtrlFd) as u32,
         );
-        want(uvm::REGISTER_GPU, offset_of!(sys::UVM_REGISTER_GPU_PARAMS, rmCtrlFd) as u32);
+        want(
+            uvm::REGISTER_GPU,
+            offset_of!(sys::UVM_REGISTER_GPU_PARAMS, rmCtrlFd) as u32,
+        );
         // The interesting one: rmCtrlFd sits BEHIND the 9216-byte
         // per-GPU attribute array, so it is the offset most likely to be
         // mis-added by hand.
@@ -1778,8 +1988,14 @@ mod uvm_tests {
     /// field.
     #[test]
     fn a_uvm_command_without_an_fd_field_answers_none() {
-        for cmd in [uvm::INITIALIZE, uvm::DEINITIALIZE, uvm::FREE, uvm::MIGRATE,
-                    uvm::UNREGISTER_CHANNEL, uvm::VALIDATE_VA_RANGE] {
+        for cmd in [
+            uvm::INITIALIZE,
+            uvm::DEINITIALIZE,
+            uvm::FREE,
+            uvm::MIGRATE,
+            uvm::UNREGISTER_CHANNEL,
+            uvm::VALIDATE_VA_RANGE,
+        ] {
             for dev in [Dev::Uvm, Dev::UvmTools] {
                 assert_eq!(fd_field_offset(dev, cmd, 0), None, "{dev:?} cmd {cmd:#x}");
             }
@@ -1817,7 +2033,10 @@ mod embedded_ptr_tests {
     /// instead of the field-less `Embedded`.
     #[allow(clippy::type_complexity)]
     fn probe(dev: Dev, nr: u32, buf: &[u8], size: u32) -> Result<Option<(u32, u32)>, ()> {
-        assert!(buf.len() >= size as usize, "the test buffer must cover `size`");
+        assert!(
+            buf.len() >= size as usize,
+            "the test buffer must cover `size`"
+        );
         // SAFETY: the assert above guarantees `buf` is valid for `size` bytes.
         unsafe { embedded_ptr::<sys::DefaultAbi>(dev, nr, buf.as_ptr(), size) }
             .map(|o| o.map(|e| (e.ptr_off, e.len)))
@@ -1848,9 +2067,23 @@ mod embedded_ptr_tests {
     /// make the host copy from a null guest pointer.
     #[test]
     fn rm_control_with_no_params_carries_no_embedded_pointer() {
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_CONTROL, &nvos54(0, 128), 32), Ok(None));
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_CONTROL, &nvos54(0xdead_beef, 0), 32), Ok(None));
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_CONTROL, &nvos54(0, 0), 32), Ok(None));
+        assert_eq!(
+            probe(Dev::Ctl, sys::NV_ESC_RM_CONTROL, &nvos54(0, 128), 32),
+            Ok(None)
+        );
+        assert_eq!(
+            probe(
+                Dev::Ctl,
+                sys::NV_ESC_RM_CONTROL,
+                &nvos54(0xdead_beef, 0),
+                32
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            probe(Dev::Ctl, sys::NV_ESC_RM_CONTROL, &nvos54(0, 0), 32),
+            Ok(None)
+        );
     }
 
     /// RM_CONTROL is self-describing: the params buffer sits behind the
@@ -1861,14 +2094,24 @@ mod embedded_ptr_tests {
     fn rm_control_takes_the_length_from_paramssize() {
         for len in [1u32, 4, 24, 1234, 16384] {
             assert_eq!(
-                probe(Dev::Ctl, sys::NV_ESC_RM_CONTROL, &nvos54(0xdead_beef, len), 32),
+                probe(
+                    Dev::Ctl,
+                    sys::NV_ESC_RM_CONTROL,
+                    &nvos54(0xdead_beef, len),
+                    32
+                ),
                 Ok(Some((16, len))),
                 "paramsSize {len}"
             );
         }
         // The same on a per-GPU node, not just on /dev/nvidiactl.
         assert_eq!(
-            probe(Dev::Gpu, sys::NV_ESC_RM_CONTROL, &nvos54(0xdead_beef, 40), 32),
+            probe(
+                Dev::Gpu,
+                sys::NV_ESC_RM_CONTROL,
+                &nvos54(0xdead_beef, 40),
+                32
+            ),
             Ok(Some((16, 40)))
         );
     }
@@ -1881,8 +2124,14 @@ mod embedded_ptr_tests {
         // 0xdead is not in the hClass table; the null pointer must be
         // decided BEFORE the class is looked up, otherwise every
         // parameterless alloc of an unlisted class would fail.
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(0xdead, 0, 0), 48), Ok(None));
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(0x0041, 0, 0), 48), Ok(None));
+        assert_eq!(
+            probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(0xdead, 0, 0), 48),
+            Ok(None)
+        );
+        assert_eq!(
+            probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(0x0041, 0, 0), 48),
+            Ok(None)
+        );
     }
 
     /// RM_ALLOC is NOT self-describing: the length comes from the hClass at
@@ -1892,9 +2141,15 @@ mod embedded_ptr_tests {
     #[test]
     fn rm_alloc_takes_the_length_from_the_hclass_table() {
         for hclass in [0x0080u32, 0x2080, 0x0079, 0x90f1, 0xc46f] {
-            let want = alloc_param_size::<sys::DefaultAbi>(hclass).expect("probe class missing from the table");
+            let want = alloc_param_size::<sys::DefaultAbi>(hclass)
+                .expect("probe class missing from the table");
             assert_eq!(
-                probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(hclass, 0xdead_beef, 0), 48),
+                probe(
+                    Dev::Ctl,
+                    sys::NV_ESC_RM_ALLOC,
+                    &nvos64(hclass, 0xdead_beef, 0),
+                    48
+                ),
                 Ok(Some((16, want))),
                 "hClass {hclass:#x}"
             );
@@ -1906,8 +2161,20 @@ mod embedded_ptr_tests {
     /// guest address, or copy a guessed number of bytes.
     #[test]
     fn rm_alloc_of_an_unknown_hclass_fails_loudly() {
-        assert_eq!(alloc_param_size::<sys::DefaultAbi>(0xdead), None, "the probe class must stay unknown");
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(0xdead, 0xbeef, 0), 48), Err(()));
+        assert_eq!(
+            alloc_param_size::<sys::DefaultAbi>(0xdead),
+            None,
+            "the probe class must stay unknown"
+        );
+        assert_eq!(
+            probe(
+                Dev::Ctl,
+                sys::NV_ESC_RM_ALLOC,
+                &nvos64(0xdead, 0xbeef, 0),
+                48
+            ),
+            Err(())
+        );
     }
 
     /// `pRightsRequested` (NVOS64 @24) is not supported. It appears in no
@@ -1917,7 +2184,12 @@ mod embedded_ptr_tests {
     fn rm_alloc_refuses_a_non_null_rights_pointer() {
         let known = 0x2080u32; // a class the table knows
         assert_eq!(
-            probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(known, 0xdead_beef, 1), 48),
+            probe(
+                Dev::Ctl,
+                sys::NV_ESC_RM_ALLOC,
+                &nvos64(known, 0xdead_beef, 1),
+                48
+            ),
             Err(()),
             "pRightsRequested != 0 must not be forwarded"
         );
@@ -1936,10 +2208,19 @@ mod embedded_ptr_tests {
         let want = alloc_param_size::<sys::DefaultAbi>(hclass).unwrap();
         // Word at 24 is paramsSize here, deliberately non-zero.
         let buf = nvos64(hclass, 0xdead_beef, 4);
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &buf, 32), Ok(Some((16, want))));
+        assert_eq!(
+            probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &buf, 32),
+            Ok(Some((16, want)))
+        );
         // Null params and unknown class behave the same way in both forms.
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(hclass, 0, 4), 32), Ok(None));
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(0xdead, 1, 4), 32), Err(()));
+        assert_eq!(
+            probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(hclass, 0, 4), 32),
+            Ok(None)
+        );
+        assert_eq!(
+            probe(Dev::Ctl, sys::NV_ESC_RM_ALLOC, &nvos64(0xdead, 1, 4), 32),
+            Err(())
+        );
     }
 
     /// The driver accepts exactly two sizes for RM_ALLOC (escape.c:325),
@@ -1974,10 +2255,16 @@ mod embedded_ptr_tests {
         // A null pEvent is RM's problem (it answers with a status), not a
         // reason to copy a buffer that is not there.
         let zero = [0u8; 64];
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_GET_EVENT_DATA, &zero, size), Ok(None));
+        assert_eq!(
+            probe(Dev::Ctl, sys::NV_ESC_RM_GET_EVENT_DATA, &zero, size),
+            Ok(None)
+        );
         // A payload too short to hold NVOS41 is not decoded at all -- the
         // pointer field would be read past the end of the guest's buffer.
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_GET_EVENT_DATA, &buf, size - 1), Ok(None));
+        assert_eq!(
+            probe(Dev::Ctl, sys::NV_ESC_RM_GET_EVENT_DATA, &buf, size - 1),
+            Ok(None)
+        );
     }
 
     /// No UVM call carries an embedded pointer: the big per-GPU attribute
@@ -2009,8 +2296,14 @@ mod embedded_ptr_tests {
     fn a_flat_escape_carries_nothing() {
         let buf = [0xffu8; 64];
         assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_FREE, &buf, 16), Ok(None));
-        assert_eq!(probe(Dev::Ctl, sys::NV_ESC_RM_MAP_MEMORY, &buf, 56), Ok(None));
-        assert_eq!(probe(Dev::Ctl, crate::nvgpu::NV_ESC_REGISTER_FD, &buf, 4), Ok(None));
+        assert_eq!(
+            probe(Dev::Ctl, sys::NV_ESC_RM_MAP_MEMORY, &buf, 56),
+            Ok(None)
+        );
+        assert_eq!(
+            probe(Dev::Ctl, crate::nvgpu::NV_ESC_REGISTER_FD, &buf, 4),
+            Ok(None)
+        );
     }
 }
 
@@ -2081,7 +2374,10 @@ mod ctrl_fd_tests {
                 "{cmd:#x} is in ctrl_fd_cmds() but ctrl_fd_offset() has nothing for it"
             );
         }
-        assert!(!ctrl_fd_cmds().is_empty(), "an empty list would make this test vacuous");
+        assert!(
+            !ctrl_fd_cmds().is_empty(),
+            "an empty list would make this test vacuous"
+        );
     }
 
     /// The two offsets themselves, read out of ctrl0000unix.h and pinned

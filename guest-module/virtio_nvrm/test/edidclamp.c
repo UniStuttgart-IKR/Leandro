@@ -57,9 +57,11 @@ static void one(u32 w, u32 h, u32 hz)
 	 * active pixels plus blanking must stay under 4096, or the value wraps
 	 * on the way into the block. NVRM_DTD_MAX_ACTIVE is that bound. */
 	check("htotal past the 12-bit DTD field",
-	      (unsigned long long)ew + ehblank <= NVRM_DTD_MAX_ACTIVE, w, h, hz);
+	      (unsigned long long)ew + ehblank <= NVRM_DTD_MAX_ACTIVE, w, h,
+	      hz);
 	check("vtotal past the 12-bit DTD field",
-	      (unsigned long long)eh + NVRM_VBLANK <= NVRM_DTD_MAX_ACTIVE, w, h, hz);
+	      (unsigned long long)eh + NVRM_VBLANK <= NVRM_DTD_MAX_ACTIVE, w, h,
+	      hz);
 
 	/* The clamp must not RAISE what was asked: a request is a ceiling, a
 	 * larger answer would be inventing capability. */
@@ -83,7 +85,8 @@ static void one(u32 w, u32 h, u32 hz)
 		u64 vtotal = (u64)eh + NVRM_VBLANK;
 		u64 pclk_10khz = div_u64(htotal * vtotal * (u64)ehz, 10000ULL);
 
-		check("pixel clock past the 16-bit DTD field", pclk_10khz <= 0xffff, w, h, hz);
+		check("pixel clock past the 16-bit DTD field",
+		      pclk_10khz <= 0xffff, w, h, hz);
 	}
 }
 
@@ -95,9 +98,10 @@ int main(void)
 	 * horizontal maximum), 4K and 8K (past the 12-bit active field), and a
 	 * request of zero in each field. Every one must come back expressible. */
 	const u32 sizes[][2] = {
-		{ 640, 480 }, { 800, 600 }, { 1280, 720 }, { 1920, 1080 },
-		{ 2560, 1440 }, { 2560, 1600 }, { 3840, 2160 }, { 7680, 4320 },
-		{ 1, 1 }, { 0, 0 }, { 100000, 100000 },
+		{ 640, 480 },	{ 800, 600 },	    { 1280, 720 },
+		{ 1920, 1080 }, { 2560, 1440 },	    { 2560, 1600 },
+		{ 3840, 2160 }, { 7680, 4320 },	    { 1, 1 },
+		{ 0, 0 },	{ 100000, 100000 },
 	};
 	const u32 rates[] = { 0, 1, 30, 60, 120, 144, 165, 240, 1000, 100000 };
 	size_t i, j;
@@ -115,14 +119,17 @@ int main(void)
 		u8 e[128];
 		unsigned int sum = 0;
 		int k;
-		static const u8 magic[8] = { 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00 };
+		static const u8 magic[8] = { 0x00, 0xff, 0xff, 0xff,
+					     0xff, 0xff, 0xff, 0x00 };
 
 		nvrm_build_edid(e, 1920, 1080, 60);
 		for (k = 0; k < 8; k++)
-			check("EDID header magic", e[k] == magic[k], 1920, 1080, 60);
+			check("EDID header magic", e[k] == magic[k], 1920, 1080,
+			      60);
 		for (k = 0; k < 128; k++)
 			sum = (sum + e[k]) & 0xff;
-		check("EDID checksum does not sum to zero", sum == 0, 1920, 1080, 60);
+		check("EDID checksum does not sum to zero", sum == 0, 1920,
+		      1080, 60);
 	}
 
 	if (failures) {
@@ -130,6 +137,7 @@ int main(void)
 		return 1;
 	}
 	printf("edidclamp: %zu modes x %zu rates, every result expressible\n",
-	       sizeof(sizes) / sizeof(sizes[0]), sizeof(rates) / sizeof(rates[0]));
+	       sizeof(sizes) / sizeof(sizes[0]),
+	       sizeof(rates) / sizeof(rates[0]));
 	return 0;
 }

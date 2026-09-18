@@ -19,18 +19,18 @@
  */
 
 #ifdef __KERNEL__
-# include <linux/string.h>
-# include <linux/errno.h>
+#include <linux/string.h>
+#include <linux/errno.h>
 #else
-# include <errno.h>
-# include <stddef.h>
-# include <string.h>
+#include <errno.h>
+#include <stddef.h>
+#include <string.h>
 #endif
 
 #include "nvrm_wire.h"
 
 struct nvrm_tables {
-	void *blob;		/* owned by the includer */
+	void *blob; /* owned by the includer */
 	size_t len;
 	struct nvrm_table_hdr hdr;
 	const struct nvrm_ioctl_desc *ioctls;
@@ -82,17 +82,17 @@ static int nvrm_tables_parse(struct nvrm_tables *t, const char **why)
 		*why = "total_len != received length";
 		return -EPROTO;
 	}
-	need = sizeof(t->hdr)
-	     + (size_t)t->hdr.n_ioctl * sizeof(struct nvrm_ioctl_desc)
-	     + (size_t)t->hdr.n_class * sizeof(struct nvrm_class_desc)
-	     + (size_t)t->hdr.n_ctrl * sizeof(struct nvrm_ctrl_desc)
-	     + (size_t)t->hdr.n_nested * sizeof(struct nvrm_nested_row);
+	need = sizeof(t->hdr) +
+	       (size_t)t->hdr.n_ioctl * sizeof(struct nvrm_ioctl_desc) +
+	       (size_t)t->hdr.n_class * sizeof(struct nvrm_class_desc) +
+	       (size_t)t->hdr.n_ctrl * sizeof(struct nvrm_ctrl_desc) +
+	       (size_t)t->hdr.n_nested * sizeof(struct nvrm_nested_row);
 	if (need != t->len) {
 		*why = "table counts do not match the stream length";
 		return -EPROTO;
 	}
-	if (nvrm_fnv1a32((__u8 *)t->blob + sizeof(t->hdr), t->len - sizeof(t->hdr))
-	    != t->hdr.checksum) {
+	if (nvrm_fnv1a32((__u8 *)t->blob + sizeof(t->hdr),
+			 t->len - sizeof(t->hdr)) != t->hdr.checksum) {
 		*why = "wrong checksum";
 		return -EPROTO;
 	}
@@ -101,14 +101,17 @@ static int nvrm_tables_parse(struct nvrm_tables *t, const char **why)
 		return -EPROTO;
 	}
 
-	t->ioctls = (const struct nvrm_ioctl_desc *)((__u8 *)t->blob + sizeof(t->hdr));
-	t->classes = (const struct nvrm_class_desc *)(t->ioctls + t->hdr.n_ioctl);
+	t->ioctls = (const struct nvrm_ioctl_desc *)((__u8 *)t->blob +
+						     sizeof(t->hdr));
+	t->classes =
+		(const struct nvrm_class_desc *)(t->ioctls + t->hdr.n_ioctl);
 	t->ctrls = (const struct nvrm_ctrl_desc *)(t->classes + t->hdr.n_class);
 	t->nested = (const struct nvrm_nested_row *)(t->ctrls + t->hdr.n_ctrl);
 	return 0;
 }
 
-static const struct nvrm_ioctl_desc *find_ioctl(const struct nvrm_tables *t, __u32 dev_tag, __u32 nr)
+static const struct nvrm_ioctl_desc *find_ioctl(const struct nvrm_tables *t,
+						__u32 dev_tag, __u32 nr)
 {
 	__u32 i;
 
@@ -118,7 +121,8 @@ static const struct nvrm_ioctl_desc *find_ioctl(const struct nvrm_tables *t, __u
 	return NULL;
 }
 
-static const struct nvrm_class_desc *find_class(const struct nvrm_tables *t, __u32 hclass)
+static const struct nvrm_class_desc *find_class(const struct nvrm_tables *t,
+						__u32 hclass)
 {
 	__u32 i;
 
@@ -128,7 +132,8 @@ static const struct nvrm_class_desc *find_class(const struct nvrm_tables *t, __u
 	return NULL;
 }
 
-static const struct nvrm_ctrl_desc *find_ctrl(const struct nvrm_tables *t, __u32 cmd)
+static const struct nvrm_ctrl_desc *find_ctrl(const struct nvrm_tables *t,
+					      __u32 cmd)
 {
 	__u32 i;
 

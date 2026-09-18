@@ -101,8 +101,10 @@ static void vlog(const char *fmt, ...)
 
 static const char *fourcc_str(uint32_t f, char *buf)
 {
-	buf[0] = f & 0xff; buf[1] = (f >> 8) & 0xff;
-	buf[2] = (f >> 16) & 0xff; buf[3] = (f >> 24) & 0xff;
+	buf[0] = f & 0xff;
+	buf[1] = (f >> 8) & 0xff;
+	buf[2] = (f >> 16) & 0xff;
+	buf[3] = (f >> 24) & 0xff;
 	buf[4] = '\0';
 	return buf;
 }
@@ -116,7 +118,10 @@ static void msleep(long ms)
 /* The sample grid. Fixed and deterministic on purpose: the same pixels are
  * compared across polls, so CHANGED means the content moved rather than the
  * sampler having wandered. */
-struct grid { uint32_t x[MAX_SAMPLES], y[MAX_SAMPLES]; int n; };
+struct grid {
+	uint32_t x[MAX_SAMPLES], y[MAX_SAMPLES];
+	int n;
+};
 
 static void grid_build(struct grid *g, uint32_t w, uint32_t h, int want)
 {
@@ -125,7 +130,9 @@ static void grid_build(struct grid *g, uint32_t w, uint32_t h, int want)
 	/* A coprime-ish stride walk beats a plain lattice: a lattice can land
 	 * entirely inside a letterboxed black band and report a black desktop
 	 * for a picture that is merely centred. */
-	cols = 1; while (cols * cols < want) cols++;
+	cols = 1;
+	while (cols * cols < want)
+		cols++;
 	rows = cols;
 	g->n = 0;
 	for (r = 0; r < rows; r++) {
@@ -133,12 +140,16 @@ static void grid_build(struct grid *g, uint32_t w, uint32_t h, int want)
 			if (g->n >= want || (uint32_t)g->n >= (uint64_t)w * h)
 				break;
 			i = g->n;
-			g->x[i] = (uint32_t)(((uint64_t)c * w) / cols
-					     + ((uint64_t)r * 7919) % (w / cols ? w / cols : 1));
-			g->y[i] = (uint32_t)(((uint64_t)r * h) / rows
-					     + ((uint64_t)c * 6271) % (h / rows ? h / rows : 1));
-			if (g->x[i] >= w) g->x[i] = w - 1;
-			if (g->y[i] >= h) g->y[i] = h - 1;
+			g->x[i] = (uint32_t)(((uint64_t)c * w) / cols +
+					     ((uint64_t)r * 7919) %
+						     (w / cols ? w / cols : 1));
+			g->y[i] = (uint32_t)(((uint64_t)r * h) / rows +
+					     ((uint64_t)c * 6271) %
+						     (h / rows ? h / rows : 1));
+			if (g->x[i] >= w)
+				g->x[i] = w - 1;
+			if (g->y[i] >= h)
+				g->y[i] = h - 1;
 			g->n++;
 		}
 	}
@@ -177,12 +188,12 @@ static uint64_t frame_hash(const void *p, size_t bytes)
 /* One way's running tally. */
 struct way {
 	const char *name;
-	int available;          /* the machinery exists at all */
-	const char *why_not;    /* if it does not */
+	int available; /* the machinery exists at all */
+	const char *why_not; /* if it does not */
 	int attempts, ok, failed;
 	char last_err[240];
 	int last_nonzero, last_changed, last_total;
-	int polls_nonzero, polls_changed;   /* polls with >0 of each */
+	int polls_nonzero, polls_changed; /* polls with >0 of each */
 	int best_nonzero, best_changed;
 	uint32_t prev[MAX_SAMPLES];
 	int have_prev;
@@ -190,7 +201,7 @@ struct way {
 	int have_hash;
 	uint64_t prev_hash_pending;
 	int have_pending;
-	int polls_frame_differs;   /* the real motion reader */
+	int polls_frame_differs; /* the real motion reader */
 };
 
 static void way_fail(struct way *w, const char *fmt, ...)
@@ -241,10 +252,14 @@ static void way_score(struct way *w, const uint32_t *px, int n,
 	w->last_nonzero = nz;
 	w->last_changed = ch;
 	w->last_total = n;
-	if (nz > 0) w->polls_nonzero++;
-	if (ch > 0) w->polls_changed++;
-	if (nz > w->best_nonzero) w->best_nonzero = nz;
-	if (ch > w->best_changed) w->best_changed = ch;
+	if (nz > 0)
+		w->polls_nonzero++;
+	if (ch > 0)
+		w->polls_changed++;
+	if (nz > w->best_nonzero)
+		w->best_nonzero = nz;
+	if (ch > w->best_changed)
+		w->best_changed = ch;
 	vlog("    %-6s nonzero %d/%d  sampled-changed %d/%d  frame-differs %d\n",
 	     w->name, nz, n, ch, n, w->polls_frame_differs);
 }
@@ -293,7 +308,8 @@ static int open_node(const char *want, char *chosen, size_t len)
 		f = open(path, O_RDWR | O_CLOEXEC);
 		if (f < 0)
 			continue;
-		if (drm_name_of(f, name, sizeof(name)) == 0 && !strcmp(name, want)) {
+		if (drm_name_of(f, name, sizeof(name)) == 0 &&
+		    !strcmp(name, want)) {
 			snprintf(chosen, len, "%s", path);
 			return f;
 		}
@@ -340,7 +356,8 @@ static int collect_planes(struct fbinfo *out, int max)
 		memset(&p, 0, sizeof(p));
 		p.plane_id = ids[i];
 		if (ioctl(drm_fd, DRM_IOCTL_MODE_GETPLANE, &p) < 0) {
-			vlog("  plane %u: GETPLANE: %s\n", ids[i], strerror(errno));
+			vlog("  plane %u: GETPLANE: %s\n", ids[i],
+			     strerror(errno));
 			continue;
 		}
 		if (!p.fb_id) {
@@ -350,7 +367,8 @@ static int collect_planes(struct fbinfo *out, int max)
 			 * a probe that only counts the lit ones cannot
 			 * tell "no planes" from "planes, all dark". */
 			seen_dark++;
-			vlog("  plane %u: no fb (crtc %u)\n", ids[i], p.crtc_id);
+			vlog("  plane %u: no fb (crtc %u)\n", ids[i],
+			     p.crtc_id);
 			continue;
 		}
 
@@ -366,20 +384,22 @@ static int collect_planes(struct fbinfo *out, int max)
 			continue;
 		}
 		if (!fb.handles[0]) {
-			fprintf(stderr, "  plane %u fb %u: GETFB2 gave handle 0 "
+			fprintf(stderr,
+				"  plane %u fb %u: GETFB2 gave handle 0 "
 				"-- not root? (needs CAP_SYS_ADMIN)\n",
 				ids[i], p.fb_id);
 			continue;
 		}
 
 		out[n].plane_id = ids[i];
-		out[n].crtc_id  = p.crtc_id;
-		out[n].fb_id    = p.fb_id;
-		out[n].w        = fb.width;
-		out[n].h        = fb.height;
-		out[n].fourcc   = fb.pixel_format;
-		out[n].modifier = (fb.flags & DRM_MODE_FB_MODIFIERS)
-				  ? fb.modifier[0] : DRM_FORMAT_MOD_INVALID;
+		out[n].crtc_id = p.crtc_id;
+		out[n].fb_id = p.fb_id;
+		out[n].w = fb.width;
+		out[n].h = fb.height;
+		out[n].fourcc = fb.pixel_format;
+		out[n].modifier = (fb.flags & DRM_MODE_FB_MODIFIERS) ?
+					  fb.modifier[0] :
+					  DRM_FORMAT_MOD_INVALID;
 		memcpy(out[n].handles, fb.handles, sizeof(fb.handles));
 		memcpy(out[n].pitches, fb.pitches, sizeof(fb.pitches));
 		memcpy(out[n].offsets, fb.offsets, sizeof(fb.offsets));
@@ -408,16 +428,17 @@ static void dump_crtcs(void)
 
 	memset(&res, 0, sizeof(res));
 	res.connector_id_ptr = (uint64_t)(uintptr_t)conn;
-	res.crtc_id_ptr      = (uint64_t)(uintptr_t)crtc;
-	res.encoder_id_ptr   = (uint64_t)(uintptr_t)enc;
-	res.fb_id_ptr        = (uint64_t)(uintptr_t)fb;
-	res.count_connectors = res.count_crtcs = res.count_encoders = res.count_fbs = 32;
+	res.crtc_id_ptr = (uint64_t)(uintptr_t)crtc;
+	res.encoder_id_ptr = (uint64_t)(uintptr_t)enc;
+	res.fb_id_ptr = (uint64_t)(uintptr_t)fb;
+	res.count_connectors = res.count_crtcs = res.count_encoders =
+		res.count_fbs = 32;
 	if (ioctl(drm_fd, DRM_IOCTL_MODE_GETRESOURCES, &res) < 0) {
 		fprintf(stderr, "  GETRESOURCES: %s\n", strerror(errno));
 		return;
 	}
-	fprintf(stderr, "  %u crtc(s), %u connector(s)\n",
-		res.count_crtcs, res.count_connectors);
+	fprintf(stderr, "  %u crtc(s), %u connector(s)\n", res.count_crtcs,
+		res.count_connectors);
 	for (i = 0; i < res.count_crtcs && i < 32; i++) {
 		struct drm_mode_crtc c;
 
@@ -426,8 +447,8 @@ static void dump_crtcs(void)
 		if (ioctl(drm_fd, DRM_IOCTL_MODE_GETCRTC, &c) < 0)
 			continue;
 		fprintf(stderr, "    crtc %u: fb %u, mode_valid %u, %ux%u\n",
-			crtc[i], c.fb_id, c.mode_valid,
-			c.mode.hdisplay, c.mode.vdisplay);
+			crtc[i], c.fb_id, c.mode_valid, c.mode.hdisplay,
+			c.mode.vdisplay);
 	}
 	for (i = 0; i < res.count_connectors && i < 32; i++) {
 		struct drm_mode_get_connector c;
@@ -436,9 +457,10 @@ static void dump_crtcs(void)
 		c.connector_id = conn[i];
 		if (ioctl(drm_fd, DRM_IOCTL_MODE_GETCONNECTOR, &c) < 0)
 			continue;
-		fprintf(stderr, "    connector %u: connection %u (1 = connected), "
-			"%u mode(s), encoder %u\n", conn[i], c.connection,
-			c.count_modes, c.encoder_id);
+		fprintf(stderr,
+			"    connector %u: connection %u (1 = connected), "
+			"%u mode(s), encoder %u\n",
+			conn[i], c.connection, c.count_modes, c.encoder_id);
 	}
 }
 
@@ -454,7 +476,7 @@ static void close_handles(const struct fbinfo *f)
 			if (f->handles[j] == f->handles[i])
 				break;
 		if (j < i)
-			continue;   /* same BO behind several planes */
+			continue; /* same BO behind several planes */
 		memset(&c, 0, sizeof(c));
 		c.handle = f->handles[i];
 		ioctl(drm_fd, DRM_IOCTL_GEM_CLOSE, &c);
@@ -495,7 +517,8 @@ static void read_mmap(struct way *w, const struct fbinfo *f, int dmabuf,
 	w->attempts++;
 	size = lseek(dmabuf, 0, SEEK_END);
 	if (size <= 0) {
-		way_fail(w, "lseek(SEEK_END) on the dmabuf: %s", strerror(errno));
+		way_fail(w, "lseek(SEEK_END) on the dmabuf: %s",
+			 strerror(errno));
 		return;
 	}
 	p = mmap(NULL, (size_t)size, PROT_READ, MAP_SHARED, dmabuf, 0);
@@ -505,15 +528,17 @@ static void read_mmap(struct way *w, const struct fbinfo *f, int dmabuf,
 		 * Cannot allocate memory". If it says ENOMEM here too, then
 		 * CPU mapping of our dmabufs is simply not implemented, and
 		 * no amount of Sunshine configuration will change it. */
-		way_fail(w, "mmap %lld bytes: %s", (long long)size, strerror(errno));
+		way_fail(w, "mmap %lld bytes: %s", (long long)size,
+			 strerror(errno));
 		return;
 	}
 	for (i = 0; i < g->n; i++) {
-		uint64_t off = (uint64_t)f->offsets[0]
-			     + (uint64_t)g->y[i] * f->pitches[0]
-			     + (uint64_t)g->x[i] * 4;
-		px[i] = (off + 4 <= (uint64_t)size)
-			? *(const uint32_t *)(p + off) : 0;
+		uint64_t off = (uint64_t)f->offsets[0] +
+			       (uint64_t)g->y[i] * f->pitches[0] +
+			       (uint64_t)g->x[i] * 4;
+		px[i] = (off + 4 <= (uint64_t)size) ?
+				*(const uint32_t *)(p + off) :
+				0;
 	}
 	{
 		/* Hash before unmapping. Striding by nothing: the whole
@@ -547,37 +572,37 @@ static void read_mmap(struct way *w, const struct fbinfo *f, int dmabuf,
 /* ---------------------------------------------------------- EGL machinery */
 
 #ifndef EGL_LINUX_DMA_BUF_EXT
-#define EGL_LINUX_DMA_BUF_EXT                 0x3270
-#define EGL_LINUX_DRM_FOURCC_EXT              0x3271
-#define EGL_DMA_BUF_PLANE0_FD_EXT             0x3272
-#define EGL_DMA_BUF_PLANE0_OFFSET_EXT         0x3273
-#define EGL_DMA_BUF_PLANE0_PITCH_EXT          0x3274
+#define EGL_LINUX_DMA_BUF_EXT 0x3270
+#define EGL_LINUX_DRM_FOURCC_EXT 0x3271
+#define EGL_DMA_BUF_PLANE0_FD_EXT 0x3272
+#define EGL_DMA_BUF_PLANE0_OFFSET_EXT 0x3273
+#define EGL_DMA_BUF_PLANE0_PITCH_EXT 0x3274
 #endif
 #ifndef EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT
-#define EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT    0x3443
-#define EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT    0x3444
+#define EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT 0x3443
+#define EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT 0x3444
 #endif
 
 /* GL, by hand. GLES2/gl2.h is not in the guest image and libGLESv2 is, so
  * the header is the only thing missing and it is three typedefs deep. */
-#define GL_TEXTURE_2D            0x0DE1
-#define GL_TEXTURE_MIN_FILTER    0x2801
-#define GL_TEXTURE_MAG_FILTER    0x2800
-#define GL_NEAREST               0x2600
-#define GL_FRAMEBUFFER           0x8D40
-#define GL_COLOR_ATTACHMENT0     0x8CE0
-#define GL_FRAMEBUFFER_COMPLETE  0x8CD5
-#define GL_RGBA                  0x1908
-#define GL_BGRA_EXT              0x80E1
-#define GL_UNSIGNED_BYTE         0x1401
-#define GL_NO_ERROR              0
-#define GL_VERTEX_SHADER         0x8B31
-#define GL_FRAGMENT_SHADER       0x8B30
-#define GL_COMPILE_STATUS        0x8B81
-#define GL_LINK_STATUS           0x8B82
-#define GL_FLOAT                 0x1406
-#define GL_TRIANGLE_STRIP        0x0005
-#define GL_TEXTURE0              0x84C0
+#define GL_TEXTURE_2D 0x0DE1
+#define GL_TEXTURE_MIN_FILTER 0x2801
+#define GL_TEXTURE_MAG_FILTER 0x2800
+#define GL_NEAREST 0x2600
+#define GL_FRAMEBUFFER 0x8D40
+#define GL_COLOR_ATTACHMENT0 0x8CE0
+#define GL_FRAMEBUFFER_COMPLETE 0x8CD5
+#define GL_RGBA 0x1908
+#define GL_BGRA_EXT 0x80E1
+#define GL_UNSIGNED_BYTE 0x1401
+#define GL_NO_ERROR 0
+#define GL_VERTEX_SHADER 0x8B31
+#define GL_FRAGMENT_SHADER 0x8B30
+#define GL_COMPILE_STATUS 0x8B81
+#define GL_LINK_STATUS 0x8B82
+#define GL_FLOAT 0x1406
+#define GL_TRIANGLE_STRIP 0x0005
+#define GL_TEXTURE0 0x84C0
 
 typedef unsigned int GLenum, GLuint, GLbitfield;
 typedef int GLint, GLsizei;
@@ -593,10 +618,13 @@ static struct {
 	void (*DeleteFramebuffers)(GLsizei, const GLuint *);
 	void (*FramebufferTexture2D)(GLenum, GLenum, GLenum, GLuint, GLint);
 	GLenum (*CheckFramebufferStatus)(GLenum);
-	void (*ReadPixels)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, GLvoid *);
-	void (*TexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const GLvoid *);
+	void (*ReadPixels)(GLint, GLint, GLsizei, GLsizei, GLenum, GLenum,
+			   GLvoid *);
+	void (*TexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint,
+			   GLenum, GLenum, const GLvoid *);
 	GLuint (*CreateShader)(GLenum);
-	void (*ShaderSource)(GLuint, GLsizei, const char *const *, const GLint *);
+	void (*ShaderSource)(GLuint, GLsizei, const char *const *,
+			     const GLint *);
 	void (*CompileShader)(GLuint);
 	void (*GetShaderiv)(GLuint, GLenum, GLint *);
 	void (*GetShaderInfoLog)(GLuint, GLsizei, GLsizei *, char *);
@@ -609,7 +637,8 @@ static struct {
 	GLint (*GetAttribLocation)(GLuint, const char *);
 	GLint (*GetUniformLocation)(GLuint, const char *);
 	void (*Uniform1i)(GLint, GLint);
-	void (*VertexAttribPointer)(GLuint, GLint, GLenum, unsigned char, GLsizei, const GLvoid *);
+	void (*VertexAttribPointer)(GLuint, GLint, GLenum, unsigned char,
+				    GLsizei, const GLvoid *);
 	void (*EnableVertexAttribArray)(GLuint);
 	void (*DrawArrays)(GLenum, GLint, GLsizei);
 	void (*Viewport)(GLint, GLint, GLsizei, GLsizei);
@@ -639,18 +668,25 @@ static const char *egl_setup(void)
 	EGLint ndev = 0, major = 0, minor = 0, nconf = 0;
 	EGLConfig conf;
 	const char *exts;
-	static const EGLint cfg_attr[] = {
-		EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-		EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
-		EGL_NONE
-	};
-	static const EGLint ctx_attr[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+	static const EGLint cfg_attr[] = { EGL_SURFACE_TYPE,
+					   EGL_PBUFFER_BIT,
+					   EGL_RENDERABLE_TYPE,
+					   EGL_OPENGL_ES2_BIT,
+					   EGL_RED_SIZE,
+					   8,
+					   EGL_GREEN_SIZE,
+					   8,
+					   EGL_BLUE_SIZE,
+					   8,
+					   EGL_NONE };
+	static const EGLint ctx_attr[] = { EGL_CONTEXT_CLIENT_VERSION, 2,
+					   EGL_NONE };
 	void *libgles;
 
-	qDevices = (PFNEGLQUERYDEVICESEXTPROC)eglGetProcAddress("eglQueryDevicesEXT");
-	gPlatform = (PFNEGLGETPLATFORMDISPLAYEXTPROC)
-		eglGetProcAddress("eglGetPlatformDisplayEXT");
+	qDevices = (PFNEGLQUERYDEVICESEXTPROC)eglGetProcAddress(
+		"eglQueryDevicesEXT");
+	gPlatform = (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress(
+		"eglGetPlatformDisplayEXT");
 	if (!qDevices || !gPlatform)
 		return "EGL_EXT_platform_device is not available";
 	if (!qDevices(16, devs, &ndev) || ndev < 1)
@@ -667,12 +703,16 @@ static const char *egl_setup(void)
 	exts = eglQueryString(egl_dpy, EGL_EXTENSIONS);
 	if (!exts || !strstr(exts, "EGL_EXT_image_dma_buf_import"))
 		return "EGL_EXT_image_dma_buf_import is missing -- no dmabuf import";
-	egl_have_modifiers = exts && strstr(exts, "EGL_EXT_image_dma_buf_import_modifiers") != NULL;
+	egl_have_modifiers =
+		exts &&
+		strstr(exts, "EGL_EXT_image_dma_buf_import_modifiers") != NULL;
 	if (!strstr(exts, "EGL_KHR_surfaceless_context"))
 		return "EGL_KHR_surfaceless_context is missing";
 
-	pCreateImage = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
-	pDestroyImage = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
+	pCreateImage = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress(
+		"eglCreateImageKHR");
+	pDestroyImage = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress(
+		"eglDestroyImageKHR");
 	if (!pCreateImage || !pDestroyImage)
 		return "eglCreateImageKHR is not exported";
 
@@ -682,30 +722,59 @@ static const char *egl_setup(void)
 		return "eglChooseConfig found no ES2 config";
 	egl_ctx = eglCreateContext(egl_dpy, conf, EGL_NO_CONTEXT, ctx_attr);
 	if (egl_ctx == EGL_NO_CONTEXT) {
-		snprintf(err, sizeof(err), "eglCreateContext: %#x", eglGetError());
+		snprintf(err, sizeof(err), "eglCreateContext: %#x",
+			 eglGetError());
 		return err;
 	}
 	if (!eglMakeCurrent(egl_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, egl_ctx)) {
-		snprintf(err, sizeof(err), "eglMakeCurrent(surfaceless): %#x", eglGetError());
+		snprintf(err, sizeof(err), "eglMakeCurrent(surfaceless): %#x",
+			 eglGetError());
 		return err;
 	}
 
 	libgles = dlopen("libGLESv2.so.2", RTLD_NOW | RTLD_GLOBAL);
 	if (!libgles)
 		return "libGLESv2.so.2 not loadable";
-#define GET(n) do { *(void **)&gl.n = dlsym(libgles, "gl" #n); \
-		    if (!gl.n) *(void **)&gl.n = (void *)eglGetProcAddress("gl" #n); \
-		    if (!gl.n) return "missing gl" #n; } while (0)
-	GET(GenTextures); GET(BindTexture); GET(DeleteTextures); GET(TexParameteri);
-	GET(GenFramebuffers); GET(BindFramebuffer); GET(DeleteFramebuffers);
-	GET(FramebufferTexture2D); GET(CheckFramebufferStatus);
-	GET(ReadPixels); GET(Finish); GET(GetError);
-	GET(TexImage2D); GET(CreateShader); GET(ShaderSource); GET(CompileShader);
-	GET(GetShaderiv); GET(GetShaderInfoLog); GET(CreateProgram); GET(AttachShader);
-	GET(LinkProgram); GET(GetProgramiv); GET(GetProgramInfoLog); GET(UseProgram);
-	GET(GetAttribLocation); GET(GetUniformLocation); GET(Uniform1i);
-	GET(VertexAttribPointer); GET(EnableVertexAttribArray); GET(DrawArrays);
-	GET(Viewport); GET(ActiveTexture);
+#define GET(n)                                                                \
+	do {                                                                  \
+		*(void **)&gl.n = dlsym(libgles, "gl" #n);                    \
+		if (!gl.n)                                                    \
+			*(void **)&gl.n = (void *)eglGetProcAddress("gl" #n); \
+		if (!gl.n)                                                    \
+			return "missing gl" #n;                               \
+	} while (0)
+	GET(GenTextures);
+	GET(BindTexture);
+	GET(DeleteTextures);
+	GET(TexParameteri);
+	GET(GenFramebuffers);
+	GET(BindFramebuffer);
+	GET(DeleteFramebuffers);
+	GET(FramebufferTexture2D);
+	GET(CheckFramebufferStatus);
+	GET(ReadPixels);
+	GET(Finish);
+	GET(GetError);
+	GET(TexImage2D);
+	GET(CreateShader);
+	GET(ShaderSource);
+	GET(CompileShader);
+	GET(GetShaderiv);
+	GET(GetShaderInfoLog);
+	GET(CreateProgram);
+	GET(AttachShader);
+	GET(LinkProgram);
+	GET(GetProgramiv);
+	GET(GetProgramInfoLog);
+	GET(UseProgram);
+	GET(GetAttribLocation);
+	GET(GetUniformLocation);
+	GET(Uniform1i);
+	GET(VertexAttribPointer);
+	GET(EnableVertexAttribArray);
+	GET(DrawArrays);
+	GET(Viewport);
+	GET(ActiveTexture);
 #undef GET
 	*(void **)&gl.EGLImageTargetTexture2DOES =
 		(void *)eglGetProcAddress("glEGLImageTargetTexture2DOES");
@@ -724,12 +793,18 @@ static EGLImageKHR import_image(const struct fbinfo *f, int dmabuf)
 	EGLint a[32];
 	int n = 0;
 
-	a[n++] = EGL_WIDTH;                    a[n++] = (EGLint)f->w;
-	a[n++] = EGL_HEIGHT;                   a[n++] = (EGLint)f->h;
-	a[n++] = EGL_LINUX_DRM_FOURCC_EXT;     a[n++] = (EGLint)f->fourcc;
-	a[n++] = EGL_DMA_BUF_PLANE0_FD_EXT;    a[n++] = dmabuf;
-	a[n++] = EGL_DMA_BUF_PLANE0_OFFSET_EXT; a[n++] = (EGLint)f->offsets[0];
-	a[n++] = EGL_DMA_BUF_PLANE0_PITCH_EXT;  a[n++] = (EGLint)f->pitches[0];
+	a[n++] = EGL_WIDTH;
+	a[n++] = (EGLint)f->w;
+	a[n++] = EGL_HEIGHT;
+	a[n++] = (EGLint)f->h;
+	a[n++] = EGL_LINUX_DRM_FOURCC_EXT;
+	a[n++] = (EGLint)f->fourcc;
+	a[n++] = EGL_DMA_BUF_PLANE0_FD_EXT;
+	a[n++] = dmabuf;
+	a[n++] = EGL_DMA_BUF_PLANE0_OFFSET_EXT;
+	a[n++] = (EGLint)f->offsets[0];
+	a[n++] = EGL_DMA_BUF_PLANE0_PITCH_EXT;
+	a[n++] = (EGLint)f->pitches[0];
 	if (egl_have_modifiers && f->modifier != DRM_FORMAT_MOD_INVALID) {
 		a[n++] = EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT;
 		a[n++] = (EGLint)(f->modifier & 0xffffffffu);
@@ -761,7 +836,8 @@ static GLuint make_tex(EGLImageKHR img, const char **err)
 	gl.EGLImageTargetTexture2DOES(GL_TEXTURE_2D, img);
 	if ((st = gl.GetError()) != GL_NO_ERROR) {
 		static char b[80];
-		snprintf(b, sizeof(b), "glEGLImageTargetTexture2DOES: GL error %#x", st);
+		snprintf(b, sizeof(b),
+			 "glEGLImageTargetTexture2DOES: GL error %#x", st);
 		*err = b;
 		gl.DeleteTextures(1, &tex);
 		return 0;
@@ -803,7 +879,11 @@ static void dump_ppm(const uint8_t *rgba, uint32_t w, uint32_t h)
 		return;
 	}
 	row = malloc((size_t)w * 3);
-	if (!row) { fclose(fp); dump_done = 1; return; }
+	if (!row) {
+		fclose(fp);
+		dump_done = 1;
+		return;
+	}
 	fprintf(fp, "P6\n%u %u\n255\n", w, h);
 	for (y = 0; y < h; y++) {
 		const uint8_t *src = rgba + (size_t)y * w * 4;
@@ -836,37 +916,45 @@ static void read_gl(struct way *w, const struct fbinfo *f, GLuint tex,
 	need = (size_t)f->w * f->h * 4;
 	if (need > bufsz) {
 		uint8_t *nb = realloc(buf, need);
-		if (!nb) { way_fail(w, "out of memory for the readback buffer"); return; }
-		buf = nb; bufsz = need;
+		if (!nb) {
+			way_fail(w, "out of memory for the readback buffer");
+			return;
+		}
+		buf = nb;
+		bufsz = need;
 	}
 
 	gl.GenFramebuffers(1, &fbo);
 	gl.BindFramebuffer(GL_FRAMEBUFFER, fbo);
 	gl.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
 				GL_TEXTURE_2D, tex, 0);
-	if ((st = gl.CheckFramebufferStatus(GL_FRAMEBUFFER)) != GL_FRAMEBUFFER_COMPLETE) {
+	if ((st = gl.CheckFramebufferStatus(GL_FRAMEBUFFER)) !=
+	    GL_FRAMEBUFFER_COMPLETE) {
 		way_fail(w, "framebuffer incomplete: %#x", st);
 		goto out;
 	}
-	gl.ReadPixels(0, 0, (GLsizei)f->w, (GLsizei)f->h,
-		      GL_RGBA, GL_UNSIGNED_BYTE, buf);
+	gl.ReadPixels(0, 0, (GLsizei)f->w, (GLsizei)f->h, GL_RGBA,
+		      GL_UNSIGNED_BYTE, buf);
 	gl.Finish();
 	if ((st = gl.GetError()) != GL_NO_ERROR) {
 		way_fail(w, "glReadPixels: GL error %#x", st);
 		goto out;
 	}
 	for (i = 0; i < g->n; i++)
-		px[i] = *(const uint32_t *)(buf + ((size_t)g->y[i] * f->w + g->x[i]) * 4);
+		px[i] = *(const uint32_t *)(buf +
+					    ((size_t)g->y[i] * f->w + g->x[i]) *
+						    4);
 	dump_ppm(buf, f->w, f->h);
 	way_score(w, px, g->n, buf, need);
 out:
 	gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
-	if (fbo) gl.DeleteFramebuffers(1, &fbo);
+	if (fbo)
+		gl.DeleteFramebuffers(1, &fbo);
 }
 
 /* ----------------------------------------------------------- way (c) CUDA */
 
-static const char *blit_setup(void);   /* defined below, next to its shaders */
+static const char *blit_setup(void); /* defined below, next to its shaders */
 
 /* cuda.h is not in the guest, and installing a CUDA toolkit to ask a
  * yes/no question is out of proportion. These are the pieces Sunshine's
@@ -881,18 +969,21 @@ typedef void *CUgraphicsResource_t;
 typedef int CUdevice_t;
 
 #define CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY 0x01
-#define CU_MEMORYTYPE_HOST_T   1
+#define CU_MEMORYTYPE_HOST_T 1
 #define CU_MEMORYTYPE_DEVICE_T 2
-#define CU_MEMORYTYPE_ARRAY_T  3
+#define CU_MEMORYTYPE_ARRAY_T 3
 #define CU_EGL_FRAME_TYPE_ARRAY 0
 #define CU_EGL_FRAME_TYPE_PITCH 1
 
 typedef struct {
-	union { CUarray_t pArray[3]; void *pPitch[3]; } frame;
+	union {
+		CUarray_t pArray[3];
+		void *pPitch[3];
+	} frame;
 	unsigned int width, height, depth, pitch, planeCount, numChannels;
-	int frameType;        /* CUeglFrameType   */
-	int eglColorFormat;   /* CUeglColorFormat */
-	int cuFormat;         /* CUarray_format   */
+	int frameType; /* CUeglFrameType   */
+	int eglColorFormat; /* CUeglColorFormat */
+	int cuFormat; /* CUarray_format   */
 } CUeglFrame_t;
 
 typedef struct {
@@ -917,8 +1008,10 @@ static struct {
 	CUresult_t (*DeviceGet)(CUdevice_t *, int);
 	CUresult_t (*CtxCreate)(CUcontext_t *, unsigned, CUdevice_t);
 	CUresult_t (*CtxDestroy)(CUcontext_t);
-	CUresult_t (*GraphicsEGLRegisterImage)(CUgraphicsResource_t *, void *, unsigned);
-	CUresult_t (*GraphicsResourceGetMappedEglFrame)(CUeglFrame_t *, CUgraphicsResource_t,
+	CUresult_t (*GraphicsEGLRegisterImage)(CUgraphicsResource_t *, void *,
+					       unsigned);
+	CUresult_t (*GraphicsResourceGetMappedEglFrame)(CUeglFrame_t *,
+							CUgraphicsResource_t,
 							unsigned, unsigned);
 	CUresult_t (*GraphicsUnregisterResource)(CUgraphicsResource_t);
 	CUresult_t (*Memcpy2D)(const CUDA_MEMCPY2D_t *);
@@ -930,10 +1023,14 @@ static struct {
 	 * the reason this second route exists at all: without it the probe
 	 * would have reported "CUDA cannot read the scanout buffer" as a
 	 * finding about the GUEST, when it is a finding about the API. */
-	CUresult_t (*GraphicsGLRegisterImage)(CUgraphicsResource_t *, GLuint, GLenum, unsigned);
-	CUresult_t (*GraphicsMapResources)(unsigned, CUgraphicsResource_t *, void *);
-	CUresult_t (*GraphicsUnmapResources)(unsigned, CUgraphicsResource_t *, void *);
-	CUresult_t (*GraphicsSubResourceGetMappedArray)(CUarray_t *, CUgraphicsResource_t,
+	CUresult_t (*GraphicsGLRegisterImage)(CUgraphicsResource_t *, GLuint,
+					      GLenum, unsigned);
+	CUresult_t (*GraphicsMapResources)(unsigned, CUgraphicsResource_t *,
+					   void *);
+	CUresult_t (*GraphicsUnmapResources)(unsigned, CUgraphicsResource_t *,
+					     void *);
+	CUresult_t (*GraphicsSubResourceGetMappedArray)(CUarray_t *,
+							CUgraphicsResource_t,
 							unsigned, unsigned);
 } cu;
 
@@ -958,9 +1055,15 @@ static const char *cuda_setup(void)
 	lib = dlopen("libcuda.so.1", RTLD_NOW);
 	if (!lib)
 		return "libcuda.so.1 not loadable";
-#define GETCU(n) do { *(void **)&cu.n = dlsym(lib, "cu" #n); } while (0)
-	GETCU(Init); GETCU(DeviceGetCount); GETCU(GraphicsEGLRegisterImage);
-	GETCU(GraphicsResourceGetMappedEglFrame); GETCU(GraphicsUnregisterResource);
+#define GETCU(n)                                       \
+	do {                                           \
+		*(void **)&cu.n = dlsym(lib, "cu" #n); \
+	} while (0)
+	GETCU(Init);
+	GETCU(DeviceGetCount);
+	GETCU(GraphicsEGLRegisterImage);
+	GETCU(GraphicsResourceGetMappedEglFrame);
+	GETCU(GraphicsUnregisterResource);
 	GETCU(GetErrorString);
 #undef GETCU
 	/* The _v2 spellings are what the driver actually exports for these. */
@@ -968,9 +1071,12 @@ static const char *cuda_setup(void)
 	*(void **)&cu.CtxCreate = dlsym(lib, "cuCtxCreate_v2");
 	*(void **)&cu.CtxDestroy = dlsym(lib, "cuCtxDestroy_v2");
 	*(void **)&cu.Memcpy2D = dlsym(lib, "cuMemcpy2D_v2");
-	*(void **)&cu.GraphicsGLRegisterImage = dlsym(lib, "cuGraphicsGLRegisterImage");
-	*(void **)&cu.GraphicsMapResources = dlsym(lib, "cuGraphicsMapResources");
-	*(void **)&cu.GraphicsUnmapResources = dlsym(lib, "cuGraphicsUnmapResources");
+	*(void **)&cu.GraphicsGLRegisterImage =
+		dlsym(lib, "cuGraphicsGLRegisterImage");
+	*(void **)&cu.GraphicsMapResources =
+		dlsym(lib, "cuGraphicsMapResources");
+	*(void **)&cu.GraphicsUnmapResources =
+		dlsym(lib, "cuGraphicsUnmapResources");
 	*(void **)&cu.GraphicsSubResourceGetMappedArray =
 		dlsym(lib, "cuGraphicsSubResourceGetMappedArray");
 	if (!cu.Init || !cu.DeviceGet || !cu.CtxCreate || !cu.Memcpy2D)
@@ -979,7 +1085,8 @@ static const char *cuda_setup(void)
 		return "libcuda exports neither the EGL nor the GL interop entry point";
 
 	if ((r = cu.Init(0)) != 0) {
-		snprintf(err, sizeof(err), "cuInit: %s", cu_err(r)); return err;
+		snprintf(err, sizeof(err), "cuInit: %s", cu_err(r));
+		return err;
 	}
 	if ((r = cu.DeviceGetCount(&count)) != 0 || count < 1) {
 		snprintf(err, sizeof(err), "cuDeviceGetCount: %d device(s), %s",
@@ -987,16 +1094,19 @@ static const char *cuda_setup(void)
 		return err;
 	}
 	if ((r = cu.DeviceGet(&dev, 0)) != 0) {
-		snprintf(err, sizeof(err), "cuDeviceGet: %s", cu_err(r)); return err;
+		snprintf(err, sizeof(err), "cuDeviceGet: %s", cu_err(r));
+		return err;
 	}
 	if ((r = cu.CtxCreate(&cu_ctx, 0, dev)) != 0) {
-		snprintf(err, sizeof(err), "cuCtxCreate: %s", cu_err(r)); return err;
+		snprintf(err, sizeof(err), "cuCtxCreate: %s", cu_err(r));
+		return err;
 	}
 	if (cu.GraphicsGLRegisterImage) {
 		const char *b = blit_setup();
 
 		if (b) {
-			snprintf(err, sizeof(err), "the blit shader: %.130s", b);
+			snprintf(err, sizeof(err), "the blit shader: %.130s",
+				 b);
 			return err;
 		}
 	}
@@ -1029,18 +1139,27 @@ static const char *blit_setup(void)
 	gl.ShaderSource(v, 1, &vs, NULL);
 	gl.CompileShader(v);
 	gl.GetShaderiv(v, GL_COMPILE_STATUS, &ok);
-	if (!ok) { gl.GetShaderInfoLog(v, sizeof(log), NULL, log); return log; }
+	if (!ok) {
+		gl.GetShaderInfoLog(v, sizeof(log), NULL, log);
+		return log;
+	}
 	f = gl.CreateShader(GL_FRAGMENT_SHADER);
 	gl.ShaderSource(f, 1, &fs, NULL);
 	gl.CompileShader(f);
 	gl.GetShaderiv(f, GL_COMPILE_STATUS, &ok);
-	if (!ok) { gl.GetShaderInfoLog(f, sizeof(log), NULL, log); return log; }
+	if (!ok) {
+		gl.GetShaderInfoLog(f, sizeof(log), NULL, log);
+		return log;
+	}
 	blit_prog = gl.CreateProgram();
 	gl.AttachShader(blit_prog, v);
 	gl.AttachShader(blit_prog, f);
 	gl.LinkProgram(blit_prog);
 	gl.GetProgramiv(blit_prog, GL_LINK_STATUS, &ok);
-	if (!ok) { gl.GetProgramInfoLog(blit_prog, sizeof(log), NULL, log); return log; }
+	if (!ok) {
+		gl.GetProgramInfoLog(blit_prog, sizeof(log), NULL, log);
+		return log;
+	}
 	blit_pos = (GLuint)gl.GetAttribLocation(blit_prog, "p");
 	blit_tex_u = (GLuint)gl.GetUniformLocation(blit_prog, "t");
 	return NULL;
@@ -1069,7 +1188,8 @@ static int read_cuda_via_gl(struct way *w, const struct fbinfo *f, GLuint tex,
 	int rc = -1;
 
 	if (!cu.GraphicsGLRegisterImage || !cu.GraphicsMapResources ||
-	    !cu.GraphicsSubResourceGetMappedArray || !cu.GraphicsUnmapResources) {
+	    !cu.GraphicsSubResourceGetMappedArray ||
+	    !cu.GraphicsUnmapResources) {
 		way_fail(w, "no GL-interop entry points in libcuda");
 		return -1;
 	}
@@ -1084,34 +1204,46 @@ static int read_cuda_via_gl(struct way *w, const struct fbinfo *f, GLuint tex,
 	 * question is "are the pixels there", not "are they NV12 yet". */
 	if (!owned || owned_w != f->w || owned_h != f->h) {
 		if (owned) {
-			if (reg) { cu.GraphicsUnregisterResource(reg); reg = NULL; }
+			if (reg) {
+				cu.GraphicsUnregisterResource(reg);
+				reg = NULL;
+			}
 			gl.DeleteTextures(1, &owned);
 			gl.DeleteFramebuffers(1, &owned_fbo);
 		}
 		gl.GenTextures(1, &owned);
 		gl.BindTexture(GL_TEXTURE_2D, owned);
-		gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)f->w, (GLsizei)f->h,
-			      0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+				 GL_NEAREST);
+		gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+				 GL_NEAREST);
+		gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)f->w,
+			      (GLsizei)f->h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+			      NULL);
 		if ((st = gl.GetError()) != GL_NO_ERROR) {
-			way_fail(w, "glTexImage2D for the owned texture: %#x", st);
-			gl.DeleteTextures(1, &owned); owned = 0;
+			way_fail(w, "glTexImage2D for the owned texture: %#x",
+				 st);
+			gl.DeleteTextures(1, &owned);
+			owned = 0;
 			return -1;
 		}
 		gl.GenFramebuffers(1, &owned_fbo);
-		owned_w = f->w; owned_h = f->h;
+		owned_w = f->w;
+		owned_h = f->h;
 	}
 
 	/* Draw the imported texture into the owned one. */
 	{
-		static const float quad[8] = { -1, -1,  1, -1, -1,  1,  1,  1 };
+		static const float quad[8] = { -1, -1, 1, -1, -1, 1, 1, 1 };
 
 		gl.BindFramebuffer(GL_FRAMEBUFFER, owned_fbo);
 		gl.FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
 					GL_TEXTURE_2D, owned, 0);
-		if ((st = gl.CheckFramebufferStatus(GL_FRAMEBUFFER)) != GL_FRAMEBUFFER_COMPLETE) {
-			way_fail(w, "blit destination framebuffer incomplete: %#x", st);
+		if ((st = gl.CheckFramebufferStatus(GL_FRAMEBUFFER)) !=
+		    GL_FRAMEBUFFER_COMPLETE) {
+			way_fail(w,
+				 "blit destination framebuffer incomplete: %#x",
+				 st);
 			gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
 			return -1;
 		}
@@ -1126,13 +1258,17 @@ static int read_cuda_via_gl(struct way *w, const struct fbinfo *f, GLuint tex,
 		gl.Finish();
 		gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
 		if ((st = gl.GetError()) != GL_NO_ERROR) {
-			way_fail(w, "the blit into the owned texture: GL error %#x", st);
+			way_fail(
+				w,
+				"the blit into the owned texture: GL error %#x",
+				st);
 			return -1;
 		}
 	}
 
-	if (!reg && (r = cu.GraphicsGLRegisterImage(&reg, owned, GL_TEXTURE_2D,
-			CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY)) != 0) {
+	if (!reg && (r = cu.GraphicsGLRegisterImage(
+			     &reg, owned, GL_TEXTURE_2D,
+			     CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY)) != 0) {
 		reg = NULL;
 		way_fail(w, "cuGraphicsGLRegisterImage: %s", cu_err(r));
 		return -1;
@@ -1143,7 +1279,8 @@ static int read_cuda_via_gl(struct way *w, const struct fbinfo *f, GLuint tex,
 		return -1;
 	}
 	if ((r = cu.GraphicsSubResourceGetMappedArray(&arr, res, 0, 0)) != 0) {
-		way_fail(w, "cuGraphicsSubResourceGetMappedArray: %s", cu_err(r));
+		way_fail(w, "cuGraphicsSubResourceGetMappedArray: %s",
+			 cu_err(r));
 		goto unmap;
 	}
 	(void)arr;
@@ -1159,7 +1296,8 @@ static int read_cuda_via_gl(struct way *w, const struct fbinfo *f, GLuint tex,
 		way_fail(w, "cuMemcpy2D (GL route): %s", cu_err(r));
 		goto unmap;
 	}
-	cuda_route = "GL interop (EGLImage -> owned texture -> cuGraphicsGLRegisterImage)";
+	cuda_route =
+		"GL interop (EGLImage -> owned texture -> cuGraphicsGLRegisterImage)";
 	rc = 0;
 unmap:
 	cu.GraphicsUnmapResources(1, &res, NULL);
@@ -1184,15 +1322,19 @@ static void read_cuda(struct way *w, const struct fbinfo *f, EGLImageKHR img,
 	need = (size_t)f->w * f->h * 4;
 	if (need > bufsz) {
 		uint8_t *nb = realloc(buf, need);
-		if (!nb) { way_fail(w, "out of memory for the readback buffer"); return; }
-		buf = nb; bufsz = need;
+		if (!nb) {
+			way_fail(w, "out of memory for the readback buffer");
+			return;
+		}
+		buf = nb;
+		bufsz = need;
 	}
 
 	/* This is the call. If the black stream is a CUDA-interop problem,
 	 * it fails or lies right here. */
 	if (!cu.GraphicsEGLRegisterImage ||
-	    (r = cu.GraphicsEGLRegisterImage(&res, img,
-			CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY)) != 0) {
+	    (r = cu.GraphicsEGLRegisterImage(
+		     &res, img, CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY)) != 0) {
 		/* Expected on desktop x86: see the note on
 		 * GraphicsGLRegisterImage above. Fall through to the route
 		 * this platform does implement rather than calling the whole
@@ -1201,8 +1343,8 @@ static void read_cuda(struct way *w, const struct fbinfo *f, EGLImageKHR img,
 		char egl_why[100], gl_why[100];
 
 		snprintf(egl_why, sizeof(egl_why), "%s",
-			 cu.GraphicsEGLRegisterImage ? cu_err(r)
-						     : "not exported");
+			 cu.GraphicsEGLRegisterImage ? cu_err(r) :
+						       "not exported");
 		if (read_cuda_via_gl(w, f, tex, buf) == 0) {
 			/* read_cuda_via_gl counted no failure, so nothing to
 			 * undo; it scores below. */
@@ -1221,7 +1363,8 @@ static void read_cuda(struct way *w, const struct fbinfo *f, EGLImageKHR img,
 	cuda_route = "EGL interop (cuGraphicsEGLRegisterImage)";
 	memset(&ef, 0, sizeof(ef));
 	if ((r = cu.GraphicsResourceGetMappedEglFrame(&ef, res, 0, 0)) != 0) {
-		way_fail(w, "cuGraphicsResourceGetMappedEglFrame: %s", cu_err(r));
+		way_fail(w, "cuGraphicsResourceGetMappedEglFrame: %s",
+			 cu_err(r));
 		goto out;
 	}
 	if (!shown) {
@@ -1232,7 +1375,8 @@ static void read_cuda(struct way *w, const struct fbinfo *f, EGLImageKHR img,
 		printf("CUDA eglFrame: %ux%u, planes %u, channels %u, "
 		       "type %s, pitch %u, cuFormat %d, colorFormat %d\n",
 		       ef.width, ef.height, ef.planeCount, ef.numChannels,
-		       ef.frameType == CU_EGL_FRAME_TYPE_ARRAY ? "ARRAY" : "PITCH",
+		       ef.frameType == CU_EGL_FRAME_TYPE_ARRAY ? "ARRAY" :
+								 "PITCH",
 		       ef.pitch, ef.cuFormat, ef.eglColorFormat);
 		if (ef.width != f->w || ef.height != f->h)
 			printf("  eglFrame dimensions %ux%u != framebuffer %ux%u"
@@ -1261,7 +1405,9 @@ static void read_cuda(struct way *w, const struct fbinfo *f, EGLImageKHR img,
 	}
 score:
 	for (i = 0; i < g->n; i++)
-		px[i] = *(const uint32_t *)(buf + ((size_t)g->y[i] * f->w + g->x[i]) * 4);
+		px[i] = *(const uint32_t *)(buf +
+					    ((size_t)g->y[i] * f->w + g->x[i]) *
+						    4);
 	way_score(w, px, g->n, buf, need);
 out:
 	if (res)
@@ -1300,38 +1446,56 @@ int main(int argc, char **argv)
 	char fcc[5];
 
 	for (i = 1; i < argc; i++) {
-		if (!strcmp(argv[i], "--node") && i + 1 < argc) node = argv[++i];
-		else if (!strcmp(argv[i], "--plane") && i + 1 < argc) want_plane = (uint32_t)atoi(argv[++i]);
-		else if (!strcmp(argv[i], "--loop") && i + 1 < argc) loops = atoi(argv[++i]);
-		else if (!strcmp(argv[i], "--interval") && i + 1 < argc) interval = atoi(argv[++i]);
-		else if (!strcmp(argv[i], "--samples") && i + 1 < argc) samples = atoi(argv[++i]);
-		else if (!strcmp(argv[i], "--dump") && i + 1 < argc) dump_path = argv[++i];
-		else if (!strcmp(argv[i], "--list")) list_only = 1;
-		else if (!strcmp(argv[i], "-v")) verbose = 1;
-		else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) { usage(); return 0; }
-		else { usage(); return 2; }
+		if (!strcmp(argv[i], "--node") && i + 1 < argc)
+			node = argv[++i];
+		else if (!strcmp(argv[i], "--plane") && i + 1 < argc)
+			want_plane = (uint32_t)atoi(argv[++i]);
+		else if (!strcmp(argv[i], "--loop") && i + 1 < argc)
+			loops = atoi(argv[++i]);
+		else if (!strcmp(argv[i], "--interval") && i + 1 < argc)
+			interval = atoi(argv[++i]);
+		else if (!strcmp(argv[i], "--samples") && i + 1 < argc)
+			samples = atoi(argv[++i]);
+		else if (!strcmp(argv[i], "--dump") && i + 1 < argc)
+			dump_path = argv[++i];
+		else if (!strcmp(argv[i], "--list"))
+			list_only = 1;
+		else if (!strcmp(argv[i], "-v"))
+			verbose = 1;
+		else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
+			usage();
+			return 0;
+		} else {
+			usage();
+			return 2;
+		}
 	}
-	if (samples > MAX_SAMPLES) samples = MAX_SAMPLES;
+	if (samples > MAX_SAMPLES)
+		samples = MAX_SAMPLES;
 
 	if (node) {
 		drm_fd = open(node, O_RDWR | O_CLOEXEC);
-		if (drm_fd >= 0) snprintf(chosen, sizeof(chosen), "%s", node);
+		if (drm_fd >= 0)
+			snprintf(chosen, sizeof(chosen), "%s", node);
 	} else {
 		drm_fd = open_node("nvidia-drm", chosen, sizeof(chosen));
 	}
 	if (drm_fd < 0) {
 		fprintf(stderr, "no usable DRM node (%s)\n",
-			node ? strerror(errno) : "no node with driver \"nvidia-drm\"");
+			node ? strerror(errno) :
+			       "no node with driver \"nvidia-drm\"");
 		return 2;
 	}
 	if (geteuid() != 0)
 		fprintf(stderr, "not root -- GETFB2 will return handle 0 "
-			"and nothing below will work\n");
+				"and nothing below will work\n");
 	/* Without this the plane list holds only overlays: primary and cursor
 	 * are hidden from a legacy client, and the probe would report "no
 	 * plane is scanning out" on a perfectly good desktop. */
 	{
-		struct drm_set_client_cap cap = { DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1 };
+		struct drm_set_client_cap cap = {
+			DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1
+		};
 		if (ioctl(drm_fd, DRM_IOCTL_SET_CLIENT_CAP, &cap) < 0)
 			fprintf(stderr, "UNIVERSAL_PLANES cap refused: %s\n",
 				strerror(errno));
@@ -1348,24 +1512,28 @@ int main(int argc, char **argv)
 
 	n = collect_planes(planes, 8);
 	if (n <= 0) {
-		fprintf(stderr, "no plane is scanning out: %d plane(s) exist, "
-			"%d of them dark\n", planes_total, planes_dark);
+		fprintf(stderr,
+			"no plane is scanning out: %d plane(s) exist, "
+			"%d of them dark\n",
+			planes_total, planes_dark);
 		dump_crtcs();
 		if (planes_total > 0)
 			fprintf(stderr,
-			  "planes exist but none holds a framebuffer. Under the\n"
-			  "    NVIDIA X driver that is NORMAL: Xorg programs the head\n"
-			  "    through NVKMS and never publishes DRM plane state, so\n"
-			  "    there is nothing here for a kms grabber to read either.\n"
-			  "    A Wayland compositor on the DRM backend does publish it.\n");
+				"planes exist but none holds a framebuffer. Under the\n"
+				"    NVIDIA X driver that is NORMAL: Xorg programs the head\n"
+				"    through NVKMS and never publishes DRM plane state, so\n"
+				"    there is nothing here for a kms grabber to read either.\n"
+				"    A Wayland compositor on the DRM backend does publish it.\n");
 		return 1;
 	}
 	printf("planes scanning out: %d\n", n);
 	for (i = 0; i < n; i++)
 		printf("  plane %u (crtc %u) fb %u  %ux%u  %s  modifier %#llx  %d dmabuf plane(s)\n",
 		       planes[i].plane_id, planes[i].crtc_id, planes[i].fb_id,
-		       planes[i].w, planes[i].h, fourcc_str(planes[i].fourcc, fcc),
-		       (unsigned long long)planes[i].modifier, planes[i].planes);
+		       planes[i].w, planes[i].h,
+		       fourcc_str(planes[i].fourcc, fcc),
+		       (unsigned long long)planes[i].modifier,
+		       planes[i].planes);
 
 	/* Biggest wins: the 64x64 one is the cursor, and a probe that latches
 	 * onto it reports a healthy stream for a black desktop -- which is
@@ -1376,11 +1544,17 @@ int main(int argc, char **argv)
 		uint64_t best = 0;
 		for (i = 0; i < n; i++) {
 			uint64_t area = (uint64_t)planes[i].w * planes[i].h;
-			if (area > best) { best = area; target_plane = planes[i].plane_id; }
+			if (area > best) {
+				best = area;
+				target_plane = planes[i].plane_id;
+			}
 		}
 	}
 	for (i = 0; i < n; i++)
-		if (planes[i].plane_id == target_plane) { geom_w = planes[i].w; geom_h = planes[i].h; }
+		if (planes[i].plane_id == target_plane) {
+			geom_w = planes[i].w;
+			geom_h = planes[i].h;
+		}
 	for (i = 0; i < n; i++)
 		close_handles(&planes[i]);
 	if (!geom_w) {
@@ -1392,18 +1566,24 @@ int main(int argc, char **argv)
 		return 0;
 
 	grid_build(&g, geom_w, geom_h, samples);
-	printf("%d sample points, %d polls, %d ms apart\n\n", g.n, loops, interval);
+	printf("%d sample points, %d polls, %d ms apart\n\n", g.n, loops,
+	       interval);
 
 	e = egl_setup();
-	w_gl.available = (e == NULL); w_gl.why_not = e;
-	if (e) printf("EGL import unavailable: %s\n", e);
+	w_gl.available = (e == NULL);
+	w_gl.why_not = e;
+	if (e)
+		printf("EGL import unavailable: %s\n", e);
 	if (w_gl.available) {
 		e = cuda_setup();
-		w_cuda.available = (e == NULL); w_cuda.why_not = e;
-		if (e) printf("CUDA import unavailable: %s\n", e);
+		w_cuda.available = (e == NULL);
+		w_cuda.why_not = e;
+		if (e)
+			printf("CUDA import unavailable: %s\n", e);
 	} else {
 		w_cuda.available = 0;
-		w_cuda.why_not = "EGL is unavailable, so there is no image to register";
+		w_cuda.why_not =
+			"EGL is unavailable, so there is no image to register";
 	}
 	w_mmap.available = 1;
 	putchar('\n');
@@ -1415,18 +1595,22 @@ int main(int argc, char **argv)
 
 		n = collect_planes(planes, 8);
 		for (i = 0; i < n; i++)
-			if (planes[i].plane_id == target_plane) f = &planes[i];
+			if (planes[i].plane_id == target_plane)
+				f = &planes[i];
 		if (!f) {
 			no_plane_polls++;
-			for (i = 0; i < n; i++) close_handles(&planes[i]);
+			for (i = 0; i < n; i++)
+				close_handles(&planes[i]);
 			msleep(interval);
 			continue;
 		}
 		vlog("  poll %d: fb %u\n", iter, f->fb_id);
 
 		if (prime_export(f->handles[0], &dmabuf) < 0) {
-			fprintf(stderr, "  PRIME_HANDLE_TO_FD: %s\n", strerror(errno));
-			w_mmap.attempts++; way_fail(&w_mmap, "no dmabuf: PRIME export failed");
+			fprintf(stderr, "  PRIME_HANDLE_TO_FD: %s\n",
+				strerror(errno));
+			w_mmap.attempts++;
+			way_fail(&w_mmap, "no dmabuf: PRIME export failed");
 			goto next;
 		}
 		if (w_mmap.available)
@@ -1435,40 +1619,59 @@ int main(int argc, char **argv)
 			img = import_image(f, dmabuf);
 			if (img == EGL_NO_IMAGE_KHR) {
 				EGLint err = eglGetError();
-				if (w_gl.available) { w_gl.attempts++;
-					way_fail(&w_gl, "eglCreateImageKHR(dmabuf): %#x", err); }
-				if (w_cuda.available) { w_cuda.attempts++;
-					way_fail(&w_cuda, "eglCreateImageKHR(dmabuf): %#x", err); }
+				if (w_gl.available) {
+					w_gl.attempts++;
+					way_fail(
+						&w_gl,
+						"eglCreateImageKHR(dmabuf): %#x",
+						err);
+				}
+				if (w_cuda.available) {
+					w_cuda.attempts++;
+					way_fail(
+						&w_cuda,
+						"eglCreateImageKHR(dmabuf): %#x",
+						err);
+				}
 			} else {
 				const char *terr = NULL;
 				GLuint tex = make_tex(img, &terr);
 
 				if (!tex) {
-					if (w_gl.available) { w_gl.attempts++;
-						way_fail(&w_gl, "%s", terr); }
-					if (w_cuda.available) { w_cuda.attempts++;
-						way_fail(&w_cuda, "%s", terr); }
+					if (w_gl.available) {
+						w_gl.attempts++;
+						way_fail(&w_gl, "%s", terr);
+					}
+					if (w_cuda.available) {
+						w_cuda.attempts++;
+						way_fail(&w_cuda, "%s", terr);
+					}
 				} else {
 					if (w_gl.available)
 						read_gl(&w_gl, f, tex, &g);
 					if (w_cuda.available)
-						read_cuda(&w_cuda, f, img, tex, &g);
+						read_cuda(&w_cuda, f, img, tex,
+							  &g);
 					gl.DeleteTextures(1, &tex);
 				}
 				pDestroyImage(egl_dpy, img);
 			}
 		}
 next:
-		if (dmabuf >= 0) close(dmabuf);
-		for (i = 0; i < n; i++) close_handles(&planes[i]);
-		if (iter + 1 < loops) msleep(interval);
+		if (dmabuf >= 0)
+			close(dmabuf);
+		for (i = 0; i < n; i++)
+			close_handles(&planes[i]);
+		if (iter + 1 < loops)
+			msleep(interval);
 	}
 
 	/* The verdict. One line per way, and it says what it measured rather
 	 * than PASS/FAIL: "the import worked and the picture is moving" and
 	 * "the import worked and the picture is frozen black" are different
 	 * findings and must not collapse into one word. */
-	printf("\n== fbprobe verdict (plane %u, %ux%u) ==\n", target_plane, geom_w, geom_h);
+	printf("\n== fbprobe verdict (plane %u, %ux%u) ==\n", target_plane,
+	       geom_w, geom_h);
 	if (no_plane_polls)
 		printf("  %d/%d polls found no framebuffer on that plane\n",
 		       no_plane_polls, loops);
@@ -1487,17 +1690,21 @@ next:
 			if (!w->ok) {
 				printf("  %-5s BROKEN       %d/%d polls failed; last: %s\n",
 				       w->name, w->failed, w->attempts,
-				       w->last_err[0] ? w->last_err : "(no detail)");
+				       w->last_err[0] ? w->last_err :
+							"(no detail)");
 				continue;
 			}
 			printf("  %-5s %s  reads %d/%d  nonzero in %d polls (peak %d/%d)"
 			       "  frame changed in %d/%d polls\n",
 			       w->name,
-			       w->polls_nonzero && w->polls_frame_differs ? "CONTENT " :
-			       w->polls_nonzero ? "STATIC  " : "BLACK   ",
-			       w->ok, w->attempts,
-			       w->polls_nonzero, w->best_nonzero, w->last_total,
-			       w->polls_frame_differs, w->ok > 0 ? w->ok - 1 : 0);
+			       w->polls_nonzero && w->polls_frame_differs ?
+				       "CONTENT " :
+			       w->polls_nonzero ? "STATIC  " :
+						  "BLACK   ",
+			       w->ok, w->attempts, w->polls_nonzero,
+			       w->best_nonzero, w->last_total,
+			       w->polls_frame_differs,
+			       w->ok > 0 ? w->ok - 1 : 0);
 			if (w->failed)
 				printf("        (%d poll(s) failed; last: %s)\n",
 				       w->failed, w->last_err);
@@ -1522,7 +1729,8 @@ next:
 			printf("\nREADER AMBER: %d way(s) read nonzero pixels, but nothing\n"
 			       "moved across the polls. On an animating desktop that is a\n"
 			       "finding (a frozen or wrongly mapped import); on an idle one\n"
-			       "it is simply an idle desktop.\n", amber);
+			       "it is simply an idle desktop.\n",
+			       amber);
 			return 2;
 		}
 		printf("\nREADER RED: no way read a nonzero pixel -- "

@@ -41,9 +41,9 @@
 //! client of its own, no MAP_MEMORY special case -- the guest opens its own
 //! fds and both roles are mirrored alike.
 
-use std::os::fd::RawFd;
-use std::marker::PhantomData;
 use nvrm_sys::RmAbi;
+use std::marker::PhantomData;
+use std::os::fd::RawFd;
 
 use anyhow::Result;
 
@@ -84,14 +84,22 @@ fn uvm_status_off<A: RmAbi>(nr: u32) -> Option<usize> {
         uvm::UNREGISTER_GPU_VASPACE => offset_of!(sys::UVM_UNREGISTER_GPU_VASPACE_PARAMS, rmStatus),
         uvm::REGISTER_CHANNEL => offset_of!(sys::UVM_REGISTER_CHANNEL_PARAMS, rmStatus),
         uvm::UNREGISTER_CHANNEL => A::UVM_UNREGISTER_CHANNEL_PARAMS_OFF_rmStatus,
-        uvm::MAP_EXTERNAL_ALLOCATION => offset_of!(sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS, rmStatus),
+        uvm::MAP_EXTERNAL_ALLOCATION => {
+            offset_of!(sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS, rmStatus)
+        }
         uvm::FREE => A::UVM_FREE_PARAMS_OFF_rmStatus,
         uvm::REGISTER_GPU => offset_of!(sys::UVM_REGISTER_GPU_PARAMS, rmStatus),
         uvm::PAGEABLE_MEM_ACCESS => offset_of!(sys::UVM_PAGEABLE_MEM_ACCESS_PARAMS, rmStatus),
         uvm::SET_PREFERRED_LOCATION => offset_of!(sys::UVM_SET_PREFERRED_LOCATION_PARAMS, rmStatus),
-        uvm::UNSET_PREFERRED_LOCATION => offset_of!(sys::UVM_UNSET_PREFERRED_LOCATION_PARAMS, rmStatus),
-        uvm::ENABLE_READ_DUPLICATION => offset_of!(sys::UVM_ENABLE_READ_DUPLICATION_PARAMS, rmStatus),
-        uvm::DISABLE_READ_DUPLICATION => offset_of!(sys::UVM_DISABLE_READ_DUPLICATION_PARAMS, rmStatus),
+        uvm::UNSET_PREFERRED_LOCATION => {
+            offset_of!(sys::UVM_UNSET_PREFERRED_LOCATION_PARAMS, rmStatus)
+        }
+        uvm::ENABLE_READ_DUPLICATION => {
+            offset_of!(sys::UVM_ENABLE_READ_DUPLICATION_PARAMS, rmStatus)
+        }
+        uvm::DISABLE_READ_DUPLICATION => {
+            offset_of!(sys::UVM_DISABLE_READ_DUPLICATION_PARAMS, rmStatus)
+        }
         uvm::SET_ACCESSED_BY => offset_of!(sys::UVM_SET_ACCESSED_BY_PARAMS, rmStatus),
         uvm::UNSET_ACCESSED_BY => offset_of!(sys::UVM_UNSET_ACCESSED_BY_PARAMS, rmStatus),
         uvm::MIGRATE => offset_of!(sys::UVM_MIGRATE_PARAMS, rmStatus),
@@ -112,10 +120,14 @@ fn uvm_status_off<A: RmAbi>(nr: u32) -> Option<usize> {
 /// The offsets the "managed light" answers write into (see `Action::FakeManaged`
 /// and the execute branch): every one is an `offset_of!` of the bindgen struct
 /// so that the numbers quoted in the branch cannot drift from uvm_ioctl.h.
-const MIGRATE_SEMAPHORE_ADDRESS_OFF: usize = std::mem::offset_of!(sys::UVM_MIGRATE_PARAMS, semaphoreAddress);
-const MIGRATE_SEMAPHORE_PAYLOAD_OFF: usize = std::mem::offset_of!(sys::UVM_MIGRATE_PARAMS, semaphorePayload);
-const MIGRATE_USER_SPACE_START_OFF: usize = std::mem::offset_of!(sys::UVM_MIGRATE_PARAMS, userSpaceStart);
-const MIGRATE_USER_SPACE_LENGTH_OFF: usize = std::mem::offset_of!(sys::UVM_MIGRATE_PARAMS, userSpaceLength);
+const MIGRATE_SEMAPHORE_ADDRESS_OFF: usize =
+    std::mem::offset_of!(sys::UVM_MIGRATE_PARAMS, semaphoreAddress);
+const MIGRATE_SEMAPHORE_PAYLOAD_OFF: usize =
+    std::mem::offset_of!(sys::UVM_MIGRATE_PARAMS, semaphorePayload);
+const MIGRATE_USER_SPACE_START_OFF: usize =
+    std::mem::offset_of!(sys::UVM_MIGRATE_PARAMS, userSpaceStart);
+const MIGRATE_USER_SPACE_LENGTH_OFF: usize =
+    std::mem::offset_of!(sys::UVM_MIGRATE_PARAMS, userSpaceLength);
 const MIGRATE_FLAGS_OFF: usize = std::mem::offset_of!(sys::UVM_MIGRATE_PARAMS, flags);
 const _: () = {
     // The literal offsets the managed-compat branch has always used, now
@@ -399,7 +411,11 @@ pub enum Pollable {
     /// token belongs to when it is NOT the caller's (the alloc form names
     /// the fd in NV0005.data, resolved through aux_fd_field_proc); `None`
     /// means the calling session.
-    Client { token: u64, fd: RawFd, owner: Option<u32> },
+    Client {
+        token: u64,
+        fd: RawFd,
+        owner: Option<u32>,
+    },
     /// An armed semaphore-surface waiter: NOT for the epoll set -- the
     /// device hands it to the waiter poller (`waiters.rs`, which says why
     /// epoll cannot be trusted with these). Readable once = the waiter
@@ -429,10 +445,18 @@ const NV0005_DATA: usize = std::mem::offset_of!(sys::NV0005_ALLOC_PARAMETERS, da
 const CTRL_SEMSURF_REGISTER_WAITER: u32 = sys::NV_SEMAPHORE_SURFACE_CTRL_CMD_REGISTER_WAITER;
 const CTRL_SEMSURF_UNREGISTER_WAITER: u32 = sys::NV_SEMAPHORE_SURFACE_CTRL_CMD_UNREGISTER_WAITER;
 const _: () = {
-    assert!(std::mem::offset_of!(
-        sys::NV_SEMAPHORE_SURFACE_CTRL_REGISTER_WAITER_PARAMS, notificationHandle) == 24);
-    assert!(std::mem::offset_of!(
-        sys::NV_SEMAPHORE_SURFACE_CTRL_UNREGISTER_WAITER_PARAMS, notificationHandle) == 16);
+    assert!(
+        std::mem::offset_of!(
+            sys::NV_SEMAPHORE_SURFACE_CTRL_REGISTER_WAITER_PARAMS,
+            notificationHandle
+        ) == 24
+    );
+    assert!(
+        std::mem::offset_of!(
+            sys::NV_SEMAPHORE_SURFACE_CTRL_UNREGISTER_WAITER_PARAMS,
+            notificationHandle
+        ) == 16
+    );
 };
 
 const _: () = {
@@ -494,7 +518,9 @@ fn ctrl_dump_wanted(cmd: u32) -> bool {
             .split(',')
             .filter_map(|t| {
                 let t = t.trim().trim_start_matches("0x");
-                (!t.is_empty()).then(|| u32::from_str_radix(t, 16).ok()).flatten()
+                (!t.is_empty())
+                    .then(|| u32::from_str_radix(t, 16).ok())
+                    .flatten()
             })
             .collect()
     });
@@ -533,7 +559,10 @@ impl Refusal {
         Refusal { errno, why }
     }
     fn msg(errno: i32, why: &str) -> Self {
-        Refusal { errno, why: why.to_string() }
+        Refusal {
+            errno,
+            why: why.to_string(),
+        }
     }
 }
 
@@ -728,7 +757,8 @@ impl<A: RmAbi> Session<A> {
             }
         };
         if fresh {
-            self.pending_pollables.push(Pollable::EventCtl { h_client, fd });
+            self.pending_pollables
+                .push(Pollable::EventCtl { h_client, fd });
             self.note_ctl_taken();
         }
         let id = self.next_event_id;
@@ -946,9 +976,16 @@ impl<A: RmAbi> Session<A> {
     /// logged, never surfaced to the guest.
     fn free_os_event(&mut self, h_client: u32, id: u32) {
         use std::os::fd::AsRawFd;
-        let Some(ctl) = self.event_ctls.get(&h_client) else { return };
+        let Some(ctl) = self.event_ctls.get(&h_client) else {
+            return;
+        };
         let fd = ctl.as_raw_fd();
-        let mut p = nvrm_abi::nvgpu::IoctlFreeOsEvent { h_client, h_device: 0, fd: id, status: 0 };
+        let mut p = nvrm_abi::nvgpu::IoctlFreeOsEvent {
+            h_client,
+            h_device: 0,
+            fd: id,
+            status: 0,
+        };
         let r = unsafe {
             self.sys.ioctl(
                 fd,
@@ -977,7 +1014,12 @@ impl<A: RmAbi> Session<A> {
     /// `(registered, fired, unmatched, dataless)` -- for the summary line
     /// the device prints at PROC_GONE.
     pub fn event_stats(&self) -> (u64, u64, u64, u64) {
-        (self.ev_registered, self.ev_fired, self.ev_unmatched, self.ev_dataless)
+        (
+            self.ev_registered,
+            self.ev_fired,
+            self.ev_unmatched,
+            self.ev_dataless,
+        )
     }
 
     /// Does this client still own an event ctl? False after a drain gave
@@ -1014,7 +1056,9 @@ impl<A: RmAbi> Session<A> {
     pub fn drain_os_events(&mut self, h_client: u32) -> Vec<Fired> {
         use std::os::fd::AsRawFd;
         let mut out = Vec::new();
-        let Some(ctl) = self.event_ctls.get(&h_client) else { return out };
+        let Some(ctl) = self.event_ctls.get(&h_client) else {
+            return out;
+        };
         let fd = ctl.as_raw_fd();
         // Bounded: RM's queue is finite, but a ctl that always says
         // MoreEvents keeps queue 0 waiting; anything left re-triggers.
@@ -1080,7 +1124,10 @@ impl<A: RmAbi> Session<A> {
                             h_client, ev.hObject, reg.notify_index, ev.NotifyIndex
                         );
                     }
-                    out.push(Fired { reg: *reg, info32: ev.info32 });
+                    out.push(Fired {
+                        reg: *reg,
+                        info32: ev.info32,
+                    });
                 }
                 None => self.ev_unmatched += 1,
             }
@@ -1223,7 +1270,14 @@ impl<A: RmAbi> Session<A> {
         if req.ioctl_nr != proto::PROTO_VERSION {
             return self.reply_err(req.seq, libc::EPROTO, "protocol version");
         }
-        self.reply(Rsp { seq: req.seq, ..Rsp::default() }, &[], &[])
+        self.reply(
+            Rsp {
+                seq: req.seq,
+                ..Rsp::default()
+            },
+            &[],
+            &[],
+        )
     }
 
     fn on_open(&mut self, req: &Req, payload: &[u8]) -> Result<()> {
@@ -1293,7 +1347,15 @@ impl<A: RmAbi> Session<A> {
 
         // Nothing to mirror back: the guest creates a placeholder FD of its
         // own and routes via the token.
-        self.reply(Rsp { seq: req.seq, token, ..Rsp::default() }, &[], &[])
+        self.reply(
+            Rsp {
+                seq: req.seq,
+                token,
+                ..Rsp::default()
+            },
+            &[],
+            &[],
+        )
     }
 
     /// Register a mapping that the guest is about to fetch through the
@@ -1334,9 +1396,21 @@ impl<A: RmAbi> Session<A> {
         self.next_blob_id = (self.next_blob_id & !0xffff_ffff) | low;
         self.pending_maps.insert(
             id,
-            PendingMap { token: req.target_token, len: req.map_len, dev },
+            PendingMap {
+                token: req.target_token,
+                len: req.map_len,
+                dev,
+            },
         );
-        self.reply(Rsp { seq: req.seq, token: id, ..Rsp::default() }, &[], &[])
+        self.reply(
+            Rsp {
+                seq: req.seq,
+                token: id,
+                ..Rsp::default()
+            },
+            &[],
+            &[],
+        )
     }
 
     /// Back the semaphore pool with guest pages.
@@ -1367,9 +1441,18 @@ impl<A: RmAbi> Session<A> {
             Ok(()) => {
                 eprintln!(
                     "vhost-user-nvrm: pool @{:#x} ({} KiB, {} runs) attached to GPU VA",
-                    req.addr, req.map_len >> 10, runs.len()
+                    req.addr,
+                    req.map_len >> 10,
+                    runs.len()
                 );
-                self.reply(Rsp { seq: req.seq, ..Rsp::default() }, &[], &[])
+                self.reply(
+                    Rsp {
+                        seq: req.seq,
+                        ..Rsp::default()
+                    },
+                    &[],
+                    &[],
+                )
             }
             Err(e) => {
                 eprintln!("vhost-user-nvrm: UvmPoolBack @{:#x}: {e:#}", req.addr);
@@ -1386,7 +1469,10 @@ impl<A: RmAbi> Session<A> {
         // SAFETY: raw is a valid FD held by the mirror; try_clone duplicates
         // it, and the mirror keeps its own.
         let borrowed = unsafe { std::os::fd::BorrowedFd::borrow_raw(raw) };
-        borrowed.try_clone_to_owned().ok().map(|o| (o.into(), len, dev))
+        borrowed
+            .try_clone_to_owned()
+            .ok()
+            .map(|o| (o.into(), len, dev))
     }
 
     fn on_close(&mut self, req: &Req) -> Result<()> {
@@ -1397,7 +1483,14 @@ impl<A: RmAbi> Session<A> {
         self.vram.close_token(req.target_token);
         // ... and so does everything this session holds FOR those clients.
         self.close_clients_of_token(req.target_token);
-        self.reply(Rsp { seq: req.seq, ..Rsp::default() }, &[], &[])
+        self.reply(
+            Rsp {
+                seq: req.seq,
+                ..Rsp::default()
+            },
+            &[],
+            &[],
+        )
     }
 
     fn on_ioctl(&mut self, req: &Req, payload: &[u8]) -> Result<()> {
@@ -1437,8 +1530,13 @@ impl<A: RmAbi> Session<A> {
             || inline_len > proto::MAX_PAYLOAD
             || aux_len > proto::MAX_AUX
         {
-            return Err(Refusal::new(libc::EINVAL, format!(
-                "Length: inline {inline_len} aux {aux_len} payload {}", payload.len())));
+            return Err(Refusal::new(
+                libc::EINVAL,
+                format!(
+                    "Length: inline {inline_len} aux {aux_len} payload {}",
+                    payload.len()
+                ),
+            ));
         }
 
         // The device tag decides how the request number is read (frontend
@@ -1447,7 +1545,10 @@ impl<A: RmAbi> Session<A> {
         // refused, not read as the ctl node (which it silently was until
         // 2026-08-18). No guest module sends one; the fuzzer does.
         let Some(dev) = dev_of(req.dev_tag) else {
-            return Err(Refusal::new(libc::EINVAL, format!("dev_tag {} unknown", req.dev_tag)));
+            return Err(Refusal::new(
+                libc::EINVAL,
+                format!("dev_tag {} unknown", req.dev_tag),
+            ));
         };
 
         // Denied controls: do not execute them at all.
@@ -1481,7 +1582,8 @@ impl<A: RmAbi> Session<A> {
         self.scratch.clear();
         self.scratch.extend_from_slice(&payload[..inline_len]);
         self.aux.clear();
-        self.aux.extend_from_slice(&payload[inline_len..inline_len + aux_len]);
+        self.aux
+            .extend_from_slice(&payload[inline_len..inline_len + aux_len]);
 
         // (1) Translate the fd field: guest token -> host FD number.
         if req.fd_field_off != NONE_U32 {
@@ -1581,9 +1683,16 @@ impl<A: RmAbi> Session<A> {
             const OSDESC_LIMIT: usize =
                 std::mem::offset_of!(sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS, limit);
             if kern_form && self.aux.len() < OSDESC_PARAMS {
-                return Err(Refusal::msg(libc::EINVAL, "0x71 kernel form: params too short"));
+                return Err(Refusal::msg(
+                    libc::EINVAL,
+                    "0x71 kernel form: params too short",
+                ));
             }
-            let run_bytes = if kern_form { &self.aux[OSDESC_PARAMS..] } else { &self.aux[..] };
+            let run_bytes = if kern_form {
+                &self.aux[OSDESC_PARAMS..]
+            } else {
+                &self.aux[..]
+            };
             let Some(runs) = GpaRun::decode(run_bytes, req.gpa_run_count as usize) else {
                 return Err(Refusal::msg(libc::EINVAL, "0x71: runs unreadable"));
             };
@@ -1593,20 +1702,20 @@ impl<A: RmAbi> Session<A> {
             // does catch the zero, but this computation must not lean on the
             // next barrier.
             let limit = if kern_form {
-                u64::from_le_bytes(
-                    self.aux[OSDESC_LIMIT..OSDESC_LIMIT + 8].try_into().unwrap(),
-                )
+                u64::from_le_bytes(self.aux[OSDESC_LIMIT..OSDESC_LIMIT + 8].try_into().unwrap())
             } else {
                 u64::from_le_bytes(self.scratch[32..40].try_into().unwrap())
             };
             let Some(total) = limit.checked_add(1) else {
                 return Err(Refusal::msg(libc::EINVAL, "0x71: limit == u64::MAX"));
             };
-            match self.pool.arena_for_osdesc(&mem, &runs, GuestLen::new(total)) {
+            match self
+                .pool
+                .arena_for_osdesc(&mem, &runs, GuestLen::new(total))
+            {
                 Ok((arena, va)) => {
                     if kern_form {
-                        self.aux[OSDESC_DESC..OSDESC_DESC + 8]
-                            .copy_from_slice(&va.to_le_bytes());
+                        self.aux[OSDESC_DESC..OSDESC_DESC + 8].copy_from_slice(&va.to_le_bytes());
                         // Whoever writes the address writes what KIND it is.
                         // The guest asked with OS_DMA_BUF_PTR because that is
                         // what it had; what RM gets here is a plain virtual
@@ -1630,10 +1739,8 @@ impl<A: RmAbi> Session<A> {
                         // with TYPE_PRIMARY because it is describing a
                         // scanout buffer; once the descriptor has become a
                         // plain host address, IMAGE is what matches it.
-                        const OSDESC_STYPE: usize = std::mem::offset_of!(
-                            sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS,
-                            type_
-                        );
+                        const OSDESC_STYPE: usize =
+                            std::mem::offset_of!(sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS, type_);
                         self.aux[OSDESC_STYPE..OSDESC_STYPE + 4]
                             .copy_from_slice(&sys::NVOS32_TYPE_IMAGE.to_le_bytes());
                     } else {
@@ -1682,12 +1789,14 @@ impl<A: RmAbi> Session<A> {
                 const NVOS02_FD: usize = 48;
                 const NVOS02_LEN: usize = 56;
                 if self.scratch.len() < 48 {
-                    return Err(Refusal::msg(libc::EINVAL, "0x71 kernel form: inline too short"));
+                    return Err(Refusal::msg(
+                        libc::EINVAL,
+                        "0x71 kernel form: inline too short",
+                    ));
                 }
                 osdesc_nvos64_tail = Some(self.scratch[16..40].to_vec());
-                let va = u64::from_le_bytes(
-                    self.aux[OSDESC_DESC..OSDESC_DESC + 8].try_into().unwrap(),
-                );
+                let va =
+                    u64::from_le_bytes(self.aux[OSDESC_DESC..OSDESC_DESC + 8].try_into().unwrap());
                 // The flags are not decoration: RmAllocOsDescriptor reads
                 // them FIRST and answers NV_ERR_INVALID_FLAGS before it has
                 // looked at a single page (escape.c:206). Zero would already
@@ -1696,9 +1805,8 @@ impl<A: RmAbi> Session<A> {
                     std::mem::offset_of!(sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS, attr);
                 const OSDESC_ATTR2: usize =
                     std::mem::offset_of!(sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS, attr2);
-                let attr = u32::from_le_bytes(
-                    self.aux[OSDESC_ATTR..OSDESC_ATTR + 4].try_into().unwrap(),
-                );
+                let attr =
+                    u32::from_le_bytes(self.aux[OSDESC_ATTR..OSDESC_ATTR + 4].try_into().unwrap());
                 let attr2 = u32::from_le_bytes(
                     self.aux[OSDESC_ATTR2..OSDESC_ATTR2 + 4].try_into().unwrap(),
                 );
@@ -1711,11 +1819,9 @@ impl<A: RmAbi> Session<A> {
                     );
                 }
                 self.scratch[NVOS02_FLAGS..NVOS02_FLAGS + 8].fill(0);
-                self.scratch[NVOS02_FLAGS..NVOS02_FLAGS + 4]
-                    .copy_from_slice(&flags.to_le_bytes());
+                self.scratch[NVOS02_FLAGS..NVOS02_FLAGS + 4].copy_from_slice(&flags.to_le_bytes());
                 self.scratch[NVOS02_PMEM..NVOS02_PMEM + 8].copy_from_slice(&va.to_le_bytes());
-                self.scratch[NVOS02_LIMIT..NVOS02_LIMIT + 8]
-                    .copy_from_slice(&limit.to_le_bytes());
+                self.scratch[NVOS02_LIMIT..NVOS02_LIMIT + 8].copy_from_slice(&limit.to_le_bytes());
                 if self.scratch.len() < NVOS02_LEN {
                     self.scratch.resize(NVOS02_LEN, 0);
                 }
@@ -1756,23 +1862,38 @@ impl<A: RmAbi> Session<A> {
             }
             let need = unsafe {
                 nvrm_abi::xlate::embedded_ptr::<A>(
-                    dev, req.ioctl_nr, self.scratch.as_ptr(), inline_len as u32)
+                    dev,
+                    req.ioctl_nr,
+                    self.scratch.as_ptr(),
+                    inline_len as u32,
+                )
             };
             match need {
                 Ok(Some(e)) => {
                     if e.ptr_off as usize != off || (e.len as usize) > self.aux.len() {
-                        return Err(Refusal::new(libc::EINVAL, format!(
-                            "aux too small: driver reads {} bytes @{}, guest sent {} @{}",
-                            e.len, e.ptr_off, self.aux.len(), off)));
+                        return Err(Refusal::new(
+                            libc::EINVAL,
+                            format!(
+                                "aux too small: driver reads {} bytes @{}, guest sent {} @{}",
+                                e.len,
+                                e.ptr_off,
+                                self.aux.len(),
+                                off
+                            ),
+                        ));
                     }
                 }
                 Ok(None) => {
-                    return Err(Refusal::msg(libc::EINVAL,
-                        "embedded_ptr_off set, but this call carries no embedded pointer"));
+                    return Err(Refusal::msg(
+                        libc::EINVAL,
+                        "embedded_ptr_off set, but this call carries no embedded pointer",
+                    ));
                 }
                 Err(()) => {
-                    return Err(Refusal::msg(libc::ENOTSUP,
-                        "embedded length not determinable (unknown hClass)"));
+                    return Err(Refusal::msg(
+                        libc::ENOTSUP,
+                        "embedded length not determinable (unknown hClass)",
+                    ));
                 }
             }
             let addr = self.aux.as_mut_ptr() as u64;
@@ -1806,18 +1927,18 @@ impl<A: RmAbi> Session<A> {
                 // out. The pointer and the unstripped notifyIndex are saved
                 // FIRST: they are what the guest gets back with the firing
                 // (KIND_EVENT_FIRED `addr` / `nested_count`).
-                let guest_data = u64::from_le_bytes(
-                    self.aux[NV0005_DATA..NV0005_DATA + 8].try_into().unwrap(),
-                );
+                let guest_data =
+                    u64::from_le_bytes(self.aux[NV0005_DATA..NV0005_DATA + 8].try_into().unwrap());
                 let notify_index = u32::from_le_bytes(
-                    self.aux[NV0005_NOTIFYINDEX..NV0005_NOTIFYINDEX + 4].try_into().unwrap(),
+                    self.aux[NV0005_NOTIFYINDEX..NV0005_NOTIFYINDEX + 4]
+                        .try_into()
+                        .unwrap(),
                 );
                 let id = self.alloc_os_event_id(h_client)?;
                 self.aux[NV0005_HCLASS..NV0005_HCLASS + 4]
                     .copy_from_slice(&sys::NV01_EVENT_OS_EVENT.to_le_bytes());
                 self.aux[NV0005_DATA..NV0005_DATA + 8].copy_from_slice(&(id as u64).to_le_bytes());
-                self.scratch[12..16]
-                    .copy_from_slice(&sys::NV01_EVENT_OS_EVENT.to_le_bytes());
+                self.scratch[12..16].copy_from_slice(&sys::NV01_EVENT_OS_EVENT.to_le_bytes());
                 event_reg = Some(EventReg {
                     h_client,
                     h_event: 0,
@@ -1981,17 +2102,21 @@ impl<A: RmAbi> Session<A> {
             return Err(Refusal::msg(libc::EINVAL, "nested_count > MAX_NESTED"));
         }
         if req.nested_count > 0 {
-            let specs = if req.ioctl_nr == nvrm_abi::sys::NV_ESC_RM_CONTROL && inline_len >= 32
-            {
+            let specs = if req.ioctl_nr == nvrm_abi::sys::NV_ESC_RM_CONTROL && inline_len >= 32 {
                 let cmd = u32::from_le_bytes(self.scratch[8..12].try_into().unwrap());
                 nvrm_abi::xlate::nested_ptrs(cmd)
             } else {
                 &[][..]
             };
             if specs.len() != req.nested_count as usize {
-                return Err(Refusal::new(libc::EINVAL, format!(
-                    "nested_count {} does not match {} annotated pointers",
-                    req.nested_count, specs.len())));
+                return Err(Refusal::new(
+                    libc::EINVAL,
+                    format!(
+                        "nested_count {} does not match {} annotated pointers",
+                        req.nested_count,
+                        specs.len()
+                    ),
+                ));
             }
             for (i, sp) in specs.iter().enumerate() {
                 let d = req.nested[i];
@@ -2005,12 +2130,16 @@ impl<A: RmAbi> Session<A> {
                     return Err(Refusal::msg(libc::EINVAL, "nested length not determinable"));
                 };
                 if want > d.len {
-                    return Err(Refusal::new(libc::EINVAL, format!(
-                        "nested @{po}: driver reads {want} bytes, guest sent {}", d.len)));
+                    return Err(Refusal::new(
+                        libc::EINVAL,
+                        format!(
+                            "nested @{po}: driver reads {want} bytes, guest sent {}",
+                            d.len
+                        ),
+                    ));
                 }
                 if po + 8 > self.aux.len() || ao + d.len as usize > self.aux.len() {
-                    return Err(Refusal::msg(libc::EINVAL,
-                        "nested descriptor outside aux"));
+                    return Err(Refusal::msg(libc::EINVAL, "nested descriptor outside aux"));
                 }
                 let addr = unsafe { self.aux.as_mut_ptr().add(ao) } as u64;
                 self.aux[po..po + 8].copy_from_slice(&addr.to_le_bytes());
@@ -2025,8 +2154,7 @@ impl<A: RmAbi> Session<A> {
                     && u32::from_le_bytes(self.scratch[8..12].try_into().unwrap())
                         == crate::vram::CMD_FB_GET_INFO
                 {
-                    let asked = u32::from_le_bytes(
-                        self.aux[..4].try_into().unwrap()) as usize;
+                    let asked = u32::from_le_bytes(self.aux[..4].try_into().unwrap()) as usize;
                     fb_info_list = Some((ao, asked));
                 }
             }
@@ -2078,16 +2206,14 @@ impl<A: RmAbi> Session<A> {
             // number and the size, so encoding the original here sends RM a
             // request that names one struct and carries another. Measured as
             // ret -22 on a call whose payload was already correct.
-            iowr_raw(rewrite_ioctl_nr.unwrap_or(req.ioctl_nr), inline_len as u32)
-                as libc::c_ulong
+            iowr_raw(rewrite_ioctl_nr.unwrap_or(req.ioctl_nr), inline_len as u32) as libc::c_ulong
         };
 
         // Do NOT forward ALLOC_SEMAPHORE_POOL -- otherwise the real UVM
         // would create the pool at GPU VA `base` and collide with the
         // external mapping the guest requests moments later via
         // UvmPoolBack. Fake success, rmStatus = NV_OK.
-        let fake_semaphore_pool =
-            dev.is_uvm() && req.ioctl_nr == UVM_ALLOC_SEMAPHORE_POOL;
+        let fake_semaphore_pool = dev.is_uvm() && req.ioctl_nr == UVM_ALLOC_SEMAPHORE_POOL;
 
         // "Managed light", opt-in (LEA_MANAGED_COMPAT=1): managed ranges
         // never exist across the VM boundary -- the guest pages hang there
@@ -2138,7 +2264,11 @@ impl<A: RmAbi> Session<A> {
                 // the driver reads for this class.
                 if let Some(bytes) = crate::vram::request_bytes(hclass, &self.aux) {
                     vram_status_off = st_off;
-                    let door = if st_off == 40 { crate::vram::Door::Nvos64 } else { crate::vram::Door::Nvos21 };
+                    let door = if st_off == 40 {
+                        crate::vram::Door::Nvos64
+                    } else {
+                        crate::vram::Door::Nvos21
+                    };
                     vram_ask = crate::vram::Ask::of_alloc(door, hclass, &self.aux);
                     if self.vram.reserve(bytes) {
                         vram_reserved = bytes;
@@ -2211,13 +2341,18 @@ impl<A: RmAbi> Session<A> {
             &mut self.scratch[..n]
         } else if plan.ioctl_nr == sys::NV_ESC_RM_CONTROL
             && n >= 32
-            && crate::grid::UUID_CONTROLS.contains(&u32::from_le_bytes(self.scratch[8..12].try_into().unwrap()))
+            && crate::grid::UUID_CONTROLS
+                .contains(&u32::from_le_bytes(self.scratch[8..12].try_into().unwrap()))
         {
             &mut self.aux[..]
         } else {
             return;
         };
-        if to_host { card.to_host(buf) } else { card.to_guest(buf) }
+        if to_host {
+            card.to_host(buf)
+        } else {
+            card.to_guest(buf)
+        }
     }
 
     /// DOING: the three [`NvSyscalls`] calls (or the faked answers), the
@@ -2319,12 +2454,16 @@ impl<A: RmAbi> Session<A> {
                     // semaphore pool the host backed. Without that write the
                     // prefetch sync hangs forever, so the host performs it.
                     let sema = u64::from_le_bytes(
-                        self.scratch[MIGRATE_SEMAPHORE_ADDRESS_OFF..MIGRATE_SEMAPHORE_ADDRESS_OFF + 8]
-                            .try_into().unwrap(),
+                        self.scratch
+                            [MIGRATE_SEMAPHORE_ADDRESS_OFF..MIGRATE_SEMAPHORE_ADDRESS_OFF + 8]
+                            .try_into()
+                            .unwrap(),
                     );
                     let pay = u32::from_le_bytes(
-                        self.scratch[MIGRATE_SEMAPHORE_PAYLOAD_OFF..MIGRATE_SEMAPHORE_PAYLOAD_OFF + 4]
-                            .try_into().unwrap(),
+                        self.scratch
+                            [MIGRATE_SEMAPHORE_PAYLOAD_OFF..MIGRATE_SEMAPHORE_PAYLOAD_OFF + 4]
+                            .try_into()
+                            .unwrap(),
                     );
                     if sema != 0 && !self.pool.write_guest_u32(GuestAddr::new(sema), pay) {
                         eprintln!(
@@ -2334,7 +2473,9 @@ impl<A: RmAbi> Session<A> {
                     }
                     if debug_level() >= 2 {
                         let flags = u32::from_le_bytes(
-                            self.scratch[MIGRATE_FLAGS_OFF..MIGRATE_FLAGS_OFF + 4].try_into().unwrap(),
+                            self.scratch[MIGRATE_FLAGS_OFF..MIGRATE_FLAGS_OFF + 4]
+                                .try_into()
+                                .unwrap(),
                         );
                         eprintln!(
                             "vhost-user-nvrm: MIGRATE base={:#x} len={:#x} flags={flags:#x} \
@@ -2345,7 +2486,11 @@ impl<A: RmAbi> Session<A> {
                     }
                 }
                 _ => {
-                    return self.reply_err(plan.seq, libc::EINVAL, "managed compat: params too short");
+                    return self.reply_err(
+                        plan.seq,
+                        libc::EINVAL,
+                        "managed compat: params too short",
+                    );
                 }
             }
             0
@@ -2357,7 +2502,8 @@ impl<A: RmAbi> Session<A> {
             // the test build must not read past it.
             unsafe {
                 let n = self.scratch.len();
-                self.sys.ioctl(plan.target_fd, plan.request, self.scratch.as_mut_ptr(), n)
+                self.sys
+                    .ioctl(plan.target_fd, plan.request, self.scratch.as_mut_ptr(), n)
             }
         };
         // errno belongs to the call that just returned and to nothing else.
@@ -2366,7 +2512,9 @@ impl<A: RmAbi> Session<A> {
         // can overwrite it -- until 2026-08-18 the errno was read at the very
         // end of this function, after all of them.
         let ioctl_errno = if ret < 0 {
-            std::io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO)
+            std::io::Error::last_os_error()
+                .raw_os_error()
+                .unwrap_or(libc::EIO)
         } else {
             0
         };
@@ -2416,8 +2564,10 @@ impl<A: RmAbi> Session<A> {
                 && inline_len >= 32
                 && u32::from_le_bytes(self.scratch[28..32].try_into().unwrap()) == sys::NV_OK;
             if ok {
-                self.pending_pollables
-                    .push(Pollable::Waiter { id: p.slot.id, fd: p.slot.ctl.as_raw_fd() });
+                self.pending_pollables.push(Pollable::Waiter {
+                    id: p.slot.id,
+                    fd: p.slot.ctl.as_raw_fd(),
+                });
                 self.waiters.insert(
                     p.slot.id,
                     ActiveWaiter {
@@ -2486,7 +2636,10 @@ impl<A: RmAbi> Session<A> {
                 let st = u32::from_le_bytes(self.scratch[28..32].try_into().unwrap());
                 if st == sys::NV_OK {
                     crate::vram::rewrite_fb_info(
-                        &mut self.aux, self.vram.limit(), self.vram.used());
+                        &mut self.aux,
+                        self.vram.limit(),
+                        self.vram.used(),
+                    );
                 }
             }
             // The same answer through the V1 door, which is the one the
@@ -2496,8 +2649,7 @@ impl<A: RmAbi> Session<A> {
                 let st = u32::from_le_bytes(self.scratch[28..32].try_into().unwrap());
                 if st == sys::NV_OK && off <= self.aux.len() {
                     let (limit, used) = (self.vram.limit(), self.vram.used());
-                    crate::vram::rewrite_fb_info_list(
-                        &mut self.aux[off..], asked, limit, used);
+                    crate::vram::rewrite_fb_info_list(&mut self.aux[off..], asked, limit, used);
                 }
             }
             // LEA_GPU_NAME_RAW=1 leaves the driver's own name in place --
@@ -2558,7 +2710,9 @@ impl<A: RmAbi> Session<A> {
                     && crate::grid::mediate_mode()
                 {
                     crate::grid::rewrite_virtualization_mode(&mut self.aux);
-                } else if cmd == crate::grid::CMD_GPU_GET_ENCODER_CAPACITY && crate::grid::mediate_enc() {
+                } else if cmd == crate::grid::CMD_GPU_GET_ENCODER_CAPACITY
+                    && crate::grid::mediate_enc()
+                {
                     crate::grid::rewrite_encoder_capacity(&mut self.aux, profile.encoder_capacity);
                 }
             }
@@ -2604,14 +2758,20 @@ impl<A: RmAbi> Session<A> {
             // not, and NVOS32 keeps both inline.
             let (attr_out, handle) = if plan.vram_vidheap {
                 let p = &self.scratch[..inline_len];
-                (crate::vram::vidheap_attr_out(p), crate::vram::vidheap_handle(p))
+                (
+                    crate::vram::vidheap_attr_out(p),
+                    crate::vram::vidheap_handle(p),
+                )
             } else {
                 let attr = if self.aux.len() >= 28 {
                     u32::from_le_bytes(self.aux[24..28].try_into().unwrap())
                 } else {
                     0
                 };
-                (attr, u32::from_le_bytes(self.scratch[8..12].try_into().unwrap()))
+                (
+                    attr,
+                    u32::from_le_bytes(self.scratch[8..12].try_into().unwrap()),
+                )
             };
             if let Some(ask) = plan.vram_ask {
                 if let Some(line) = self.vram.placement(&ask, ok, st, attr_out) {
@@ -2625,13 +2785,17 @@ impl<A: RmAbi> Session<A> {
                     );
                 }
             }
-            self.vram.settle(ok, attr_out, crate::vram::Charge {
-                token: plan.target_token,
-                root: u32::from_le_bytes(self.scratch[0..4].try_into().unwrap()),
-                parent: u32::from_le_bytes(self.scratch[4..8].try_into().unwrap()),
-                handle,
-                bytes: plan.vram_reserved,
-            });
+            self.vram.settle(
+                ok,
+                attr_out,
+                crate::vram::Charge {
+                    token: plan.target_token,
+                    root: u32::from_le_bytes(self.scratch[0..4].try_into().unwrap()),
+                    parent: u32::from_le_bytes(self.scratch[4..8].try_into().unwrap()),
+                    handle,
+                    bytes: plan.vram_reserved,
+                },
+            );
         }
 
         // And the release through the same door the alloc came in by.
@@ -2719,7 +2883,8 @@ impl<A: RmAbi> Session<A> {
                 let hclient = u32::from_le_bytes(self.scratch[8..12].try_into().unwrap());
                 let name = self.sub_name();
                 let (r, s) =
-                    self.sys.set_sub_process_id(plan.target_fd, hclient, self.sub_id, &name);
+                    self.sys
+                        .set_sub_process_id(plan.target_fd, hclient, self.sub_id, &name);
                 if r != 0 || s != 0 {
                     eprintln!(
                         "vhost-user-nvrm: SET_SUB_PROCESS_ID({hclient:#x} -> {} \"{name}\") \
@@ -2745,12 +2910,18 @@ impl<A: RmAbi> Session<A> {
             if st == 0 && share::uvm_dupes_class(hclass) {
                 let hclient = u32::from_le_bytes(self.scratch[0..4].try_into().unwrap());
                 let hobject = u32::from_le_bytes(self.scratch[8..12].try_into().unwrap());
-                let (r, s) = self.sys.grant_dup_same_user(plan.target_fd, hclient, hobject);
+                let (r, s) = self
+                    .sys
+                    .grant_dup_same_user(plan.target_fd, hclient, hobject);
                 if r != 0 || s != 0 {
-                    eprintln!("vhost-user-nvrm: DUP_OBJECT grant for {hobject:#x} \
-                               (hClass {hclass:#x}) failed: ret {r} status {s:#x}");
+                    eprintln!(
+                        "vhost-user-nvrm: DUP_OBJECT grant for {hobject:#x} \
+                               (hClass {hclass:#x}) failed: ret {r} status {s:#x}"
+                    );
                 } else if debug_level() >= 2 {
-                    eprintln!("vhost-user-nvrm: DUP_OBJECT granted: {hobject:#x} (hClass {hclass:#x})");
+                    eprintln!(
+                        "vhost-user-nvrm: DUP_OBJECT granted: {hobject:#x} (hClass {hclass:#x})"
+                    );
                 }
             }
         }
@@ -2775,7 +2946,9 @@ impl<A: RmAbi> Session<A> {
                 u32::from_le_bytes(self.scratch[8..12].try_into().unwrap())
             } else if plan.ioctl_nr == 0x2b && inline_len >= 16 {
                 u32::from_le_bytes(self.scratch[12..16].try_into().unwrap())
-            } else { 0 };
+            } else {
+                0
+            };
             let st = if plan.ioctl_nr == 0x2a && inline_len >= 32 {
                 u32::from_le_bytes(self.scratch[28..32].try_into().unwrap())
             } else if plan.ioctl_nr == 0x2b && inline_len >= 44 {
@@ -2792,11 +2965,14 @@ impl<A: RmAbi> Session<A> {
             } else if dev_of(plan.dev_tag).is_some_and(|d| d.is_uvm()) {
                 // rmStatus offset per UVM command, from the bindgen structs.
                 match uvm_status_off::<A>(plan.ioctl_nr) {
-                    Some(o) if o + 4 <= inline_len =>
-                        u32::from_le_bytes(self.scratch[o..o + 4].try_into().unwrap()),
+                    Some(o) if o + 4 <= inline_len => {
+                        u32::from_le_bytes(self.scratch[o..o + 4].try_into().unwrap())
+                    }
                     _ => 0,
                 }
-            } else { 0 };
+            } else {
+                0
+            };
             // A named control's ANSWER, not just its status. `LEA_CTRL_DUMP`
             // takes a comma-separated list of NVOS54.cmd values in hex.
             //
@@ -2941,7 +3117,15 @@ impl<A: RmAbi> Session<A> {
     /// error is not fatal to the transport.
     fn reply_err(&mut self, seq: u32, errno: i32, ctx: &str) -> Result<()> {
         eprintln!("vhost-user-nvrm: guest error seq={seq}: {ctx} (errno {errno})");
-        self.reply(Rsp { seq, ret: -errno, ..Rsp::default() }, &[], &[])
+        self.reply(
+            Rsp {
+                seq,
+                ret: -errno,
+                ..Rsp::default()
+            },
+            &[],
+            &[],
+        )
     }
 }
 
@@ -2965,13 +3149,13 @@ fn obj_ledger(ioctl_nr: u32, inline: &[u8], ret: i32) {
     // Any non-empty value switches it on. NOT `is_some()`: lea_backend_start passes
     // the variable through as `LEA_OBJLOG="${LEA_OBJLOG:-}"`, so an unset
     // variable arrives here SET AND EMPTY.
-    if !*ON.get_or_init(|| {
-        std::env::var_os("LEA_OBJLOG").is_some_and(|v| !v.is_empty())
-    }) {
+    if !*ON.get_or_init(|| std::env::var_os("LEA_OBJLOG").is_some_and(|v| !v.is_empty())) {
         return;
     }
     let u32_at = |o: usize| -> u32 {
-        inline.get(o..o + 4).map_or(0, |b| u32::from_le_bytes(b.try_into().unwrap()))
+        inline
+            .get(o..o + 4)
+            .map_or(0, |b| u32::from_le_bytes(b.try_into().unwrap()))
     };
     // NVOS64 (alloc): hRoot@0, hObjectParent@4, hObjectNew@8, hClass@12,
     // status@40. NVOS00 (free): hRoot@0, hObjectParent@4, hObjectOld@8,
@@ -3106,7 +3290,8 @@ mod tests {
     /// the fake never lets it get that far).
     fn session() -> (Session<sys::DefaultAbi>, Arc<FakeSyscalls>, u64) {
         let fake = Arc::new(FakeSyscalls::default());
-        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s =
+            Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         assert!(fd >= 0);
@@ -3166,8 +3351,17 @@ mod tests {
     fn unknown_kind_gets_eproto_and_no_syscall() {
         let (mut s, fake, _) = session();
         // Exactly the device-only kinds this session must never see.
-        for kind in [proto::KIND_GET_TABLES, proto::KIND_MAP_RELEASE, proto::KIND_PROC_GONE, 99] {
-            let req = Req { seq: 1, kind, ..Req::default() };
+        for kind in [
+            proto::KIND_GET_TABLES,
+            proto::KIND_MAP_RELEASE,
+            proto::KIND_PROC_GONE,
+            99,
+        ] {
+            let req = Req {
+                seq: 1,
+                kind,
+                ..Req::default()
+            };
             let r = s.handle_msg(&msg(&req, &[], &[])).unwrap();
             assert_eq!(errno_of(&r), Some(libc::EPROTO), "Kind {kind}");
         }
@@ -3177,11 +3371,24 @@ mod tests {
     #[test]
     fn hello_checks_the_protocol_version() {
         let (mut s, _, _) = session();
-        let bad = Req { seq: 1, kind: Kind::Hello as u32,
-                        ioctl_nr: proto::PROTO_VERSION + 1, ..Req::default() };
-        assert_eq!(errno_of(&s.handle_msg(&msg(&bad, &[], &[])).unwrap()), Some(libc::EPROTO));
-        let good = Req { ioctl_nr: proto::PROTO_VERSION, ..bad };
-        assert_eq!(errno_of(&s.handle_msg(&msg(&good, &[], &[])).unwrap()), None);
+        let bad = Req {
+            seq: 1,
+            kind: Kind::Hello as u32,
+            ioctl_nr: proto::PROTO_VERSION + 1,
+            ..Req::default()
+        };
+        assert_eq!(
+            errno_of(&s.handle_msg(&msg(&bad, &[], &[])).unwrap()),
+            Some(libc::EPROTO)
+        );
+        let good = Req {
+            ioctl_nr: proto::PROTO_VERSION,
+            ..bad
+        };
+        assert_eq!(
+            errno_of(&s.handle_msg(&msg(&good, &[], &[])).unwrap()),
+            None
+        );
     }
 
     // ---- the length lies --------------------------------------------------
@@ -3321,7 +3528,11 @@ mod tests {
         let n = (1 << 14) as usize;
         let req = ioctl_req(tok, sys::NV_ESC_RM_CONTROL, n, 0);
         let r = s.handle_msg(&msg(&req, &vec![0u8; n], &[])).unwrap();
-        assert_eq!(errno_of(&r), Some(libc::EMSGSIZE), "refuse loudly rather than guess");
+        assert_eq!(
+            errno_of(&r),
+            Some(libc::EMSGSIZE),
+            "refuse loudly rather than guess"
+        );
         assert_eq!(fake.ioctl_count(), 0);
     }
 
@@ -3338,8 +3549,11 @@ mod tests {
             // Deliberately a token that does NOT exist.
             let req = ioctl_req(0xdead_beef, sys::NV_ESC_RM_CONTROL, 32, 0);
             let r = s.handle_msg(&msg(&req, &inline, &[])).unwrap();
-            assert_eq!(errno_of(&r), Some(libc::EPERM),
-                       "{cmd:#x} must give EPERM, not EBADF");
+            assert_eq!(
+                errno_of(&r),
+                Some(libc::EPERM),
+                "{cmd:#x} must give EPERM, not EBADF"
+            );
         }
         assert_eq!(fake.ioctl_count(), 0);
     }
@@ -3367,7 +3581,10 @@ mod tests {
             assert_ne!(flags, 0, "attr {attr:#x}");
             assert_eq!(f02::MAPPING.get(flags), sys::NVOS02_FLAGS_MAPPING_NO_MAP);
             assert_eq!(f02::LOCATION.get(flags), sys::NVOS02_FLAGS_LOCATION_PCI);
-            assert_eq!(f02::COHERENCY.get(flags), sys::NVOS02_FLAGS_COHERENCY_WRITE_BACK);
+            assert_eq!(
+                f02::COHERENCY.get(flags),
+                sys::NVOS02_FLAGS_COHERENCY_WRITE_BACK
+            );
             assert_eq!(
                 f02::PHYSICALITY.get(flags),
                 sys::NVOS02_FLAGS_PHYSICALITY_NONCONTIGUOUS,
@@ -3382,7 +3599,10 @@ mod tests {
     #[test]
     fn osdesc_flags_name_the_coherency_that_was_substituted() {
         use nvrm_abi::nvgpu::nvos32_attr as a32;
-        for asked in [sys::NVOS32_ATTR_COHERENCY_CACHED, sys::NVOS32_ATTR_COHERENCY_WRITE_BACK] {
+        for asked in [
+            sys::NVOS32_ATTR_COHERENCY_CACHED,
+            sys::NVOS32_ATTR_COHERENCY_WRITE_BACK,
+        ] {
             let (_, lost) = nvos02_flags_for_osdesc(a32::COHERENCY.set(asked), 0);
             assert_eq!(lost, None, "asked {asked} is carried as asked");
         }
@@ -3393,7 +3613,10 @@ mod tests {
             sys::NVOS32_ATTR_COHERENCY_WRITE_PROTECT,
         ] {
             let (_, lost) = nvos02_flags_for_osdesc(a32::COHERENCY.set(asked), 0);
-            assert!(lost.is_some(), "asked {asked} must be reported as substituted");
+            assert!(
+                lost.is_some(),
+                "asked {asked} must be reported as substituted"
+            );
         }
     }
 
@@ -3414,12 +3637,20 @@ mod tests {
     #[test]
     fn osdesc_gpu_cacheable_follows_attr2() {
         use nvrm_abi::nvgpu::{nvos02_flags as f02, nvos32_attr2 as a2};
-        let (yes, _) =
-            nvos02_flags_for_osdesc(0, a2::GPU_CACHEABLE.set(sys::NVOS32_ATTR2_GPU_CACHEABLE_YES));
-        assert_eq!(f02::GPU_CACHEABLE.get(yes), sys::NVOS02_FLAGS_GPU_CACHEABLE_YES);
+        let (yes, _) = nvos02_flags_for_osdesc(
+            0,
+            a2::GPU_CACHEABLE.set(sys::NVOS32_ATTR2_GPU_CACHEABLE_YES),
+        );
+        assert_eq!(
+            f02::GPU_CACHEABLE.get(yes),
+            sys::NVOS02_FLAGS_GPU_CACHEABLE_YES
+        );
         let (no, _) =
             nvos02_flags_for_osdesc(0, a2::GPU_CACHEABLE.set(sys::NVOS32_ATTR2_GPU_CACHEABLE_NO));
-        assert_eq!(f02::GPU_CACHEABLE.get(no), sys::NVOS02_FLAGS_GPU_CACHEABLE_NO);
+        assert_eq!(
+            f02::GPU_CACHEABLE.get(no),
+            sys::NVOS02_FLAGS_GPU_CACHEABLE_NO
+        );
     }
 
     #[test]
@@ -3447,8 +3678,15 @@ mod tests {
         assert_eq!(errno_of(&r), None, "a clean call must not be refused");
         assert_eq!(fake.ioctl_count(), 1);
         match &fake.calls()[0] {
-            FakeCall::Ioctl { request, inline: got, .. } => {
-                assert_eq!(*request as u32, nvrm_abi::iowr_raw(sys::NV_ESC_RM_CONTROL, 32));
+            FakeCall::Ioctl {
+                request,
+                inline: got,
+                ..
+            } => {
+                assert_eq!(
+                    *request as u32,
+                    nvrm_abi::iowr_raw(sys::NV_ESC_RM_CONTROL, 32)
+                );
                 assert_eq!(&got[..32], &inline[..]);
             }
             other => panic!("expected an ioctl, got {other:?}"),
@@ -3492,8 +3730,11 @@ mod tests {
         // the scratch Vec.
         assert_eq!(got.len(), 16, "the ledger read past the guest's payload");
         let flags = u64::from_le_bytes(got[0..8].try_into().unwrap());
-        assert_eq!(flags & UVM_INIT_FLAGS_MULTI_PROCESS_SHARING_MODE, 0,
-                   "the multi-process flag must not be forced onto the guest's UVM init");
+        assert_eq!(
+            flags & UVM_INIT_FLAGS_MULTI_PROCESS_SHARING_MODE,
+            0,
+            "the multi-process flag must not be forced onto the guest's UVM init"
+        );
         // UVM crosses the boundary as a RAW number, not _IOC-encoded.
         match &fake.calls()[0] {
             FakeCall::Ioctl { request, .. } => assert_eq!(*request as u32, UVM_INITIALIZE),
@@ -3507,8 +3748,13 @@ mod tests {
     fn open_rejects_a_gpu_index_beyond_the_driver_limit() {
         let (mut s, fake, _) = session();
         for nr in [32u32, 1_048_577, u32::MAX] {
-            let req = Req { seq: 1, kind: Kind::Open as u32, dev_tag: DevTag::Gpu as u32,
-                            ioctl_nr: nr, ..Req::default() };
+            let req = Req {
+                seq: 1,
+                kind: Kind::Open as u32,
+                dev_tag: DevTag::Gpu as u32,
+                ioctl_nr: nr,
+                ..Req::default()
+            };
             let r = s.handle_msg(&msg(&req, &[], &[])).unwrap();
             assert_eq!(errno_of(&r), Some(libc::EINVAL), "GPU index {nr} accepted");
         }
@@ -3533,15 +3779,19 @@ mod tests {
     /// checkout.
     #[test]
     fn the_fuzz_corpus_still_goes_through() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("fuzz/corpus/handle_msg");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fuzz/corpus/handle_msg");
         let Ok(entries) = std::fs::read_dir(&dir) else {
-            eprintln!("fuzz corpus: {} absent -- nothing replayed (not a failure)", dir.display());
+            eprintln!(
+                "fuzz corpus: {} absent -- nothing replayed (not a failure)",
+                dir.display()
+            );
             return;
         };
         let mut n = 0;
         for e in entries.flatten() {
-            let Ok(bytes) = std::fs::read(e.path()) else { continue };
+            let Ok(bytes) = std::fs::read(e.path()) else {
+                continue;
+            };
             let (mut s, _fake, _tok) = session();
             // A second token, as the fuzz target provides: otherwise the
             // translation paths end at EBADF already.
@@ -3566,11 +3816,14 @@ mod tests {
     fn a_fresh_root_client_gets_its_sub_process_id() {
         let fake = Arc::new(FakeSyscalls {
             // NVOS64: hObjectNew @8, status @40. Fake success.
-            writes_back: vec![(8, 0xabcd_1234u32.to_le_bytes().to_vec()),
-                              (40, sys::NV_OK.to_le_bytes().to_vec())],
+            writes_back: vec![
+                (8, 0xabcd_1234u32.to_le_bytes().to_vec()),
+                (40, sys::NV_OK.to_le_bytes().to_vec()),
+            ],
             ..Default::default()
         });
-        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s =
+            Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
@@ -3583,7 +3836,12 @@ mod tests {
         assert_eq!(errno_of(&r), None);
 
         let set = fake.calls().into_iter().find_map(|c| match c {
-            FakeCall::SetSubProcessId { hclient, sub_id, name, .. } => Some((hclient, sub_id, name)),
+            FakeCall::SetSubProcessId {
+                hclient,
+                sub_id,
+                name,
+                ..
+            } => Some((hclient, sub_id, name)),
             _ => None,
         });
         assert_eq!(set, Some((0xabcd_1234, 7, "guest-7".to_string())));
@@ -3603,7 +3861,10 @@ mod tests {
         inline[8..12].copy_from_slice(&cmd.to_le_bytes());
         let req = ioctl_req(tok, sys::NV_ESC_RM_CONTROL, 32, 0);
         let payload = inline.clone();
-        let refusal = s.prepare(&req, &payload).err().expect("a denied control must refuse");
+        let refusal = s
+            .prepare(&req, &payload)
+            .err()
+            .expect("a denied control must refuse");
         assert_eq!(refusal.errno, libc::EPERM);
         assert!(refusal.why.contains("never forwarded"), "{}", refusal.why);
         assert_eq!(fake.ioctl_count(), 0, "prepare issues no syscall");
@@ -3618,7 +3879,10 @@ mod tests {
         let (mut s, fake, tok) = session();
         let inline = vec![0u8; 32];
         let req = ioctl_req(tok, 0x2a, 32, 0);
-        let plan = s.prepare(&req, &inline).ok().expect("a clean call must pass");
+        let plan = s
+            .prepare(&req, &inline)
+            .ok()
+            .expect("a clean call must pass");
         assert!(matches!(plan.action, Action::Forward));
         assert_eq!(plan.request, iowr_raw(0x2a, 32) as libc::c_ulong);
         assert_eq!((plan.inline_len, plan.aux_len), (32, 0));
@@ -3629,7 +3893,14 @@ mod tests {
 
     /// A session on a ledger the test keeps a handle to, so it can read
     /// the VM's counter from outside.
-    fn capped_session(limit: u64) -> (Session<sys::DefaultAbi>, Arc<FakeSyscalls>, u64, Arc<crate::vram::Ledger>) {
+    fn capped_session(
+        limit: u64,
+    ) -> (
+        Session<sys::DefaultAbi>,
+        Arc<FakeSyscalls>,
+        u64,
+        Arc<crate::vram::Ledger>,
+    ) {
         let led = crate::vram::Ledger::for_test(limit);
         let fake = Arc::new(FakeSyscalls::default());
         let mut s = Session::<sys::DefaultAbi>::detached_proc(7, led.clone()).unwrap();
@@ -3650,9 +3921,9 @@ mod tests {
         inline[4..8].copy_from_slice(&0x5c00_0002u32.to_le_bytes()); // hObjectParent
         inline[8..12].copy_from_slice(&handle.to_le_bytes()); // hObjectNew
         inline[12..16].copy_from_slice(&0x40u32.to_le_bytes()); // NV01_MEMORY_LOCAL_USER
-        // pAllocParms: the guest's own VA. Non-zero is what marks the call
-        // as carrying params at all (xlate::embedded_ptr); the host
-        // overwrites it with the address of its aux buffer.
+                                                                // pAllocParms: the guest's own VA. Non-zero is what marks the call
+                                                                // as carrying params at all (xlate::embedded_ptr); the host
+                                                                // overwrites it with the address of its aux buffer.
         inline[16..24].copy_from_slice(&0x7f00_0000_0000u64.to_le_bytes());
         let mut aux = vec![0u8; 128];
         aux[8..12].copy_from_slice(&0x1c101u32.to_le_bytes()); // flags
@@ -3701,7 +3972,11 @@ mod tests {
         let rsp = Rsp::from_bytes(&r.bytes).unwrap();
         assert_eq!(rsp.ret, 0, "the ioctl itself succeeds, as it does natively");
         assert_eq!(rm_status(&r), sys::NV_ERR_NO_MEMORY);
-        assert_eq!(fake.ioctl_count(), 2, "a refused allocation reaches no driver");
+        assert_eq!(
+            fake.ioctl_count(),
+            2,
+            "a refused allocation reaches no driver"
+        );
         assert_eq!(led.used(), 8 << 20, "a refusal charges nothing");
 
         // Free one, and there is room again.
@@ -3739,7 +4014,11 @@ mod tests {
     #[test]
     fn opening_announces_the_guest_process_before_touching_a_device() {
         let (mut s, fake, _tok, _led) = capped_session(64 << 20);
-        let mut info = proto::ProcInfo { pid: 4711, _pad: 0, comm: [0; 16] };
+        let mut info = proto::ProcInfo {
+            pid: 4711,
+            _pad: 0,
+            comm: [0; 16],
+        };
         info.comm[..6].copy_from_slice(b"python");
         let req = Req {
             seq: 1,
@@ -3750,7 +4029,11 @@ mod tests {
             ..Req::default()
         };
         let r = s.handle_msg(&msg(&req, info.as_bytes(), &[])).unwrap();
-        assert_eq!(errno_of(&r), Some(libc::EINVAL), "the open itself is refused");
+        assert_eq!(
+            errno_of(&r),
+            Some(libc::EINVAL),
+            "the open itself is refused"
+        );
         assert_eq!(fake.ioctl_count(), 0);
 
         let roster = s.vram.roster();
@@ -3768,7 +4051,12 @@ mod tests {
         }
         assert_eq!(led.used(), 16 << 20);
 
-        let req = Req { seq: 1, kind: Kind::Close as u32, target_token: tok, ..Req::default() };
+        let req = Req {
+            seq: 1,
+            kind: Kind::Close as u32,
+            target_token: tok,
+            ..Req::default()
+        };
         s.handle_msg(&msg(&req, &[], &[])).unwrap();
         assert_eq!(led.used(), 0);
     }
@@ -3849,7 +4137,11 @@ mod tests {
         assert_eq!(led.used(), 4 << 20);
 
         let r = s.handle_msg(&short(0xbb, 1 << 20)).unwrap();
-        assert_eq!(status28(&r), sys::NV_ERR_NO_MEMORY, "the short form is capped too");
+        assert_eq!(
+            status28(&r),
+            sys::NV_ERR_NO_MEMORY,
+            "the short form is capped too"
+        );
         assert_eq!(fake.ioctl_count(), 1, "and refused without an ioctl");
         // The 48-byte status field must NOT have been touched: it does not
         // exist in this message.
@@ -3867,7 +4159,11 @@ mod tests {
         assert_eq!(rm_status(&r), sys::NV_OK);
         assert_eq!(led.used(), 4 << 20, "full");
         let full = s.handle_msg(&vram_alloc_msg(tok, 0xab, 1 << 20)).unwrap();
-        assert_eq!(rm_status(&full), sys::NV_ERR_NO_MEMORY, "VIDMEM is refused at a full ledger");
+        assert_eq!(
+            rm_status(&full),
+            sys::NV_ERR_NO_MEMORY,
+            "VIDMEM is refused at a full ledger"
+        );
         let before = fake.ioctl_count();
 
         let any = nvrm_abi::nvgpu::nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_ANY);
@@ -3877,7 +4173,11 @@ mod tests {
         let attr_off = Req::WIRE_LEN + 48 + 24;
         m[attr_off..attr_off + 4].copy_from_slice(&any.to_le_bytes());
         let r = s.handle_msg(&m).unwrap();
-        assert_eq!(rm_status(&r), sys::NV_OK, "0x3e ANY is system memory, RM decides");
+        assert_eq!(
+            rm_status(&r),
+            sys::NV_OK,
+            "0x3e ANY is system memory, RM decides"
+        );
         assert_eq!(fake.ioctl_count(), before + 1, "and it reached RM");
 
         let mut inline = vec![0u8; 184];
@@ -3887,8 +4187,15 @@ mod tests {
         let req = ioctl_req(tok, sys::NV_ESC_RM_VID_HEAP_CONTROL, 184, 0);
         let r = s.handle_msg(&msg(&req, &inline, &[])).unwrap();
         let o = Rsp::WIRE_LEN + crate::vram::V_STATUS_OFF;
-        assert_eq!(u32::from_le_bytes(r.bytes[o..o + 4].try_into().unwrap()), sys::NV_OK);
-        assert_eq!(fake.ioctl_count(), before + 2, "ALLOC_SIZE ANY reached RM too");
+        assert_eq!(
+            u32::from_le_bytes(r.bytes[o..o + 4].try_into().unwrap()),
+            sys::NV_OK
+        );
+        assert_eq!(
+            fake.ioctl_count(),
+            before + 2,
+            "ALLOC_SIZE ANY reached RM too"
+        );
         assert_eq!(led.used(), 4 << 20, "and neither was charged");
     }
 
@@ -3906,8 +4213,14 @@ mod tests {
 
     /// A session of this backend under `profile`, for the answers that
     /// depend on the profile and not on the ledger's counter.
-    fn profiled_session(profile: crate::vram::Profile) -> (Session<sys::DefaultAbi>, Arc<FakeSyscalls>, u64) {
-        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::for_test_profile(profile)).unwrap();
+    fn profiled_session(
+        profile: crate::vram::Profile,
+    ) -> (Session<sys::DefaultAbi>, Arc<FakeSyscalls>, u64) {
+        let mut s = Session::<sys::DefaultAbi>::detached_proc(
+            7,
+            crate::vram::Ledger::for_test_profile(profile),
+        )
+        .unwrap();
         let fake = Arc::new(FakeSyscalls::default());
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-profile-test".as_ptr(), 0) };
@@ -3927,15 +4240,31 @@ mod tests {
         let answer = |profile: Profile| {
             let (mut s, _fake, tok) = profiled_session(profile);
             let mut aux = vec![0u8; nvrm_abi::mediate::ENCCAP_LEN];
-            aux[nvrm_abi::mediate::ENCCAP_OFF..nvrm_abi::mediate::ENCCAP_OFF + 4].copy_from_slice(&100u32.to_le_bytes());
-            let r = s.handle_msg(&ctrl_msg(tok, crate::grid::CMD_GPU_GET_ENCODER_CAPACITY, &aux)).unwrap();
+            aux[nvrm_abi::mediate::ENCCAP_OFF..nvrm_abi::mediate::ENCCAP_OFF + 4]
+                .copy_from_slice(&100u32.to_le_bytes());
+            let r = s
+                .handle_msg(&ctrl_msg(
+                    tok,
+                    crate::grid::CMD_GPU_GET_ENCODER_CAPACITY,
+                    &aux,
+                ))
+                .unwrap();
             let o = Rsp::WIRE_LEN + 32 + nvrm_abi::mediate::ENCCAP_OFF;
             u32::from_le_bytes(r.bytes[o..o + 4].try_into().unwrap())
         };
         let capped = |policy, size| Profile {
-            policy, size, reservation: size - fb, fb_length: fb, vgpu_type: "", encoder_capacity: share,
+            policy,
+            size,
+            reservation: size - fb,
+            fb_length: fb,
+            vgpu_type: "",
+            encoder_capacity: share,
         };
-        for p in [capped(Policy::Accounting, fb), capped(Policy::Reserved, fb + (256 << 20)), capped(Policy::Grid, 3968 << 20)] {
+        for p in [
+            capped(Policy::Accounting, fb),
+            capped(Policy::Reserved, fb + (256 << 20)),
+            capped(Policy::Grid, 3968 << 20),
+        ] {
             assert_eq!(answer(p), 37, "{:?}", p.policy);
         }
         assert_eq!(answer(Profile::OFF), 100, "no cap: RM's whole encoder");
@@ -3948,25 +4277,48 @@ mod tests {
     #[test]
     fn the_uuid_is_the_vms_own_under_every_policy() {
         use crate::vram::{Policy, Profile};
-        crate::grid::set_card("vm/uuid-test/nvrm.sock", Ok((*b"\x9e\x37\x79\xb9uuid-test-4Q", 8192 << 20)));
+        crate::grid::set_card(
+            "vm/uuid-test/nvrm.sock",
+            Ok((*b"\x9e\x37\x79\xb9uuid-test-4Q", 8192 << 20)),
+        );
         let card = crate::grid::card().expect("set above");
-        let grid = Profile { policy: Policy::Grid, size: 3968 << 20, reservation: 896 << 20, ..Profile::accounting(3072 << 20) };
+        let grid = Profile {
+            policy: Policy::Grid,
+            size: 3968 << 20,
+            reservation: 896 << 20,
+            ..Profile::accounting(3072 << 20)
+        };
         for profile in [Profile::OFF, Profile::accounting(3072 << 20), grid] {
             let (mut s, fake, tok) = profiled_session(profile);
             // GID_INFO, binary: RM wrote the card's 16 bytes @12.
             let mut gid = vec![0u8; 268];
             gid[4] = 2;
             gid[12..28].copy_from_slice(&card.host);
-            let r = s.handle_msg(&ctrl_msg(tok, crate::grid::CMD_GPU_GET_GID_INFO, &gid)).unwrap();
-            assert_eq!(&r.bytes[Rsp::WIRE_LEN + 32 + 12..Rsp::WIRE_LEN + 32 + 28], &card.guest, "{:?}", profile.policy);
+            let r = s
+                .handle_msg(&ctrl_msg(tok, crate::grid::CMD_GPU_GET_GID_INFO, &gid))
+                .unwrap();
+            assert_eq!(
+                &r.bytes[Rsp::WIRE_LEN + 32 + 12..Rsp::WIRE_LEN + 32 + 28],
+                &card.guest,
+                "{:?}",
+                profile.policy
+            );
             // UVM_PAGEABLE_MEM_ACCESS_ON_GPU { uuid 16; bool; rmStatus }.
             let mut inline = vec![0u8; 24];
             inline[..16].copy_from_slice(&card.guest);
             let mut req = ioctl_req(tok, 70, 24, 0);
             req.dev_tag = DevTag::Uvm as u32;
             let r = s.handle_msg(&msg(&req, &inline, &[])).unwrap();
-            assert_eq!(&fake.last_inline().unwrap()[..16], &card.host, "the driver sees the card");
-            assert_eq!(&r.bytes[Rsp::WIRE_LEN..Rsp::WIRE_LEN + 16], &card.guest, "the guest sees its own");
+            assert_eq!(
+                &fake.last_inline().unwrap()[..16],
+                &card.host,
+                "the driver sees the card"
+            );
+            assert_eq!(
+                &r.bytes[Rsp::WIRE_LEN..Rsp::WIRE_LEN + 16],
+                &card.guest,
+                "the guest sees its own"
+            );
         }
     }
 
@@ -3978,10 +4330,18 @@ mod tests {
         let info = |tok| {
             let mut inline = vec![0u8; 184];
             inline[8..12].copy_from_slice(&sys::NVOS32_FUNCTION_INFO.to_le_bytes());
-            msg(&ioctl_req(tok, sys::NV_ESC_RM_VID_HEAP_CONTROL, 184, 0), &inline, &[])
+            msg(
+                &ioctl_req(tok, sys::NV_ESC_RM_VID_HEAP_CONTROL, 184, 0),
+                &inline,
+                &[],
+            )
         };
         let at = |r: &Vec<u8>, o: usize| {
-            u64::from_le_bytes(r[Rsp::WIRE_LEN + o..Rsp::WIRE_LEN + o + 8].try_into().unwrap())
+            u64::from_le_bytes(
+                r[Rsp::WIRE_LEN + o..Rsp::WIRE_LEN + o + 8]
+                    .try_into()
+                    .unwrap(),
+            )
         };
 
         let (mut s, fake, tok, led) = capped_session(64 << 20);
@@ -3991,11 +4351,19 @@ mod tests {
         let r = s.handle_msg(&info(tok)).unwrap();
         assert_eq!(fake.ioctl_count(), before + 1, "INFO reaches RM");
         assert_eq!(at(&r.bytes, 24), 64 << 20, "total = limit");
-        assert_eq!(at(&r.bytes, 32), (64 << 20) - led.used(), "free = limit - used");
+        assert_eq!(
+            at(&r.bytes, 32),
+            (64 << 20) - led.used(),
+            "free = limit - used"
+        );
 
         let (mut s, _fake, tok) = session();
         let r = s.handle_msg(&info(tok)).unwrap();
-        assert_eq!(at(&r.bytes, 24), 0, "no cap: RM's answer (the fake's zero) stands");
+        assert_eq!(
+            at(&r.bytes, 24),
+            0,
+            "no cap: RM's answer (the fake's zero) stands"
+        );
     }
 
     /// The 4.2 GB that occupy nothing: NV50_MEMORY_VIRTUAL with
@@ -4054,25 +4422,44 @@ mod tests {
             writes_back: vec![(8, 0x5c00_00e1u32.to_le_bytes().to_vec())],
             ..Default::default()
         });
-        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s =
+            Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
         let tok = s.mirror.insert(owned);
 
         let h_client = 0xc1d8_0001u32;
-        let r = s.handle_msg(&kernel_callback_alloc(tok, h_client, 0x1000_0007, 0xffff_8881_2345_6780)).unwrap();
+        let r = s
+            .handle_msg(&kernel_callback_alloc(
+                tok,
+                h_client,
+                0x1000_0007,
+                0xffff_8881_2345_6780,
+            ))
+            .unwrap();
         assert_eq!(errno_of(&r), None);
 
         // The ledger: ALLOC_OS_EVENT with fd:1 on a fd that is NOT the
         // guest's token, then the alloc itself with hClass 0x79.
-        let calls: Vec<_> = fake.calls().into_iter().filter_map(|c| match c {
-            FakeCall::Ioctl { fd, request, inline } => Some((fd, nvrm_abi::ioc_nr(request as u32), inline)),
-            _ => None,
-        }).collect();
+        let calls: Vec<_> = fake
+            .calls()
+            .into_iter()
+            .filter_map(|c| match c {
+                FakeCall::Ioctl {
+                    fd,
+                    request,
+                    inline,
+                } => Some((fd, nvrm_abi::ioc_nr(request as u32), inline)),
+                _ => None,
+            })
+            .collect();
         assert_eq!(calls.len(), 2, "{calls:?}");
         assert_eq!(calls[0].1, nvrm_abi::nvgpu::NV_ESC_ALLOC_OS_EVENT);
-        assert_ne!(calls[0].0, fd, "the OS event hangs off the session's own ctl, not the guest's fd");
+        assert_ne!(
+            calls[0].0, fd,
+            "the OS event hangs off the session's own ctl, not the guest's fd"
+        );
         assert_eq!(&calls[0].2[0..4], &h_client.to_le_bytes());
         assert_eq!(&calls[0].2[8..12], &1u32.to_le_bytes(), "first id is 1");
         assert_eq!(calls[1].1, sys::NV_ESC_RM_ALLOC);
@@ -4082,29 +4469,56 @@ mod tests {
         // vdisp_event_on_missing_parent keys on).
         let aux = &r.bytes[Rsp::WIRE_LEN + 48..];
         assert_eq!(&aux[NV0005_DATA..NV0005_DATA + 8], &1u64.to_le_bytes());
-        assert_eq!(&aux[NV0005_HCLASS..NV0005_HCLASS + 4], &sys::NV01_EVENT_OS_EVENT.to_le_bytes());
+        assert_eq!(
+            &aux[NV0005_HCLASS..NV0005_HCLASS + 4],
+            &sys::NV01_EVENT_OS_EVENT.to_le_bytes()
+        );
 
         // The books.
-        let reg = s.events.get(&(h_client, 0x5c00_00e1)).copied().expect("registered under RM's handle");
-        assert_eq!(reg, EventReg {
-            h_client, h_event: 0x5c00_00e1, class: sys::NV01_EVENT_KERNEL_CALLBACK_EX,
-            notify_index: 0x1000_0007, guest_data: 0xffff_8881_2345_6780, token: tok, id: 1,
-        });
+        let reg = s
+            .events
+            .get(&(h_client, 0x5c00_00e1))
+            .copied()
+            .expect("registered under RM's handle");
+        assert_eq!(
+            reg,
+            EventReg {
+                h_client,
+                h_event: 0x5c00_00e1,
+                class: sys::NV01_EVENT_KERNEL_CALLBACK_EX,
+                notify_index: 0x1000_0007,
+                guest_data: 0xffff_8881_2345_6780,
+                token: tok,
+                id: 1,
+            }
+        );
         assert_eq!(s.event_stats(), (1, 0, 0, 0));
         let ctl_fd = calls[0].0;
-        assert_eq!(s.take_pollables(), vec![Pollable::EventCtl { h_client, fd: ctl_fd }]);
+        assert_eq!(
+            s.take_pollables(),
+            vec![Pollable::EventCtl {
+                h_client,
+                fd: ctl_fd
+            }]
+        );
         assert!(s.take_pollables().is_empty(), "reported once, then taken");
 
         // A second event on the SAME client reuses the ctl (id 2, no new
         // pollable); a different client gets a ctl of its own.
-        let r = s.handle_msg(&kernel_callback_alloc(tok, h_client, 3, 0x1)).unwrap();
+        let r = s
+            .handle_msg(&kernel_callback_alloc(tok, h_client, 3, 0x1))
+            .unwrap();
         assert_eq!(errno_of(&r), None);
         assert!(s.take_pollables().is_empty());
-        let r = s.handle_msg(&kernel_callback_alloc(tok, h_client + 1, 3, 0x2)).unwrap();
+        let r = s
+            .handle_msg(&kernel_callback_alloc(tok, h_client + 1, 3, 0x2))
+            .unwrap();
         assert_eq!(errno_of(&r), None);
         let p = s.take_pollables();
         assert_eq!(p.len(), 1);
-        assert!(matches!(p[0], Pollable::EventCtl { h_client: c, fd } if c == h_client + 1 && fd != ctl_fd));
+        assert!(
+            matches!(p[0], Pollable::EventCtl { h_client: c, fd } if c == h_client + 1 && fd != ctl_fd)
+        );
         assert_eq!(s.event_ctls.len(), 2);
         assert_eq!(s.event_stats().0, 3);
     }
@@ -4113,14 +4527,20 @@ mod tests {
     /// back with FREE_OS_EVENT.
     #[test]
     fn a_refused_substituted_event_gives_its_id_back() {
-        let fake = Arc::new(FakeSyscalls { ioctl_ret: -1, ..Default::default() });
-        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let fake = Arc::new(FakeSyscalls {
+            ioctl_ret: -1,
+            ..Default::default()
+        });
+        let mut s =
+            Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
         let tok = s.mirror.insert(owned);
         // ret -1 also fails ALLOC_OS_EVENT itself -> refusal, no alloc sent.
-        let r = s.handle_msg(&kernel_callback_alloc(tok, 0xc100_0001, 7, 0x10)).unwrap();
+        let r = s
+            .handle_msg(&kernel_callback_alloc(tok, 0xc100_0001, 7, 0x10))
+            .unwrap();
         assert_eq!(errno_of(&r), Some(libc::EIO));
         assert_eq!(fake.ioctl_count(), 1);
         assert!(s.events.is_empty());
@@ -4146,9 +4566,15 @@ mod tests {
         s.scratch[40..44].copy_from_slice(&sys::NV_ERR_INVALID_CLASS.to_le_bytes());
         s.execute(plan).unwrap();
         assert!(s.events.is_empty(), "a refused alloc registers nothing");
-        let frees: Vec<_> = fake.calls().into_iter().filter(|c| matches!(c,
+        let frees: Vec<_> = fake
+            .calls()
+            .into_iter()
+            .filter(|c| {
+                matches!(c,
             FakeCall::Ioctl { request, .. }
-                if nvrm_abi::ioc_nr(*request as u32) == nvrm_abi::nvgpu::NV_ESC_FREE_OS_EVENT)).collect();
+                if nvrm_abi::ioc_nr(*request as u32) == nvrm_abi::nvgpu::NV_ESC_FREE_OS_EVENT)
+            })
+            .collect();
         assert_eq!(frees.len(), 1, "the id was given back: {:?}", fake.calls());
         assert_eq!(s.event_stats(), (0, 0, 0, 0));
     }
@@ -4162,13 +4588,15 @@ mod tests {
             writes_back: vec![(8, 0x5c00_00e1u32.to_le_bytes().to_vec())],
             ..Default::default()
         });
-        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s =
+            Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
         let tok = s.mirror.insert(owned);
         let c1 = 0xc1d8_0001u32;
-        s.handle_msg(&kernel_callback_alloc(tok, c1, 7, 0x10)).unwrap();
+        s.handle_msg(&kernel_callback_alloc(tok, c1, 7, 0x10))
+            .unwrap();
         assert_eq!(s.events.len(), 1);
 
         // Free the event object: NVOS00 hRoot @0, hObjectOld @8.
@@ -4176,13 +4604,24 @@ mod tests {
         inline[0..4].copy_from_slice(&c1.to_le_bytes());
         inline[8..12].copy_from_slice(&0x5c00_00e1u32.to_le_bytes());
         let n_before = fake.ioctl_count();
-        s.handle_msg(&msg(&ioctl_req(tok, sys::NV_ESC_RM_FREE, 16, 0), &inline, &[])).unwrap();
+        s.handle_msg(&msg(
+            &ioctl_req(tok, sys::NV_ESC_RM_FREE, 16, 0),
+            &inline,
+            &[],
+        ))
+        .unwrap();
         assert!(s.events.is_empty());
-        let after: Vec<_> = fake.calls()[n_before..].iter().filter_map(|c| match c {
-            FakeCall::Ioctl { request, .. } => Some(nvrm_abi::ioc_nr(*request as u32)),
-            _ => None,
-        }).collect();
-        assert_eq!(after, vec![sys::NV_ESC_RM_FREE, nvrm_abi::nvgpu::NV_ESC_FREE_OS_EVENT]);
+        let after: Vec<_> = fake.calls()[n_before..]
+            .iter()
+            .filter_map(|c| match c {
+                FakeCall::Ioctl { request, .. } => Some(nvrm_abi::ioc_nr(*request as u32)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            after,
+            vec![sys::NV_ESC_RM_FREE, nvrm_abi::nvgpu::NV_ESC_FREE_OS_EVENT]
+        );
 
         // Two events on two clients, then free ONE client: its event is
         // gone, the other's stays, and no FREE_OS_EVENT is sent. A fake
@@ -4191,24 +4630,38 @@ mod tests {
         // after the call.
         let fake = Arc::new(FakeSyscalls::default());
         s.sys = Box::new(fake.clone());
-        s.handle_msg(&kernel_callback_alloc(tok, c1, 7, 0x10)).unwrap();
-        s.handle_msg(&kernel_callback_alloc(tok, c1 + 1, 7, 0x11)).unwrap();
+        s.handle_msg(&kernel_callback_alloc(tok, c1, 7, 0x10))
+            .unwrap();
+        s.handle_msg(&kernel_callback_alloc(tok, c1 + 1, 7, 0x11))
+            .unwrap();
         assert!(s.events.contains_key(&(c1, 0)) && s.events.contains_key(&(c1 + 1, 0)));
         let mut inline = vec![0u8; 16];
         inline[0..4].copy_from_slice(&c1.to_le_bytes());
         inline[8..12].copy_from_slice(&c1.to_le_bytes());
         let n_before = fake.ioctl_count();
         assert_eq!(s.event_ctls.len(), 2, "one ctl per client, before the free");
-        s.handle_msg(&msg(&ioctl_req(tok, sys::NV_ESC_RM_FREE, 16, 0), &inline, &[])).unwrap();
+        s.handle_msg(&msg(
+            &ioctl_req(tok, sys::NV_ESC_RM_FREE, 16, 0),
+            &inline,
+            &[],
+        ))
+        .unwrap();
         assert_eq!(s.events.len(), 1, "the other client's event stays");
         assert!(s.events.contains_key(&(c1 + 1, 0)));
-        assert_eq!(fake.ioctl_count(), n_before + 1, "RM frees the client's os events itself");
+        assert_eq!(
+            fake.ioctl_count(),
+            n_before + 1,
+            "RM frees the client's os events itself"
+        );
 
         // And the ctl fd of the freed client leaves too. Until 2026-08-17
         // it did not, and RM therefore kept the client alive on the host
         // for as long as the session ran (`pending_ctl_unwatch`).
         assert_eq!(s.event_ctls.len(), 1, "the freed client's ctl is gone");
-        assert!(s.event_ctls.contains_key(&(c1 + 1)), "the other client keeps its own");
+        assert!(
+            s.event_ctls.contains_key(&(c1 + 1)),
+            "the other client keeps its own"
+        );
         let out = s.take_ctl_unwatch();
         assert_eq!(out.len(), 1, "handed to the device, not dropped here");
         assert_eq!(out[0].0, c1, "and it names the client whose ctl it is");
@@ -4227,11 +4680,13 @@ mod tests {
     #[test]
     fn closing_the_fd_a_client_was_allocated_on_gives_its_ctl_back() {
         let fake = Arc::new(FakeSyscalls::default());
-        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s =
+            Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let mktok = |s: &mut Session<sys::DefaultAbi>| {
             let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
-            let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
+            let owned =
+                unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
             s.mirror.insert(owned)
         };
         let tok_a = mktok(&mut s);
@@ -4243,8 +4698,12 @@ mod tests {
         let mut root = |tok: u64, h: u32| {
             let mut inline = vec![0u8; 32];
             inline[8..12].copy_from_slice(&h.to_le_bytes());
-            s.handle_msg(&msg(&ioctl_req(tok, sys::NV_ESC_RM_ALLOC, 32, 0), &inline, &[]))
-                .unwrap();
+            s.handle_msg(&msg(
+                &ioctl_req(tok, sys::NV_ESC_RM_ALLOC, 32, 0),
+                &inline,
+                &[],
+            ))
+            .unwrap();
         };
         root(tok_a, c_a);
         root(tok_b, c_b);
@@ -4252,16 +4711,28 @@ mod tests {
         assert_eq!(s.client_token.get(&c_b), Some(&tok_b));
 
         // Give each of them an event ctl, the FD that used to leak.
-        s.handle_msg(&kernel_callback_alloc(tok_a, c_a, 7, 0x10)).unwrap();
-        s.handle_msg(&kernel_callback_alloc(tok_b, c_b, 7, 0x11)).unwrap();
+        s.handle_msg(&kernel_callback_alloc(tok_a, c_a, 7, 0x10))
+            .unwrap();
+        s.handle_msg(&kernel_callback_alloc(tok_b, c_b, 7, 0x11))
+            .unwrap();
         assert_eq!(s.event_ctls.len(), 2, "one ctl per client");
         let _ = s.take_ctl_unwatch();
 
         // Close ONLY the first FD. No RM_FREE crosses -- this is the point.
         s.handle_msg(&msg(&close_req(tok_a), &[], &[])).unwrap();
-        assert_eq!(s.event_ctls.len(), 1, "the closed FD's client gives its ctl back");
-        assert!(s.event_ctls.contains_key(&c_b), "the other FD's client keeps its own");
-        assert!(!s.client_token.contains_key(&c_a), "and its note goes with it");
+        assert_eq!(
+            s.event_ctls.len(),
+            1,
+            "the closed FD's client gives its ctl back"
+        );
+        assert!(
+            s.event_ctls.contains_key(&c_b),
+            "the other FD's client keeps its own"
+        );
+        assert!(
+            !s.client_token.contains_key(&c_a),
+            "and its note goes with it"
+        );
         let out = s.take_ctl_unwatch();
         assert_eq!(out.len(), 1, "handed to the device, not dropped here");
         assert_eq!(out[0].0, c_a, "and it names the right client");
@@ -4271,7 +4742,10 @@ mod tests {
         // The second FD too, so a session that closes everything keeps
         // nothing: that is the property the leak violated.
         s.handle_msg(&msg(&close_req(tok_b), &[], &[])).unwrap();
-        assert!(s.event_ctls.is_empty(), "nothing held after both FDs are closed");
+        assert!(
+            s.event_ctls.is_empty(),
+            "nothing held after both FDs are closed"
+        );
         assert!(s.client_token.is_empty());
     }
 
@@ -4284,14 +4758,16 @@ mod tests {
     #[test]
     fn drain_asks_get_event_data_and_matches_by_client_and_handle() {
         let fake = Arc::new(FakeSyscalls::default());
-        let mut s = Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
+        let mut s =
+            Session::<sys::DefaultAbi>::detached_proc(7, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(fake.clone());
         let fd = unsafe { libc::memfd_create(c"leandro-session-test".as_ptr(), 0) };
         let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
         let tok = s.mirror.insert(owned);
         let c1 = 0xc1d8_0001u32;
         // hObjectNew stays 0 (no writes_back): registered under (c1, 0).
-        s.handle_msg(&kernel_callback_alloc(tok, c1, 0x1000_0007, 0x10)).unwrap();
+        s.handle_msg(&kernel_callback_alloc(tok, c1, 0x1000_0007, 0x10))
+            .unwrap();
         assert!(s.events.contains_key(&(c1, 0)));
 
         // Unknown client: nothing to drain, no ioctl.
@@ -4306,10 +4782,19 @@ mod tests {
         assert_eq!(fired[0].info32, 0);
         let last = fake.calls().last().cloned().unwrap();
         match last {
-            FakeCall::Ioctl { fd: on, request, inline } => {
-                assert_eq!(nvrm_abi::ioc_nr(request as u32), sys::NV_ESC_RM_GET_EVENT_DATA);
-                assert_eq!(nvrm_abi::ioc_size(request as u32) as usize,
-                           std::mem::size_of::<sys::NVOS41_PARAMETERS>());
+            FakeCall::Ioctl {
+                fd: on,
+                request,
+                inline,
+            } => {
+                assert_eq!(
+                    nvrm_abi::ioc_nr(request as u32),
+                    sys::NV_ESC_RM_GET_EVENT_DATA
+                );
+                assert_eq!(
+                    nvrm_abi::ioc_size(request as u32) as usize,
+                    std::mem::size_of::<sys::NVOS41_PARAMETERS>()
+                );
                 assert_eq!(inline.len(), 16);
                 assert_ne!(on, fd, "drained on the session's ctl, never the guest's fd");
                 // pEvent points at a NvUnixEvent in THIS process, not at 0.
@@ -4339,7 +4824,14 @@ mod tests {
         let r = s.handle_msg(&msg(&req, &inline, &[])).unwrap();
         assert_eq!(errno_of(&r), None);
         assert_eq!(fake.ioctl_count(), 1);
-        assert_eq!(s.take_pollables(), vec![Pollable::Client { token: tok, fd, owner: None }]);
+        assert_eq!(
+            s.take_pollables(),
+            vec![Pollable::Client {
+                token: tok,
+                fd,
+                owner: None
+            }]
+        );
         // A UVM ioctl with the same raw number is not an OS event.
         let mut req = ioctl_req(tok, nvrm_abi::nvgpu::NV_ESC_ALLOC_OS_EVENT, 16, 0);
         req.dev_tag = DevTag::Uvm as u32;
@@ -4351,7 +4843,14 @@ mod tests {
 
     /// One semsurf control as the guest kernel sends it: NVOS54 (32 B) with
     /// the cmd, params in aux with the notification handle at `off`.
-    fn semsurf_control(tok: u64, h_client: u32, cmd: u32, aux_len: usize, off: usize, handle: u64) -> Vec<u8> {
+    fn semsurf_control(
+        tok: u64,
+        h_client: u32,
+        cmd: u32,
+        aux_len: usize,
+        off: usize,
+        handle: u64,
+    ) -> Vec<u8> {
         let mut inline = vec![0u8; 32];
         inline[0..4].copy_from_slice(&h_client.to_le_bytes());
         inline[4..8].copy_from_slice(&0x5c00_00dau32.to_le_bytes());
@@ -4374,17 +4873,32 @@ mod tests {
         let h_client = 0xc1d8_0002u32;
         let kc = 0xffff_8881_dead_be00u64;
 
-        let r = s.handle_msg(&semsurf_control(
-            tok, h_client, CTRL_SEMSURF_REGISTER_WAITER, 32, 24, kc)).unwrap();
+        let r = s
+            .handle_msg(&semsurf_control(
+                tok,
+                h_client,
+                CTRL_SEMSURF_REGISTER_WAITER,
+                32,
+                24,
+                kc,
+            ))
+            .unwrap();
         assert_eq!(errno_of(&r), None);
 
         // The ledger: ALLOC_OS_EVENT of (h_client, id 1) on a PRIVATE fd,
         // then the control itself with the id where the pointer was.
-        let calls: Vec<_> = fake.calls().into_iter().filter_map(|c| match c {
-            FakeCall::Ioctl { fd, request, inline } =>
-                Some((fd, nvrm_abi::ioc_nr(request as u32), inline)),
-            _ => None,
-        }).collect();
+        let calls: Vec<_> = fake
+            .calls()
+            .into_iter()
+            .filter_map(|c| match c {
+                FakeCall::Ioctl {
+                    fd,
+                    request,
+                    inline,
+                } => Some((fd, nvrm_abi::ioc_nr(request as u32), inline)),
+                _ => None,
+            })
+            .collect();
         assert_eq!(calls.len(), 2, "{calls:?}");
         assert_eq!(calls[0].1, nvrm_abi::nvgpu::NV_ESC_ALLOC_OS_EVENT);
         assert_eq!(&calls[0].2[0..4], &h_client.to_le_bytes());
@@ -4401,13 +4915,20 @@ mod tests {
         assert_eq!((w.h_client, w.guest_kc), (h_client, kc));
         use std::os::fd::AsRawFd;
         let slot_fd = w.slot.ctl.as_raw_fd();
-        assert_eq!(s.take_pollables(), vec![Pollable::Waiter { id: 1, fd: slot_fd }]);
+        assert_eq!(
+            s.take_pollables(),
+            vec![Pollable::Waiter { id: 1, fd: slot_fd }]
+        );
 
         // The wake retires it and recycles the slot.
         assert_eq!(s.semsurf_wake(1), Some((h_client, kc, tok)));
         assert!(s.waiters.is_empty());
         assert_eq!(s.waiter_pool[&h_client].len(), 1);
-        assert_eq!(s.semsurf_wake(1), None, "one-shot: the second wake finds nothing");
+        assert_eq!(
+            s.semsurf_wake(1),
+            None,
+            "one-shot: the second wake finds nothing"
+        );
     }
 
     /// A user-space registration carries an OS-event id (NvU32 -- RM casts,
@@ -4415,8 +4936,16 @@ mod tests {
     #[test]
     fn a_user_space_waiter_handle_passes_through() {
         let (mut s, fake, tok) = session();
-        let r = s.handle_msg(&semsurf_control(
-            tok, 0xc1d8_0003, CTRL_SEMSURF_REGISTER_WAITER, 32, 24, 23)).unwrap();
+        let r = s
+            .handle_msg(&semsurf_control(
+                tok,
+                0xc1d8_0003,
+                CTRL_SEMSURF_REGISTER_WAITER,
+                32,
+                24,
+                23,
+            ))
+            .unwrap();
         assert_eq!(errno_of(&r), None);
         assert_eq!(fake.ioctl_count(), 1, "no ALLOC_OS_EVENT for a user handle");
         let aux = &r.bytes[Rsp::WIRE_LEN + 32..];
@@ -4435,14 +4964,33 @@ mod tests {
         let h_client = 0xc1d8_0004u32;
         let kc = 0xffff_8881_dead_bf00u64;
         s.handle_msg(&semsurf_control(
-            tok, h_client, CTRL_SEMSURF_REGISTER_WAITER, 32, 24, kc)).unwrap();
+            tok,
+            h_client,
+            CTRL_SEMSURF_REGISTER_WAITER,
+            32,
+            24,
+            kc,
+        ))
+        .unwrap();
         s.take_pollables();
 
-        let r = s.handle_msg(&semsurf_control(
-            tok, h_client, CTRL_SEMSURF_UNREGISTER_WAITER, 24, 16, kc)).unwrap();
+        let r = s
+            .handle_msg(&semsurf_control(
+                tok,
+                h_client,
+                CTRL_SEMSURF_UNREGISTER_WAITER,
+                24,
+                16,
+                kc,
+            ))
+            .unwrap();
         assert_eq!(errno_of(&r), None);
         let aux = &r.bytes[Rsp::WIRE_LEN + 32..];
-        assert_eq!(&aux[16..24], &1u64.to_le_bytes(), "translated to the same id");
+        assert_eq!(
+            &aux[16..24],
+            &1u64.to_le_bytes(),
+            "translated to the same id"
+        );
         assert!(s.waiters.is_empty(), "cancelled");
         assert_eq!(s.waiter_pool[&h_client].len(), 1);
 
@@ -4452,7 +5000,14 @@ mod tests {
                 if nvrm_abi::ioc_nr(*request as u32) == nvrm_abi::nvgpu::NV_ESC_ALLOC_OS_EVENT
         )).count();
         s.handle_msg(&semsurf_control(
-            tok, h_client, CTRL_SEMSURF_REGISTER_WAITER, 32, 24, kc)).unwrap();
+            tok,
+            h_client,
+            CTRL_SEMSURF_REGISTER_WAITER,
+            32,
+            24,
+            kc,
+        ))
+        .unwrap();
         let after = fake.calls().iter().filter(|c| matches!(c,
             FakeCall::Ioctl { request, .. }
                 if nvrm_abi::ioc_nr(*request as u32) == nvrm_abi::nvgpu::NV_ESC_ALLOC_OS_EVENT
@@ -4462,8 +5017,16 @@ mod tests {
 
         // An unregister for a handle nobody armed leaves the pointer alone:
         // RM answers OBJECT_NOT_FOUND, which is the truthful "too late".
-        let r = s.handle_msg(&semsurf_control(
-            tok, h_client, CTRL_SEMSURF_UNREGISTER_WAITER, 24, 16, 0xffff_8881_0000_0100)).unwrap();
+        let r = s
+            .handle_msg(&semsurf_control(
+                tok,
+                h_client,
+                CTRL_SEMSURF_UNREGISTER_WAITER,
+                24,
+                16,
+                0xffff_8881_0000_0100,
+            ))
+            .unwrap();
         let aux = &r.bytes[Rsp::WIRE_LEN + 32..];
         assert_eq!(&aux[16..24], &0xffff_8881_0000_0100u64.to_le_bytes());
     }
@@ -4475,7 +5038,10 @@ mod tests {
     #[test]
     fn a_failed_ioctl_answers_its_own_errno() {
         let (mut s, fake, tok) = session();
-        fake.ioctl_rets.lock().unwrap().push_back((-1, libc::ENOSPC));
+        fake.ioctl_rets
+            .lock()
+            .unwrap()
+            .push_back((-1, libc::ENOSPC));
         let inline = vec![0u8; 32];
         let req = ioctl_req(tok, sys::NV_ESC_RM_CONTROL, 32, 0);
         let r = s.handle_msg(&msg(&req, &inline, &[])).unwrap();
@@ -4498,9 +5064,20 @@ mod tests {
             q.push_back((-1, libc::ENOSPC)); // the forwarded RM_ALLOC
             q.push_back((0, libc::EPERM)); // FREE_OS_EVENT on the failure path
         }
-        let r = s.handle_msg(&kernel_callback_alloc(tok, 0xc100_0001, 7, 0x10)).unwrap();
-        assert_eq!(fake.ioctl_count(), 3, "alloc-os-event, the alloc, free-os-event: {:?}", fake.calls());
-        assert_eq!(errno_of(&r), Some(libc::ENOSPC), "the guest must see the alloc's errno");
+        let r = s
+            .handle_msg(&kernel_callback_alloc(tok, 0xc100_0001, 7, 0x10))
+            .unwrap();
+        assert_eq!(
+            fake.ioctl_count(),
+            3,
+            "alloc-os-event, the alloc, free-os-event: {:?}",
+            fake.calls()
+        );
+        assert_eq!(
+            errno_of(&r),
+            Some(libc::ENOSPC),
+            "the guest must see the alloc's errno"
+        );
         assert!(s.events.is_empty());
     }
 
@@ -4516,19 +5093,37 @@ mod tests {
     fn uvm_status_offsets_lie_inside_the_sizes_xlate_sends() {
         use nvrm_abi::xlate::{uvm, uvm_param_size};
         let known = [
-            uvm::INITIALIZE, uvm::PAGEABLE_MEM_ACCESS, uvm::MM_INITIALIZE,
-            uvm::REGISTER_GPU_VASPACE, uvm::UNREGISTER_GPU_VASPACE, uvm::REGISTER_CHANNEL,
-            uvm::UNREGISTER_CHANNEL, uvm::MAP_EXTERNAL_ALLOCATION, uvm::FREE, uvm::REGISTER_GPU,
-            uvm::MAP_DYNAMIC_PARALLELISM_REGION, uvm::ALLOC_SEMAPHORE_POOL,
-            uvm::PAGEABLE_MEM_ACCESS_ON_GPU, uvm::SET_PREFERRED_LOCATION,
-            uvm::UNSET_PREFERRED_LOCATION, uvm::ENABLE_READ_DUPLICATION,
-            uvm::DISABLE_READ_DUPLICATION, uvm::SET_ACCESSED_BY, uvm::UNSET_ACCESSED_BY,
-            uvm::MIGRATE, uvm::VALIDATE_VA_RANGE, uvm::CREATE_EXTERNAL_RANGE,
+            uvm::INITIALIZE,
+            uvm::PAGEABLE_MEM_ACCESS,
+            uvm::MM_INITIALIZE,
+            uvm::REGISTER_GPU_VASPACE,
+            uvm::UNREGISTER_GPU_VASPACE,
+            uvm::REGISTER_CHANNEL,
+            uvm::UNREGISTER_CHANNEL,
+            uvm::MAP_EXTERNAL_ALLOCATION,
+            uvm::FREE,
+            uvm::REGISTER_GPU,
+            uvm::MAP_DYNAMIC_PARALLELISM_REGION,
+            uvm::ALLOC_SEMAPHORE_POOL,
+            uvm::PAGEABLE_MEM_ACCESS_ON_GPU,
+            uvm::SET_PREFERRED_LOCATION,
+            uvm::UNSET_PREFERRED_LOCATION,
+            uvm::ENABLE_READ_DUPLICATION,
+            uvm::DISABLE_READ_DUPLICATION,
+            uvm::SET_ACCESSED_BY,
+            uvm::UNSET_ACCESSED_BY,
+            uvm::MIGRATE,
+            uvm::VALIDATE_VA_RANGE,
+            uvm::CREATE_EXTERNAL_RANGE,
         ];
         for nr in known {
-            let off = uvm_status_off::<sys::DefaultAbi>(nr).unwrap_or_else(|| panic!("{nr:#x} has no status offset"));
+            let off = uvm_status_off::<sys::DefaultAbi>(nr)
+                .unwrap_or_else(|| panic!("{nr:#x} has no status offset"));
             let size = uvm_param_size(nr).unwrap_or_else(|| panic!("{nr:#x} has no size")) as usize;
-            assert!(off + 4 <= size, "{nr:#x}: rmStatus @{off} outside the {size}-byte block");
+            assert!(
+                off + 4 <= size,
+                "{nr:#x}: rmStatus @{off} outside the {size}-byte block"
+            );
         }
         // DEINITIALIZE has no parameter block, hence no status; a number
         // nobody knows answers None rather than a guess.
@@ -4537,7 +5132,10 @@ mod tests {
         // And the two the fake answers write to, as literals the way the
         // execute branch quotes them.
         assert_eq!(uvm_status_off::<sys::DefaultAbi>(uvm::MIGRATE), Some(72));
-        assert_eq!(uvm_status_off::<sys::DefaultAbi>(uvm::ALLOC_SEMAPHORE_POOL), Some(9240));
+        assert_eq!(
+            uvm_status_off::<sys::DefaultAbi>(uvm::ALLOC_SEMAPHORE_POOL),
+            Some(9240)
+        );
     }
 
     /// The process-list refusal, pinned before and after the restructure of
@@ -4562,7 +5160,11 @@ mod tests {
         // 16 bytes is far short of the NV2080_CTRL_GPU_GET_PIDS_PARAMS the
         // command names, so the rewrite cannot happen.
         let r = s.handle_msg(&msg(&req, &inline, &[0u8; 16])).unwrap();
-        assert_eq!(errno_of(&r), Some(libc::EINVAL), "short process list refused");
+        assert_eq!(
+            errno_of(&r),
+            Some(libc::EINVAL),
+            "short process list refused"
+        );
         // The ioctl DID run -- the refusal is about RM's answer, not about
         // the guest's request, and that is why the bookkeeping after it
         // must not be skipped.
@@ -4589,7 +5191,8 @@ mod tests {
     /// counter is set up next to the wrap rather than counted there.
     #[test]
     fn a_wrapping_blob_id_never_hands_out_zero() {
-        let mut s = Session::<sys::DefaultAbi>::detached_proc(0, crate::vram::Ledger::off()).unwrap();
+        let mut s =
+            Session::<sys::DefaultAbi>::detached_proc(0, crate::vram::Ledger::off()).unwrap();
         s.sys = Box::new(Arc::new(FakeSyscalls::default()));
         let fd = unsafe { libc::memfd_create(c"leandro-blobid-test".as_ptr(), 0) };
         assert!(fd >= 0);
@@ -4616,7 +5219,10 @@ mod tests {
         assert_eq!(prepare(&mut s, 1), 0xffff_ffff);
         let wrapped = prepare(&mut s, 2);
         assert_ne!(wrapped, 0, "MapPrepare handed out blob_id 0");
-        assert!(!s.pending_maps.contains_key(&0), "a mapping registered under 0");
+        assert!(
+            !s.pending_maps.contains_key(&0),
+            "a mapping registered under 0"
+        );
         // And the session id in the high half is untouched by the wrap.
         assert_eq!(wrapped >> 32, 0);
     }

@@ -54,7 +54,12 @@ struct GetPidsParams {
 
 impl Default for GetPidsParams {
     fn default() -> Self {
-        Self { id_type: 0, id: 0, pid_tbl_count: 0, pid_tbl: [0; PIDS_MAX] }
+        Self {
+            id_type: 0,
+            id: 0,
+            pid_tbl_count: 0,
+            pid_tbl: [0; PIDS_MAX],
+        }
     }
 }
 
@@ -96,7 +101,11 @@ struct GetPidInfoParams {
 
 impl Default for GetPidInfoParams {
     fn default() -> Self {
-        Self { count: 0, _pad: 0, list: [PidInfo::default(); PID_INFO_MAX] }
+        Self {
+            count: 0,
+            _pad: 0,
+            list: [PidInfo::default(); PID_INFO_MAX],
+        }
     }
 }
 
@@ -129,8 +138,10 @@ fn main() {
     match nvrm_sys::running_driver_version() {
         Ok(v) if v == nvrm_sys::DRIVER_VERSION => {}
         Ok(v) => {
-            eprintln!("smipids: driver mismatch: running {v}, built for {}",
-                      nvrm_sys::DRIVER_VERSION);
+            eprintln!(
+                "smipids: driver mismatch: running {v}, built for {}",
+                nvrm_sys::DRIVER_VERSION
+            );
             std::process::exit(1);
         }
         Err(_) => eprintln!(
@@ -151,12 +162,14 @@ fn main() {
     let device = rm.next_handle();
     let mut dp = sys::NV0080_ALLOC_PARAMETERS::default();
     dp.deviceId = 0;
-    rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp)).expect("NV01_DEVICE_0");
+    rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp))
+        .expect("NV01_DEVICE_0");
 
     let subdevice = rm.next_handle();
     let mut sp = sys::NV2080_ALLOC_PARAMETERS::default();
     sp.subDeviceId = 0;
-    rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp)).expect("NV20_SUBDEVICE_0");
+    rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp))
+        .expect("NV20_SUBDEVICE_0");
 
     // ---- GET_PIDS -------------------------------------------------------
     //
@@ -169,7 +182,11 @@ fn main() {
         .nth(1)
         .map(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).expect("class as hex"))
         .unwrap_or(sys::NV20_SUBDEVICE_0);
-    let mut p = GetPidsParams { id_type: ID_TYPE_CLASS, id: class, ..Default::default() };
+    let mut p = GetPidsParams {
+        id_type: ID_TYPE_CLASS,
+        id: class,
+        ..Default::default()
+    };
     if let Err(e) = rm.control(subdevice, CMD_GPU_GET_PIDS, &mut p) {
         eprintln!("smipids: GET_PIDS: {e}");
         std::process::exit(1);
@@ -185,7 +202,10 @@ fn main() {
     }
 
     // ---- GET_PID_INFO, one entry per PID --------------------------------
-    let mut q = GetPidInfoParams { count: n.min(PID_INFO_MAX) as u32, ..Default::default() };
+    let mut q = GetPidInfoParams {
+        count: n.min(PID_INFO_MAX) as u32,
+        ..Default::default()
+    };
     for (i, pid) in p.pid_tbl[..q.count as usize].iter().enumerate() {
         q.list[i].pid = *pid;
         q.list[i].index = PID_INFO_INDEX_VIDEO_MEMORY_USAGE;
@@ -195,8 +215,10 @@ fn main() {
         std::process::exit(1);
     }
     println!("\nsmipids: GET_PID_INFO count={}", q.count);
-    println!("{:>8} {:>8} {:>12} {:>12} {:>12}  comm",
-             "pid", "result", "private MiB", "shOwned MiB", "shDuped MiB");
+    println!(
+        "{:>8} {:>8} {:>12} {:>12} {:>12}  comm",
+        "pid", "result", "private MiB", "shOwned MiB", "shDuped MiB"
+    );
     let mut total = 0u64;
     for e in &q.list[..q.count as usize] {
         total += e.data.mem_private;
@@ -210,5 +232,9 @@ fn main() {
             comm_of(e.pid),
         );
     }
-    println!("smipids: sum private = {:.1} MiB over {} pids", total as f64 / (1 << 20) as f64, q.count);
+    println!(
+        "smipids: sum private = {:.1} MiB over {} pids",
+        total as f64 / (1 << 20) as f64,
+        q.count
+    );
 }

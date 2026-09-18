@@ -62,7 +62,8 @@ pub fn partition(versions: &[Version]) -> Partition {
         .keys()
         .filter(|n| {
             versions.iter().all(|v| {
-                v.items.groups.get(*n).map(|g| &g.text) == primary.items.groups.get(*n).map(|g| &g.text)
+                v.items.groups.get(*n).map(|g| &g.text)
+                    == primary.items.groups.get(*n).map(|g| &g.text)
             })
         })
         .cloned()
@@ -96,7 +97,10 @@ pub fn partition(versions: &[Version]) -> Partition {
         .filter(|n| stable.contains(*n))
         .cloned()
         .collect();
-    Partition { stable: ordered, volatile }
+    Partition {
+        stable: ordered,
+        volatile,
+    }
 }
 
 pub struct Emitted {
@@ -163,7 +167,12 @@ pub fn emit(
             v.name
         );
         body.push_str(&module_body(v, &mine, Some(&v.name))?);
-        write_or_check(&src.join(format!("{}.rs", feature_of(&v.name))), &body, check, &mut stale)?;
+        write_or_check(
+            &src.join(format!("{}.rs", feature_of(&v.name))),
+            &body,
+            check,
+            &mut stale,
+        )?;
     }
 
     // --- src/lib.rs -------------------------------------------------------
@@ -172,7 +181,12 @@ pub fn emit(
 
     // --- versions.toml ----------------------------------------------------
     let vt = versions_toml(cfg, versions, part, primary, &abstracted);
-    write_or_check(&root.join("crates/nvrm-sys/versions.toml"), &vt, check, &mut stale)?;
+    write_or_check(
+        &root.join("crates/nvrm-sys/versions.toml"),
+        &vt,
+        check,
+        &mut stale,
+    )?;
 
     // --- Cargo.toml features ---------------------------------------------
     // Every crate that carries the markers gets the same list: nvrm-sys
@@ -180,7 +194,9 @@ pub fn emit(
     // pasting the two marker lines, which is one fewer place to remember.
     for e in std::fs::read_dir(root.join("crates"))?.flatten() {
         let cargo = e.path().join("Cargo.toml");
-        let Ok(text) = std::fs::read_to_string(&cargo) else { continue };
+        let Ok(text) = std::fs::read_to_string(&cargo) else {
+            continue;
+        };
         if !text.contains(BEGIN) {
             continue;
         }
@@ -235,7 +251,10 @@ fn layout_assert(v: &Version, g: &ItemGroup) -> Option<String> {
     if t.align == 0 {
         return None;
     }
-    let mut s = format!("assert_layout!({}, size = {}, align = {}", g.name, t.size, t.align);
+    let mut s = format!(
+        "assert_layout!({}, size = {}, align = {}",
+        g.name, t.size, t.align
+    );
     for f in &t.fields {
         // An anonymous member has no `offset_of!` assertion to make; the
         // manifest says so with a null rather than with a guess.
@@ -353,8 +372,17 @@ fn lib_rs(
          \x20       match self {\n",
     );
     for v in versions {
-        let _ = writeln!(s, "            #[cfg(feature = \"{}\")]", feature_of(&v.name));
-        let _ = writeln!(s, "            DriverVersion::{} => {:?},", variant_of(&v.name), v.name);
+        let _ = writeln!(
+            s,
+            "            #[cfg(feature = \"{}\")]",
+            feature_of(&v.name)
+        );
+        let _ = writeln!(
+            s,
+            "            DriverVersion::{} => {:?},",
+            variant_of(&v.name),
+            v.name
+        );
     }
     s.push_str("        }\n    }\n\n");
     s.push_str(
@@ -369,8 +397,17 @@ fn lib_rs(
          \x20       match s {\n",
     );
     for v in versions {
-        let _ = writeln!(s, "            #[cfg(feature = \"{}\")]", feature_of(&v.name));
-        let _ = writeln!(s, "            {:?} => Some(DriverVersion::{}),", v.name, variant_of(&v.name));
+        let _ = writeln!(
+            s,
+            "            #[cfg(feature = \"{}\")]",
+            feature_of(&v.name)
+        );
+        let _ = writeln!(
+            s,
+            "            {:?} => Some(DriverVersion::{}),",
+            v.name,
+            variant_of(&v.name)
+        );
     }
     s.push_str("            _ => None,\n        }\n    }\n}\n\n");
 
@@ -464,7 +501,10 @@ fn rm_abi(
     // goes stale, and this trait is read by a compiler, not by a person.
     let primary_m = &versions[0].manifest;
     for (assoc, c_name) in &abstracted {
-        let _ = writeln!(s, "\n    /// `{c_name}`, as this driver version lays it out.");
+        let _ = writeln!(
+            s,
+            "\n    /// `{c_name}`, as this driver version lays it out."
+        );
         let _ = writeln!(s, "    type {assoc}: Copy;");
         let _ = writeln!(
             s,
@@ -551,9 +591,17 @@ fn rm_abi(
             v.name
         );
         let _ = writeln!(s, "#[cfg(feature = \"{f}\")]\nimpl RmAbi for {marker} {{");
-        let _ = writeln!(s, "    const VERSION: DriverVersion = DriverVersion::{};", variant_of(&v.name));
+        let _ = writeln!(
+            s,
+            "    const VERSION: DriverVersion = DriverVersion::{};",
+            variant_of(&v.name)
+        );
         for (assoc, c_name) in &abstracted {
-            let module = if part.stable.iter().any(|n| n == c_name) { "stable" } else { &f };
+            let module = if part.stable.iter().any(|n| n == c_name) {
+                "stable"
+            } else {
+                &f
+            };
             let _ = writeln!(s, "    type {assoc} = crate::{module}::{c_name};");
             let t = v.manifest.types.get(c_name);
             let size = t.map(|t| t.size).unwrap_or_default();
@@ -582,7 +630,10 @@ fn rm_abi(
 
     Ok((
         s,
-        abstracted.iter().map(|(a, c)| format!("{a} = {c}")).collect(),
+        abstracted
+            .iter()
+            .map(|(a, c)| format!("{a} = {c}"))
+            .collect(),
         not_abstractable,
     ))
 }
@@ -762,7 +813,12 @@ pub fn refuse_on_breaking(
     versions: &[Version],
     reports: &[classify::PairReport],
 ) -> Result<()> {
-    let mediated: BTreeSet<&str> = cfg.footprint.mediated.values().map(String::as_str).collect();
+    let mediated: BTreeSet<&str> = cfg
+        .footprint
+        .mediated
+        .values()
+        .map(String::as_str)
+        .collect();
     let mut owed: Vec<(String, String, String)> = Vec::new();
 
     for w in versions.windows(2) {
@@ -796,9 +852,9 @@ pub fn refuse_on_breaking(
                     && reports.iter().any(|r| {
                         r.from == w[0].name
                             && &r.to == version
-                            && r.types.iter().any(|c| {
-                                c.name == *name && c.verdict == Verdict::Breaking
-                            })
+                            && r.types
+                                .iter()
+                                .any(|c| c.name == *name && c.verdict == Verdict::Breaking)
                     })
             });
             if !broke {
@@ -844,7 +900,10 @@ pub fn refuse_on_breaking(
     );
     let mut by_version: BTreeMap<&str, Vec<(&str, &str)>> = BTreeMap::new();
     for (v, n, why) in &owed {
-        by_version.entry(v.as_str()).or_default().push((n.as_str(), why.as_str()));
+        by_version
+            .entry(v.as_str())
+            .or_default()
+            .push((n.as_str(), why.as_str()));
     }
     for (v, items) in &by_version {
         let _ = writeln!(msg, "at {v}:");

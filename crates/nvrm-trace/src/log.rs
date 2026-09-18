@@ -106,7 +106,9 @@ fn jsonl_path(tsv: &str) -> String {
 /// `probe/run/trace.sh` truncates its per-stage files in `lea_trace_stage`.
 /// A tracer that truncated could not be told "append to this" by anyone.
 fn open_out(path: &str) -> i32 {
-    let Ok(c) = std::ffi::CString::new(path) else { return -1 };
+    let Ok(c) = std::ffi::CString::new(path) else {
+        return -1;
+    };
     unsafe {
         libc::open(
             c.as_ptr(),
@@ -117,7 +119,9 @@ fn open_out(path: &str) -> i32 {
 }
 
 pub fn init() {
-    let Ok(path) = std::env::var("LEA_TRACE_FILE") else { return };
+    let Ok(path) = std::env::var("LEA_TRACE_FILE") else {
+        return;
+    };
     // `both` is the default for the duration of the migration: one run
     // produces both formats, so the equivalence check compares two
     // renderings of the SAME calls. Two runs would compare two runs, and
@@ -130,9 +134,12 @@ pub fn init() {
         "jsonl" => (false, true),
         "both" => (true, true),
         other => {
-            emit_fd(2, &format!(
+            emit_fd(
+                2,
+                &format!(
                 "nvrm-trace: LEA_TRACE_FORMAT={other} is not tsv, jsonl or both -- writing both\n"
-            ));
+            ),
+            );
             (true, true)
         }
     };
@@ -144,7 +151,10 @@ pub fn init() {
         } else {
             // Do not fall back to stderr silently - that is exactly how a whole
             // run gets lost without anyone noticing.
-            emit_fd(2, &format!("nvrm-trace: cannot open {path}, trace goes to stderr\n"));
+            emit_fd(
+                2,
+                &format!("nvrm-trace: cannot open {path}, trace goes to stderr\n"),
+            );
         }
     } else {
         OUT.store(-1, Ordering::Relaxed);
@@ -159,7 +169,10 @@ pub fn init() {
             // Louder than the TSV case: a missing JSONL is not a trace that
             // went somewhere else, it is a trace that does not exist, and
             // the format gate would read that as "nothing differs".
-            emit_fd(2, &format!("nvrm-trace: cannot open {jp}, no JSONL trace this run\n"));
+            emit_fd(
+                2,
+                &format!("nvrm-trace: cannot open {jp}, no JSONL trace this run\n"),
+            );
         }
     }
 }
@@ -226,11 +239,19 @@ struct F<'a> {
 
 /// A positional TSV field (named in JSON regardless).
 const fn pos<'a>(name: &'a str, v: V<'a>) -> F<'a> {
-    F { name, keyed: false, v }
+    F {
+        name,
+        keyed: false,
+        v,
+    }
 }
 /// A `name=value` TSV field.
 const fn key<'a>(name: &'a str, v: V<'a>) -> F<'a> {
-    F { name, keyed: true, v }
+    F {
+        name,
+        keyed: true,
+        v,
+    }
 }
 
 /// How many bytes of a params buffer a dump carries, at most.
@@ -416,7 +437,10 @@ fn dev_tag(d: NvDev) -> &'static str {
 }
 
 pub fn open(dev: NvDev, fd: i32) {
-    rec1("open", &[pos("dev", V::S(dev_tag(dev))), pos("fd", V::I(fd as i64))]);
+    rec1(
+        "open",
+        &[pos("dev", V::S(dev_tag(dev))), pos("fd", V::I(fd as i64))],
+    );
 }
 
 /// What the driver really sees for this number.
@@ -451,8 +475,12 @@ unsafe fn q(arg: *const c_void, i: usize) -> u64 {
 /// validated and written to. It is only read here, and only as far as
 /// `size` covers.
 unsafe fn subcode(
-    dev: NvDev, nr: u32, size: u32, arg: *const c_void,
-) -> (Option<u32>, Option<u32>, Option<u32>) {          // (sub, psize, status)
+    dev: NvDev,
+    nr: u32,
+    size: u32,
+    arg: *const c_void,
+) -> (Option<u32>, Option<u32>, Option<u32>) {
+    // (sub, psize, status)
     // DRM is excluded here and in detail() for the same reason UVM is,
     // and it is not cosmetic: every arm below casts `arg` to an NVIDIA
     // parameter struct and reads fields at ITS offsets. A DRM ioctl carries
@@ -463,7 +491,12 @@ unsafe fn subcode(
     // `Event` too: an fd registered through NV_ESC_ALLOC_OS_EVENT that is
     // not a device node (an eventfd, typically) -- an ioctl on it carries
     // whatever that file's ioctls carry, never an NVIDIA block.
-    if arg.is_null() || matches!(dev, NvDev::Uvm | NvDev::UvmTools | NvDev::Drm(_) | NvDev::Event) {
+    if arg.is_null()
+        || matches!(
+            dev,
+            NvDev::Uvm | NvDev::UvmTools | NvDev::Drm(_) | NvDev::Event
+        )
+    {
         return (None, None, None);
     }
     // NVKMS. The whole interface goes through ONE ioctl number, so `nr` is
@@ -488,7 +521,11 @@ unsafe fn subcode(
     match nr {
         sys::NV_ESC_RM_CONTROL if size as usize >= size_of::<sys::NVOS54_PARAMETERS>() => {
             let p = &*(arg as *const sys::NVOS54_PARAMETERS);
-            (Some(p.cmd as u32), Some(p.paramsSize), Some(p.status as u32))
+            (
+                Some(p.cmd as u32),
+                Some(p.paramsSize),
+                Some(p.status as u32),
+            )
         }
         sys::NV_ESC_RM_ALLOC if size >= 16 => {
             let hclass = *(arg as *const u32).add(3);
@@ -504,14 +541,10 @@ unsafe fn subcode(
         }
         // NVOS02_PARAMETERS + fd. `sub` is hClass - the column that answers
         // whether libcuda allocates NV01_MEMORY_SYSTEM (0x3e) here.
-        sys::NV_ESC_RM_ALLOC_MEMORY if size >= 56 => {
-            (Some(w(arg, 3)), None, Some(w(arg, 10)))
-        }
+        sys::NV_ESC_RM_ALLOC_MEMORY if size >= 56 => (Some(w(arg, 3)), None, Some(w(arg, 10))),
         // NVOS33_PARAMETERS + fd. `sub` is hMemory, so that mappings can be
         // matched to their allocations by handle number.
-        sys::NV_ESC_RM_MAP_MEMORY if size >= 56 => {
-            (Some(w(arg, 2)), None, Some(w(arg, 10)))
-        }
+        sys::NV_ESC_RM_MAP_MEMORY if size >= 56 => (Some(w(arg, 2)), None, Some(w(arg, 10))),
         _ => (None, None, None),
     }
 }
@@ -563,11 +596,15 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             if plen > 0 {
                 let n = plen.min(dump_cap());
                 let bytes = core::slice::from_raw_parts(arg as *const u8, n);
-                rec("uvmout", phase_of(tag), &[
-                    pos("nr", V::H32(nr)),
-                    key("len", V::I(plen as i64)),
-                    pos("dump", V::Dump(bytes)),
-                ]);
+                rec(
+                    "uvmout",
+                    phase_of(tag),
+                    &[
+                        pos("nr", V::H32(nr)),
+                        key("len", V::I(plen as i64)),
+                        pos("dump", V::Dump(bytes)),
+                    ],
+                );
             }
         }
         // UVM_INITIALIZE (0x30000001): flags IN/OUT @0 (u64), rmStatus @8.
@@ -576,10 +613,19 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
         // "does not" (OPEN-QUESTIONS nr 11).
         if nr == 0x30000001 && tag.is_empty() {
             let b = core::slice::from_raw_parts(arg as *const u8, 12);
-            rec1("uvminit", &[
-                key("flags", V::H64(u64::from_le_bytes(b[0..8].try_into().unwrap()))),
-                key("rmStatus", V::H32(u32::from_le_bytes(b[8..12].try_into().unwrap()))),
-            ]);
+            rec1(
+                "uvminit",
+                &[
+                    key(
+                        "flags",
+                        V::H64(u64::from_le_bytes(b[0..8].try_into().unwrap())),
+                    ),
+                    key(
+                        "rmStatus",
+                        V::H32(u32::from_le_bytes(b[8..12].try_into().unwrap())),
+                    ),
+                ],
+            );
         }
         // UVM_PAGEABLE_MEM_ACCESS (0x27: pageableMemAccess NvBool @0,
         // rmStatus @4 -- EIGHT bytes, uvm_ioctl.h) and
@@ -589,20 +635,41 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
         // before, only on the UVM side.
         if nr == nvrm_abi::xlate::uvm::PAGEABLE_MEM_ACCESS && tag.is_empty() {
             let b = core::slice::from_raw_parts(arg as *const u8, 8);
-            rec1("uvmpma", &[
-                key("nr", V::H32(nr)),
-                key("b0", V::H32(u32::from_le_bytes(b[0..4].try_into().unwrap()))),
-                key("rmStatus", V::H32(u32::from_le_bytes(b[4..8].try_into().unwrap()))),
-            ]);
+            rec1(
+                "uvmpma",
+                &[
+                    key("nr", V::H32(nr)),
+                    key(
+                        "b0",
+                        V::H32(u32::from_le_bytes(b[0..4].try_into().unwrap())),
+                    ),
+                    key(
+                        "rmStatus",
+                        V::H32(u32::from_le_bytes(b[4..8].try_into().unwrap())),
+                    ),
+                ],
+            );
         }
         if nr == nvrm_abi::xlate::uvm::PAGEABLE_MEM_ACCESS_ON_GPU && tag.is_empty() {
             let b = core::slice::from_raw_parts(arg as *const u8, 24);
-            rec1("uvmpma", &[
-                key("nr", V::H32(nr)),
-                key("b0", V::H32(u32::from_le_bytes(b[0..4].try_into().unwrap()))),
-                key("b16", V::H32(u32::from_le_bytes(b[16..20].try_into().unwrap()))),
-                key("b20", V::H32(u32::from_le_bytes(b[20..24].try_into().unwrap()))),
-            ]);
+            rec1(
+                "uvmpma",
+                &[
+                    key("nr", V::H32(nr)),
+                    key(
+                        "b0",
+                        V::H32(u32::from_le_bytes(b[0..4].try_into().unwrap())),
+                    ),
+                    key(
+                        "b16",
+                        V::H32(u32::from_le_bytes(b[16..20].try_into().unwrap())),
+                    ),
+                    key(
+                        "b20",
+                        V::H32(u32::from_le_bytes(b[20..24].try_into().unwrap())),
+                    ),
+                ],
+            );
         }
         if nr == nvrm_abi::xlate::uvm::REGISTER_GPU && tag.is_empty() {
             let b = core::slice::from_raw_parts(arg as *const u8, 40);
@@ -620,13 +687,25 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 b[16],
                 i32::from_le_bytes(b[20..24].try_into().unwrap())
             );
-            rec1("uvmreg", &[
-                key("uuid", V::S(&uuid)),
-                key("numa", V::S(&numa)),
-                key("rmCtrlFd", V::I(i32::from_le_bytes(b[24..28].try_into().unwrap()) as i64)),
-                key("hClient", V::H32(u32::from_le_bytes(b[28..32].try_into().unwrap()))),
-                key("rmStatus", V::H32(u32::from_le_bytes(b[36..40].try_into().unwrap()))),
-            ]);
+            rec1(
+                "uvmreg",
+                &[
+                    key("uuid", V::S(&uuid)),
+                    key("numa", V::S(&numa)),
+                    key(
+                        "rmCtrlFd",
+                        V::I(i32::from_le_bytes(b[24..28].try_into().unwrap()) as i64),
+                    ),
+                    key(
+                        "hClient",
+                        V::H32(u32::from_le_bytes(b[28..32].try_into().unwrap())),
+                    ),
+                    key(
+                        "rmStatus",
+                        V::H32(u32::from_le_bytes(b[36..40].try_into().unwrap())),
+                    ),
+                ],
+            );
         }
         return;
     }
@@ -635,7 +714,10 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
     // Modeset for the same reason, one step further: its argument IS a
     // known struct, but everything it points at belongs to a namespace
     // nothing here decodes.
-    if matches!(dev, NvDev::UvmTools | NvDev::Drm(_) | NvDev::Event | NvDev::Modeset) {
+    if matches!(
+        dev,
+        NvDev::UvmTools | NvDev::Drm(_) | NvDev::Event | NvDev::Modeset
+    ) {
         return;
     }
     // THE ESCAPE'S OWN PARAMETER BLOCK, for every escape that does not
@@ -660,20 +742,26 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
         let (sub, _, _) = subcode(dev, nr, size, arg);
         let n = (size as usize).min(dump_cap());
         let bytes = core::slice::from_raw_parts(arg as *const u8, n);
-        rec("escout", phase_of(tag), &[
-            pos("dev", V::S(dev_tag(dev))),
-            pos("nr", V::H32(nr)),
-            pos("sub", sub.map(V::H32).unwrap_or(V::Nil)),
-            key("len", V::I(size as i64)),
-            pos("dump", V::Dump(bytes)),
-        ]);
+        rec(
+            "escout",
+            phase_of(tag),
+            &[
+                pos("dev", V::S(dev_tag(dev))),
+                pos("nr", V::H32(nr)),
+                pos("sub", sub.map(V::H32).unwrap_or(V::Nil)),
+                key("len", V::I(size as i64)),
+                pos("dump", V::Dump(bytes)),
+            ],
+        );
     }
 
     match nr {
         // The ANSWERS the RT userspace branches on (OPEN-QUESTIONS nr 11):
         // one line per valid card, all the fields the BDF mediation
         // touches. Only after the call -- the input is all zeros.
-        sys::NV_ESC_CARD_INFO if tag.is_empty() && size as usize >= size_of::<sys::nv_ioctl_card_info_t>() => {
+        sys::NV_ESC_CARD_INFO
+            if tag.is_empty() && size as usize >= size_of::<sys::nv_ioctl_card_info_t>() =>
+        {
             let n = size as usize / size_of::<sys::nv_ioctl_card_info_t>();
             let cards = core::slice::from_raw_parts(arg as *const sys::nv_ioctl_card_info_t, n);
             for (i, c) in cards.iter().enumerate() {
@@ -689,17 +777,20 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 );
                 let reg = format!("{:#x}+{:#x}", c.reg_address, c.reg_size);
                 let fb = format!("{:#x}+{:#x}", c.fb_address, c.fb_size);
-                rec1("cardinfo", &[
-                    pos("i", V::Idx(i)),
-                    key("gpu_id", V::H32(c.gpu_id)),
-                    key("pci", V::S(&pci)),
-                    key("vendor", V::S(&format!("{:#06x}", c.pci_info.vendor_id))),
-                    key("device", V::S(&format!("{:#06x}", c.pci_info.device_id))),
-                    key("irq", V::I(c.interrupt_line as i64)),
-                    key("reg", V::S(&reg)),
-                    key("fb", V::S(&fb)),
-                    key("minor", V::I(c.minor_number as i64)),
-                ]);
+                rec1(
+                    "cardinfo",
+                    &[
+                        pos("i", V::Idx(i)),
+                        key("gpu_id", V::H32(c.gpu_id)),
+                        key("pci", V::S(&pci)),
+                        key("vendor", V::S(&format!("{:#06x}", c.pci_info.vendor_id))),
+                        key("device", V::S(&format!("{:#06x}", c.pci_info.device_id))),
+                        key("irq", V::I(c.interrupt_line as i64)),
+                        key("reg", V::S(&reg)),
+                        key("fb", V::S(&fb)),
+                        key("minor", V::I(c.minor_number as i64)),
+                    ],
+                );
             }
         }
         // The params buffer of EVERY control, on both sides of the call, so
@@ -753,9 +844,7 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 // beyond any plausible list is skipped rather than trusted.
                 let mut nested: Vec<u8> = Vec::new();
                 let mut ntotal: usize = 0;
-                for (ptr_off, len_off, elem) in
-                    nvrm_abi::xlate::ctrl_nested_compiled(cmd)
-                {
+                for (ptr_off, len_off, elem) in nvrm_abi::xlate::ctrl_nested_compiled(cmd) {
                     if plen < ptr_off + 8 || plen < len_off + 4 {
                         continue;
                     }
@@ -773,7 +862,9 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                     let take = nl.min(room);
                     if take > 0 {
                         nested.extend_from_slice(core::slice::from_raw_parts(
-                            gp as usize as *const u8, take));
+                            gp as usize as *const u8,
+                            take,
+                        ));
                     }
                 }
                 // `hobject` is the object the control was issued ON, which
@@ -782,42 +873,61 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 // same number are different questions. Diagnostic -- the
                 // comparison reads `cmd`, `len`, `status` and `dump` by
                 // name and never sees it.
-                rec("ctrlout", phase_of(tag), &[
-                    pos("cmd", V::H32(cmd)),
-                    key("hclient", V::H32(p.hClient)),
-                    key("hobject", V::H32(p.hObject)),
-                    key("len", V::I(plen as i64)),
-                    key("status", V::H32(p.status as u32)),
-                    pos("dump", V::Dump(bytes)),
-                    // Present only when there IS something behind a pointer,
-                    // so an ordinary control's line is unchanged.
-                    key("nlen", if ntotal > 0 { V::I(ntotal as i64) } else { V::Nil }),
-                    pos("nested", V::Dump(&nested)),
-                ]);
+                rec(
+                    "ctrlout",
+                    phase_of(tag),
+                    &[
+                        pos("cmd", V::H32(cmd)),
+                        key("hclient", V::H32(p.hClient)),
+                        key("hobject", V::H32(p.hObject)),
+                        key("len", V::I(plen as i64)),
+                        key("status", V::H32(p.status as u32)),
+                        pos("dump", V::Dump(bytes)),
+                        // Present only when there IS something behind a pointer,
+                        // so an ordinary control's line is unchanged.
+                        key(
+                            "nlen",
+                            if ntotal > 0 {
+                                V::I(ntotal as i64)
+                            } else {
+                                V::Nil
+                            },
+                        ),
+                        pos("nested", V::Dump(&nested)),
+                    ],
+                );
             }
         }
-        sys::NV_ESC_RM_ALLOC_MEMORY if size >= 56 => rec("nvos02", phase_of(tag), &[
-            key("hRoot", V::H32(w(arg, 0))),
-            key("hParent", V::H32(w(arg, 1))),
-            key("hNew", V::H32(w(arg, 2))),
-            key("hClass", V::H32(w(arg, 3))),
-            key("flags", V::H32(w(arg, 4))),
-            key("pMemory", V::H64(q(arg, 6))),
-            key("limit", V::H64(q(arg, 8))),
-            key("status", V::H32(w(arg, 10))),
-            key("fd", V::I(w(arg, 12) as i32 as i64)),
-        ]),
-        sys::NV_ESC_RM_MAP_MEMORY if size >= 56 => rec("nvos33", phase_of(tag), &[
-            key("hClient", V::H32(w(arg, 0))),
-            key("hDevice", V::H32(w(arg, 1))),
-            key("hMemory", V::H32(w(arg, 2))),
-            key("offset", V::H64(q(arg, 4))),
-            key("length", V::H64(q(arg, 6))),
-            key("pLinear", V::H64(q(arg, 8))),
-            key("status", V::H32(w(arg, 10))),
-            key("flags", V::H32(w(arg, 11))),
-            key("fd", V::I(w(arg, 12) as i32 as i64)),
-        ]),
+        sys::NV_ESC_RM_ALLOC_MEMORY if size >= 56 => rec(
+            "nvos02",
+            phase_of(tag),
+            &[
+                key("hRoot", V::H32(w(arg, 0))),
+                key("hParent", V::H32(w(arg, 1))),
+                key("hNew", V::H32(w(arg, 2))),
+                key("hClass", V::H32(w(arg, 3))),
+                key("flags", V::H32(w(arg, 4))),
+                key("pMemory", V::H64(q(arg, 6))),
+                key("limit", V::H64(q(arg, 8))),
+                key("status", V::H32(w(arg, 10))),
+                key("fd", V::I(w(arg, 12) as i32 as i64)),
+            ],
+        ),
+        sys::NV_ESC_RM_MAP_MEMORY if size >= 56 => rec(
+            "nvos33",
+            phase_of(tag),
+            &[
+                key("hClient", V::H32(w(arg, 0))),
+                key("hDevice", V::H32(w(arg, 1))),
+                key("hMemory", V::H32(w(arg, 2))),
+                key("offset", V::H64(q(arg, 4))),
+                key("length", V::H64(q(arg, 6))),
+                key("pLinear", V::H64(q(arg, 8))),
+                key("status", V::H32(w(arg, 10))),
+                key("flags", V::H32(w(arg, 11))),
+                key("fd", V::I(w(arg, 12) as i32 as i64)),
+            ],
+        ),
         // NVOS32: the OTHER allocation door, and the one the graphics stack
         // actually uses. Until this arm existed the tracer emitted a bare
         // `ioctl ctl 0x4a` line with no parameters at all, which is why the
@@ -836,70 +946,90 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             // 2 = ALLOC_SIZE, 3 = FREE (nvos.h:636-637). Only these two
             // carry the union members whose layout is guarded.
             if function == 2 {
-                rec("nvos32", phase_of(tag), &[
-                    key("hRoot", V::H32(w(arg, 0))),
-                    key("hObjectParent", V::H32(w(arg, 1))),
-                    key("function", V::S("ALLOC_SIZE")),
-                    key("hVASpace", V::H32(w(arg, 3))),
-                    key("status", V::H32(w(arg, 5))),
-                    key("owner", V::H32(w(arg, 10))),
-                    key("hMemory", V::H32(w(arg, 11))),
-                    key("type", V::H32(w(arg, 12))),
-                    key("flags", V::H32(w(arg, 13))),
-                    key("attr", V::H32(w(arg, 14))),
-                    key("format", V::H32(w(arg, 15))),
-                    key("width", V::H32(w(arg, 19))),
-                    key("height", V::H32(w(arg, 20))),
-                    key("size", V::H64(q(arg, 22))),
-                    key("alignment", V::H64(q(arg, 24))),
-                    key("offset", V::H64(q(arg, 26))),
-                    key("limit", V::H64(q(arg, 28))),
-                    key("address", V::H64(q(arg, 30))),
-                    key("attr2", V::H32(w(arg, 36))),
-                ]);
+                rec(
+                    "nvos32",
+                    phase_of(tag),
+                    &[
+                        key("hRoot", V::H32(w(arg, 0))),
+                        key("hObjectParent", V::H32(w(arg, 1))),
+                        key("function", V::S("ALLOC_SIZE")),
+                        key("hVASpace", V::H32(w(arg, 3))),
+                        key("status", V::H32(w(arg, 5))),
+                        key("owner", V::H32(w(arg, 10))),
+                        key("hMemory", V::H32(w(arg, 11))),
+                        key("type", V::H32(w(arg, 12))),
+                        key("flags", V::H32(w(arg, 13))),
+                        key("attr", V::H32(w(arg, 14))),
+                        key("format", V::H32(w(arg, 15))),
+                        key("width", V::H32(w(arg, 19))),
+                        key("height", V::H32(w(arg, 20))),
+                        key("size", V::H64(q(arg, 22))),
+                        key("alignment", V::H64(q(arg, 24))),
+                        key("offset", V::H64(q(arg, 26))),
+                        key("limit", V::H64(q(arg, 28))),
+                        key("address", V::H64(q(arg, 30))),
+                        key("attr2", V::H32(w(arg, 36))),
+                    ],
+                );
             } else if function == 3 {
-                rec("nvos32", phase_of(tag), &[
-                    key("hRoot", V::H32(w(arg, 0))),
-                    key("hObjectParent", V::H32(w(arg, 1))),
-                    key("function", V::S("FREE")),
-                    key("status", V::H32(w(arg, 5))),
-                    key("owner", V::H32(w(arg, 10))),
-                    key("hMemory", V::H32(w(arg, 11))),
-                    key("flags", V::H32(w(arg, 12))),
-                ]);
+                rec(
+                    "nvos32",
+                    phase_of(tag),
+                    &[
+                        key("hRoot", V::H32(w(arg, 0))),
+                        key("hObjectParent", V::H32(w(arg, 1))),
+                        key("function", V::S("FREE")),
+                        key("status", V::H32(w(arg, 5))),
+                        key("owner", V::H32(w(arg, 10))),
+                        key("hMemory", V::H32(w(arg, 11))),
+                        key("flags", V::H32(w(arg, 12))),
+                    ],
+                );
             } else {
-                rec("nvos32", phase_of(tag), &[
-                    key("hRoot", V::H32(w(arg, 0))),
-                    key("hObjectParent", V::H32(w(arg, 1))),
-                    key("function", V::H32(function)),
-                    key("status", V::H32(w(arg, 5))),
-                ]);
+                rec(
+                    "nvos32",
+                    phase_of(tag),
+                    &[
+                        key("hRoot", V::H32(w(arg, 0))),
+                        key("hObjectParent", V::H32(w(arg, 1))),
+                        key("function", V::H32(function)),
+                        key("status", V::H32(w(arg, 5))),
+                    ],
+                );
             }
         }
-        sys::NV_ESC_RM_MAP_MEMORY_DMA if size >= 64 => rec("nvos46", phase_of(tag), &[
-            key("hClient", V::H32(w(arg, 0))),
-            key("hDevice", V::H32(w(arg, 1))),
-            key("hDma", V::H32(w(arg, 2))),
-            key("hMemory", V::H32(w(arg, 3))),
-            key("offset", V::H64(q(arg, 4))),
-            key("length", V::H64(q(arg, 6))),
-            key("flags", V::H32(w(arg, 8))),
-            key("flags2", V::H32(w(arg, 9))),
-            key("kind", V::H32(w(arg, 10))),
-            key("dmaOffset", V::H64(q(arg, 12))),
-            key("status", V::H32(w(arg, 14))),
-        ]),
+        sys::NV_ESC_RM_MAP_MEMORY_DMA if size >= 64 => rec(
+            "nvos46",
+            phase_of(tag),
+            &[
+                key("hClient", V::H32(w(arg, 0))),
+                key("hDevice", V::H32(w(arg, 1))),
+                key("hDma", V::H32(w(arg, 2))),
+                key("hMemory", V::H32(w(arg, 3))),
+                key("offset", V::H64(q(arg, 4))),
+                key("length", V::H64(q(arg, 6))),
+                key("flags", V::H32(w(arg, 8))),
+                key("flags2", V::H32(w(arg, 9))),
+                key("kind", V::H32(w(arg, 10))),
+                key("dmaOffset", V::H64(q(arg, 12))),
+                key("status", V::H32(w(arg, 14))),
+            ],
+        ),
         sys::NV_ESC_RM_ALLOC if size >= 48 => {
             let hclass = w(arg, 3);
-            rec("nvos64", phase_of(tag), &[
-                key("hRoot", V::H32(w(arg, 0))),
-                key("hParent", V::H32(w(arg, 1))),
-                key("hNew", V::H32(w(arg, 2))),
-                key("hClass", V::H32(hclass)),
-                key("paramsSize", V::H32(w(arg, 8))),
-                key("flags", V::H32(w(arg, 9))),
-                key("status", V::H32(w(arg, 10))),
-            ]);
+            rec(
+                "nvos64",
+                phase_of(tag),
+                &[
+                    key("hRoot", V::H32(w(arg, 0))),
+                    key("hParent", V::H32(w(arg, 1))),
+                    key("hNew", V::H32(w(arg, 2))),
+                    key("hClass", V::H32(hclass)),
+                    key("paramsSize", V::H32(w(arg, 8))),
+                    key("flags", V::H32(w(arg, 9))),
+                    key("status", V::H32(w(arg, 10))),
+                ],
+            );
 
             // Follow pAllocParms. This only works because paramsSize is
             // always 0, so the size has to come from the class - these are
@@ -956,7 +1086,8 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             let params = if pp.is_null() {
                 None
             } else {
-                nvrm_abi::xlate::alloc_param_size_compiled::<nvrm_sys::DefaultAbi>(hclass).filter(|n| *n > 0)
+                nvrm_abi::xlate::alloc_param_size_compiled::<nvrm_sys::DefaultAbi>(hclass)
+                    .filter(|n| *n > 0)
             };
             let (src, plen, base) = match params {
                 Some(plen) => ("params", plen, pp as *const u8),
@@ -965,37 +1096,45 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             if plen > 0 {
                 let n = plen.min(dump_cap());
                 let bytes = core::slice::from_raw_parts(base, n);
-                rec("allocout", phase_of(tag), &[
-                    pos("dev", V::S(dev_tag(dev))),
-                    pos("class", V::H32(hclass)),
-                    pos("src", V::S(src)),
-                    key("len", V::I(plen as i64)),
-                    pos("dump", V::Dump(bytes)),
-                ]);
+                rec(
+                    "allocout",
+                    phase_of(tag),
+                    &[
+                        pos("dev", V::S(dev_tag(dev))),
+                        pos("class", V::H32(hclass)),
+                        pos("src", V::S(src)),
+                        key("len", V::I(plen as i64)),
+                        pos("dump", V::Dump(bytes)),
+                    ],
+                );
             }
 
             if !pp.is_null() && matches!(hclass, 0x3e | 0x40 | 0x50a0) {
-                rec("memparams", phase_of(tag), &[
-                    key("hNew", V::H32(w(arg, 2))),
-                    key("hClass", V::H32(hclass)),
-                    key("owner", V::H32(w(pp, 0))),
-                    key("type", V::H32(w(pp, 1))),
-                    key("flags", V::H32(w(pp, 2))),
-                    key("attr", V::H32(w(pp, 6))),
-                    key("attr2", V::H32(w(pp, 7))),
-                    key("rangeLo", V::H64(q(pp, 12))),
-                    key("rangeHi", V::H64(q(pp, 14))),
-                    key("size", V::H64(q(pp, 16))),
-                    key("align", V::H64(q(pp, 18))),
-                    key("offset", V::H64(q(pp, 20))),
-                    key("limit", V::H64(q(pp, 22))),
-                    key("address", V::H64(q(pp, 24))),
-                    key("ctag", V::H32(w(pp, 26))),
-                    key("hVASpace", V::H32(w(pp, 27))),
-                    key("internal", V::H32(w(pp, 28))),
-                    key("tag", V::H32(w(pp, 29))),
-                    key("numa", V::I(w(pp, 30) as i32 as i64)),
-                ]);
+                rec(
+                    "memparams",
+                    phase_of(tag),
+                    &[
+                        key("hNew", V::H32(w(arg, 2))),
+                        key("hClass", V::H32(hclass)),
+                        key("owner", V::H32(w(pp, 0))),
+                        key("type", V::H32(w(pp, 1))),
+                        key("flags", V::H32(w(pp, 2))),
+                        key("attr", V::H32(w(pp, 6))),
+                        key("attr2", V::H32(w(pp, 7))),
+                        key("rangeLo", V::H64(q(pp, 12))),
+                        key("rangeHi", V::H64(q(pp, 14))),
+                        key("size", V::H64(q(pp, 16))),
+                        key("align", V::H64(q(pp, 18))),
+                        key("offset", V::H64(q(pp, 20))),
+                        key("limit", V::H64(q(pp, 22))),
+                        key("address", V::H64(q(pp, 24))),
+                        key("ctag", V::H32(w(pp, 26))),
+                        key("hVASpace", V::H32(w(pp, 27))),
+                        key("internal", V::H32(w(pp, 28))),
+                        key("tag", V::H32(w(pp, 29))),
+                        key("numa", V::I(w(pp, 30) as i32 as i64)),
+                    ],
+                );
             }
         }
         _ => {}
@@ -1018,13 +1157,16 @@ pub unsafe fn detail_pre(dev: NvDev, cmd: u32, arg: *const c_void) {
 }
 
 pub fn mmap(dev: NvDev, fd: i32, len: usize, off: i64, p: *mut c_void) {
-    rec1("mmap", &[
-        pos("dev", V::S(dev_tag(dev))),
-        pos("fd", V::I(fd as i64)),
-        pos("len", V::I(len as i64)),
-        pos("off", V::I(off)),
-        pos("addr", V::H64(p as usize as u64)),
-    ]);
+    rec1(
+        "mmap",
+        &[
+            pos("dev", V::S(dev_tag(dev))),
+            pos("fd", V::I(fd as i64)),
+            pos("len", V::I(len as i64)),
+            pos("off", V::I(off)),
+            pos("addr", V::H64(p as usize as u64)),
+        ],
+    );
 }
 
 /// Wait path: `read`/`poll` on a known FD.
@@ -1033,11 +1175,14 @@ pub fn wait(kind: &str, dev: NvDev, fd: i32, val: i64) {
     // `read` names its last field `ret` and `poll` names it `revents`:
     // the old format is positional here and said neither, and a JSON key
     // has to be one or the other.
-    rec1(kind, &[
-        pos("dev", V::S(dev_tag(dev))),
-        pos("fd", V::I(fd as i64)),
-        pos(if kind == "poll" { "revents" } else { "ret" }, V::I(val)),
-    ]);
+    rec1(
+        kind,
+        &[
+            pos("dev", V::S(dev_tag(dev))),
+            pos("fd", V::I(fd as i64)),
+            pos(if kind == "poll" { "revents" } else { "ret" }, V::I(val)),
+        ],
+    );
 }
 
 /// Which FD was registered as an event channel, and was it already known?
@@ -1045,10 +1190,13 @@ pub fn wait(kind: &str, dev: NvDev, fd: i32, val: i64) {
 /// then reads `new`. (It read `neu` until 2026-08-18; `probe/run/trace.sh`
 /// prints that column and never matches it.)
 pub fn event_registered(fd: i32, prev: Option<NvDev>) {
-    rec1("eventreg", &[
-        pos("fd", V::I(fd as i64)),
-        pos("prev", V::S(prev.map(dev_tag).unwrap_or("new"))),
-    ]);
+    rec1(
+        "eventreg",
+        &[
+            pos("fd", V::I(fd as i64)),
+            pos("prev", V::S(prev.map(dev_tag).unwrap_or("new"))),
+        ],
+    );
 }
 
 /// The eight fields of an `ioctl` record, in the order the TSV format has
@@ -1062,8 +1210,14 @@ pub fn event_registered(fd: i32, prev: Option<NvDev>) {
 /// the tests below pin both renderings of it.
 #[allow(clippy::too_many_arguments)]
 fn ioctl_fields<'a>(
-    dev: NvDev, fd: i32, nr: u32, size: u32, ret: i32,
-    sub: Option<u32>, psize: Option<u32>, status: Option<u32>,
+    dev: NvDev,
+    fd: i32,
+    nr: u32,
+    size: u32,
+    ret: i32,
+    sub: Option<u32>,
+    psize: Option<u32>,
+    status: Option<u32>,
 ) -> [F<'a>; 8] {
     let f = |o: Option<u32>| o.map(V::H32).unwrap_or(V::Nil);
     [
@@ -1081,7 +1235,10 @@ fn ioctl_fields<'a>(
 pub fn ioctl(dev: NvDev, fd: i32, cmd: u32, ret: i32, arg: *mut c_void) {
     let (nr, size) = decode(dev, cmd);
     let (sub, psize, status) = unsafe { subcode(dev, nr, size, arg) };
-    rec1("ioctl", &ioctl_fields(dev, fd, nr, size, ret, sub, psize, status));
+    rec1(
+        "ioctl",
+        &ioctl_fields(dev, fd, nr, size, ret, sub, psize, status),
+    );
     unsafe { detail(dev, nr, size, arg, "") };
 }
 
@@ -1090,7 +1247,10 @@ pub fn ioctl(dev: NvDev, fd: i32, cmd: u32, ret: i32, arg: *mut c_void) {
 /// not go through `decode()` a second time, and `arg` is the inner pointer.
 pub fn ioctl_unpacked(dev: NvDev, fd: i32, nr: u32, size: u32, ret: i32, arg: *mut c_void) {
     let (sub, psize, status) = unsafe { subcode(dev, nr, size, arg) };
-    rec1("ioctl", &ioctl_fields(dev, fd, nr, size, ret, sub, psize, status));
+    rec1(
+        "ioctl",
+        &ioctl_fields(dev, fd, nr, size, ret, sub, psize, status),
+    );
     unsafe { detail(dev, nr, size, arg, "") };
 }
 
@@ -1108,7 +1268,10 @@ mod tests {
     #[test]
     fn the_ioctl_line_still_has_the_columns_the_counting_rule_selects_on() {
         let f = ioctl_fields(NvDev::Gpu(0), 9, 0xd6, 8, 0, None, None, None);
-        assert_eq!(render_tsv("ioctl", None, &f), "ioctl\tgpu\t0xd6\t-\t8\t-\t0\t-\t9\n");
+        assert_eq!(
+            render_tsv("ioctl", None, &f),
+            "ioctl\tgpu\t0xd6\t-\t8\t-\t0\t-\t9\n"
+        );
         // Absent is `-` in TSV -- the spelling the awk sites test for --
         // and `null` in JSON, never the string "-".
         assert_eq!(
@@ -1123,7 +1286,16 @@ mod tests {
     /// number would lose that.
     #[test]
     fn an_ioctl_line_with_every_field_spells_hex_the_same_in_both_formats() {
-        let f = ioctl_fields(NvDev::Ctl, 3, 0x2a, 32, 0, Some(0x20800802), Some(16), Some(0x1e));
+        let f = ioctl_fields(
+            NvDev::Ctl,
+            3,
+            0x2a,
+            32,
+            0,
+            Some(0x20800802),
+            Some(16),
+            Some(0x1e),
+        );
         assert_eq!(
             render_tsv("ioctl", None, &f),
             "ioctl\tctl\t0x2a\t0x20800802\t32\t0x10\t0\t0x1e\t3\n"
@@ -1141,8 +1313,14 @@ mod tests {
     #[test]
     fn the_in_sample_is_a_kind_suffix_in_tsv_and_a_field_in_json() {
         let f = [key("hNew", V::H32(0x5c000003)), key("status", V::H32(0))];
-        assert_eq!(render_tsv("nvos64", phase_of("in"), &f), "nvos64in\thNew=0x5c000003\tstatus=0x0\n");
-        assert_eq!(render_tsv("nvos64", phase_of(""), &f), "nvos64\thNew=0x5c000003\tstatus=0x0\n");
+        assert_eq!(
+            render_tsv("nvos64", phase_of("in"), &f),
+            "nvos64in\thNew=0x5c000003\tstatus=0x0\n"
+        );
+        assert_eq!(
+            render_tsv("nvos64", phase_of(""), &f),
+            "nvos64\thNew=0x5c000003\tstatus=0x0\n"
+        );
         assert_eq!(
             render_json("nvos64", phase_of("in"), &f),
             "{\"t\":\"nvos64\",\"phase\":\"in\",\"hNew\":\"0x5c000003\",\"status\":\"0x0\"}\n"
@@ -1165,15 +1343,23 @@ mod tests {
             key("status", V::H32(0)),
             pos("dump", V::Dump(&b)),
         ];
-        assert_eq!(render_tsv("ctrlout", None, &f), "ctrlout\t0x214\tlen=384\tstatus=0x0\t00 2d 00 00 ff\n");
+        assert_eq!(
+            render_tsv("ctrlout", None, &f),
+            "ctrlout\t0x214\tlen=384\tstatus=0x0\t00 2d 00 00 ff\n"
+        );
         assert_eq!(
             render_json("ctrlout", None, &f),
-            r#"{"t":"ctrlout","cmd":"0x214","len":384,"status":"0x0","dump":"002d0000ff"}"#.to_owned() + "\n"
+            r#"{"t":"ctrlout","cmd":"0x214","len":384,"status":"0x0","dump":"002d0000ff"}"#
+                .to_owned()
+                + "\n"
         );
         // An empty dump is a field, not a missing one: `ctrlout` is only
         // emitted for plen > 0, but the renderer must not invent a `-`.
         let e = [pos("dump", V::Dump(&[]))];
-        assert_eq!(render_json("ctrlout", None, &e), "{\"t\":\"ctrlout\",\"dump\":\"\"}\n");
+        assert_eq!(
+            render_json("ctrlout", None, &e),
+            "{\"t\":\"ctrlout\",\"dump\":\"\"}\n"
+        );
     }
 
     /// Nothing this file writes today contains a quote or a backslash.
@@ -1261,7 +1447,10 @@ mod tests {
         p.status = 0x56;
         let arg = &p as *const _ as *const c_void;
         let full = size_of::<sys::NVOS54_PARAMETERS>() as u32;
-        assert_eq!(full, 32, "NVOS54 is the 32-byte form (nvgpu.rs layout guard)");
+        assert_eq!(
+            full, 32,
+            "NVOS54 is the 32-byte form (nvgpu.rs layout guard)"
+        );
 
         assert_eq!(
             unsafe { subcode(NvDev::Ctl, sys::NV_ESC_RM_CONTROL, full, arg) },
@@ -1344,7 +1533,12 @@ mod tests {
         );
         // ... must be left alone on every device that is not one, whatever
         // the number and the size claim.
-        for dev in [NvDev::Drm(false), NvDev::Drm(true), NvDev::Uvm, NvDev::UvmTools] {
+        for dev in [
+            NvDev::Drm(false),
+            NvDev::Drm(true),
+            NvDev::Uvm,
+            NvDev::UvmTools,
+        ] {
             assert_eq!(
                 unsafe { subcode(dev, sys::NV_ESC_RM_CONTROL, 32, arg) },
                 (None, None, None),
@@ -1371,7 +1565,10 @@ mod tests {
     #[test]
     fn a_modeset_line_carries_the_command_out_of_the_indirection_struct() {
         let full = size_of::<sys::NvKmsIoctlParams>() as u32;
-        assert_eq!(full, 16, "NvKmsIoctlParams is 16 bytes (nvrm-sys layout test)");
+        assert_eq!(
+            full, 16,
+            "NvKmsIoctlParams is 16 bytes (nvrm-sys layout test)"
+        );
 
         let mut p = sys::NvKmsIoctlParams::default();
         p.cmd = 42;

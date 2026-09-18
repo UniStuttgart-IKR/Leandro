@@ -232,7 +232,11 @@ mod tests {
         let long = "x".repeat(500);
         let p = sub_process_id_params(1, &long);
         assert_eq!(&p[4..4 + 99], "x".repeat(99).as_bytes());
-        assert_eq!(p[4 + 99], 0, "the last byte of the name field must stay NUL");
+        assert_eq!(
+            p[4 + 99],
+            0,
+            "the last byte of the name field must stay NUL"
+        );
         // Exactly at the boundary: 100 characters still lose one.
         let p = sub_process_id_params(1, &"y".repeat(NAME_MAX));
         assert_eq!(p[4 + NAME_MAX - 1], 0);
@@ -251,13 +255,29 @@ mod tests {
     #[test]
     fn the_share_policy_names_dup_object_for_the_same_security_token() {
         let p = share_object_params(0xcafe_1234);
-        assert_eq!(u32::from_le_bytes(p[0..4].try_into().unwrap()), 0xcafe_1234, "hObject @0");
-        assert_eq!(u32::from_le_bytes(p[4..8].try_into().unwrap()), 0, "target @4 stays 0");
+        assert_eq!(
+            u32::from_le_bytes(p[0..4].try_into().unwrap()),
+            0xcafe_1234,
+            "hObject @0"
+        );
+        assert_eq!(
+            u32::from_le_bytes(p[4..8].try_into().unwrap()),
+            0,
+            "target @4 stays 0"
+        );
         // accessMask.limbs[0]: bit 0 == RS_ACCESS_DUP_OBJECT.
-        assert_eq!(u32::from_le_bytes(p[8..12].try_into().unwrap()), 1, "accessMask @8");
+        assert_eq!(
+            u32::from_le_bytes(p[8..12].try_into().unwrap()),
+            1,
+            "accessMask @8"
+        );
         // RS_SHARE_TYPE_OS_SECURITY_TOKEN == 2, a u16 -- "same euid", not
         // "anyone".
-        assert_eq!(u16::from_le_bytes(p[12..14].try_into().unwrap()), 2, "type @12");
+        assert_eq!(
+            u16::from_le_bytes(p[12..14].try_into().unwrap()),
+            2,
+            "type @12"
+        );
         // RS_SHARE_ACTION_FLAG_COMPOSE == 1 << 2. Without COMPOSE the
         // grant would REPLACE the list libcuda sets up moments later.
         assert_eq!(p[14], 0b100, "action @14");
@@ -273,18 +293,46 @@ mod tests {
     fn the_control_block_addresses_the_client_object_itself() {
         let params = [0u8; 16];
         let p = nvos54_client_control(0x1234_5678, 0x0d06, &params);
-        assert_eq!(u32::from_le_bytes(p[0..4].try_into().unwrap()), 0x1234_5678, "hClient @0");
-        assert_eq!(u32::from_le_bytes(p[4..8].try_into().unwrap()), 0x1234_5678, "hObject @4");
-        assert_eq!(u32::from_le_bytes(p[8..12].try_into().unwrap()), 0x0d06, "cmd @8");
-        assert_eq!(u32::from_le_bytes(p[12..16].try_into().unwrap()), 0, "flags @12 stays 0");
+        assert_eq!(
+            u32::from_le_bytes(p[0..4].try_into().unwrap()),
+            0x1234_5678,
+            "hClient @0"
+        );
+        assert_eq!(
+            u32::from_le_bytes(p[4..8].try_into().unwrap()),
+            0x1234_5678,
+            "hObject @4"
+        );
+        assert_eq!(
+            u32::from_le_bytes(p[8..12].try_into().unwrap()),
+            0x0d06,
+            "cmd @8"
+        );
+        assert_eq!(
+            u32::from_le_bytes(p[12..16].try_into().unwrap()),
+            0,
+            "flags @12 stays 0"
+        );
         assert_eq!(
             u64::from_le_bytes(p[16..24].try_into().unwrap()),
             params.as_ptr() as u64,
             "params P64 @16"
         );
-        assert_eq!(u32::from_le_bytes(p[24..28].try_into().unwrap()), 16, "paramsSize @24");
-        assert_eq!(u32::from_le_bytes(p[28..32].try_into().unwrap()), 0, "status @28 starts 0");
-        assert_eq!(p.len(), 32, "NVOS54 is 32 bytes -- the _IOC size the driver checks");
+        assert_eq!(
+            u32::from_le_bytes(p[24..28].try_into().unwrap()),
+            16,
+            "paramsSize @24"
+        );
+        assert_eq!(
+            u32::from_le_bytes(p[28..32].try_into().unwrap()),
+            0,
+            "status @28 starts 0"
+        );
+        assert_eq!(
+            p.len(),
+            32,
+            "NVOS54 is 32 bytes -- the _IOC size the driver checks"
+        );
     }
 
     /// The two commands and their parameter sizes, as the two callers pair
@@ -308,7 +356,10 @@ mod tests {
         // 0x901 is the one control the host BLOCKS from the guest (it is a
         // host-assigned label); the block lives in xlate, and this is the
         // one place that still sends it -- from the host itself.
-        assert!(crate::xlate::ctrl_blocked(0x901), "0x901 must stay on the blocked list");
+        assert!(
+            crate::xlate::ctrl_blocked(0x901),
+            "0x901 must stay on the blocked list"
+        );
         assert!(!crate::xlate::ctrl_blocked(0x0d06));
     }
 }

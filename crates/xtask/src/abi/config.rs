@@ -77,7 +77,9 @@ impl Footprint {
             .renamed
             .iter()
             .filter_map(|(canonical, per_version)| {
-                per_version.get(version).map(|old| (old.clone(), canonical.clone()))
+                per_version
+                    .get(version)
+                    .map(|old| (old.clone(), canonical.clone()))
             })
             .collect();
         out.sort();
@@ -87,10 +89,10 @@ impl Footprint {
 
 impl AbiToml {
     pub fn load(path: &Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        let cfg: AbiToml = toml::from_str(&text)
-            .with_context(|| format!("parsing {}", path.display()))?;
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let cfg: AbiToml =
+            toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         if cfg.versions.is_empty() {
             bail!("{} names no versions", path.display());
         }
@@ -119,5 +121,7 @@ impl AbiToml {
 }
 
 fn numeric_key(v: &str) -> Vec<u64> {
-    v.split('.').map(|p| p.parse::<u64>().unwrap_or(0)).collect()
+    v.split('.')
+        .map(|p| p.parse::<u64>().unwrap_or(0))
+        .collect()
 }

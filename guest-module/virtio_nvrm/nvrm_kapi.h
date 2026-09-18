@@ -37,20 +37,20 @@
 #include <linux/stddef.h>
 
 /* NV_STATUS is NvU32; NvBool is NvU8 (nvtypes.h:272, nvstatus.h:33). */
-#define NVRM_NV_OK		0x00000000u
-#define NVRM_NV_ERR_GENERIC	0x0000FFFFu
+#define NVRM_NV_OK 0x00000000u
+#define NVRM_NV_ERR_GENERIC 0x0000FFFFu
 
 /* nv-gpu-info.h */
-#define NVRM_NV_MAX_GPUS	32
+#define NVRM_NV_MAX_GPUS 32
 
 struct nvrm_gpu_info {
 	__u32 gpu_id;
 	struct {
 		__u32 domain;
-		__u8  bus, slot, function;
+		__u8 bus, slot, function;
 	} pci_info;
-	__u8 needs_numa_setup;		/* NvBool */
-	__u8 is_soc_disp;		/* NvBool */
+	__u8 needs_numa_setup; /* NvBool */
+	__u8 is_soc_disp; /* NvBool */
 	/* On Linux: the GPU's `struct device *`. */
 	void *os_device_ptr;
 };
@@ -75,15 +75,15 @@ struct nvrm_modeset_callbacks {
 struct nvrm_modeset_rm_ops {
 	const char *version_string;
 	struct {
-		__u8 allow_write_combining;	/* NvBool */
+		__u8 allow_write_combining; /* NvBool */
 	} system_info;
-	int  (*alloc_stack)(void **sp);
+	int (*alloc_stack)(void **sp);
 	void (*free_stack)(void *sp);
 	__u32 (*enumerate_gpus)(struct nvrm_gpu_info *gpu_info);
-	int  (*open_gpu)(__u32 gpu_id, void *sp, __u8 reset_aware);
+	int (*open_gpu)(__u32 gpu_id, void *sp, __u8 reset_aware);
 	void (*close_gpu)(__u32 gpu_id, void *sp, __u8 reset_aware);
 	void (*op)(void *sp, void *ops_cmd);
-	int  (*set_callbacks)(const struct nvrm_modeset_callbacks *cb);
+	int (*set_callbacks)(const struct nvrm_modeset_callbacks *cb);
 };
 
 /*
@@ -97,7 +97,7 @@ struct nvrm_modeset_rm_ops {
  * Only the offset of the union is an ABI fact of THIS struct, and it is
  * asserted rather than assumed: NvU32 op at 0, union aligned to 8.
  */
-#define NVRM_KAPI_PARAMS_OFF	8u
+#define NVRM_KAPI_PARAMS_OFF 8u
 
 /*
  * The one symbol nvidia-modeset.ko links against. Measured: `nm -u` on the

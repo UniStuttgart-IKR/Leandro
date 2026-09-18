@@ -113,7 +113,8 @@ fn main() {
     let device = rm.next_handle();
     let mut dp = sys::NV0080_ALLOC_PARAMETERS::default();
     dp.deviceId = 0;
-    rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp)).expect("NV01_DEVICE_0");
+    rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp))
+        .expect("NV01_DEVICE_0");
 
     // ---- call 1: classList = NULL, just to learn the count --------------
     let mut p = GetClassListParams::default();
@@ -172,7 +173,10 @@ fn main() {
 
     println!("\n== notable engine classes ==");
     for (c, name) in NOTABLE {
-        println!("  {} {c:#06x}  {name}", if classes.contains(c) { "YES" } else { " no" });
+        println!(
+            "  {} {c:#06x}  {name}",
+            if classes.contains(c) { "YES" } else { " no" }
+        );
     }
 
     println!("\n== all {n} classes ==");

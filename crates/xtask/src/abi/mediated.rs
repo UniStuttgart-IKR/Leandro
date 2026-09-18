@@ -16,8 +16,8 @@
 //! otherwise making a caller generic would remove the type from the trait it
 //! was made generic over.
 
-use crate::abi::emit::{Partition, Version};
 use crate::abi::config::Footprint;
+use crate::abi::emit::{Partition, Version};
 use anyhow::{bail, Result};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -76,9 +76,7 @@ pub fn assert_complete(
         if !part.volatile.contains(name) {
             continue;
         }
-        let is_type = versions
-            .iter()
-            .any(|v| v.manifest.types.contains_key(name));
+        let is_type = versions.iter().any(|v| v.manifest.types.contains_key(name));
         let is_const = versions
             .iter()
             .any(|v| v.manifest.constants.contains_key(name));

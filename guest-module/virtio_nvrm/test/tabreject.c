@@ -41,17 +41,20 @@ static void expect(const char *name, unsigned char *buf, size_t len, int want)
 	t.len = len;
 	got = nvrm_tables_parse(&t, &why);
 	if (got != want) {
-		fprintf(stderr, "FAIL %s: parse returned %d (%s), expected %d\n",
-			name, got, why ? why : "-", want);
+		fprintf(stderr,
+			"FAIL %s: parse returned %d (%s), expected %d\n", name,
+			got, why ? why : "-", want);
 		failures++;
 		return;
 	}
 	if (want != 0 && !why) {
-		fprintf(stderr, "FAIL %s: refused without naming a reason\n", name);
+		fprintf(stderr, "FAIL %s: refused without naming a reason\n",
+			name);
 		failures++;
 		return;
 	}
-	printf("ok   %-32s -> %d%s%s\n", name, got, why ? " " : "", why ? why : "");
+	printf("ok   %-32s -> %d%s%s\n", name, got, why ? " " : "",
+	       why ? why : "");
 }
 
 /* A private copy of the stream, one per case. */
@@ -90,11 +93,13 @@ int main(int argc, char **argv)
 	size_t len;
 	/* Header word offsets, from the field order in nvrm_wire.h. */
 	const size_t off_magic = offsetof(struct nvrm_table_hdr, magic);
-	const size_t off_version = offsetof(struct nvrm_table_hdr, table_version);
+	const size_t off_version =
+		offsetof(struct nvrm_table_hdr, table_version);
 	const size_t off_total = offsetof(struct nvrm_table_hdr, total_len);
 	const size_t off_checksum = offsetof(struct nvrm_table_hdr, checksum);
 	const size_t off_n_ioctl = offsetof(struct nvrm_table_hdr, n_ioctl);
-	const size_t off_max_nested = offsetof(struct nvrm_table_hdr, max_nested);
+	const size_t off_max_nested =
+		offsetof(struct nvrm_table_hdr, max_nested);
 
 	if (argc != 2) {
 		fprintf(stderr, "usage: %s <stream.bin>\n", argv[0]);
@@ -105,7 +110,8 @@ int main(int argc, char **argv)
 		perror(argv[1]);
 		return 2;
 	}
-	if (fseek(f, 0, SEEK_END) != 0 || (n = ftell(f)) < 0 || fseek(f, 0, SEEK_SET) != 0) {
+	if (fseek(f, 0, SEEK_END) != 0 || (n = ftell(f)) < 0 ||
+	    fseek(f, 0, SEEK_SET) != 0) {
 		perror("fseek/ftell");
 		return 2;
 	}
@@ -123,7 +129,8 @@ int main(int argc, char **argv)
 
 	/* 1. Shorter than a header: not even the magic can be read. */
 	c = copy_of(buf, len);
-	expect("stream shorter than the header", c, sizeof(struct nvrm_table_hdr) - 1, -EPROTO);
+	expect("stream shorter than the header", c,
+	       sizeof(struct nvrm_table_hdr) - 1, -EPROTO);
 	free(c);
 
 	/* 2. Wrong magic. */
@@ -177,22 +184,28 @@ int main(int argc, char **argv)
 	t.blob = buf;
 	t.len = len;
 	if (nvrm_tables_parse(&t, &why) != 0) {
-		fprintf(stderr, "FAIL: original stream rejected on second parse: %s\n", why);
+		fprintf(stderr,
+			"FAIL: original stream rejected on second parse: %s\n",
+			why);
 		failures++;
 	} else {
 		if (find_ioctl(&t, 0xffffffffu, 0xffffffffu)) {
-			fprintf(stderr, "FAIL: find_ioctl found a row for an impossible key\n");
+			fprintf(stderr,
+				"FAIL: find_ioctl found a row for an impossible key\n");
 			failures++;
 		}
 		if (find_class(&t, 0xffffffffu)) {
-			fprintf(stderr, "FAIL: find_class found a row for hClass 0xffffffff\n");
+			fprintf(stderr,
+				"FAIL: find_class found a row for hClass 0xffffffff\n");
 			failures++;
 		}
 		if (find_ctrl(&t, 0xffffffffu)) {
-			fprintf(stderr, "FAIL: find_ctrl found a row for cmd 0xffffffff\n");
+			fprintf(stderr,
+				"FAIL: find_ctrl found a row for cmd 0xffffffff\n");
 			failures++;
 		}
-		printf("ok   %-32s -> NULL, NULL, NULL\n", "lookups of unknown keys");
+		printf("ok   %-32s -> NULL, NULL, NULL\n",
+		       "lookups of unknown keys");
 	}
 
 	free(buf);

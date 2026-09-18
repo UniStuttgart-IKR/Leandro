@@ -69,7 +69,11 @@ impl Drf {
     pub const fn hi_lo(hi: u32, lo: u32) -> Self {
         assert!(hi >= lo && hi < 32);
         let width = hi - lo + 1;
-        let mask = if width >= 32 { u32::MAX } else { (1u32 << width) - 1 };
+        let mask = if width >= 32 {
+            u32::MAX
+        } else {
+            (1u32 << width) - 1
+        };
         Self { shift: lo, mask }
     }
 
@@ -212,7 +216,11 @@ pub struct Nvos33WithFd {
 
 impl Nvos33WithFd {
     pub const fn new(params: sys::NVOS33_PARAMETERS, fd: i32) -> Self {
-        Self { params, fd, _pad: 0 }
+        Self {
+            params,
+            fd,
+            _pad: 0,
+        }
     }
 }
 
@@ -893,18 +901,37 @@ mod drf_tests {
     fn set_masks_the_value_before_shifting_it() {
         let f = Drf::hi_lo(3, 2); // two bits
         assert_eq!(f.set(0b11), 0b1100);
-        assert_eq!(f.set(0xffff_ffff), 0b1100, "the value must be clipped, not shifted whole");
-        assert_eq!(f.set(0b100), 0, "a value that is all overflow leaves nothing");
+        assert_eq!(
+            f.set(0xffff_ffff),
+            0b1100,
+            "the value must be clipped, not shifted whole"
+        );
+        assert_eq!(
+            f.set(0b100),
+            0,
+            "a value that is all overflow leaves nothing"
+        );
     }
 
     /// Round trip: whatever `set` writes, `get` reads back -- modulo the
     /// mask, which is the clipping the test above pins.
     #[test]
     fn get_of_set_returns_the_value_masked() {
-        let fields = [Drf::hi_lo(1, 0), Drf::hi_lo(25, 23), Drf::hi_lo(31, 29), Drf::hi_lo(18, 18)];
+        let fields = [
+            Drf::hi_lo(1, 0),
+            Drf::hi_lo(25, 23),
+            Drf::hi_lo(31, 29),
+            Drf::hi_lo(18, 18),
+        ];
         for f in fields {
             for v in [0u32, 1, 2, 3, 7, 0x55, 0xffff_ffff] {
-                assert_eq!(f.get(f.set(v)), v & f.mask, "shift {} mask {:#x} v {v:#x}", f.shift, f.mask);
+                assert_eq!(
+                    f.get(f.set(v)),
+                    v & f.mask,
+                    "shift {} mask {:#x} v {v:#x}",
+                    f.shift,
+                    f.mask
+                );
             }
         }
     }

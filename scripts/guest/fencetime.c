@@ -18,11 +18,40 @@
 #include <stdio.h>
 #include <time.h>
 #include <vulkan/vulkan.h>
-static double now(){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return t.tv_sec*1e3+t.tv_nsec/1e6;}
-int main(){
- VkInstance in; VkInstanceCreateInfo ic={VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO}; vkCreateInstance(&ic,0,&in);
- VkPhysicalDevice p[4]; uint32_t n=4; vkEnumeratePhysicalDevices(in,&n,p);
- float pr=1; VkDeviceQueueCreateInfo q={VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,0,0,0,1,&pr};
- VkDeviceCreateInfo dc={VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,0,0,1,&q}; VkDevice d; vkCreateDevice(p[0],&dc,0,&d);
- VkQueue Q; vkGetDeviceQueue(d,0,0,&Q); VkFence f; VkFenceCreateInfo fc={VK_STRUCTURE_TYPE_FENCE_CREATE_INFO}; vkCreateFence(d,&fc,0,&f);
- for(int i=0;i<10;i++){ double t0=now(); vkQueueSubmit(Q,0,0,f); vkWaitForFences(d,1,&f,1,~0ull); vkResetFences(d,1,&f); printf("%.2f ",now()-t0);} printf(" ms  (empty submit to fence, 10x)\n"); return 0;}
+static double now()
+{
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return t.tv_sec * 1e3 + t.tv_nsec / 1e6;
+}
+int main()
+{
+	VkInstance in;
+	VkInstanceCreateInfo ic = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+	vkCreateInstance(&ic, 0, &in);
+	VkPhysicalDevice p[4];
+	uint32_t n = 4;
+	vkEnumeratePhysicalDevices(in, &n, p);
+	float pr = 1;
+	VkDeviceQueueCreateInfo q = {
+		VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, 0, 0, 0, 1, &pr
+	};
+	VkDeviceCreateInfo dc = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, 0, 0, 1,
+				  &q };
+	VkDevice d;
+	vkCreateDevice(p[0], &dc, 0, &d);
+	VkQueue Q;
+	vkGetDeviceQueue(d, 0, 0, &Q);
+	VkFence f;
+	VkFenceCreateInfo fc = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+	vkCreateFence(d, &fc, 0, &f);
+	for (int i = 0; i < 10; i++) {
+		double t0 = now();
+		vkQueueSubmit(Q, 0, 0, f);
+		vkWaitForFences(d, 1, &f, 1, ~0ull);
+		vkResetFences(d, 1, &f);
+		printf("%.2f ", now() - t0);
+	}
+	printf(" ms  (empty submit to fence, 10x)\n");
+	return 0;
+}

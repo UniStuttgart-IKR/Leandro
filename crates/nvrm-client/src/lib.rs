@@ -22,8 +22,8 @@
 //!    be read and entered here - they cannot be derived.
 
 pub mod handle;
-pub mod object;
 pub mod mem;
+pub mod object;
 
 use nvrm_abi::{check_status, sys, NvDevice, Result};
 
@@ -160,8 +160,10 @@ impl RmClient {
         unsafe { self.ctl.ioctl_raw(sys::NV_ESC_RM_ALLOC, &mut p)? };
         check_status(sys::NV_ESC_RM_ALLOC, p.status as u32)?;
 
-        self.objects
-            .insert(p.hObjectNew, object::Object::new(p.hObjectNew, parent, class));
+        self.objects.insert(
+            p.hObjectNew,
+            object::Object::new(p.hObjectNew, parent, class),
+        );
         Ok(p.hObjectNew)
     }
 

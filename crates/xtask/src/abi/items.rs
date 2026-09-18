@@ -116,7 +116,11 @@ fn base_ident(ty: &Type) -> Option<String> {
 }
 
 pub fn render(items: &[Item]) -> String {
-    let file = File { shebang: None, attrs: Vec::new(), items: items.to_vec() };
+    let file = File {
+        shebang: None,
+        attrs: Vec::new(),
+        items: items.to_vec(),
+    };
     prettyplease::unparse(&file)
 }
 

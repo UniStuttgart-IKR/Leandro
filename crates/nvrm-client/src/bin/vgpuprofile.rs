@@ -53,7 +53,10 @@ struct NameParams {
 impl Default for NameParams {
     fn default() -> Self {
         // flags 0 = NV2080_CTRL_GPU_GET_NAME_STRING_FLAGS_TYPE_ASCII.
-        Self { flags: 0, ascii: [0; 64] }
+        Self {
+            flags: 0,
+            ascii: [0; 64],
+        }
     }
 }
 
@@ -104,12 +107,14 @@ fn main() {
     let device = rm.next_handle();
     let mut dp = sys::NV0080_ALLOC_PARAMETERS::default();
     dp.deviceId = 0;
-    rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp)).expect("NV01_DEVICE_0");
+    rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp))
+        .expect("NV01_DEVICE_0");
 
     let subdevice = rm.next_handle();
     let mut sp = sys::NV2080_ALLOC_PARAMETERS::default();
     sp.subDeviceId = 0;
-    rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp)).expect("NV20_SUBDEVICE_0");
+    rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp))
+        .expect("NV20_SUBDEVICE_0");
 
     // ---- the card's VMMU segment size ----------------------------------
     let mut seg = sys::NV2080_CTRL_GPU_GET_VMMU_SEGMENT_SIZE_PARAMS::default();
@@ -139,7 +144,8 @@ fn main() {
     fb.fbInfoList[0].index = vgpu::FB_INFO_INDEX_TOTAL_RAM_SIZE;
     fb.fbInfoList[1].index = vgpu::FB_INFO_INDEX_HEAP_SIZE;
     fb.fbInfoList[2].index = mediate::FB_INFO_INDEX_HEAP_FREE;
-    rm.control(subdevice, mediate::CMD_FB_GET_INFO_V2, &mut fb).expect("FB_GET_INFO_V2");
+    rm.control(subdevice, mediate::CMD_FB_GET_INFO_V2, &mut fb)
+        .expect("FB_GET_INFO_V2");
     let total_kb = fb.fbInfoList[0].data as u64;
     let heap_kb = fb.fbInfoList[1].data as u64;
     let free_kb = fb.fbInfoList[2].data as u64;
@@ -159,16 +165,18 @@ fn main() {
     // idle later (or busier).
     let in_use_kb = heap_kb.saturating_sub(free_kb);
     let host_reserve = match std::env::var("LEA_VGPU_HOST_RESERVE_MIB") {
-        Ok(v) if !v.trim().is_empty() => match v.trim().parse::<u64>() {
-            Ok(m) => {
-                say!("host reserve: {m} MiB (LEA_VGPU_HOST_RESERVE_MIB)");
-                m << 20
+        Ok(v) if !v.trim().is_empty() => {
+            match v.trim().parse::<u64>() {
+                Ok(m) => {
+                    say!("host reserve: {m} MiB (LEA_VGPU_HOST_RESERVE_MIB)");
+                    m << 20
+                }
+                Err(_) => {
+                    eprintln!("vgpuprofile: LEA_VGPU_HOST_RESERVE_MIB={v:?} unusable -- measuring instead");
+                    in_use_kb * 1024
+                }
             }
-            Err(_) => {
-                eprintln!("vgpuprofile: LEA_VGPU_HOST_RESERVE_MIB={v:?} unusable -- measuring instead");
-                in_use_kb * 1024
-            }
-        },
+        }
         _ => {
             say!(
                 "host reserve: {} MiB, which is what the HOST is holding right now \
@@ -183,8 +191,14 @@ fn main() {
 
     // ---- and the board's own name --------------------------------------
     let mut np = NameParams::default();
-    rm.control(subdevice, mediate::CMD_GPU_GET_NAME_STRING, &mut np).expect("GPU_GET_NAME_STRING");
-    let name = np.ascii.iter().take_while(|&&c| c != 0).map(|&c| c as char).collect::<String>();
+    rm.control(subdevice, mediate::CMD_GPU_GET_NAME_STRING, &mut np)
+        .expect("GPU_GET_NAME_STRING");
+    let name = np
+        .ascii
+        .iter()
+        .take_while(|&&c| c != 0)
+        .map(|&c| c as char)
+        .collect::<String>();
     say!("board: {name:?}");
 
     // ---- what vGPU's arithmetic makes of that --------------------------
@@ -226,8 +240,16 @@ mod tests {
     fn a_type_and_its_size_print_the_same_numbers() {
         let cat = vgpu::Catalogue::derive("RTX2070", 8192 << 20, 6871 << 20, 256 << 20, 256 << 20);
         let (q, g) = (cat.resolve("4Q").unwrap(), cat.resolve("3G").unwrap());
-        let body = |p| select_block(&cat, &p).split_once('\n').unwrap().1.to_string();
+        let body = |p| {
+            select_block(&cat, &p)
+                .split_once('\n')
+                .unwrap()
+                .1
+                .to_string()
+        };
         assert_eq!(body(q), body(g));
-        assert!(select_block(&cat, &cat.resolve("3G").unwrap()).starts_with("vgpu_type=RTX2070-3G\n"));
+        assert!(
+            select_block(&cat, &cat.resolve("3G").unwrap()).starts_with("vgpu_type=RTX2070-3G\n")
+        );
     }
 }

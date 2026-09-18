@@ -89,7 +89,12 @@ struct ClientInfo {
 
 impl Default for ClientInfo {
     fn default() -> Self {
-        Self { handle: 0, pid: 0, sub_process_id: 0, sub_process_name: [0; PROC_NAME_MAX] }
+        Self {
+            handle: 0,
+            pid: 0,
+            sub_process_id: 0,
+            sub_process_name: [0; PROC_NAME_MAX],
+        }
     }
 }
 
@@ -102,7 +107,13 @@ fn is_vidmem(flags: u32) -> bool {
 fn cstr(b: &[u8]) -> String {
     b.iter()
         .take_while(|&&c| c != 0)
-        .map(|&c| if c.is_ascii_graphic() || c == b' ' { c as char } else { '?' })
+        .map(|&c| {
+            if c.is_ascii_graphic() || c == b' ' {
+                c as char
+            } else {
+                '?'
+            }
+        })
         .collect()
 }
 
@@ -200,7 +211,10 @@ fn main() {
         );
     }
 
-    let with_sub = clients[..n_client].iter().filter(|c| c.sub_process_id != 0).count();
+    let with_sub = clients[..n_client]
+        .iter()
+        .filter(|c| c.sub_process_id != 0)
+        .count();
     println!(
         "\n{with_sub} of {n_client} clients carry a subProcessID \
          (0 = no attribution)."

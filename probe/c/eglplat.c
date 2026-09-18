@@ -77,209 +77,232 @@
 
 static void usage(void)
 {
-    fprintf(stderr, "usage: eglplat gbm|wayland|xcb|xlib\n");
+	fprintf(stderr, "usage: eglplat gbm|wayland|xcb|xlib\n");
 }
 
 int main(int argc, char **argv)
 {
-    if (argc != 2) {
-        usage();
-        return 2;
-    }
-    const char *want = argv[1];
+	if (argc != 2) {
+		usage();
+		return 2;
+	}
+	const char *want = argv[1];
 
-    PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
-        (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
-    if (!getPlatformDisplay) {
-        fprintf(stderr, "eglplat: no eglGetPlatformDisplayEXT -- EGL_EXT_platform_base missing\n");
-        return 1;
-    }
+	PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
+		(PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress(
+			"eglGetPlatformDisplayEXT");
+	if (!getPlatformDisplay) {
+		fprintf(stderr,
+			"eglplat: no eglGetPlatformDisplayEXT -- EGL_EXT_platform_base missing\n");
+		return 1;
+	}
 
-    EGLenum platform = 0;
-    void *native = EGL_DEFAULT_DISPLAY;
+	EGLenum platform = 0;
+	void *native = EGL_DEFAULT_DISPLAY;
 #ifdef LEA_HAVE_GBM
-    int drmfd = -1;
-    struct gbm_device *gbm = NULL;
+	int drmfd = -1;
+	struct gbm_device *gbm = NULL;
 #endif
 
-    if (!strcmp(want, "gbm")) {
+	if (!strcmp(want, "gbm")) {
 #ifdef LEA_HAVE_GBM
-        // A render node, not a card node: this asks about the EGL platform,
-        // not about modesetting, and a render node needs no DRM master.
-        //
-        // ABSENT (2) versus REFUSED (1): the node not being there at all is
-        // an environment without a render node, which is a reason and not a
-        // finding. A node that exists and will not open is a finding.
-        if (access("/dev/dri/renderD128", F_OK) != 0) {
-            fprintf(stderr, "eglplat: no DRM render node (/dev/dri/renderD128)\n");
-            return 2;
-        }
-        drmfd = open("/dev/dri/renderD128", O_RDWR | O_CLOEXEC);
-        if (drmfd < 0) {
-            fprintf(stderr, "eglplat: cannot open /dev/dri/renderD128\n");
-            return 1;
-        }
-        gbm = gbm_create_device(drmfd);
-        if (!gbm) {
-            fprintf(stderr, "eglplat: gbm_create_device failed\n");
-            return 1;
-        }
-        platform = EGL_PLATFORM_GBM_KHR;
-        native = gbm;
+		// A render node, not a card node: this asks about the EGL platform,
+		// not about modesetting, and a render node needs no DRM master.
+		//
+		// ABSENT (2) versus REFUSED (1): the node not being there at all is
+		// an environment without a render node, which is a reason and not a
+		// finding. A node that exists and will not open is a finding.
+		if (access("/dev/dri/renderD128", F_OK) != 0) {
+			fprintf(stderr,
+				"eglplat: no DRM render node (/dev/dri/renderD128)\n");
+			return 2;
+		}
+		drmfd = open("/dev/dri/renderD128", O_RDWR | O_CLOEXEC);
+		if (drmfd < 0) {
+			fprintf(stderr,
+				"eglplat: cannot open /dev/dri/renderD128\n");
+			return 1;
+		}
+		gbm = gbm_create_device(drmfd);
+		if (!gbm) {
+			fprintf(stderr, "eglplat: gbm_create_device failed\n");
+			return 1;
+		}
+		platform = EGL_PLATFORM_GBM_KHR;
+		native = gbm;
 #else
-        fprintf(stderr, "eglplat: built without gbm\n");
-        return 2;
+		fprintf(stderr, "eglplat: built without gbm\n");
+		return 2;
 #endif
-    } else if (!strcmp(want, "wayland")) {
+	} else if (!strcmp(want, "wayland")) {
 #ifdef LEA_HAVE_WAYLAND
-        // Absent (2) versus refused (1), the same distinction as gbm above:
-        // WAYLAND_DISPLAY unset is an environment with no compositor, which
-        // is a reason. Set and unreachable is a finding.
-        if (!getenv("WAYLAND_DISPLAY")) {
-            fprintf(stderr, "eglplat: no Wayland display (WAYLAND_DISPLAY)\n");
-            return 2;
-        }
-        struct wl_display *wl = wl_display_connect(NULL);
-        if (!wl) {
-            fprintf(stderr, "eglplat: WAYLAND_DISPLAY is set and the connection failed\n");
-            return 1;
-        }
-        platform = EGL_PLATFORM_WAYLAND_KHR;
-        native = wl;
+		// Absent (2) versus refused (1), the same distinction as gbm above:
+		// WAYLAND_DISPLAY unset is an environment with no compositor, which
+		// is a reason. Set and unreachable is a finding.
+		if (!getenv("WAYLAND_DISPLAY")) {
+			fprintf(stderr,
+				"eglplat: no Wayland display (WAYLAND_DISPLAY)\n");
+			return 2;
+		}
+		struct wl_display *wl = wl_display_connect(NULL);
+		if (!wl) {
+			fprintf(stderr,
+				"eglplat: WAYLAND_DISPLAY is set and the connection failed\n");
+			return 1;
+		}
+		platform = EGL_PLATFORM_WAYLAND_KHR;
+		native = wl;
 #else
-        fprintf(stderr, "eglplat: built without wayland\n");
-        return 2;
+		fprintf(stderr, "eglplat: built without wayland\n");
+		return 2;
 #endif
-    } else if (!strcmp(want, "xlib")) {
+	} else if (!strcmp(want, "xlib")) {
 #ifdef LEA_HAVE_X11
-        if (!getenv("DISPLAY")) {
-            fprintf(stderr, "eglplat: no X display (DISPLAY)\n");
-            return 2;
-        }
-        Display *dpy = XOpenDisplay(NULL);
-        if (!dpy) {
-            fprintf(stderr, "eglplat: DISPLAY is set and XOpenDisplay failed\n");
-            return 1;
-        }
-        platform = EGL_PLATFORM_X11_KHR;
-        native = dpy;
+		if (!getenv("DISPLAY")) {
+			fprintf(stderr, "eglplat: no X display (DISPLAY)\n");
+			return 2;
+		}
+		Display *dpy = XOpenDisplay(NULL);
+		if (!dpy) {
+			fprintf(stderr,
+				"eglplat: DISPLAY is set and XOpenDisplay failed\n");
+			return 1;
+		}
+		platform = EGL_PLATFORM_X11_KHR;
+		native = dpy;
 #else
-        fprintf(stderr, "eglplat: built without X11\n");
-        return 2;
+		fprintf(stderr, "eglplat: built without X11\n");
+		return 2;
 #endif
-    } else if (!strcmp(want, "xcb")) {
+	} else if (!strcmp(want, "xcb")) {
 #ifdef LEA_HAVE_XCB
-        if (!getenv("DISPLAY")) {
-            fprintf(stderr, "eglplat: no X display (DISPLAY)\n");
-            return 2;
-        }
-        xcb_connection_t *c = xcb_connect(NULL, NULL);
-        if (!c || xcb_connection_has_error(c)) {
-            fprintf(stderr, "eglplat: DISPLAY is set and xcb_connect failed\n");
-            return 1;
-        }
-        platform = EGL_PLATFORM_XCB_EXT;
-        native = c;
+		if (!getenv("DISPLAY")) {
+			fprintf(stderr, "eglplat: no X display (DISPLAY)\n");
+			return 2;
+		}
+		xcb_connection_t *c = xcb_connect(NULL, NULL);
+		if (!c || xcb_connection_has_error(c)) {
+			fprintf(stderr,
+				"eglplat: DISPLAY is set and xcb_connect failed\n");
+			return 1;
+		}
+		platform = EGL_PLATFORM_XCB_EXT;
+		native = c;
 #else
-        fprintf(stderr, "eglplat: built without xcb\n");
-        return 2;
+		fprintf(stderr, "eglplat: built without xcb\n");
+		return 2;
 #endif
-    } else {
-        usage();
-        return 2;
-    }
+	} else {
+		usage();
+		return 2;
+	}
 
-    EGLDisplay dpy = getPlatformDisplay(platform, native, NULL);
-    if (dpy == EGL_NO_DISPLAY) {
-        fprintf(stderr, "eglplat: eglGetPlatformDisplayEXT(%s) -> EGL_NO_DISPLAY\n", want);
-        return 1;
-    }
-    EGLint major = 0, minor = 0;
-    if (!eglInitialize(dpy, &major, &minor)) {
-        fprintf(stderr, "eglplat: eglInitialize(%s) failed (0x%x)\n", want, eglGetError());
-        return 1;
-    }
-    const char *vendor = eglQueryString(dpy, EGL_VENDOR);
-    printf("EGLPLATFORM=%s\n", want);
-    printf("EGLVENDOR=%s\n", vendor ? vendor : "?");
-    printf("EGLVERSION=%d.%d\n", major, minor);
+	EGLDisplay dpy = getPlatformDisplay(platform, native, NULL);
+	if (dpy == EGL_NO_DISPLAY) {
+		fprintf(stderr,
+			"eglplat: eglGetPlatformDisplayEXT(%s) -> EGL_NO_DISPLAY\n",
+			want);
+		return 1;
+	}
+	EGLint major = 0, minor = 0;
+	if (!eglInitialize(dpy, &major, &minor)) {
+		fprintf(stderr, "eglplat: eglInitialize(%s) failed (0x%x)\n",
+			want, eglGetError());
+		return 1;
+	}
+	const char *vendor = eglQueryString(dpy, EGL_VENDOR);
+	printf("EGLPLATFORM=%s\n", want);
+	printf("EGLVENDOR=%s\n", vendor ? vendor : "?");
+	printf("EGLVERSION=%d.%d\n", major, minor);
 
-    if (!vendor || !strstr(vendor, "NVIDIA")) {
-        // Not a crash and not our bug -- but it is the finding, because a
-        // measurement taken here would be a measurement of Mesa.
-        fprintf(stderr, "eglplat: platform %s resolved to vendor '%s', not NVIDIA\n",
-                want, vendor ? vendor : "?");
-        return 1;
-    }
+	if (!vendor || !strstr(vendor, "NVIDIA")) {
+		// Not a crash and not our bug -- but it is the finding, because a
+		// measurement taken here would be a measurement of Mesa.
+		fprintf(stderr,
+			"eglplat: platform %s resolved to vendor '%s', not NVIDIA\n",
+			want, vendor ? vendor : "?");
+		return 1;
+	}
 
-    const EGLint cfgattr[] = {
-        EGL_SURFACE_TYPE,    EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-        EGL_RED_SIZE,        8,
-        EGL_GREEN_SIZE,      8,
-        EGL_BLUE_SIZE,       8,
-        EGL_ALPHA_SIZE,      8,
-        EGL_NONE
-    };
-    EGLConfig cfg;
-    EGLint ncfg = 0;
-    if (!eglChooseConfig(dpy, cfgattr, &cfg, 1, &ncfg) || ncfg < 1) {
-        fprintf(stderr, "eglplat: no pbuffer config on platform %s\n", want);
-        return 1;
-    }
-    if (!eglBindAPI(EGL_OPENGL_ES_API)) {
-        fprintf(stderr, "eglplat: eglBindAPI failed\n");
-        return 1;
-    }
-    const EGLint ctxattr[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
-    EGLContext ctx = eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, ctxattr);
-    if (ctx == EGL_NO_CONTEXT) {
-        fprintf(stderr, "eglplat: eglCreateContext failed (0x%x)\n", eglGetError());
-        return 1;
-    }
-    const EGLint sfattr[] = { EGL_WIDTH, 64, EGL_HEIGHT, 64, EGL_NONE };
-    EGLSurface surf = eglCreatePbufferSurface(dpy, cfg, sfattr);
-    if (surf == EGL_NO_SURFACE) {
-        fprintf(stderr, "eglplat: eglCreatePbufferSurface failed (0x%x)\n", eglGetError());
-        return 1;
-    }
-    if (!eglMakeCurrent(dpy, surf, surf, ctx)) {
-        fprintf(stderr, "eglplat: eglMakeCurrent failed (0x%x)\n", eglGetError());
-        return 1;
-    }
+	const EGLint cfgattr[] = { EGL_SURFACE_TYPE,
+				   EGL_PBUFFER_BIT,
+				   EGL_RENDERABLE_TYPE,
+				   EGL_OPENGL_ES2_BIT,
+				   EGL_RED_SIZE,
+				   8,
+				   EGL_GREEN_SIZE,
+				   8,
+				   EGL_BLUE_SIZE,
+				   8,
+				   EGL_ALPHA_SIZE,
+				   8,
+				   EGL_NONE };
+	EGLConfig cfg;
+	EGLint ncfg = 0;
+	if (!eglChooseConfig(dpy, cfgattr, &cfg, 1, &ncfg) || ncfg < 1) {
+		fprintf(stderr, "eglplat: no pbuffer config on platform %s\n",
+			want);
+		return 1;
+	}
+	if (!eglBindAPI(EGL_OPENGL_ES_API)) {
+		fprintf(stderr, "eglplat: eglBindAPI failed\n");
+		return 1;
+	}
+	const EGLint ctxattr[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+	EGLContext ctx = eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, ctxattr);
+	if (ctx == EGL_NO_CONTEXT) {
+		fprintf(stderr, "eglplat: eglCreateContext failed (0x%x)\n",
+			eglGetError());
+		return 1;
+	}
+	const EGLint sfattr[] = { EGL_WIDTH, 64, EGL_HEIGHT, 64, EGL_NONE };
+	EGLSurface surf = eglCreatePbufferSurface(dpy, cfg, sfattr);
+	if (surf == EGL_NO_SURFACE) {
+		fprintf(stderr,
+			"eglplat: eglCreatePbufferSurface failed (0x%x)\n",
+			eglGetError());
+		return 1;
+	}
+	if (!eglMakeCurrent(dpy, surf, surf, ctx)) {
+		fprintf(stderr, "eglplat: eglMakeCurrent failed (0x%x)\n",
+			eglGetError());
+		return 1;
+	}
 
-    printf("GLRENDERER=%s\n", (const char *)glGetString(GL_RENDERER));
+	printf("GLRENDERER=%s\n", (const char *)glGetString(GL_RENDERER));
 
-    glClearColor(R / 255.0f, G / 255.0f, B / 255.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glFinish();
+	glClearColor(R / 255.0f, G / 255.0f, B / 255.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glFinish();
 
-    unsigned char px[4] = { 0, 0, 0, 0 };
-    glReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
-    printf("PIXEL=%02x%02x%02x%02x\n", px[0], px[1], px[2], px[3]);
+	unsigned char px[4] = { 0, 0, 0, 0 };
+	glReadPixels(32, 32, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+	printf("PIXEL=%02x%02x%02x%02x\n", px[0], px[1], px[2], px[3]);
 
-    // One step of tolerance per channel: the pbuffer may be a different
-    // precision than 8888 and the clear then round-trips one bit off. Two
-    // steps would let a black buffer through, which is the whole point.
-    int ok = (px[0] >= R - 1 && px[0] <= R + 1) && (px[1] >= G - 1 && px[1] <= G + 1) &&
-             (px[2] >= B - 1 && px[2] <= B + 1);
+	// One step of tolerance per channel: the pbuffer may be a different
+	// precision than 8888 and the clear then round-trips one bit off. Two
+	// steps would let a black buffer through, which is the whole point.
+	int ok = (px[0] >= R - 1 && px[0] <= R + 1) &&
+		 (px[1] >= G - 1 && px[1] <= G + 1) &&
+		 (px[2] >= B - 1 && px[2] <= B + 1);
 
-    eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    eglDestroySurface(dpy, surf);
-    eglDestroyContext(dpy, ctx);
-    eglTerminate(dpy);
+	eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	eglDestroySurface(dpy, surf);
+	eglDestroyContext(dpy, ctx);
+	eglTerminate(dpy);
 #ifdef LEA_HAVE_GBM
-    if (gbm)
-        gbm_device_destroy(gbm);
-    if (drmfd >= 0)
-        close(drmfd);
+	if (gbm)
+		gbm_device_destroy(gbm);
+	if (drmfd >= 0)
+		close(drmfd);
 #endif
 
-    if (!ok) {
-        fprintf(stderr, "eglplat: read back %02x%02x%02x, expected %02x%02x%02x\n",
-                px[0], px[1], px[2], R, G, B);
-        return 1;
-    }
-    printf("eglplat %s ok\n", want);
-    return 0;
+	if (!ok) {
+		fprintf(stderr,
+			"eglplat: read back %02x%02x%02x, expected %02x%02x%02x\n",
+			px[0], px[1], px[2], R, G, B);
+		return 1;
+	}
+	printf("eglplat %s ok\n", want);
+	return 0;
 }

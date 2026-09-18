@@ -110,11 +110,12 @@ fn settle_admin_privilege() {
     const VERSION_3: u32 = 0x2008_0522;
     const CAP_SYS_ADMIN: u32 = 21;
 
-    let mut hdr = CapHeader { version: VERSION_3, pid: 0 };
-    let mut data = [CapData::default(); 2];
-    let r = unsafe {
-        libc::syscall(libc::SYS_capget, &mut hdr as *mut _, data.as_mut_ptr())
+    let mut hdr = CapHeader {
+        version: VERSION_3,
+        pid: 0,
     };
+    let mut data = [CapData::default(); 2];
+    let r = unsafe { libc::syscall(libc::SYS_capget, &mut hdr as *mut _, data.as_mut_ptr()) };
     if r != 0 {
         eprintln!("vhost-user-nvrm: capget failed -- assuming no privilege");
         return;
@@ -128,7 +129,11 @@ fn settle_admin_privilege() {
             "vhost-user-nvrm: LEA_ADMIN_PRIV=1 -- keeping CAP_SYS_ADMIN ({}). \
              RM's PRIVILEGED controls are open to this process, and so is \
              everything else that capability covers.",
-            if have { "present" } else { "NOT present -- setcap first" }
+            if have {
+                "present"
+            } else {
+                "NOT present -- setcap first"
+            }
         );
         return;
     }
@@ -137,9 +142,7 @@ fn settle_admin_privilege() {
     }
     data[0].effective &= !bit;
     data[0].permitted &= !bit;
-    let r = unsafe {
-        libc::syscall(libc::SYS_capset, &hdr as *const _, data.as_ptr())
-    };
+    let r = unsafe { libc::syscall(libc::SYS_capset, &hdr as *const _, data.as_ptr()) };
     if r == 0 {
         eprintln!("vhost-user-nvrm: dropped CAP_SYS_ADMIN (LEA_ADMIN_PRIV unset)");
     } else {

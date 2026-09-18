@@ -118,8 +118,7 @@ const HOST_VISIBLE_SIZE: u64 = 8 << 30;
 /// One-shot latch for `LEA_TEST_SHMEM_MAP_OOB` (see `on_map_prepare`). Fires
 /// once per process so the test costs exactly one mapping and everything
 /// after it is the recovery being measured, not a second injection.
-static TEST_OOB_FIRED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static TEST_OOB_FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Which cacheability a window mapping gets. The **GPU node** never gets
 /// write-back -- registers are `NV_MEMORY_UNCACHED`, framebuffer is
@@ -183,7 +182,8 @@ struct WindowMap {
 /// decision PROC_GONE acts on, it decides whether a dead process's slice of
 /// the 8 GiB window comes back, and it must be checkable without a VMM.
 fn window_of_proc(
-    window: &std::collections::BTreeMap<u64, WindowMap>, guest_proc: u32,
+    window: &std::collections::BTreeMap<u64, WindowMap>,
+    guest_proc: u32,
 ) -> Vec<u64> {
     window
         .iter()
@@ -210,7 +210,11 @@ fn window_of_proc(
 ///
 /// Callers check `off.checked_add(len)` against the window size first, so
 /// the sum here cannot wrap.
-fn window_overlaps(window: &std::collections::BTreeMap<u64, WindowMap>, off: u64, len: u64) -> bool {
+fn window_overlaps(
+    window: &std::collections::BTreeMap<u64, WindowMap>,
+    off: u64,
+    len: u64,
+) -> bool {
     window
         .range(..off + len)
         .next_back()
@@ -230,10 +234,18 @@ const EVENT_LISTENER_U16: u16 = EVENT_LISTENER as u16;
 enum PollSrc {
     /// A session's per-client event ctl: readable = drain with
     /// `Session::drain_os_events`, one `KIND_EVENT_FIRED` per firing.
-    EventCtl { guest_proc: u32, h_client: u32, fd: RawFd },
+    EventCtl {
+        guest_proc: u32,
+        h_client: u32,
+        fd: RawFd,
+    },
     /// A guest fd that allocated an OS event itself: readable = tell the
     /// guest to wake the fd behind `token`.
-    Client { guest_proc: u32, token: u64, fd: RawFd },
+    Client {
+        guest_proc: u32,
+        token: u64,
+        fd: RawFd,
+    },
     /// The waiter poller's notify eventfd: readable = retired semsurf
     /// (semaphore-surface: the fence object nvidia-drm signals through)
     /// waiters to collect (`WaiterPoller::take_fired`). The waiter fds
@@ -361,7 +373,10 @@ impl<A: RmAbi> NvrmDevice<A> {
         let fd = self.waiters.notify_fd();
         let id = self.next_poll_id;
         self.next_poll_id += 1;
-        match self.poll.ctl(ControlOperation::Add, fd, EpollEvent::new(EventSet::IN, id)) {
+        match self
+            .poll
+            .ctl(ControlOperation::Add, fd, EpollEvent::new(EventSet::IN, id))
+        {
             Ok(()) => {
                 self.poll_srcs.insert(id, PollSrc::WaiterNotify);
                 dlog!("poll +{id}: WaiterNotify fd {fd}");
@@ -400,7 +415,8 @@ impl<A: RmAbi> NvrmDevice<A> {
             // why) -- they go to the poller thread, keyed by fd, replacing
             // whatever stale entry a recycled slot left behind.
             if let Pollable::Waiter { id, fd } = p {
-                self.waiters.watch(crate::waiters::Watch { guest_proc, id, fd });
+                self.waiters
+                    .watch(crate::waiters::Watch { guest_proc, id, fd });
                 continue;
             }
             let key = Self::poll_key(guest_proc, &p);
@@ -408,27 +424,42 @@ impl<A: RmAbi> NvrmDevice<A> {
                 continue;
             }
             let (fd, src, set) = match p {
-                Pollable::EventCtl { h_client, fd } => {
-                    (fd, PollSrc::EventCtl { guest_proc, h_client, fd }, EventSet::IN)
-                }
+                Pollable::EventCtl { h_client, fd } => (
+                    fd,
+                    PollSrc::EventCtl {
+                        guest_proc,
+                        h_client,
+                        fd,
+                    },
+                    EventSet::IN,
+                ),
                 Pollable::Client { token, fd, owner } => (
                     fd,
                     // The firing names the token's OWNER, or the guest
                     // looks the token up in the wrong process.
-                    PollSrc::Client { guest_proc: owner.unwrap_or(guest_proc), token, fd },
+                    PollSrc::Client {
+                        guest_proc: owner.unwrap_or(guest_proc),
+                        token,
+                        fd,
+                    },
                     EventSet::IN | EventSet::EDGE_TRIGGERED,
                 ),
                 Pollable::Waiter { .. } => unreachable!("diverted above"),
             };
             let id = self.next_poll_id;
             self.next_poll_id += 1;
-            match self.poll.ctl(ControlOperation::Add, fd, EpollEvent::new(set, id)) {
+            match self
+                .poll
+                .ctl(ControlOperation::Add, fd, EpollEvent::new(set, id))
+            {
                 Ok(()) => {
                     self.poll_srcs.insert(id, src);
                     self.poll_ids.insert(key, id);
                     dlog!("poll +{id}: {src:?} fd {fd}");
                 }
-                Err(e) => eprintln!("vhost-user-nvrm: event poll: cannot watch fd {fd} ({src:?}): {e}"),
+                Err(e) => {
+                    eprintln!("vhost-user-nvrm: event poll: cannot watch fd {fd} ({src:?}): {e}")
+                }
             }
         }
     }
@@ -441,12 +472,20 @@ impl<A: RmAbi> NvrmDevice<A> {
     /// DELETE, so the source carries it. `fd_hint` overrides it for the
     /// token path, where the caller has the more current number.
     fn unregister_id(&mut self, id: u64, fd_hint: Option<RawFd>) {
-        let Some(src) = self.poll_srcs.remove(&id) else { return };
+        let Some(src) = self.poll_srcs.remove(&id) else {
+            return;
+        };
         let (key, fd) = match src {
-            PollSrc::EventCtl { guest_proc, h_client, fd } => {
-                ((guest_proc, proto::NONE_U64, h_client), fd)
-            }
-            PollSrc::Client { guest_proc, token, fd } => ((guest_proc, token, 0), fd),
+            PollSrc::EventCtl {
+                guest_proc,
+                h_client,
+                fd,
+            } => ((guest_proc, proto::NONE_U64, h_client), fd),
+            PollSrc::Client {
+                guest_proc,
+                token,
+                fd,
+            } => ((guest_proc, token, 0), fd),
             PollSrc::WaiterNotify => {
                 // The poller's own eventfd never leaves the set while the
                 // device lives; a HANG_UP here means the poller died.
@@ -458,7 +497,11 @@ impl<A: RmAbi> NvrmDevice<A> {
         let fd = fd_hint.unwrap_or(fd);
         // EBADF/ENOENT when the file is already gone: the kernel dropped it
         // for us, and that is fine.
-        let _ = self.poll.ctl(ControlOperation::Delete, fd, EpollEvent::new(EventSet::IN, id));
+        let _ = self.poll.ctl(
+            ControlOperation::Delete,
+            fd,
+            EpollEvent::new(EventSet::IN, id),
+        );
         dlog!("poll -{id}: {src:?}");
     }
 
@@ -468,8 +511,13 @@ impl<A: RmAbi> NvrmDevice<A> {
     /// keep the epoll registration alive -- and the fd NUMBER gets reused by
     /// the next open, which would then be watched under a stale id.
     fn unregister_token(&mut self, guest_proc: u32, token: u64) {
-        let Some(&id) = self.poll_ids.get(&(guest_proc, token, 0)) else { return };
-        let fd = self.sessions.get(&guest_proc).and_then(|s| s.mirror_raw(token));
+        let Some(&id) = self.poll_ids.get(&(guest_proc, token, 0)) else {
+            return;
+        };
+        let fd = self
+            .sessions
+            .get(&guest_proc)
+            .and_then(|s| s.mirror_raw(token));
         self.unregister_id(id, fd);
     }
 
@@ -480,7 +528,9 @@ impl<A: RmAbi> NvrmDevice<A> {
     /// this returns.
     fn unregister_event_ctl(&mut self, guest_proc: u32, h_client: u32) {
         let key = (guest_proc, proto::NONE_U64, h_client);
-        let Some(&id) = self.poll_ids.get(&key) else { return };
+        let Some(&id) = self.poll_ids.get(&key) else {
+            return;
+        };
         self.unregister_id(id, None);
     }
 
@@ -489,22 +539,22 @@ impl<A: RmAbi> NvrmDevice<A> {
         // The waiter poller's entries first: the session's slot fds close
         // with the session, and a stale entry would poll a reused number.
         self.waiters.unwatch_proc(guest_proc);
-        let ids: Vec<u64> = self
-            .poll_srcs
-            .iter()
-            .filter(|(_, s)| match **s {
-                PollSrc::EventCtl { guest_proc: g, .. } | PollSrc::Client { guest_proc: g, .. } => {
-                    g == guest_proc
-                }
-                PollSrc::WaiterNotify => false,
-            })
-            .map(|(&id, _)| id)
-            .collect();
+        let ids: Vec<u64> =
+            self.poll_srcs
+                .iter()
+                .filter(|(_, s)| match **s {
+                    PollSrc::EventCtl { guest_proc: g, .. }
+                    | PollSrc::Client { guest_proc: g, .. } => g == guest_proc,
+                    PollSrc::WaiterNotify => false,
+                })
+                .map(|(&id, _)| id)
+                .collect();
         for id in ids {
             let fd = match self.poll_srcs.get(&id) {
-                Some(PollSrc::Client { token, .. }) => {
-                    self.sessions.get(&guest_proc).and_then(|s| s.mirror_raw(*token))
-                }
+                Some(PollSrc::Client { token, .. }) => self
+                    .sessions
+                    .get(&guest_proc)
+                    .and_then(|s| s.mirror_raw(*token)),
                 // The event ctl closes with the session and takes its
                 // registration along; the fd is not duplicated anywhere.
                 _ => None,
@@ -532,7 +582,10 @@ impl<A: RmAbi> NvrmDevice<A> {
             self.ev_dropped_noqueue += 1;
             return false;
         };
-        let chain = evq.get_mut().get_queue_mut().pop_descriptor_chain(mem.clone());
+        let chain = evq
+            .get_mut()
+            .get_queue_mut()
+            .pop_descriptor_chain(mem.clone());
         let Some(chain) = chain else {
             self.ev_dropped_noslot += 1;
             if self.ev_dropped_noslot <= 3 {
@@ -609,7 +662,9 @@ impl<A: RmAbi> NvrmDevice<A> {
                     continue;
                 }
                 match self.poll_srcs.get(&id).copied() {
-                    Some(PollSrc::Client { guest_proc, token, .. }) => {
+                    Some(PollSrc::Client {
+                        guest_proc, token, ..
+                    }) => {
                         let seq = self.next_seq();
                         let req = Req {
                             seq,
@@ -619,12 +674,18 @@ impl<A: RmAbi> NvrmDevice<A> {
                             guest_proc,
                             ..Req::default()
                         };
-                        dlog!("EVENT_FIRED class {:#x} proc {guest_proc} tok {token}",
-                              sys::NV01_EVENT_OS_EVENT);
+                        dlog!(
+                            "EVENT_FIRED class {:#x} proc {guest_proc} tok {token}",
+                            sys::NV01_EVENT_OS_EVENT
+                        );
                         wrote_any |= self.push_event(evq, &req);
                         self.ev_wakes += 1;
                     }
-                    Some(PollSrc::EventCtl { guest_proc, h_client, .. }) => {
+                    Some(PollSrc::EventCtl {
+                        guest_proc,
+                        h_client,
+                        ..
+                    }) => {
                         let (fired, ctl_alive) = match self.sessions.get_mut(&guest_proc) {
                             Some(s) => {
                                 let f = s.drain_os_events(h_client);
@@ -664,8 +725,12 @@ impl<A: RmAbi> NvrmDevice<A> {
                             dlog!(
                                 "EVENT_FIRED class {:#x} proc {guest_proc} tok {} hClient {:#x} \
                                  hEvent {:#x} idx {:#x} id {}",
-                                f.reg.class, f.reg.token, f.reg.h_client, f.reg.h_event,
-                                f.reg.notify_index, f.reg.id
+                                f.reg.class,
+                                f.reg.token,
+                                f.reg.h_client,
+                                f.reg.h_event,
+                                f.reg.notify_index,
+                                f.reg.id
                             );
                             wrote_any |= self.push_event(evq, &req);
                         }
@@ -683,7 +748,11 @@ impl<A: RmAbi> NvrmDevice<A> {
                                 .get_mut(&w.guest_proc)
                                 .and_then(|s| s.semsurf_wake(w.id));
                             let Some((h_client, kc, token)) = woken else {
-                                dlog!("waiter id {} of proc {}: no books -- dropped", w.id, w.guest_proc);
+                                dlog!(
+                                    "waiter id {} of proc {}: no books -- dropped",
+                                    w.id,
+                                    w.guest_proc
+                                );
                                 continue;
                             };
                             let seq = self.next_seq();
@@ -792,7 +861,13 @@ impl<A: RmAbi> NvrmDevice<A> {
              | process has {total} fds, {ctl} of them nvidiactl \
              | outside every session {}",
             self.sessions.len(),
-            t[0], t[1], t[2], t[3], t[4], t[5], t[6],
+            t[0],
+            t[1],
+            t[2],
+            t[3],
+            t[4],
+            t[5],
+            t[6],
             self.window.len(),
             total as i64 - named as i64,
         );
@@ -801,7 +876,12 @@ impl<A: RmAbi> NvrmDevice<A> {
             eprintln!(
                 "vhost-user-nvrm:   session {id} ({}): mirror {} of {} ever, \
                  event_ctls {}, pooled_waiters {}, armed {}",
-                s.proc_name(), c[0], c[1], c[2], c[3], c[4],
+                s.proc_name(),
+                c[0],
+                c[1],
+                c[2],
+                c[3],
+                c[4],
             );
         }
     }
@@ -928,7 +1008,12 @@ impl<A: RmAbi> NvrmDevice<A> {
             None => dlog!("PROC_GONE for unknown guest process {}", req.guest_proc),
         }
         self.fd_census();
-        Rsp { seq: req.seq, ..Rsp::default() }.as_bytes().to_vec()
+        Rsp {
+            seq: req.seq,
+            ..Rsp::default()
+        }
+        .as_bytes()
+        .to_vec()
     }
 
     /// Answer one message. The return value is the finished response bytes.
@@ -1242,15 +1327,30 @@ impl<A: RmAbi> NvrmDevice<A> {
             eprintln!("vhost-user-nvrm: SHMEM_MAP: {e}");
             return err_rsp(req.seq, libc::EIO);
         }
-        self.window.insert(off, WindowMap { len, guest_proc: req.guest_proc, _fd: fd });
-        dlog!("MapPrepare -> window+{off:#x}, {len} bytes, cache {:#x}", cache_for(dev));
+        self.window.insert(
+            off,
+            WindowMap {
+                len,
+                guest_proc: req.guest_proc,
+                _fd: fd,
+            },
+        );
+        dlog!(
+            "MapPrepare -> window+{off:#x}, {len} bytes, cache {:#x}",
+            cache_for(dev)
+        );
 
         // Here `token` carries the CACHEABILITY, not a mapping id: the
         // host knows the NVOS33 (RM_MAP_MEMORY parameter block) flags, so
         // the guest module does not have to guess.
-        Rsp { seq: req.seq, ret: 0, token: cache_for(dev) as u64, ..Rsp::default() }
-            .as_bytes()
-            .to_vec()
+        Rsp {
+            seq: req.seq,
+            ret: 0,
+            token: cache_for(dev) as u64,
+            ..Rsp::default()
+        }
+        .as_bytes()
+        .to_vec()
     }
 
     /// Take a mapping back out of the window and drop the host fd behind it.
@@ -1268,7 +1368,12 @@ impl<A: RmAbi> NvrmDevice<A> {
             // Not an error: at process exit the guest also tears down
             // mappings that never came about.
             dlog!("MAP_RELEASE: {:#x} was not blended in", req.addr);
-            return Rsp { seq: req.seq, ..Rsp::default() }.as_bytes().to_vec();
+            return Rsp {
+                seq: req.seq,
+                ..Rsp::default()
+            }
+            .as_bytes()
+            .to_vec();
         };
         let msg = VhostUserMMap {
             shmid: SHM_ID_HOST_VISIBLE,
@@ -1284,7 +1389,12 @@ impl<A: RmAbi> NvrmDevice<A> {
         }
         dlog!("MAP_RELEASE window+{:#x}, {} bytes", req.addr, entry.len);
         // entry (and with it the host FD) is dropped here.
-        Rsp { seq: req.seq, ..Rsp::default() }.as_bytes().to_vec()
+        Rsp {
+            seq: req.seq,
+            ..Rsp::default()
+        }
+        .as_bytes()
+        .to_vec()
     }
 
     fn overlaps(&self, off: u64, len: u64) -> bool {
@@ -1337,7 +1447,10 @@ impl<A: RmAbi> NvrmDevice<A> {
                     resp.len(),
                     writer.available_bytes()
                 );
-                err_rsp(Rsp::from_bytes(&resp).map(|r| r.seq).unwrap_or(0), libc::EMSGSIZE)
+                err_rsp(
+                    Rsp::from_bytes(&resp).map(|r| r.seq).unwrap_or(0),
+                    libc::EMSGSIZE,
+                )
             } else {
                 resp
             };
@@ -1358,7 +1471,13 @@ impl<A: RmAbi> NvrmDevice<A> {
 }
 
 fn err_rsp(seq: u32, errno: i32) -> Vec<u8> {
-    Rsp { seq, ret: -errno, ..Rsp::default() }.as_bytes().to_vec()
+    Rsp {
+        seq,
+        ret: -errno,
+        ..Rsp::default()
+    }
+    .as_bytes()
+    .to_vec()
 }
 
 impl<A: RmAbi> VhostUserBackendMut for NvrmDevice<A> {
@@ -1428,9 +1547,15 @@ impl<A: RmAbi> VhostUserBackendMut for NvrmDevice<A> {
                 if let Some(evq) = vrings.get(1) {
                     let q = evq.get_ref();
                     let vq = q.get_queue();
-                    dlog!("evq kick: ready={} next_avail={} next_used={} avail_idx(guest)={:?}",
-                          vq.ready(), vq.next_avail(), vq.next_used(),
-                          self.mem.as_ref().map(|m| vq.avail_idx(&*m.memory(), std::sync::atomic::Ordering::Acquire).map(|i| i.0)));
+                    dlog!(
+                        "evq kick: ready={} next_avail={} next_used={} avail_idx(guest)={:?}",
+                        vq.ready(),
+                        vq.next_avail(),
+                        vq.next_used(),
+                        self.mem.as_ref().map(|m| vq
+                            .avail_idx(&*m.memory(), std::sync::atomic::Ordering::Acquire)
+                            .map(|i| i.0))
+                    );
                 }
                 Ok(())
             }
@@ -1550,7 +1675,14 @@ mod window_tests {
             .iter()
             .map(|&(off, len)| {
                 let fd = std::fs::File::open("/dev/null").expect("/dev/null");
-                (off, WindowMap { len, guest_proc: 0, _fd: fd })
+                (
+                    off,
+                    WindowMap {
+                        len,
+                        guest_proc: 0,
+                        _fd: fd,
+                    },
+                )
             })
             .collect()
     }
@@ -1561,7 +1693,14 @@ mod window_tests {
             .iter()
             .map(|&(off, len, guest_proc)| {
                 let fd = std::fs::File::open("/dev/null").expect("/dev/null");
-                (off, WindowMap { len, guest_proc, _fd: fd })
+                (
+                    off,
+                    WindowMap {
+                        len,
+                        guest_proc,
+                        _fd: fd,
+                    },
+                )
             })
             .collect()
     }
@@ -1584,7 +1723,11 @@ mod window_tests {
             (0x3000, 0x1000, 0),
         ]);
         let mine = window_of_proc(&w, 7);
-        assert_eq!(mine, vec![0x0000, 0x2000], "both of process 7's, in offset order");
+        assert_eq!(
+            mine,
+            vec![0x0000, 0x2000],
+            "both of process 7's, in offset order"
+        );
         for off in mine {
             assert!(w.remove(&off).is_some(), "and each one is really there");
         }
@@ -1612,8 +1755,14 @@ mod window_tests {
     #[test]
     fn end_to_end_mappings_do_not_collide() {
         let w = win(&[(0, 0x1000), (0x2000, 0x1000)]);
-        assert!(!window_overlaps(&w, 0x1000, 0x1000), "the gap between the two");
-        assert!(!window_overlaps(&w, 0x3000, 0x1000), "immediately after the last");
+        assert!(
+            !window_overlaps(&w, 0x1000, 0x1000),
+            "the gap between the two"
+        );
+        assert!(
+            !window_overlaps(&w, 0x3000, 0x1000),
+            "immediately after the last"
+        );
     }
 
     /// Every way one range can meet another, in one place: same start,
@@ -1622,11 +1771,23 @@ mod window_tests {
     fn the_four_shapes_of_an_overlap_are_all_caught() {
         let w = win(&[(0x2000, 0x2000)]); // [0x2000, 0x4000)
         assert!(window_overlaps(&w, 0x2000, 0x1000), "same start");
-        assert!(window_overlaps(&w, 0x3000, 0x2000), "starts inside, ends after");
-        assert!(window_overlaps(&w, 0x1000, 0x2000), "starts before, ends inside");
+        assert!(
+            window_overlaps(&w, 0x3000, 0x2000),
+            "starts inside, ends after"
+        );
+        assert!(
+            window_overlaps(&w, 0x1000, 0x2000),
+            "starts before, ends inside"
+        );
         assert!(window_overlaps(&w, 0x1000, 0x4000), "swallows it whole");
-        assert!(!window_overlaps(&w, 0x1000, 0x1000), "ends exactly at its start");
-        assert!(!window_overlaps(&w, 0x4000, 0x1000), "starts exactly at its end");
+        assert!(
+            !window_overlaps(&w, 0x1000, 0x1000),
+            "ends exactly at its start"
+        );
+        assert!(
+            !window_overlaps(&w, 0x4000, 0x1000),
+            "starts exactly at its end"
+        );
     }
 
     /// The reason only the last mapping before the query needs checking:
@@ -1636,7 +1797,10 @@ mod window_tests {
     fn a_hit_far_down_the_map_is_still_found() {
         let w = win(&[(0, 0x1000), (0x2000, 0x1000), (0x8000, 0x4000)]);
         assert!(window_overlaps(&w, 0x9000, 0x1000), "inside the last one");
-        assert!(!window_overlaps(&w, 0x4000, 0x4000), "the hole between the second and third");
+        assert!(
+            !window_overlaps(&w, 0x4000, 0x4000),
+            "the hole between the second and third"
+        );
     }
 }
 
@@ -1660,8 +1824,18 @@ mod device_tests {
 
     /// One GET_TABLES round trip: the response header plus the chunk that
     /// follows it.
-    fn get_tables(d: &mut NvrmDevice<nvrm_sys::DefaultAbi>, addr: u64, map_len: u64) -> (Rsp, Vec<u8>) {
-        let req = Req { seq: 3, kind: proto::KIND_GET_TABLES, addr, map_len, ..Req::default() };
+    fn get_tables(
+        d: &mut NvrmDevice<nvrm_sys::DefaultAbi>,
+        addr: u64,
+        map_len: u64,
+    ) -> (Rsp, Vec<u8>) {
+        let req = Req {
+            seq: 3,
+            kind: proto::KIND_GET_TABLES,
+            addr,
+            map_len,
+            ..Req::default()
+        };
         let out = d.handle(req.as_bytes());
         let rsp = Rsp::from_bytes(&out).expect("every answer starts with a Rsp");
         let body = out[Rsp::WIRE_LEN..].to_vec();
@@ -1710,11 +1884,19 @@ mod device_tests {
         assert!(total > 10);
 
         let (rsp, body) = get_tables(&mut d, 0, 0);
-        assert_eq!((rsp.ret, rsp.inline_len), (0, 1), "map_len 0 still makes progress");
+        assert_eq!(
+            (rsp.ret, rsp.inline_len),
+            (0, 1),
+            "map_len 0 still makes progress"
+        );
         assert_eq!(body, d.tables.bytes[..1]);
 
         let (rsp, body) = get_tables(&mut d, total - 10, 4096);
-        assert_eq!((rsp.ret, body.len()), (0, 10), "the last chunk is what is left, not what was asked");
+        assert_eq!(
+            (rsp.ret, body.len()),
+            (0, 10),
+            "the last chunk is what is left, not what was asked"
+        );
         assert_eq!(body, d.tables.bytes[total as usize - 10..]);
     }
 
@@ -1740,22 +1922,38 @@ mod device_tests {
         let want = d.tables.bytes.clone();
         let total = want.len() as u64;
         const CHUNK: u64 = 1000;
-        assert!(total > 3 * CHUNK && total % CHUNK != 0, "stream of {total} bytes");
+        assert!(
+            total > 3 * CHUNK && total % CHUNK != 0,
+            "stream of {total} bytes"
+        );
 
         let mut got: Vec<u8> = Vec::new();
         let mut lens: Vec<usize> = Vec::new();
         while (got.len() as u64) < total {
             let (rsp, chunk) = get_tables(&mut d, got.len() as u64, CHUNK);
             assert_eq!(rsp.ret, 0);
-            assert_eq!(rsp.token, total, "token is the total length, in every chunk");
-            assert!(!chunk.is_empty(), "a zero-length chunk never terminates the loop");
+            assert_eq!(
+                rsp.token, total,
+                "token is the total length, in every chunk"
+            );
+            assert!(
+                !chunk.is_empty(),
+                "a zero-length chunk never terminates the loop"
+            );
             got.extend_from_slice(&chunk);
             lens.push(chunk.len());
             assert!(lens.len() < 4096, "not converging");
         }
         let last = lens.pop().unwrap();
-        assert!(lens.len() >= 3, "the stream took only {} full chunks", lens.len());
-        assert!(lens.iter().all(|&n| n == CHUNK as usize), "a middle chunk was not full");
+        assert!(
+            lens.len() >= 3,
+            "the stream took only {} full chunks",
+            lens.len()
+        );
+        assert!(
+            lens.iter().all(|&n| n == CHUNK as usize),
+            "a middle chunk was not full"
+        );
         assert_eq!(last, total as usize - lens.len() * CHUNK as usize);
         assert!(last < CHUNK as usize, "the last chunk is short");
         assert_eq!(got, want, "the pages do not reassemble the stream");
@@ -1764,9 +1962,21 @@ mod device_tests {
         let word = |i: usize| u32::from_le_bytes(got[4 * i..4 * i + 4].try_into().unwrap());
         assert_eq!(word(0), t::TABLE_MAGIC, "magic 'NVRT'");
         assert_eq!(word(1), t::TABLE_VERSION);
-        assert_eq!(word(2) as usize, got.len(), "total_len covers the header too");
-        assert_eq!(word(3), t::fnv1a32(&got[t::HDR_LEN..]), "checksum over the body");
-        assert_eq!(word(3), d.tables.checksum, "and it is the one the device logged");
+        assert_eq!(
+            word(2) as usize,
+            got.len(),
+            "total_len covers the header too"
+        );
+        assert_eq!(
+            word(3),
+            t::fnv1a32(&got[t::HDR_LEN..]),
+            "checksum over the body"
+        );
+        assert_eq!(
+            word(3),
+            d.tables.checksum,
+            "and it is the one the device logged"
+        );
     }
 
     /// However large a `map_len` the guest asks for, one chunk is at most
@@ -1797,7 +2007,11 @@ mod device_tests {
 
         for map_len in [u64::MAX, proto::MAX_PAYLOAD as u64 + 1, 1 << 40] {
             let (rsp, body) = get_tables(&mut d, 0, map_len);
-            assert_eq!(body.len(), proto::MAX_PAYLOAD, "map_len {map_len} was not capped");
+            assert_eq!(
+                body.len(),
+                proto::MAX_PAYLOAD,
+                "map_len {map_len} was not capped"
+            );
             assert_eq!(rsp.inline_len as usize, proto::MAX_PAYLOAD);
             assert_eq!(rsp.token, grown as u64);
         }
@@ -1827,10 +2041,19 @@ mod device_tests {
     #[test]
     fn a_message_shorter_than_a_request_is_eproto() {
         let mut d = dev();
-        let full = Req { seq: 77, kind: proto::KIND_PROC_GONE, guest_proc: 5, ..Req::default() };
+        let full = Req {
+            seq: 77,
+            kind: proto::KIND_PROC_GONE,
+            guest_proc: 5,
+            ..Req::default()
+        };
         for n in [0, 1, 4, Req::WIRE_LEN - 1] {
             let rsp = Rsp::from_bytes(&d.handle(&full.as_bytes()[..n])).expect("a Rsp comes back");
-            assert_eq!(rsp.ret, -libc::EPROTO, "{n} bytes were accepted as a request");
+            assert_eq!(
+                rsp.ret,
+                -libc::EPROTO,
+                "{n} bytes were accepted as a request"
+            );
             assert_eq!(rsp.seq, 0, "no sequence number arrived, so none is echoed");
         }
         // The exact length is enough; nothing beyond the header is needed.
@@ -1865,7 +2088,12 @@ mod device_tests {
 
         let rsp = answer(
             &mut d,
-            Req { seq: 4, kind: proto::KIND_MAP_RELEASE, addr: 0x1000, ..Req::default() },
+            Req {
+                seq: 4,
+                kind: proto::KIND_MAP_RELEASE,
+                addr: 0x1000,
+                ..Req::default()
+            },
         );
         assert_eq!(rsp.ret, -libc::EIO);
         assert_eq!(rsp.seq, 4);
@@ -1890,14 +2118,28 @@ mod device_tests {
         let mut d = dev();
         let rsp = answer(
             &mut d,
-            Req { seq: 11, kind: proto::KIND_PROC_GONE, guest_proc: 0, ..Req::default() },
+            Req {
+                seq: 11,
+                kind: proto::KIND_PROC_GONE,
+                guest_proc: 0,
+                ..Req::default()
+            },
         );
-        assert_eq!(rsp.ret, -libc::EINVAL, "guest_proc 0 is 'not stated', not a process");
+        assert_eq!(
+            rsp.ret,
+            -libc::EINVAL,
+            "guest_proc 0 is 'not stated', not a process"
+        );
         assert_eq!(rsp.seq, 11);
 
         let rsp = answer(
             &mut d,
-            Req { seq: 12, kind: proto::KIND_PROC_GONE, guest_proc: 4242, ..Req::default() },
+            Req {
+                seq: 12,
+                kind: proto::KIND_PROC_GONE,
+                guest_proc: 4242,
+                ..Req::default()
+            },
         );
         assert_eq!(rsp.ret, 0, "an absent session is not an error");
         assert_eq!(rsp.seq, 12);
@@ -1913,16 +2155,26 @@ mod device_tests {
     /// successful ioctl whose return happened to be nonzero.
     #[test]
     fn err_rsp_negates_the_errno_and_echoes_the_sequence() {
-        for (seq, errno) in
-            [(0u32, libc::EINVAL), (7, libc::EPROTO), (u32::MAX, libc::EIO), (3, libc::ENOMEM)]
-        {
+        for (seq, errno) in [
+            (0u32, libc::EINVAL),
+            (7, libc::EPROTO),
+            (u32::MAX, libc::EIO),
+            (3, libc::ENOMEM),
+        ] {
             let bytes = err_rsp(seq, errno);
-            assert_eq!(bytes.len(), Rsp::WIRE_LEN, "an error answer carries no payload");
+            assert_eq!(
+                bytes.len(),
+                Rsp::WIRE_LEN,
+                "an error answer carries no payload"
+            );
             let rsp = Rsp::from_bytes(&bytes).unwrap();
             assert_eq!(rsp.seq, seq);
             assert_eq!(rsp.ret, -errno, "errno {errno} must arrive negated");
             assert!(rsp.ret < 0);
-            assert_eq!((rsp.token, rsp.inline_len, rsp.aux_len, rsp.scm_fd_count), (0, 0, 0, 0));
+            assert_eq!(
+                (rsp.token, rsp.inline_len, rsp.aux_len, rsp.scm_fd_count),
+                (0, 0, 0, 0)
+            );
         }
     }
 }

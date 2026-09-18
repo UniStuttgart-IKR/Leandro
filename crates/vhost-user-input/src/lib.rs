@@ -257,7 +257,10 @@ fn set_nonblocking(fd: RawFd) -> anyhow::Result<()> {
     // SAFETY: plain fcntl on a fd we own.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(anyhow::anyhow!("O_NONBLOCK: {}", std::io::Error::last_os_error()));
+        return Err(anyhow::anyhow!(
+            "O_NONBLOCK: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     Ok(())
 }
@@ -544,8 +547,15 @@ mod tests {
     #[test]
     fn event_wire_layout() {
         // le16 type, le16 code, le32 value -- the guest reads exactly this.
-        let ev = InputEvent { kind: EV_KEY, code: 30, value: 1 };
-        assert_eq!(ev.to_bytes(), [0x01, 0x00, 0x1e, 0x00, 0x01, 0x00, 0x00, 0x00]);
+        let ev = InputEvent {
+            kind: EV_KEY,
+            code: 30,
+            value: 1,
+        };
+        assert_eq!(
+            ev.to_bytes(),
+            [0x01, 0x00, 0x1e, 0x00, 0x01, 0x00, 0x00, 0x00]
+        );
     }
 
     #[test]
@@ -561,7 +571,9 @@ mod tests {
     fn lines_may_be_hex_commented_or_blank() {
         assert!(InputEvent::parse_line("   ").unwrap().is_none());
         assert!(InputEvent::parse_line("# a comment").unwrap().is_none());
-        let ev = InputEvent::parse_line("0x01 0x1e 1  # KEY_A down").unwrap().unwrap();
+        let ev = InputEvent::parse_line("0x01 0x1e 1  # KEY_A down")
+            .unwrap()
+            .unwrap();
         assert_eq!((ev.kind, ev.code, ev.value), (1, 30, 1));
     }
 

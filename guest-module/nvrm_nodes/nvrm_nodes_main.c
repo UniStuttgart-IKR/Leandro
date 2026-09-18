@@ -50,9 +50,9 @@
 #include "nvrm_nodes_uapi.h"
 
 #define NV_FRONTEND_MAJOR 195
-#define NV_UVM_MAJOR      235
-#define NV_MINOR_GPU0     0
-#define NV_MINOR_CTL      255
+#define NV_UVM_MAJOR 235
+#define NV_MINOR_GPU0 0
+#define NV_MINOR_CTL 255
 
 /* Pages per pin_user_pages_fast round: bounds the latency of a single call
  * and the size of one allocation, without capping the total length.
@@ -61,11 +61,13 @@
 
 static bool create_nodes = true;
 module_param(create_nodes, bool, 0444);
-MODULE_PARM_DESC(create_nodes, "Create the NVIDIA placeholder nodes (default: yes)");
+MODULE_PARM_DESC(create_nodes,
+		 "Create the NVIDIA placeholder nodes (default: yes)");
 
 static unsigned int max_pin_mib = 1024;
 module_param(max_pin_mib, uint, 0644);
-MODULE_PARM_DESC(max_pin_mib, "Upper bound per VA2GPA call in MiB (default 1024)");
+MODULE_PARM_DESC(max_pin_mib,
+		 "Upper bound per VA2GPA call in MiB (default 1024)");
 
 /* ------------------------------------------------------------------ *
  * Placeholder nodes
@@ -97,8 +99,8 @@ struct chrdev_range {
 
 static struct chrdev_range ranges[] = {
 	{ NV_FRONTEND_MAJOR, NV_MINOR_GPU0, 1, "nvidia" },
-	{ NV_FRONTEND_MAJOR, NV_MINOR_CTL,  1, "nvidiactl" },
-	{ NV_UVM_MAJOR,      0,             2, "nvidia-uvm" },
+	{ NV_FRONTEND_MAJOR, NV_MINOR_CTL, 1, "nvidiactl" },
+	{ NV_UVM_MAJOR, 0, 2, "nvidia-uvm" },
 };
 
 /* Nodes that devtmpfs is supposed to create. */
@@ -110,9 +112,9 @@ struct node_spec {
 
 static struct node_spec nodes[] = {
 	{ NV_FRONTEND_MAJOR, NV_MINOR_GPU0, "nvidia0" },
-	{ NV_FRONTEND_MAJOR, NV_MINOR_CTL,  "nvidiactl" },
-	{ NV_UVM_MAJOR,      0,             "nvidia-uvm" },
-	{ NV_UVM_MAJOR,      1,             "nvidia-uvm-tools" },
+	{ NV_FRONTEND_MAJOR, NV_MINOR_CTL, "nvidiactl" },
+	{ NV_UVM_MAJOR, 0, "nvidia-uvm" },
+	{ NV_UVM_MAJOR, 1, "nvidia-uvm-tools" },
 };
 
 static struct class *nvrm_nodes_class;
@@ -280,7 +282,7 @@ static long do_va2gpa(struct nvrm_nodes_ctx *ctx, void __user *uarg)
 		return -EFAULT;
 	if (!req.len || (req.va & ~PAGE_MASK) || (req.len & ~PAGE_MASK))
 		return -EINVAL;
-	if (req.va + req.len < req.va)	/* wraps: not a range */
+	if (req.va + req.len < req.va) /* wraps: not a range */
 		return -EINVAL;
 	if (req.len > (u64)max_pin_mib << 20)
 		return -E2BIG;
@@ -296,9 +298,10 @@ static long do_va2gpa(struct nvrm_nodes_ctx *ctx, void __user *uarg)
 	 * mlock cannot do, and without it the host arena could end up pointing
 	 * at stale pages. */
 	while (done < npages) {
-		unsigned long want = min_t(unsigned long, PIN_CHUNK_PAGES, npages - done);
-		long got = pin_user_pages_fast(req.va + (done << PAGE_SHIFT), want,
-					       FOLL_WRITE | FOLL_LONGTERM,
+		unsigned long want =
+			min_t(unsigned long, PIN_CHUNK_PAGES, npages - done);
+		long got = pin_user_pages_fast(req.va + (done << PAGE_SHIFT),
+					       want, FOLL_WRITE | FOLL_LONGTERM,
 					       pages + done);
 		if (got <= 0) {
 			ret = got ? got : -EFAULT;
@@ -316,7 +319,8 @@ static long do_va2gpa(struct nvrm_nodes_ctx *ctx, void __user *uarg)
 	for (i = 0; i < npages; i++) {
 		u64 gpa = (u64)page_to_pfn(pages[i]) << PAGE_SHIFT;
 
-		if (i && gpa == ((u64)page_to_pfn(pages[i - 1]) << PAGE_SHIFT) + PAGE_SIZE)
+		if (i && gpa == ((u64)page_to_pfn(pages[i - 1]) << PAGE_SHIFT) +
+					 PAGE_SIZE)
 			continue;
 		nruns++;
 	}
@@ -438,16 +442,16 @@ static const struct file_operations nvrm_nodes_fops = {
 	.release = nvrm_nodes_release,
 	.unlocked_ioctl = nvrm_abi,
 	.compat_ioctl = compat_ptr_ioctl,
-	/* no_llseek was DELETED in 6.12 ("fs: remove no_llseek"), and with it
-	 * the meaning of a NULL .llseek changed: up to 6.11 NULL meant
-	 * default_llseek, from 6.12 it means exactly what no_llseek used to.
-	 * So the field is set on old kernels and left out on new ones -- the
-	 * same node semantics on both, which is why this is a version guard
-	 * and not a deletion. Measured 2026-08-18: without it the module does
-	 * not compile against 6.18.44 (nixpkgs' default kernel),
-	 * "'no_llseek' undeclared here"; the Ubuntu guests run 6.8 and take
-	 * the other branch.
-	 */
+/* no_llseek was DELETED in 6.12 ("fs: remove no_llseek"), and with it
+ * the meaning of a NULL .llseek changed: up to 6.11 NULL meant
+ * default_llseek, from 6.12 it means exactly what no_llseek used to.
+ * So the field is set on old kernels and left out on new ones -- the
+ * same node semantics on both, which is why this is a version guard
+ * and not a deletion. Measured 2026-08-18: without it the module does
+ * not compile against 6.18.44 (nixpkgs' default kernel),
+ * "'no_llseek' undeclared here"; the Ubuntu guests run 6.8 and take
+ * the other branch.
+ */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
 	.llseek = no_llseek,
 #endif
@@ -470,7 +474,8 @@ static void nvrm_nodes_teardown(void)
 
 	for (i = 0; i < ARRAY_SIZE(nodes); i++) {
 		if (nodes[i].dev) {
-			device_destroy(nvrm_nodes_class, MKDEV(nodes[i].major, nodes[i].minor));
+			device_destroy(nvrm_nodes_class,
+				       MKDEV(nodes[i].major, nodes[i].minor));
 			nodes[i].dev = NULL;
 		}
 	}
@@ -480,7 +485,8 @@ static void nvrm_nodes_teardown(void)
 	}
 	for (i = 0; i < ARRAY_SIZE(ranges); i++) {
 		if (ranges[i].registered) {
-			__unregister_chrdev(ranges[i].major, ranges[i].baseminor,
+			__unregister_chrdev(ranges[i].major,
+					    ranges[i].baseminor,
 					    ranges[i].count, ranges[i].name);
 			ranges[i].registered = false;
 		}
@@ -509,7 +515,8 @@ static int __init nvrm_nodes_init(void)
 
 	if (create_nodes) {
 		for (i = 0; i < ARRAY_SIZE(ranges); i++) {
-			ret = __register_chrdev(ranges[i].major, ranges[i].baseminor,
+			ret = __register_chrdev(ranges[i].major,
+						ranges[i].baseminor,
 						ranges[i].count, ranges[i].name,
 						&placeholder_fops);
 			if (ret) {
@@ -532,19 +539,22 @@ static int __init nvrm_nodes_init(void)
 
 		for (i = 0; i < ARRAY_SIZE(nodes); i++) {
 			nodes[i].dev = device_create(nvrm_nodes_class, NULL,
-						     MKDEV(nodes[i].major, nodes[i].minor),
+						     MKDEV(nodes[i].major,
+							   nodes[i].minor),
 						     NULL, "%s", nodes[i].name);
 			if (IS_ERR(nodes[i].dev)) {
 				ret = PTR_ERR(nodes[i].dev);
 				nodes[i].dev = NULL;
-				pr_err("nvrm_nodes: device_create %s: %d\n", nodes[i].name, ret);
+				pr_err("nvrm_nodes: device_create %s: %d\n",
+				       nodes[i].name, ret);
 				goto err;
 			}
 		}
 	}
 
 	pr_info("nvrm_nodes: ready (ABI %d, nodes %s, max_pin %u MiB)\n",
-		NVRM_NODES_ABI_VERSION, create_nodes ? "on" : "off", max_pin_mib);
+		NVRM_NODES_ABI_VERSION, create_nodes ? "on" : "off",
+		max_pin_mib);
 	return 0;
 
 err:
@@ -564,6 +574,7 @@ module_init(nvrm_nodes_init);
 module_exit(nvrm_nodes_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("leandro nvrm_nodes: NVIDIA node placeholders, /proc/driver/nvidia, VA->GPA");
+MODULE_DESCRIPTION(
+	"leandro nvrm_nodes: NVIDIA node placeholders, /proc/driver/nvidia, VA->GPA");
 MODULE_AUTHOR("leandro");
 MODULE_VERSION("1");

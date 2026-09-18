@@ -187,7 +187,11 @@ impl ProcInfo {
         let mut r = ProcInfo::default();
         // SAFETY: length checked, the target is POD.
         unsafe {
-            core::ptr::copy_nonoverlapping(b.as_ptr(), &mut r as *mut Self as *mut u8, Self::WIRE_LEN);
+            core::ptr::copy_nonoverlapping(
+                b.as_ptr(),
+                &mut r as *mut Self as *mut u8,
+                Self::WIRE_LEN,
+            );
         }
         Some(r)
     }
@@ -200,7 +204,13 @@ impl ProcInfo {
         self.comm
             .iter()
             .take_while(|&&c| c != 0)
-            .map(|&c| if c.is_ascii_graphic() || c == b' ' { c as char } else { '?' })
+            .map(|&c| {
+                if c.is_ascii_graphic() || c == b' ' {
+                    c as char
+                } else {
+                    '?'
+                }
+            })
             .collect()
     }
 }
@@ -346,11 +356,21 @@ pub struct Req {
 impl Default for Req {
     fn default() -> Self {
         Req {
-            seq: 0, kind: 0, dev_tag: 0, ioctl_nr: 0,
-            target_token: 0, inline_len: 0, aux_len: 0,
-            fd_field_off: NONE_U32, fd_field_proc: NONE_U32, fd_field_token: NONE_U64,
-            embedded_ptr_off: NONE_U32, nested_count: 0, nested: [NestedDesc::default(); MAX_NESTED],
-            aux_fd_field_off: NONE_U32, aux_fd_field_proc: NONE_U32,
+            seq: 0,
+            kind: 0,
+            dev_tag: 0,
+            ioctl_nr: 0,
+            target_token: 0,
+            inline_len: 0,
+            aux_len: 0,
+            fd_field_off: NONE_U32,
+            fd_field_proc: NONE_U32,
+            fd_field_token: NONE_U64,
+            embedded_ptr_off: NONE_U32,
+            nested_count: 0,
+            nested: [NestedDesc::default(); MAX_NESTED],
+            aux_fd_field_off: NONE_U32,
+            aux_fd_field_proc: NONE_U32,
             aux_fd_field_token: NONE_U64,
             map_len: 0,
             addr: 0,
@@ -384,16 +404,20 @@ macro_rules! pod_bytes {
             pub const WIRE_LEN: usize = core::mem::size_of::<$t>();
             pub fn as_bytes(&self) -> &[u8] {
                 unsafe {
-                    core::slice::from_raw_parts(
-                        self as *const Self as *const u8, Self::WIRE_LEN)
+                    core::slice::from_raw_parts(self as *const Self as *const u8, Self::WIRE_LEN)
                 }
             }
             pub fn from_bytes(b: &[u8]) -> Option<Self> {
-                if b.len() < Self::WIRE_LEN { return None; }
+                if b.len() < Self::WIRE_LEN {
+                    return None;
+                }
                 let mut r = <$t>::default();
                 unsafe {
                     core::ptr::copy_nonoverlapping(
-                        b.as_ptr(), &mut r as *mut Self as *mut u8, Self::WIRE_LEN);
+                        b.as_ptr(),
+                        &mut r as *mut Self as *mut u8,
+                        Self::WIRE_LEN,
+                    );
                 }
                 Some(r)
             }
@@ -422,8 +446,13 @@ mod tests {
 
     #[test]
     fn roundtrip() {
-        let r = Req { seq: 7, kind: Kind::Ioctl as u32, ioctl_nr: 0x4e,
-                      target_token: 42, ..Req::default() };
+        let r = Req {
+            seq: 7,
+            kind: Kind::Ioctl as u32,
+            ioctl_nr: 0x4e,
+            target_token: 42,
+            ..Req::default()
+        };
         let r2 = Req::from_bytes(r.as_bytes()).unwrap();
         assert_eq!((r2.seq, r2.ioctl_nr, r2.target_token), (7, 0x4e, 42));
         assert_eq!(r2.fd_field_off, NONE_U32);
@@ -542,13 +571,24 @@ mod tests {
 
     #[test]
     fn rsp_and_procinfo_roundtrip() {
-        let s = Rsp { seq: 9, ret: -22, token: 0xfeed_beef_cafe_f00d,
-                      inline_len: 48, aux_len: 4096, scm_fd_count: 1, _pad: 0 };
+        let s = Rsp {
+            seq: 9,
+            ret: -22,
+            token: 0xfeed_beef_cafe_f00d,
+            inline_len: 48,
+            aux_len: 4096,
+            scm_fd_count: 1,
+            _pad: 0,
+        };
         let s2 = Rsp::from_bytes(s.as_bytes()).unwrap();
         assert_eq!(s2.as_bytes(), s.as_bytes());
         assert_eq!((s2.ret, s2.token), (-22, 0xfeed_beef_cafe_f00d));
 
-        let mut p = ProcInfo { pid: 4711, _pad: 0, comm: [0; 16] };
+        let mut p = ProcInfo {
+            pid: 4711,
+            _pad: 0,
+            comm: [0; 16],
+        };
         p.comm[..7].copy_from_slice(b"python3");
         let p2 = ProcInfo::from_bytes(p.as_bytes()).unwrap();
         assert_eq!(p2.as_bytes(), p.as_bytes());
@@ -592,8 +632,18 @@ mod tests {
         for v in 0..=5u32 {
             assert_eq!(Kind::from_u32(v).map(|k| k as u32), Some(v));
         }
-        for v in [KIND_GET_TABLES, KIND_MAP_RELEASE, KIND_PROC_GONE, KIND_EVENT_FIRED, 10, u32::MAX] {
-            assert!(Kind::from_u32(v).is_none(), "Kind {v} must never reach a Session");
+        for v in [
+            KIND_GET_TABLES,
+            KIND_MAP_RELEASE,
+            KIND_PROC_GONE,
+            KIND_EVENT_FIRED,
+            10,
+            u32::MAX,
+        ] {
+            assert!(
+                Kind::from_u32(v).is_none(),
+                "Kind {v} must never reach a Session"
+            );
         }
         // The event kind is a device-initiated message: additive, numbered
         // right after PROC_GONE, and NEVER a `Kind` variant.

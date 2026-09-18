@@ -152,36 +152,69 @@ impl Mediated {
 /// `(name, cmd, offset)` -- one gpuId at a fixed offset.
 pub fn bdf_scalars() -> &'static [(&'static str, u32, usize)] {
     &[
-        ("GET_ID_INFO", sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_ID_INFO_PARAMS, gpuId)),
-        ("GET_ID_INFO_V2", sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS, gpuId)),
+        (
+            "GET_ID_INFO",
+            sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_ID_INFO_PARAMS, gpuId),
+        ),
+        (
+            "GET_ID_INFO_V2",
+            sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS, gpuId),
+        ),
         // The SAME id a second time in the same block. Measured with
         // bdf_debug: GET_ID_INFO carries 0x2d00 at +0 and again at +28, and
         // the second one is boardId -- which is what NVML prints the address
         // from. A command can appear more than once in this table.
-        ("GET_ID_INFO boardId", sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_ID_INFO_PARAMS, boardId)),
-        ("GET_ID_INFO_V2 boardId", sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS, boardId)),
-        ("GET_PCI_INFO", sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, gpuId)),
-        ("GET_UUID_INFO", sys::NV0000_CTRL_CMD_GPU_GET_UUID_INFO,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_UUID_INFO_PARAMS, gpuId)),
-        ("GET_UUID_FROM_GPU_ID", sys::NV0000_CTRL_CMD_GPU_GET_UUID_FROM_GPU_ID,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_UUID_FROM_GPU_ID_PARAMS, gpuId)),
-        ("MODIFY_DRAIN_STATE", sys::NV0000_CTRL_CMD_GPU_MODIFY_DRAIN_STATE,
-         offset_of!(sys::NV0000_CTRL_GPU_MODIFY_DRAIN_STATE_PARAMS, gpuId)),
-        ("QUERY_DRAIN_STATE", sys::NV0000_CTRL_CMD_GPU_QUERY_DRAIN_STATE,
-         offset_of!(sys::NV0000_CTRL_GPU_QUERY_DRAIN_STATE_PARAMS, gpuId)),
+        (
+            "GET_ID_INFO boardId",
+            sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_ID_INFO_PARAMS, boardId),
+        ),
+        (
+            "GET_ID_INFO_V2 boardId",
+            sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS, boardId),
+        ),
+        (
+            "GET_PCI_INFO",
+            sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, gpuId),
+        ),
+        (
+            "GET_UUID_INFO",
+            sys::NV0000_CTRL_CMD_GPU_GET_UUID_INFO,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_UUID_INFO_PARAMS, gpuId),
+        ),
+        (
+            "GET_UUID_FROM_GPU_ID",
+            sys::NV0000_CTRL_CMD_GPU_GET_UUID_FROM_GPU_ID,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_UUID_FROM_GPU_ID_PARAMS, gpuId),
+        ),
+        (
+            "MODIFY_DRAIN_STATE",
+            sys::NV0000_CTRL_CMD_GPU_MODIFY_DRAIN_STATE,
+            offset_of!(sys::NV0000_CTRL_GPU_MODIFY_DRAIN_STATE_PARAMS, gpuId),
+        ),
+        (
+            "QUERY_DRAIN_STATE",
+            sys::NV0000_CTRL_CMD_GPU_QUERY_DRAIN_STATE,
+            offset_of!(sys::NV0000_CTRL_GPU_QUERY_DRAIN_STATE_PARAMS, gpuId),
+        ),
         // These two are the ones NVML actually attaches with, and leaving
         // them out was measured, not theorised: nvidia-smi kept printing the
         // host's 2D:00.0 because ASYNC_ATTACH_ID echoed the host id straight
         // back and NVML decodes the address OUT OF THE ID.
-        ("ASYNC_ATTACH_ID", sys::NV0000_CTRL_CMD_GPU_ASYNC_ATTACH_ID,
-         offset_of!(sys::NV0000_CTRL_GPU_ASYNC_ATTACH_ID_PARAMS, gpuId)),
-        ("WAIT_ATTACH_ID", sys::NV0000_CTRL_CMD_GPU_WAIT_ATTACH_ID,
-         offset_of!(sys::NV0000_CTRL_GPU_WAIT_ATTACH_ID_PARAMS, gpuId)),
+        (
+            "ASYNC_ATTACH_ID",
+            sys::NV0000_CTRL_CMD_GPU_ASYNC_ATTACH_ID,
+            offset_of!(sys::NV0000_CTRL_GPU_ASYNC_ATTACH_ID_PARAMS, gpuId),
+        ),
+        (
+            "WAIT_ATTACH_ID",
+            sys::NV0000_CTRL_CMD_GPU_WAIT_ATTACH_ID,
+            offset_of!(sys::NV0000_CTRL_GPU_WAIT_ATTACH_ID_PARAMS, gpuId),
+        ),
         // Found by the guest sweep on 2026-08-20 (OPEN-QUESTIONS number 51),
         // and the only control in nvidia-smi's whole run that answered
         // NV_ERR_INVALID_ARGUMENT (0x1f) in a guest -- which is what RM says
@@ -191,8 +224,11 @@ pub fn bdf_scalars() -> &'static [(&'static str, u32, usize)] {
         // (psize 0xc). NVML asks it per GPU while building the accounting
         // section of `-q`; the report prints without the answer, which is
         // why no gate has ever seen this and only a trace diff could.
-        ("GPUACCT_GET_ACCOUNTING_STATE", sys::NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE,
-         offset_of!(sys::NV0000_CTRL_GPUACCT_GET_ACCOUNTING_STATE_PARAMS, gpuId)),
+        (
+            "GPUACCT_GET_ACCOUNTING_STATE",
+            sys::NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE,
+            offset_of!(sys::NV0000_CTRL_GPUACCT_GET_ACCOUNTING_STATE_PARAMS, gpuId),
+        ),
     ]
 }
 
@@ -207,33 +243,60 @@ pub fn bdf_scalars() -> &'static [(&'static str, u32, usize)] {
 /// device in no list it knew and returned INITIALIZATION_FAILED.
 pub fn bdf_arrays<A: RmAbi>() -> Vec<(&'static str, u32, usize, u32, usize)> {
     vec![
-        ("GET_ATTACHED_IDS", sys::NV0000_CTRL_CMD_GPU_GET_ATTACHED_IDS,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_ATTACHED_IDS_PARAMS, gpuIds),
-         sys::NV0000_CTRL_GPU_MAX_ATTACHED_GPUS, 4),
-        ("GET_PROBED_IDS", sys::NV0000_CTRL_CMD_GPU_GET_PROBED_IDS,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS, gpuIds),
-         sys::NV0000_CTRL_GPU_MAX_PROBED_GPUS, 4),
-        ("ATTACH_IDS", sys::NV0000_CTRL_CMD_GPU_ATTACH_IDS,
-         offset_of!(sys::NV0000_CTRL_GPU_ATTACH_IDS_PARAMS, gpuIds),
-         sys::NV0000_CTRL_GPU_MAX_PROBED_GPUS, 4),
-        ("DETACH_IDS", sys::NV0000_CTRL_CMD_GPU_DETACH_IDS,
-         offset_of!(sys::NV0000_CTRL_GPU_DETACH_IDS_PARAMS, gpuIds),
-         sys::NV0000_CTRL_GPU_MAX_ATTACHED_GPUS, 4),
-        ("GET_ACTIVE_DEVICE_IDS", sys::NV0000_CTRL_CMD_GPU_GET_ACTIVE_DEVICE_IDS,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_ACTIVE_DEVICE_IDS_PARAMS, devices)
-             + offset_of!(sys::NV0000_CTRL_GPU_ACTIVE_DEVICE, gpuId),
-         sys::NV0000_CTRL_GPU_MAX_ACTIVE_DEVICES,
-         size_of::<sys::NV0000_CTRL_GPU_ACTIVE_DEVICE>()),
+        (
+            "GET_ATTACHED_IDS",
+            sys::NV0000_CTRL_CMD_GPU_GET_ATTACHED_IDS,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_ATTACHED_IDS_PARAMS, gpuIds),
+            sys::NV0000_CTRL_GPU_MAX_ATTACHED_GPUS,
+            4,
+        ),
+        (
+            "GET_PROBED_IDS",
+            sys::NV0000_CTRL_CMD_GPU_GET_PROBED_IDS,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS, gpuIds),
+            sys::NV0000_CTRL_GPU_MAX_PROBED_GPUS,
+            4,
+        ),
+        (
+            "ATTACH_IDS",
+            sys::NV0000_CTRL_CMD_GPU_ATTACH_IDS,
+            offset_of!(sys::NV0000_CTRL_GPU_ATTACH_IDS_PARAMS, gpuIds),
+            sys::NV0000_CTRL_GPU_MAX_PROBED_GPUS,
+            4,
+        ),
+        (
+            "DETACH_IDS",
+            sys::NV0000_CTRL_CMD_GPU_DETACH_IDS,
+            offset_of!(sys::NV0000_CTRL_GPU_DETACH_IDS_PARAMS, gpuIds),
+            sys::NV0000_CTRL_GPU_MAX_ATTACHED_GPUS,
+            4,
+        ),
+        (
+            "GET_ACTIVE_DEVICE_IDS",
+            sys::NV0000_CTRL_CMD_GPU_GET_ACTIVE_DEVICE_IDS,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_ACTIVE_DEVICE_IDS_PARAMS, devices)
+                + offset_of!(sys::NV0000_CTRL_GPU_ACTIVE_DEVICE, gpuId),
+            sys::NV0000_CTRL_GPU_MAX_ACTIVE_DEVICES,
+            size_of::<sys::NV0000_CTRL_GPU_ACTIVE_DEVICE>(),
+        ),
         // The QUESTION side of raytracing init: "P2P caps of GPU group A to
         // group B", both groups arrays of gpuIds. Two arrays, one control,
         // hence two rows with the same cmd (the rewrite loop takes every row
         // that matches).
-        ("P2P_CAPS_MATRIX_A", sys::NV0000_CTRL_CMD_SYSTEM_GET_P2P_CAPS_MATRIX,
-         A::P2P_CAPS_MATRIX_PARAMS_OFF_gpuIdGrpA,
-         sys::NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS, 4),
-        ("P2P_CAPS_MATRIX_B", sys::NV0000_CTRL_CMD_SYSTEM_GET_P2P_CAPS_MATRIX,
-         A::P2P_CAPS_MATRIX_PARAMS_OFF_gpuIdGrpB,
-         sys::NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS, 4),
+        (
+            "P2P_CAPS_MATRIX_A",
+            sys::NV0000_CTRL_CMD_SYSTEM_GET_P2P_CAPS_MATRIX,
+            A::P2P_CAPS_MATRIX_PARAMS_OFF_gpuIdGrpA,
+            sys::NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS,
+            4,
+        ),
+        (
+            "P2P_CAPS_MATRIX_B",
+            sys::NV0000_CTRL_CMD_SYSTEM_GET_P2P_CAPS_MATRIX,
+            A::P2P_CAPS_MATRIX_PARAMS_OFF_gpuIdGrpB,
+            sys::NV0000_CTRL_SYSTEM_MAX_P2P_GROUP_GPUS,
+            4,
+        ),
     ]
 }
 
@@ -252,14 +315,30 @@ pub fn bdf_arrays<A: RmAbi>() -> Vec<(&'static str, u32, usize, u32, usize)> {
 /// deliberate test. The manifest was incomplete; the code was right.
 pub fn pci_info_fields() -> &'static [(&'static str, &'static str, usize, u32)] {
     &[
-        ("PCI_INFO_GPUID", "gpuId",
-         offset_of!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, gpuId), 4),
-        ("PCI_INFO_DOMAIN", "domain",
-         offset_of!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, domain), 4),
-        ("PCI_INFO_BUS", "bus",
-         offset_of!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, bus), 2),
-        ("PCI_INFO_SLOT", "slot",
-         offset_of!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, slot), 2),
+        (
+            "PCI_INFO_GPUID",
+            "gpuId",
+            offset_of!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, gpuId),
+            4,
+        ),
+        (
+            "PCI_INFO_DOMAIN",
+            "domain",
+            offset_of!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, domain),
+            4,
+        ),
+        (
+            "PCI_INFO_BUS",
+            "bus",
+            offset_of!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, bus),
+            2,
+        ),
+        (
+            "PCI_INFO_SLOT",
+            "slot",
+            offset_of!(sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS, slot),
+            2,
+        ),
     ]
 }
 
@@ -297,12 +376,15 @@ pub const CMD_GPU_GET_ENCODER_CAPACITY: u32 = 0x2080_016c;
 
 /// `NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS`: `virtualizationMode`
 /// @0, `isGridBuild` @4 -- a `NvBool`, which is one byte.
-pub const VIRTMODE_OFF: usize =
-    offset_of!(sys::NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS, virtualizationMode);
-pub const VIRTMODE_GRIDBUILD_OFF: usize =
-    offset_of!(sys::NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS, isGridBuild);
-pub const VIRTMODE_LEN: usize =
-    size_of::<sys::NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS>();
+pub const VIRTMODE_OFF: usize = offset_of!(
+    sys::NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS,
+    virtualizationMode
+);
+pub const VIRTMODE_GRIDBUILD_OFF: usize = offset_of!(
+    sys::NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS,
+    isGridBuild
+);
+pub const VIRTMODE_LEN: usize = size_of::<sys::NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS>();
 
 /// `NV0080_CTRL_GPU_VIRTUALIZATION_MODE_*` (ctrl0080gpu.h:302-307). `VGX`
 /// is what a vGPU GUEST reports; `HOST` is what the machine running the
@@ -315,10 +397,11 @@ pub const VIRTUALIZATION_MODE_VGX: u32 = 2;
 /// @4 is the answer, a percentage.
 pub const ENCCAP_QUERY_OFF: usize =
     offset_of!(sys::NV2080_CTRL_GPU_GET_ENCODER_CAPACITY_PARAMS, queryType);
-pub const ENCCAP_OFF: usize =
-    offset_of!(sys::NV2080_CTRL_GPU_GET_ENCODER_CAPACITY_PARAMS, encoderCapacity);
-pub const ENCCAP_LEN: usize =
-    size_of::<sys::NV2080_CTRL_GPU_GET_ENCODER_CAPACITY_PARAMS>();
+pub const ENCCAP_OFF: usize = offset_of!(
+    sys::NV2080_CTRL_GPU_GET_ENCODER_CAPACITY_PARAMS,
+    encoderCapacity
+);
+pub const ENCCAP_LEN: usize = size_of::<sys::NV2080_CTRL_GPU_GET_ENCODER_CAPACITY_PARAMS>();
 
 /// `NV2080_CTRL_CMD_GPU_GET_GID_INFO` (ctrl2080gpu.h:1749) -- the card's
 /// UUID, which is what every orchestrator keys a GPU on.
@@ -334,8 +417,7 @@ pub const CMD_GPU_GET_GID_INFO: u32 = 0x2080_014a;
 pub const CMD_GPU_GET_NAME_STRING: u32 = 0x2080_0110;
 
 /// `NV2080_CTRL_GPU_GET_PIDS_PARAMS`: `pidTblCount` @8, `pidTbl[950]` @12.
-pub const PIDS_COUNT_OFF: usize =
-    offset_of!(sys::NV2080_CTRL_GPU_GET_PIDS_PARAMS, pidTblCount);
+pub const PIDS_COUNT_OFF: usize = offset_of!(sys::NV2080_CTRL_GPU_GET_PIDS_PARAMS, pidTblCount);
 pub const PIDS_TBL_OFF: usize = offset_of!(sys::NV2080_CTRL_GPU_GET_PIDS_PARAMS, pidTbl);
 pub const PIDS_MAX: usize = 950;
 pub const PIDS_LEN: usize = size_of::<sys::NV2080_CTRL_GPU_GET_PIDS_PARAMS>();
@@ -410,7 +492,12 @@ const _: () = {
 // general, and the general answer is `name_off`/`name_max`, which ask the ABI.
 #[cfg(feature = "v610")]
 const _: () = {
-    assert!(offset_of!(sys::v610::NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS, gpuNameString) == 4);
+    assert!(
+        offset_of!(
+            sys::v610::NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS,
+            gpuNameString
+        ) == 4
+    );
     assert!(size_of::<sys::v610::NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS__bindgen_ty_1>() == 64);
 };
 
@@ -429,16 +516,27 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
 
     for (name, cmd, off) in bdf_scalars() {
         out.push(Mediated {
-            nr: NR_RM_CONTROL, cmd: *cmd, off: *off as u32, len: 4, stride: 0, count: 0,
-            kind: Kind::BdfScalar, field: name,
+            nr: NR_RM_CONTROL,
+            cmd: *cmd,
+            off: *off as u32,
+            len: 4,
+            stride: 0,
+            count: 0,
+            kind: Kind::BdfScalar,
+            field: name,
             why: "a gpuId: the host's card id in, this guest's id out",
         });
     }
     for (name, cmd, off, count, stride) in bdf_arrays::<A>() {
         out.push(Mediated {
-            nr: NR_RM_CONTROL, cmd, off: off as u32, len: 4,
-            stride: stride as u32, count,
-            kind: Kind::BdfArray, field: name,
+            nr: NR_RM_CONTROL,
+            cmd,
+            off: off as u32,
+            len: 4,
+            stride: stride as u32,
+            count,
+            kind: Kind::BdfArray,
+            field: name,
             why: "an array of gpuIds, translated element by element",
         });
     }
@@ -449,9 +547,14 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
             continue;
         }
         out.push(Mediated {
-            nr: NR_RM_CONTROL, cmd: sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO,
-            off: *off as u32, len: *len, stride: 0, count: 0,
-            kind: Kind::BdfAddress, field: member,
+            nr: NR_RM_CONTROL,
+            cmd: sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO,
+            off: *off as u32,
+            len: *len,
+            stride: 0,
+            count: 0,
+            kind: Kind::BdfAddress,
+            field: member,
             why: "the guest's own PCI address, so the address and the gpuId \
                   derived from it cannot contradict each other",
         });
@@ -459,8 +562,14 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
     for cmd in xlate::nested_cmds() {
         for p in xlate::nested_ptrs(*cmd) {
             out.push(Mediated {
-                nr: NR_RM_CONTROL, cmd: *cmd, off: p.ptr_off, len: 8, stride: 0, count: 0,
-                kind: Kind::NestedPtr, field: "NvP64",
+                nr: NR_RM_CONTROL,
+                cmd: *cmd,
+                off: p.ptr_off,
+                len: 8,
+                stride: 0,
+                count: 0,
+                kind: Kind::NestedPtr,
+                field: "NvP64",
                 why: "a pointer into the caller's address space -- a different \
                       number on the two sides by construction",
             });
@@ -469,8 +578,14 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
     for cmd in xlate::ctrl_fd_cmds() {
         if let Some(off) = xlate::ctrl_fd_offset(*cmd) {
             out.push(Mediated {
-                nr: NR_RM_CONTROL, cmd: *cmd, off, len: 4, stride: 0, count: 0,
-                kind: Kind::CtrlFd, field: "fd",
+                nr: NR_RM_CONTROL,
+                cmd: *cmd,
+                off,
+                len: 4,
+                stride: 0,
+                count: 0,
+                kind: Kind::CtrlFd,
+                field: "fd",
                 why: "a process-local file descriptor; the same number names \
                       a different file on the two sides",
             });
@@ -479,34 +594,60 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
 
     // The backend's own answers.
     out.push(Mediated {
-        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_PIDS, off: PIDS_COUNT_OFF as u32, len: 4,
-        stride: 0, count: 0, kind: Kind::BackendAnswered, field: "pidTblCount",
+        nr: NR_RM_CONTROL,
+        cmd: CMD_GPU_GET_PIDS,
+        off: PIDS_COUNT_OFF as u32,
+        len: 4,
+        stride: 0,
+        count: 0,
+        kind: Kind::BackendAnswered,
+        field: "pidTblCount",
         why: "how many of this VM's processes were written, not the host's count",
     });
     out.push(Mediated {
-        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_PIDS, off: PIDS_TBL_OFF as u32, len: 4,
-        stride: 4, count: PIDS_MAX as u32,
-        kind: Kind::BackendAnswered, field: "pidTbl",
+        nr: NR_RM_CONTROL,
+        cmd: CMD_GPU_GET_PIDS,
+        off: PIDS_TBL_OFF as u32,
+        len: 4,
+        stride: 4,
+        count: PIDS_MAX as u32,
+        kind: Kind::BackendAnswered,
+        field: "pidTbl",
         why: "this VM's guest PIDs replace the host's, which are not \
               resolvable in a guest",
     });
     out.push(Mediated {
-        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_PID_INFO, off: PIDINFO_COUNT_OFF as u32, len: 4,
-        stride: 0, count: 0, kind: Kind::BackendAnswered, field: "pidInfoListCount",
+        nr: NR_RM_CONTROL,
+        cmd: CMD_GPU_GET_PID_INFO,
+        off: PIDINFO_COUNT_OFF as u32,
+        len: 4,
+        stride: 0,
+        count: 0,
+        kind: Kind::BackendAnswered,
+        field: "pidInfoListCount",
         why: "how many entries the backend wrote",
     });
     out.push(Mediated {
-        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_PID_INFO, off: PIDINFO_LIST_OFF as u32,
-        len: PIDINFO_ENTRY as u32, stride: PIDINFO_ENTRY as u32,
+        nr: NR_RM_CONTROL,
+        cmd: CMD_GPU_GET_PID_INFO,
+        off: PIDINFO_LIST_OFF as u32,
+        len: PIDINFO_ENTRY as u32,
+        stride: PIDINFO_ENTRY as u32,
         count: PIDINFO_MAX as u32,
-        kind: Kind::BackendAnswered, field: "pidInfoList",
+        kind: Kind::BackendAnswered,
+        field: "pidInfoList",
         why: "per-process video memory usage out of this VM's own ledger",
     });
     for (cmd, base) in [(CMD_FB_GET_INFO_V2, FBINFO_LIST_OFF), (CMD_FB_GET_INFO, 0)] {
         out.push(Mediated {
-            nr: NR_RM_CONTROL, cmd, off: (base + FBINFO_DATA_OFF) as u32, len: 4,
-            stride: FBINFO_ENTRY as u32, count: FBINFO_MAX as u32,
-            kind: Kind::BackendAnswered, field: "fbInfoList[].data",
+            nr: NR_RM_CONTROL,
+            cmd,
+            off: (base + FBINFO_DATA_OFF) as u32,
+            len: 4,
+            stride: FBINFO_ENTRY as u32,
+            count: FBINFO_MAX as u32,
+            kind: Kind::BackendAnswered,
+            field: "fbInfoList[].data",
             why: "the VRAM ledger's capped sizes. Only `data` -- `index` is \
                   the question and is carried unchanged, so a wrong index \
                   stays visible",
@@ -518,16 +659,26 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
     // be running -- a manifest that changed with the configuration could
     // not be compared against a native run at all.
     out.push(Mediated {
-        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_VIRTUALIZATION_MODE,
-        off: VIRTMODE_OFF as u32, len: 4, stride: 0, count: 0,
-        kind: Kind::BackendAnswered, field: "virtualizationMode",
+        nr: NR_RM_CONTROL,
+        cmd: CMD_GPU_GET_VIRTUALIZATION_MODE,
+        off: VIRTMODE_OFF as u32,
+        len: 4,
+        stride: 0,
+        count: 0,
+        kind: Kind::BackendAnswered,
+        field: "virtualizationMode",
         why: "VGX under the vGPU-shaped policy, where the guest IS on a \
               profile out of a catalogue and every client asks this",
     });
     out.push(Mediated {
-        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_VIRTUALIZATION_MODE,
-        off: VIRTMODE_GRIDBUILD_OFF as u32, len: 1, stride: 0, count: 0,
-        kind: Kind::BackendAnswered, field: "isGridBuild",
+        nr: NR_RM_CONTROL,
+        cmd: CMD_GPU_GET_VIRTUALIZATION_MODE,
+        off: VIRTMODE_GRIDBUILD_OFF as u32,
+        len: 1,
+        stride: 0,
+        count: 0,
+        kind: Kind::BackendAnswered,
+        field: "isGridBuild",
         why: "the boolean beside the mode, kept consistent with it",
     });
     // The card's UUID, in the three controls that carry it: this VM's own
@@ -535,28 +686,55 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
     // card answers with the CARD's UUID and no scheduler can tell them
     // apart. The same length both ways, so no length field moves.
     for (cmd, off, field) in [
-        (CMD_GPU_GET_GID_INFO, offset_of!(sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS, data), "data"),
-        (sys::NV0000_CTRL_CMD_GPU_GET_UUID_INFO,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_UUID_INFO_PARAMS, gpuUuid), "gpuUuid"),
-        (sys::NV0000_CTRL_CMD_GPU_GET_UUID_FROM_GPU_ID,
-         offset_of!(sys::NV0000_CTRL_GPU_GET_UUID_FROM_GPU_ID_PARAMS, gpuUuid), "gpuUuid"),
+        (
+            CMD_GPU_GET_GID_INFO,
+            offset_of!(sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS, data),
+            "data",
+        ),
+        (
+            sys::NV0000_CTRL_CMD_GPU_GET_UUID_INFO,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_UUID_INFO_PARAMS, gpuUuid),
+            "gpuUuid",
+        ),
+        (
+            sys::NV0000_CTRL_CMD_GPU_GET_UUID_FROM_GPU_ID,
+            offset_of!(sys::NV0000_CTRL_GPU_GET_UUID_FROM_GPU_ID_PARAMS, gpuUuid),
+            "gpuUuid",
+        ),
     ] {
         out.push(Mediated {
-            nr: NR_RM_CONTROL, cmd, off: off as u32, len: 256, stride: 0, count: 0,
-            kind: Kind::IdentityString, field,
+            nr: NR_RM_CONTROL,
+            cmd,
+            off: off as u32,
+            len: 256,
+            stride: 0,
+            count: 0,
+            kind: Kind::IdentityString,
+            field,
             why: "this VM's own UUID where RM wrote the card's",
         });
     }
     out.push(Mediated {
-        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_ENCODER_CAPACITY,
-        off: ENCCAP_OFF as u32, len: 4, stride: 0, count: 0,
-        kind: Kind::BackendAnswered, field: "encoderCapacity",
+        nr: NR_RM_CONTROL,
+        cmd: CMD_GPU_GET_ENCODER_CAPACITY,
+        off: ENCCAP_OFF as u32,
+        len: 4,
+        stride: 0,
+        count: 0,
+        kind: Kind::BackendAnswered,
+        field: "encoderCapacity",
         why: "the profile's NVENC share. Only the ANSWER -- queryType is \
               the question and is carried unchanged",
     });
     out.push(Mediated {
-        nr: NR_RM_CONTROL, cmd: CMD_GPU_GET_NAME_STRING, off: name_off::<A>() as u32, len: name_max::<A>() as u32,
-        stride: 0, count: 0, kind: Kind::IdentityString, field: "gpuNameString",
+        nr: NR_RM_CONTROL,
+        cmd: CMD_GPU_GET_NAME_STRING,
+        off: name_off::<A>() as u32,
+        len: name_max::<A>() as u32,
+        stride: 0,
+        count: 0,
+        kind: Kind::IdentityString,
+        field: "gpuNameString",
         why: "the mediated card name (`Leandro ...`), whose content depends on \
               the VRAM cap and is therefore not a constant",
     });
@@ -575,18 +753,28 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
     // here would be a promise about the others that nothing has measured.
     // The comparison covers what the dump covers.
     for (member, off, len) in [
-        ("pci_info.domain",
-         offset_of!(sys::nv_ioctl_card_info_t, pci_info)
-             + offset_of!(sys::nv_pci_info_t, domain), 4u32),
-        ("pci_info.bus",
-         offset_of!(sys::nv_ioctl_card_info_t, pci_info)
-             + offset_of!(sys::nv_pci_info_t, bus), 1),
-        ("pci_info.slot",
-         offset_of!(sys::nv_ioctl_card_info_t, pci_info)
-             + offset_of!(sys::nv_pci_info_t, slot), 1),
-        ("pci_info.function",
-         offset_of!(sys::nv_ioctl_card_info_t, pci_info)
-             + offset_of!(sys::nv_pci_info_t, function), 1),
+        (
+            "pci_info.domain",
+            offset_of!(sys::nv_ioctl_card_info_t, pci_info)
+                + offset_of!(sys::nv_pci_info_t, domain),
+            4u32,
+        ),
+        (
+            "pci_info.bus",
+            offset_of!(sys::nv_ioctl_card_info_t, pci_info) + offset_of!(sys::nv_pci_info_t, bus),
+            1,
+        ),
+        (
+            "pci_info.slot",
+            offset_of!(sys::nv_ioctl_card_info_t, pci_info) + offset_of!(sys::nv_pci_info_t, slot),
+            1,
+        ),
+        (
+            "pci_info.function",
+            offset_of!(sys::nv_ioctl_card_info_t, pci_info)
+                + offset_of!(sys::nv_pci_info_t, function),
+            1,
+        ),
     ] {
         out.push(Mediated {
             nr: crate::nvgpu::NV_ESC_CARD_INFO, cmd: 0,
@@ -614,9 +802,14 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
         ("free", offset_of!(sys::NVOS32_PARAMETERS, free)),
     ] {
         out.push(Mediated {
-            nr: sys::NV_ESC_RM_VID_HEAP_CONTROL, cmd: 0,
-            off: off as u32, len: 8, stride: 0, count: 0,
-            kind: Kind::BackendAnswered, field: member,
+            nr: sys::NV_ESC_RM_VID_HEAP_CONTROL,
+            cmd: 0,
+            off: off as u32,
+            len: 8,
+            stride: 0,
+            count: 0,
+            kind: Kind::BackendAnswered,
+            field: member,
             why: "the VRAM ledger's capped sizes in bytes, on the NVOS32 door \
                   the host RM answers from its own FB_GET_INFO_V2",
         });
@@ -651,7 +844,13 @@ pub fn dump<A: RmAbi>() -> String {
     for m in manifest::<A>() {
         o.push_str(&format!(
             "mediated {} {} {} {} {} {} {}\n",
-            m.sig(), m.off, m.len, m.stride, m.count, m.kind.as_str(), m.field
+            m.sig(),
+            m.off,
+            m.len,
+            m.stride,
+            m.count,
+            m.kind.as_str(),
+            m.field
         ));
     }
     o
@@ -682,8 +881,10 @@ mod tests {
         let m = manifest::<sys::DefaultAbi>();
         for member in ["domain", "bus", "slot"] {
             assert!(
-                m.iter().any(|x| x.cmd == sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO
-                             && x.field == member && x.kind == Kind::BdfAddress),
+                m.iter()
+                    .any(|x| x.cmd == sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO
+                        && x.field == member
+                        && x.kind == Kind::BdfAddress),
                 "GET_PCI_INFO.{member} is rewritten by the guest module and \
                  named in no manifest record"
             );
@@ -694,7 +895,10 @@ mod tests {
     #[test]
     fn the_mediated_name_is_in_the_manifest() {
         let m = manifest::<sys::DefaultAbi>();
-        let name = m.iter().find(|x| x.cmd == CMD_GPU_GET_NAME_STRING).expect("no identity string");
+        let name = m
+            .iter()
+            .find(|x| x.cmd == CMD_GPU_GET_NAME_STRING)
+            .expect("no identity string");
         assert_eq!(name.kind, Kind::IdentityString);
         assert_eq!(name.cmd, CMD_GPU_GET_NAME_STRING);
         assert_eq!(name.off, 4);
@@ -708,18 +912,29 @@ mod tests {
     #[test]
     fn every_backend_answered_command_is_described() {
         let m = manifest::<sys::DefaultAbi>();
-        for cmd in [CMD_GPU_GET_PIDS, CMD_GPU_GET_PID_INFO, CMD_FB_GET_INFO,
-                    CMD_FB_GET_INFO_V2, CMD_GPU_GET_NAME_STRING, CMD_GPU_GET_GID_INFO,
-                    sys::NV0000_CTRL_CMD_GPU_GET_UUID_INFO,
-                    sys::NV0000_CTRL_CMD_GPU_GET_UUID_FROM_GPU_ID] {
-            assert!(m.iter().any(|x| x.cmd == cmd),
-                    "{cmd:#x} is answered by the backend and named in no record");
+        for cmd in [
+            CMD_GPU_GET_PIDS,
+            CMD_GPU_GET_PID_INFO,
+            CMD_FB_GET_INFO,
+            CMD_FB_GET_INFO_V2,
+            CMD_GPU_GET_NAME_STRING,
+            CMD_GPU_GET_GID_INFO,
+            sys::NV0000_CTRL_CMD_GPU_GET_UUID_INFO,
+            sys::NV0000_CTRL_CMD_GPU_GET_UUID_FROM_GPU_ID,
+        ] {
+            assert!(
+                m.iter().any(|x| x.cmd == cmd),
+                "{cmd:#x} is answered by the backend and named in no record"
+            );
         }
         // And the one that is not a control: NVOS32_FUNCTION_INFO's sizes.
         for field in ["total", "free"] {
-            assert!(m.iter().any(|x| x.nr == sys::NV_ESC_RM_VID_HEAP_CONTROL
-                                 && x.field == field && x.len == 8),
-                    "NVOS32 {field} is answered by the backend and named in no record");
+            assert!(
+                m.iter().any(|x| x.nr == sys::NV_ESC_RM_VID_HEAP_CONTROL
+                    && x.field == field
+                    && x.len == 8),
+                "NVOS32 {field} is answered by the backend and named in no record"
+            );
         }
     }
 
@@ -730,10 +945,14 @@ mod tests {
         let m = manifest::<sys::DefaultAbi>();
         for cmd in xlate::nested_cmds() {
             let want = xlate::nested_ptrs(*cmd).len();
-            let have = m.iter()
+            let have = m
+                .iter()
                 .filter(|x| x.cmd == *cmd && x.kind == Kind::NestedPtr)
                 .count();
-            assert_eq!(want, have, "{cmd:#x}: {want} pointer(s) in xlate, {have} in the manifest");
+            assert_eq!(
+                want, have,
+                "{cmd:#x}: {want} pointer(s) in xlate, {have} in the manifest"
+            );
         }
     }
 }

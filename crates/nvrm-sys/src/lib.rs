@@ -697,4 +697,3 @@ impl RmAbi for V615 {
     const CTRL_VD_IS_ACTIVE: Option<u32> = Some(2692940036);
     const CTRL_VD_IS_CONNECTED: Option<u32> = Some(2692940037);
 }
-

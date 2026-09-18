@@ -20,9 +20,9 @@
 use std::mem::{align_of, offset_of, size_of};
 
 use nvrm_sys as sys;
-use sys::RmAbi;
 use nvrm_wire as proto;
 use nvrm_wire::tables as t;
+use sys::RmAbi;
 
 macro_rules! off {
     ($ty:ty, $($f:tt)+) => { offset_of!($ty, $($f)+) };
@@ -41,12 +41,17 @@ fn main() {
     let mut abi = sys::DefaultAbi::VERSION;
     if let Some(i) = args.iter().position(|a| a == "--abi") {
         let want = args.get(i + 1).cloned().unwrap_or_else(|| {
-            eprintln!("--abi <version>; this build carries {}", sys::SUPPORTED_VERSIONS.join(", "));
+            eprintln!(
+                "--abi <version>; this build carries {}",
+                sys::SUPPORTED_VERSIONS.join(", ")
+            );
             std::process::exit(2);
         });
         abi = sys::DriverVersion::from_version_string(&want).unwrap_or_else(|| {
-            eprintln!("nvrm-genhdr: {want} is not a version this build carries ({})",
-                      sys::SUPPORTED_VERSIONS.join(", "));
+            eprintln!(
+                "nvrm-genhdr: {want} is not a version this build carries ({})",
+                sys::SUPPORTED_VERSIONS.join(", ")
+            );
             std::process::exit(2);
         });
         args.drain(i..=i + 1);
@@ -75,7 +80,10 @@ fn main() {
             }
             let tb = sys::dispatch(abi, Build);
             std::fs::write(path, &tb.bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
-            eprintln!("nvrm-genhdr: wrote {path} ({} bytes of table stream)", tb.bytes.len());
+            eprintln!(
+                "nvrm-genhdr: wrote {path} ({} bytes of table stream)",
+                tb.bytes.len()
+            );
         }
         Some((flag, rest)) if flag == "--expect-dump" => {
             let path = rest.first().expect("--expect-dump <file>");
@@ -100,13 +108,16 @@ fn main() {
             let path = rest.first().expect("--mediation-dump <file>");
             let text = nvrm_abi::mediate::dump::<sys::DefaultAbi>();
             std::fs::write(path, &text).unwrap_or_else(|e| panic!("{path}: {e}"));
-            eprintln!("nvrm-genhdr: wrote {path} ({} record(s))",
-                      nvrm_abi::mediate::manifest::<sys::DefaultAbi>().len());
+            eprintln!(
+                "nvrm-genhdr: wrote {path} ({} record(s))",
+                nvrm_abi::mediate::manifest::<sys::DefaultAbi>().len()
+            );
         }
         Some((flag, rest)) if flag == "--check" => {
-            let path = rest.first().cloned().unwrap_or_else(|| {
-                "guest-module/virtio_nvrm/nvrm_wire.h".into()
-            });
+            let path = rest
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "guest-module/virtio_nvrm/nvrm_wire.h".into());
             let have = std::fs::read_to_string(&path).unwrap_or_default();
             if have == text {
                 eprintln!("nvrm-genhdr: {path} is up to date");
@@ -171,19 +182,34 @@ fn generate<A: RmAbi>() -> String {
 
     // ---- Protocol constants ----------------------------------------------
     o.push_str("/* ---- protocol ---- */\n");
-    o.push_str(&format!("#define NVRM_PROTO_VERSION\t{}u\n", proto::PROTO_VERSION));
+    o.push_str(&format!(
+        "#define NVRM_PROTO_VERSION\t{}u\n",
+        proto::PROTO_VERSION
+    ));
     // The driver version, for the ONE consumer that must prove it: NVKMS
     // compares the string it gets from nvidia_get_rm_ops() against its own
     // and refuses to load on a mismatch. Transcribing it into the module
     // would be exactly the stale number this file exists to prevent, so it
     // comes from DRIVER_VERSION like every other version in the tree.
-    o.push_str(&format!("#define NVRM_DRIVER_VERSION\t\"{}\"\n", A::VERSION.as_str()));
+    o.push_str(&format!(
+        "#define NVRM_DRIVER_VERSION\t\"{}\"\n",
+        A::VERSION.as_str()
+    ));
     o.push_str(&format!("#define NVRM_NONE_U32\t\t{}u\n", proto::NONE_U32));
-    o.push_str(&format!("#define NVRM_NONE_U64\t\t{}ull\n", proto::NONE_U64));
-    o.push_str(&format!("#define NVRM_MAX_PAYLOAD\t{}u\n", proto::MAX_PAYLOAD));
+    o.push_str(&format!(
+        "#define NVRM_NONE_U64\t\t{}ull\n",
+        proto::NONE_U64
+    ));
+    o.push_str(&format!(
+        "#define NVRM_MAX_PAYLOAD\t{}u\n",
+        proto::MAX_PAYLOAD
+    ));
     o.push_str(&format!("#define NVRM_MAX_AUX\t\t{}u\n", proto::MAX_AUX));
     o.push_str(&format!("#define NVRM_MAX_MSG\t\t{}u\n", proto::MAX_MSG));
-    o.push_str(&format!("#define NVRM_MAX_NESTED\t\t{}u\n\n", proto::MAX_NESTED));
+    o.push_str(&format!(
+        "#define NVRM_MAX_NESTED\t\t{}u\n\n",
+        proto::MAX_NESTED
+    ));
 
     o.push_str("/* Kind: what sort of request this is. */\n");
     for (n, v) in [
@@ -222,22 +248,49 @@ fn generate<A: RmAbi>() -> String {
     // the bindgen struct, not a number typed into the module.
     o.push_str("/* ---- kernel RM API (NVKMS): op -> escape + params size ---- */\n");
     for (name, op, esc, size) in [
-        ("FREE", sys::NV01_FREE, sys::NV_ESC_RM_FREE, size_of::<sys::NVOS00_PARAMETERS>()),
-        ("ALLOC", sys::NV04_ALLOC, sys::NV_ESC_RM_ALLOC, size_of::<sys::NVOS64_PARAMETERS>()),
-        ("CONTROL", sys::NV04_CONTROL, sys::NV_ESC_RM_CONTROL, size_of::<sys::NVOS54_PARAMETERS>()),
+        (
+            "FREE",
+            sys::NV01_FREE,
+            sys::NV_ESC_RM_FREE,
+            size_of::<sys::NVOS00_PARAMETERS>(),
+        ),
+        (
+            "ALLOC",
+            sys::NV04_ALLOC,
+            sys::NV_ESC_RM_ALLOC,
+            size_of::<sys::NVOS64_PARAMETERS>(),
+        ),
+        (
+            "CONTROL",
+            sys::NV04_CONTROL,
+            sys::NV_ESC_RM_CONTROL,
+            size_of::<sys::NVOS54_PARAMETERS>(),
+        ),
         // nvidia-drm needs this one for its semaphore surface: without it
         // nv_drm_semsurf_fence_ctx_create_ioctl fails and the NVIDIA GPU
         // screen never finishes coming up. Measured 2026-08-08 as
         // "kernel RM op 0x37 is not implemented -- refused".
-        ("DUP_OBJECT", sys::NV04_DUP_OBJECT, sys::NV_ESC_RM_DUP_OBJECT,
-         size_of::<sys::NVOS55_PARAMETERS>()),
+        (
+            "DUP_OBJECT",
+            sys::NV04_DUP_OBJECT,
+            sys::NV_ESC_RM_DUP_OBJECT,
+            size_of::<sys::NVOS55_PARAMETERS>(),
+        ),
         // The window mapping, kernel side. Which address comes back depends
         // on NVOS33_FLAGS_MEM_SPACE -- see the block comment above
         // `struct kapi_map` in virtio_nvrm.c.
-        ("MAP_MEMORY", sys::NV04_MAP_MEMORY, sys::NV_ESC_RM_MAP_MEMORY,
-         size_of::<sys::NVOS33_PARAMETERS>()),
-        ("UNMAP_MEMORY", sys::NV04_UNMAP_MEMORY, sys::NV_ESC_RM_UNMAP_MEMORY,
-         size_of::<sys::NVOS34_PARAMETERS>()),
+        (
+            "MAP_MEMORY",
+            sys::NV04_MAP_MEMORY,
+            sys::NV_ESC_RM_MAP_MEMORY,
+            size_of::<sys::NVOS33_PARAMETERS>(),
+        ),
+        (
+            "UNMAP_MEMORY",
+            sys::NV04_UNMAP_MEMORY,
+            sys::NV_ESC_RM_UNMAP_MEMORY,
+            size_of::<sys::NVOS34_PARAMETERS>(),
+        ),
         // The GPU-side mapping, and a different animal from the two above:
         // what comes back is a GPU virtual address in the page tables of the
         // hDma object, not a CPU pointer. Those page tables belong to the one
@@ -249,10 +302,18 @@ fn generate<A: RmAbi>() -> String {
         // "kernel RM op 0x2e is not implemented -- refused", followed by
         // "Failed to allocate NvKmsKapiDevice", once the colour lookup table
         // stopped being the first wall.
-        ("MAP_MEMORY_DMA", sys::NV04_MAP_MEMORY_DMA, sys::NV_ESC_RM_MAP_MEMORY_DMA,
-         size_of::<sys::NVOS46_PARAMETERS>()),
-        ("UNMAP_MEMORY_DMA", sys::NV04_UNMAP_MEMORY_DMA, sys::NV_ESC_RM_UNMAP_MEMORY_DMA,
-         size_of::<sys::NVOS47_PARAMETERS>()),
+        (
+            "MAP_MEMORY_DMA",
+            sys::NV04_MAP_MEMORY_DMA,
+            sys::NV_ESC_RM_MAP_MEMORY_DMA,
+            size_of::<sys::NVOS46_PARAMETERS>(),
+        ),
+        (
+            "UNMAP_MEMORY_DMA",
+            sys::NV04_UNMAP_MEMORY_DMA,
+            sys::NV_ESC_RM_UNMAP_MEMORY_DMA,
+            size_of::<sys::NVOS47_PARAMETERS>(),
+        ),
     ] {
         o.push_str(&format!("#define NVRM_KOP_{name}\t\t{op}u\n"));
         o.push_str(&format!("#define NVRM_KESC_{name}\t{esc}u\n"));
@@ -279,7 +340,10 @@ fn generate<A: RmAbi>() -> String {
     for (name, v) in [
         ("CLASS_DISPLAY_COMMON", Some(sys::NV04_DISPLAY_COMMON)),
         ("CLASS_DISPLAYLESS", A::CLASS_DISPLAYLESS),
-        ("CTRL_GET_CLASSLIST", Some(sys::NV0080_CTRL_CMD_GPU_GET_CLASSLIST)),
+        (
+            "CTRL_GET_CLASSLIST",
+            Some(sys::NV0080_CTRL_CMD_GPU_GET_CLASSLIST),
+        ),
         ("CTRL_VD_GET_NUM_HEADS", A::CTRL_VD_GET_NUM_HEADS),
         ("CTRL_VD_GET_MAX_RES", A::CTRL_VD_GET_MAX_RESOLUTION),
         ("CTRL_VD_GET_EDID", A::CTRL_VD_GET_DEFAULT_EDID),
@@ -295,14 +359,26 @@ fn generate<A: RmAbi>() -> String {
         // Not part of the virtual display, but only reachable once it is
         // there: nvAllocCoreChannelEvo blocks GC6 before it touches the
         // display, and takes `goto failed` when that call is refused.
-        ("CTRL_GC6_BLOCKER", Some(sys::NV2080_CTRL_CMD_OS_UNIX_GC6_BLOCKER_REFCNT)),
-        ("CTRL_VT_SWITCH", Some(sys::NV0080_CTRL_CMD_OS_UNIX_VT_SWITCH)),
-        ("CTRL_VT_GET_FB_INFO", Some(sys::NV0080_CTRL_CMD_OS_UNIX_VT_GET_FB_INFO)),
+        (
+            "CTRL_GC6_BLOCKER",
+            Some(sys::NV2080_CTRL_CMD_OS_UNIX_GC6_BLOCKER_REFCNT),
+        ),
+        (
+            "CTRL_VT_SWITCH",
+            Some(sys::NV0080_CTRL_CMD_OS_UNIX_VT_SWITCH),
+        ),
+        (
+            "CTRL_VT_GET_FB_INFO",
+            Some(sys::NV0080_CTRL_CMD_OS_UNIX_VT_GET_FB_INFO),
+        ),
         // The vblank callback class. Deliberately NOT in the alloc tables
         // (its pProc is a guest kernel pointer, meaningless on the host);
         // the guest module answers it from its own raster clock instead.
         ("CLASS_VBLANK_CALLBACK", Some(sys::NV9010_VBLANK_CALLBACK)),
-        ("CTRL_SET_VBLANK_NOTIFY", Some(sys::NV9010_CTRL_CMD_SET_VBLANK_NOTIFICATION)),
+        (
+            "CTRL_SET_VBLANK_NOTIFY",
+            Some(sys::NV9010_CTRL_CMD_SET_VBLANK_NOTIFICATION),
+        ),
         // The class the HOST substitutes a ring-0 callback with, and the
         // status RM gives an event whose parent was never allocated.
         ("CLASS_EVENT_OS_EVENT", Some(sys::NV01_EVENT_OS_EVENT)),
@@ -312,8 +388,14 @@ fn generate<A: RmAbi>() -> String {
         // `func(arg, NULL, hEvent, Data, Status)` (os.c:1533-1539); plain
         // 0x78 calls `callBackToMiniport(NV_GET_NV_STATE(pGpu))` with a HOST
         // pointer (os.c:1517-1524) and is dropped + counted in the guest.
-        ("CLASS_EVENT_KERNEL_CALLBACK", Some(sys::NV01_EVENT_KERNEL_CALLBACK)),
-        ("CLASS_EVENT_KERNEL_CALLBACK_EX", Some(sys::NV01_EVENT_KERNEL_CALLBACK_EX)),
+        (
+            "CLASS_EVENT_KERNEL_CALLBACK",
+            Some(sys::NV01_EVENT_KERNEL_CALLBACK),
+        ),
+        (
+            "CLASS_EVENT_KERNEL_CALLBACK_EX",
+            Some(sys::NV01_EVENT_KERNEL_CALLBACK_EX),
+        ),
         // The escape a woken 0x79 client drains its queue with (osapi.c:
         // 504-535); the guest hooks its answer to re-arm `events_pending`.
         ("ESC_RM_GET_EVENT_DATA", Some(sys::NV_ESC_RM_GET_EVENT_DATA)),
@@ -324,20 +406,35 @@ fn generate<A: RmAbi>() -> String {
         // these. The host RM fires DP_IRQ for real -- the RTX 2070's
         // display belongs to the host desktop.
         ("NOTIFIER_DP_IRQ", Some(sys::NV2080_NOTIFIERS_DP_IRQ)),
-        ("NOTIFIER_HDMI_FRL_RETRAIN", Some(sys::NV2080_NOTIFIERS_HDMI_FRL_RETRAINING_REQUEST)),
-        ("NOTIFIER_LPWR_DIFR_PREFETCH", Some(sys::NV2080_NOTIFIERS_LPWR_DIFR_PREFETCH_REQUEST)),
+        (
+            "NOTIFIER_HDMI_FRL_RETRAIN",
+            Some(sys::NV2080_NOTIFIERS_HDMI_FRL_RETRAINING_REQUEST),
+        ),
+        (
+            "NOTIFIER_LPWR_DIFR_PREFETCH",
+            Some(sys::NV2080_NOTIFIERS_LPWR_DIFR_PREFETCH_REQUEST),
+        ),
         // NV0005_NOTIFY_INDEX_INDEX is the DRF `15:0` (cl0005.h:58), which
         // bindgen does not emit; RM strips with exactly that mask
         // (event_notification.c:849). Hand-derived from the DRF, once.
         ("NOTIFY_INDEX_MASK", Some(0xffff)),
-        ("NV_ERR_OBJECT_NOT_FOUND", Some(sys::NV_ERR_OBJECT_NOT_FOUND)),
+        (
+            "NV_ERR_OBJECT_NOT_FOUND",
+            Some(sys::NV_ERR_OBJECT_NOT_FOUND),
+        ),
         // The two refusals NVIDIA's own GET_DEFAULT_EDID can return
         // (objgriddisplayless.c:296-330). A caller that asks for the EDID
         // with a buffer too small for it must be told so; writing the full
         // EDID into it would be a write past the end of somebody else's
         // allocation.
-        ("NV_ERR_BUFFER_TOO_SMALL", Some(sys::NV_ERR_BUFFER_TOO_SMALL)),
-        ("NV_ERR_INVALID_ARGUMENT", Some(sys::NV_ERR_INVALID_ARGUMENT)),
+        (
+            "NV_ERR_BUFFER_TOO_SMALL",
+            Some(sys::NV_ERR_BUFFER_TOO_SMALL),
+        ),
+        (
+            "NV_ERR_INVALID_ARGUMENT",
+            Some(sys::NV_ERR_INVALID_ARGUMENT),
+        ),
     ] {
         // `None` is a name this driver's headers do not define. Skipped, not
         // defaulted: a guest module compiled against a zero here would name
@@ -374,10 +471,13 @@ fn generate<A: RmAbi>() -> String {
     // entry for it, so it is not listed: the rule is "what the table keys
     // on", not "what the headers define".
     let cores: [u32; 14] = [
-        0xcc70, 0xcb70, 0xca70, 0xc970, 0xc870, 0xc770, 0xc670, 0xc570,
-        0xc57a, 0xc67a, 0xc97a, 0xca7a, 0xcb7a, 0xcc7a,
+        0xcc70, 0xcb70, 0xca70, 0xc970, 0xc870, 0xc770, 0xc670, 0xc570, 0xc57a, 0xc67a, 0xc97a,
+        0xca7a, 0xcb7a, 0xcc7a,
     ];
-    o.push_str(&format!("#define NVRM_DISP_CLASS_COUNT\t{}u\n", cores.len()));
+    o.push_str(&format!(
+        "#define NVRM_DISP_CLASS_COUNT\t{}u\n",
+        cores.len()
+    ));
     o.push_str("#define NVRM_DISP_CLASSES\t{ ");
     for c in cores {
         o.push_str(&format!("{c:#x}u, "));
@@ -390,10 +490,14 @@ fn generate<A: RmAbi>() -> String {
     // RM wants a mapping's fd to be a GPU node bound to the client's control
     // fd -- the first of map_doorbell's three traps, and 0x23 INVALID_CLIENT
     // without it.
-    o.push_str(&format!("#define NVRM_KESC_REGISTER_FD\t{}u\n",
-                        nvrm_abi::nvgpu::NV_ESC_REGISTER_FD));
-    o.push_str(&format!("#define NVRM_KSIZE_REGISTER_FD\t{}u\n",
-                        size_of::<nvrm_abi::nvgpu::IoctlRegisterFd>()));
+    o.push_str(&format!(
+        "#define NVRM_KESC_REGISTER_FD\t{}u\n",
+        nvrm_abi::nvgpu::NV_ESC_REGISTER_FD
+    ));
+    o.push_str(&format!(
+        "#define NVRM_KSIZE_REGISTER_FD\t{}u\n",
+        size_of::<nvrm_abi::nvgpu::IoctlRegisterFd>()
+    ));
     o.push('\n');
 
     // The two NVOS structs the kernel path builds BY HAND. The ioctl path
@@ -404,16 +508,28 @@ fn generate<A: RmAbi>() -> String {
     o.push_str("/* ---- NVOS64 (alloc) and NVOS54 (control), for the fields we write ---- */\n");
     for (n, v) in [
         ("NVOS64_HROOT", off!(sys::NVOS64_PARAMETERS, hRoot)),
-        ("NVOS64_HOBJECTPARENT", off!(sys::NVOS64_PARAMETERS, hObjectParent)),
-        ("NVOS64_HOBJECTNEW", off!(sys::NVOS64_PARAMETERS, hObjectNew)),
+        (
+            "NVOS64_HOBJECTPARENT",
+            off!(sys::NVOS64_PARAMETERS, hObjectParent),
+        ),
+        (
+            "NVOS64_HOBJECTNEW",
+            off!(sys::NVOS64_PARAMETERS, hObjectNew),
+        ),
         ("NVOS64_HCLASS", off!(sys::NVOS64_PARAMETERS, hClass)),
-        ("NVOS64_PALLOCPARMS", off!(sys::NVOS64_PARAMETERS, pAllocParms)),
+        (
+            "NVOS64_PALLOCPARMS",
+            off!(sys::NVOS64_PARAMETERS, pAllocParms),
+        ),
         ("NVOS64_STATUS", off!(sys::NVOS64_PARAMETERS, status)),
         ("NVOS54_HCLIENT", off!(sys::NVOS54_PARAMETERS, hClient)),
         ("NVOS54_HOBJECT", off!(sys::NVOS54_PARAMETERS, hObject)),
         ("NVOS54_CMD", off!(sys::NVOS54_PARAMETERS, cmd)),
         ("NVOS54_PARAMS", off!(sys::NVOS54_PARAMETERS, params)),
-        ("NVOS54_PARAMSSIZE", off!(sys::NVOS54_PARAMETERS, paramsSize)),
+        (
+            "NVOS54_PARAMSSIZE",
+            off!(sys::NVOS54_PARAMETERS, paramsSize),
+        ),
         ("NVOS54_STATUS", off!(sys::NVOS54_PARAMETERS, status)),
     ] {
         o.push_str(&format!("#define NVRM_{n}_OFF\t{v}u\n"));
@@ -431,21 +547,44 @@ fn generate<A: RmAbi>() -> String {
     o.push_str("/* ---- the event return channel: NV0005 / NVOS41 / NVOS10_EX ---- */\n");
     for (n, v) in [
         ("NVOS41_PEVENT", off!(sys::NVOS41_PARAMETERS, pEvent)),
-        ("NVOS41_MOREEVENTS", off!(sys::NVOS41_PARAMETERS, MoreEvents)),
+        (
+            "NVOS41_MOREEVENTS",
+            off!(sys::NVOS41_PARAMETERS, MoreEvents),
+        ),
         ("NVOS41_STATUS", off!(sys::NVOS41_PARAMETERS, status)),
-        ("NV0005_HPARENTCLIENT", off!(sys::NV0005_ALLOC_PARAMETERS, hParentClient)),
+        (
+            "NV0005_HPARENTCLIENT",
+            off!(sys::NV0005_ALLOC_PARAMETERS, hParentClient),
+        ),
         ("NV0005_HCLASS", off!(sys::NV0005_ALLOC_PARAMETERS, hClass)),
-        ("NV0005_NOTIFYINDEX", off!(sys::NV0005_ALLOC_PARAMETERS, notifyIndex)),
+        (
+            "NV0005_NOTIFYINDEX",
+            off!(sys::NV0005_ALLOC_PARAMETERS, notifyIndex),
+        ),
         ("NV0005_DATA", off!(sys::NV0005_ALLOC_PARAMETERS, data)),
-        ("NVOS10_CB_EX_FUNC", off!(sys::NVOS10_EVENT_KERNEL_CALLBACK_EX, func)),
-        ("NVOS10_CB_EX_ARG", off!(sys::NVOS10_EVENT_KERNEL_CALLBACK_EX, arg)),
+        (
+            "NVOS10_CB_EX_FUNC",
+            off!(sys::NVOS10_EVENT_KERNEL_CALLBACK_EX, func),
+        ),
+        (
+            "NVOS10_CB_EX_ARG",
+            off!(sys::NVOS10_EVENT_KERNEL_CALLBACK_EX, arg),
+        ),
     ] {
         o.push_str(&format!("#define NVRM_{n}_OFF\t{v}u\n"));
     }
-    o.push_str(&format!("#define NVRM_NVOS41_SIZE\t{}u\n", size_of::<sys::NVOS41_PARAMETERS>()));
-    o.push_str(&format!("#define NVRM_NVOS10_CB_EX_SIZE\t{}u\n",
-                        size_of::<sys::NVOS10_EVENT_KERNEL_CALLBACK_EX>()));
-    o.push_str(&format!("#define NVRM_NVUNIXEVENT_SIZE\t{}u\n", size_of::<sys::NvUnixEvent>()));
+    o.push_str(&format!(
+        "#define NVRM_NVOS41_SIZE\t{}u\n",
+        size_of::<sys::NVOS41_PARAMETERS>()
+    ));
+    o.push_str(&format!(
+        "#define NVRM_NVOS10_CB_EX_SIZE\t{}u\n",
+        size_of::<sys::NVOS10_EVENT_KERNEL_CALLBACK_EX>()
+    ));
+    o.push_str(&format!(
+        "#define NVRM_NVUNIXEVENT_SIZE\t{}u\n",
+        size_of::<sys::NvUnixEvent>()
+    ));
     o.push('\n');
 
     // Semaphore-surface waiters (ctrl00da.h): the second door for kernel
@@ -463,29 +602,49 @@ fn generate<A: RmAbi>() -> String {
     o.push_str(" * ctrl00da.h: the handle is an OS-event id (NvU32) for user clients and a\n");
     o.push_str(" * kernel pointer to an NVOS10_EVENT_KERNEL_CALLBACK_EX for kernel clients\n");
     o.push_str(" * (sem_surf.c:1699-1710) -- which is how the two are told apart. */\n");
-    o.push_str(&format!("#define NVRM_CTRL_SEMSURF_REG_WAITER\t{:#x}u\n",
-                        sys::NV_SEMAPHORE_SURFACE_CTRL_CMD_REGISTER_WAITER));
-    o.push_str(&format!("#define NVRM_CTRL_SEMSURF_UNREG_WAITER\t{:#x}u\n",
-                        sys::NV_SEMAPHORE_SURFACE_CTRL_CMD_UNREGISTER_WAITER));
-    o.push_str(&format!("#define NVRM_SEMSURF_REG_HANDLE_OFF\t{}u\n",
-                        off!(sys::NV_SEMAPHORE_SURFACE_CTRL_REGISTER_WAITER_PARAMS,
-                             notificationHandle)));
-    o.push_str(&format!("#define NVRM_SEMSURF_UNREG_HANDLE_OFF\t{}u\n",
-                        off!(sys::NV_SEMAPHORE_SURFACE_CTRL_UNREGISTER_WAITER_PARAMS,
-                             notificationHandle)));
+    o.push_str(&format!(
+        "#define NVRM_CTRL_SEMSURF_REG_WAITER\t{:#x}u\n",
+        sys::NV_SEMAPHORE_SURFACE_CTRL_CMD_REGISTER_WAITER
+    ));
+    o.push_str(&format!(
+        "#define NVRM_CTRL_SEMSURF_UNREG_WAITER\t{:#x}u\n",
+        sys::NV_SEMAPHORE_SURFACE_CTRL_CMD_UNREGISTER_WAITER
+    ));
+    o.push_str(&format!(
+        "#define NVRM_SEMSURF_REG_HANDLE_OFF\t{}u\n",
+        off!(
+            sys::NV_SEMAPHORE_SURFACE_CTRL_REGISTER_WAITER_PARAMS,
+            notificationHandle
+        )
+    ));
+    o.push_str(&format!(
+        "#define NVRM_SEMSURF_UNREG_HANDLE_OFF\t{}u\n",
+        off!(
+            sys::NV_SEMAPHORE_SURFACE_CTRL_UNREGISTER_WAITER_PARAMS,
+            notificationHandle
+        )
+    ));
     o.push('\n');
 
     // What enumerate_gpus asks RM, so that nvidia-drm gets a GPU list that
     // is RM's and not this module's invention.
     o.push_str("/* ---- root-client controls behind enumerate_gpus ---- */\n");
-    o.push_str(&format!("#define NVRM_CTRL_GPU_GET_PROBED_IDS\t{:#x}u\n",
-                        sys::NV0000_CTRL_CMD_GPU_GET_PROBED_IDS));
-    o.push_str(&format!("#define NVRM_CTRL_GPU_GET_PCI_INFO\t{:#x}u\n",
-                        sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO));
-    o.push_str(&format!("#define NVRM_SIZE_PROBED_IDS\t{}u\n",
-                        size_of::<sys::NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS>()));
-    o.push_str(&format!("#define NVRM_SIZE_PCI_INFO\t{}u\n",
-                        size_of::<sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS>()));
+    o.push_str(&format!(
+        "#define NVRM_CTRL_GPU_GET_PROBED_IDS\t{:#x}u\n",
+        sys::NV0000_CTRL_CMD_GPU_GET_PROBED_IDS
+    ));
+    o.push_str(&format!(
+        "#define NVRM_CTRL_GPU_GET_PCI_INFO\t{:#x}u\n",
+        sys::NV0000_CTRL_CMD_GPU_GET_PCI_INFO
+    ));
+    o.push_str(&format!(
+        "#define NVRM_SIZE_PROBED_IDS\t{}u\n",
+        size_of::<sys::NV0000_CTRL_GPU_GET_PROBED_IDS_PARAMS>()
+    ));
+    o.push_str(&format!(
+        "#define NVRM_SIZE_PCI_INFO\t{}u\n",
+        size_of::<sys::NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS>()
+    ));
     // From nvrm_abi::mediate, for the same reason the BDF tables are: the
     // module writes the guest's address at these offsets and the mediation
     // manifest must describe the same bytes, or the mask reports the module
@@ -493,9 +652,14 @@ fn generate<A: RmAbi>() -> String {
     for (n, _, v, _) in nvrm_abi::mediate::pci_info_fields() {
         o.push_str(&format!("#define NVRM_{n}_OFF\t{v}u\n"));
     }
-    o.push_str(&format!("#define NVRM_MAX_DEVICES\t{}u\n", sys::NV_MAX_DEVICES));
-    o.push_str(&format!("#define NVRM_GPU_INVALID_ID\t{:#x}u\n",
-                        sys::NV0000_CTRL_GPU_INVALID_ID));
+    o.push_str(&format!(
+        "#define NVRM_MAX_DEVICES\t{}u\n",
+        sys::NV_MAX_DEVICES
+    ));
+    o.push_str(&format!(
+        "#define NVRM_GPU_INVALID_ID\t{:#x}u\n",
+        sys::NV0000_CTRL_GPU_INVALID_ID
+    ));
     o.push('\n');
 
     // Full BDF mediation: every control that carries a gpuId or a PCI
@@ -507,18 +671,30 @@ fn generate<A: RmAbi>() -> String {
     // -- so the two cannot be mediated separately without contradicting
     // each other. Verified against this rig: host 0000:2d:00.0 -> 0x2d00.
     o.push_str("/* ---- controls carrying a gpuId or a PCI address ---- */\n");
-    o.push_str(&format!("#define NVRM_CTRL_GPU_GET_ATTACHED_IDS\t{:#x}u\n",
-                        sys::NV0000_CTRL_CMD_GPU_GET_ATTACHED_IDS));
-    o.push_str(&format!("#define NVRM_CTRL_GPU_GET_ID_INFO\t{:#x}u\n",
-                        sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO));
-    o.push_str(&format!("#define NVRM_SIZE_ATTACHED_IDS\t{}u\n",
-                        size_of::<sys::NV0000_CTRL_GPU_GET_ATTACHED_IDS_PARAMS>()));
-    o.push_str(&format!("#define NVRM_SIZE_ID_INFO\t{}u\n",
-                        size_of::<sys::NV0000_CTRL_GPU_GET_ID_INFO_PARAMS>()));
-    o.push_str(&format!("#define NVRM_ID_INFO_GPUID_OFF\t{}u\n",
-                        off!(sys::NV0000_CTRL_GPU_GET_ID_INFO_PARAMS, gpuId)));
-    o.push_str(&format!("#define NVRM_MAX_ATTACHED_GPUS\t{}u\n",
-                        sys::NV0000_CTRL_GPU_MAX_ATTACHED_GPUS));
+    o.push_str(&format!(
+        "#define NVRM_CTRL_GPU_GET_ATTACHED_IDS\t{:#x}u\n",
+        sys::NV0000_CTRL_CMD_GPU_GET_ATTACHED_IDS
+    ));
+    o.push_str(&format!(
+        "#define NVRM_CTRL_GPU_GET_ID_INFO\t{:#x}u\n",
+        sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO
+    ));
+    o.push_str(&format!(
+        "#define NVRM_SIZE_ATTACHED_IDS\t{}u\n",
+        size_of::<sys::NV0000_CTRL_GPU_GET_ATTACHED_IDS_PARAMS>()
+    ));
+    o.push_str(&format!(
+        "#define NVRM_SIZE_ID_INFO\t{}u\n",
+        size_of::<sys::NV0000_CTRL_GPU_GET_ID_INFO_PARAMS>()
+    ));
+    o.push_str(&format!(
+        "#define NVRM_ID_INFO_GPUID_OFF\t{}u\n",
+        off!(sys::NV0000_CTRL_GPU_GET_ID_INFO_PARAMS, gpuId)
+    ));
+    o.push_str(&format!(
+        "#define NVRM_MAX_ATTACHED_GPUS\t{}u\n",
+        sys::NV0000_CTRL_GPU_MAX_ATTACHED_GPUS
+    ));
     o.push('\n');
 
     // The ESCAPE carries more than the op does. NV_ESC_RM_MAP_MEMORY takes
@@ -528,8 +704,10 @@ fn generate<A: RmAbi>() -> String {
     // it and narrow it again afterwards. Measured as
     // "escape 0x4e claims an fd at +48, past its 48-byte block", followed by
     // an oops in __nv_drm_semsurf_ctx_process_completed.
-    o.push_str(&format!("#define NVRM_KWIRE_MAP_MEMORY\t{}u\n",
-                        size_of::<nvrm_abi::nvgpu::Nvos33WithFd>()));
+    o.push_str(&format!(
+        "#define NVRM_KWIRE_MAP_MEMORY\t{}u\n",
+        size_of::<nvrm_abi::nvgpu::Nvos33WithFd>()
+    ));
 
     // The fields of NVOS33/NVOS34 the kernel path writes itself. A process
     // arrives with the block filled in; NVKMS's mapping is ours to place, so
@@ -537,10 +715,16 @@ fn generate<A: RmAbi>() -> String {
     o.push_str("/* ---- NVOS33 (map) and NVOS34 (unmap), fields we touch ---- */\n");
     for (n, v) in [
         ("NVOS33_LENGTH", off!(sys::NVOS33_PARAMETERS, length)),
-        ("NVOS33_LINEAR", off!(sys::NVOS33_PARAMETERS, pLinearAddress)),
+        (
+            "NVOS33_LINEAR",
+            off!(sys::NVOS33_PARAMETERS, pLinearAddress),
+        ),
         ("NVOS33_FLAGS", off!(sys::NVOS33_PARAMETERS, flags)),
         ("NVOS33_STATUS", off!(sys::NVOS33_PARAMETERS, status)),
-        ("NVOS34_LINEAR", off!(sys::NVOS34_PARAMETERS, pLinearAddress)),
+        (
+            "NVOS34_LINEAR",
+            off!(sys::NVOS34_PARAMETERS, pLinearAddress),
+        ),
         ("NVOS34_STATUS", off!(sys::NVOS34_PARAMETERS, status)),
     ] {
         o.push_str(&format!("#define NVRM_{n}_OFF\t{v}u\n"));
@@ -553,8 +737,7 @@ fn generate<A: RmAbi>() -> String {
     // one and never noticed -- FIFO_MAPPING sits three bits away.
     o.push_str(&format!(
         "#define NVRM_NVOS33_FLAGS_MEM_SPACE_USER\t{:#x}u\n",
-        nvrm_abi::nvgpu::nvos33_flags::MEM_SPACE
-            .set(nvrm_abi::nvgpu::nvos33_flags::MEM_SPACE_USER)
+        nvrm_abi::nvgpu::nvos33_flags::MEM_SPACE.set(nvrm_abi::nvgpu::nvos33_flags::MEM_SPACE_USER)
     ));
     o.push('\n');
 
@@ -568,19 +751,32 @@ fn generate<A: RmAbi>() -> String {
     // The numbers are NVOS32_DESCRIPTOR_TYPE_* (nvos.h), taken from the
     // bindings rather than typed.
     o.push_str("/* ---- OS descriptor kinds (nvos.h) ---- */\n");
-    o.push_str(&format!("#define NVRM_OSDESC_TYPE_OFF\t{}u\n",
-                        off!(sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS, descriptorType)));
-    o.push_str(&format!("#define NVRM_OSDESC_DESCRIPTOR_OFF\t{}u\n",
-                        off!(sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS, descriptor)));
-    o.push_str(&format!("#define NVRM_OSDESC_LIMIT_OFF\t{}u\n",
-                        off!(sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS, limit)));
-    o.push_str(&format!("#define NVRM_OSDESC_PARAMS_SIZE\t{}u\n",
-                        size_of::<sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS>()));
+    o.push_str(&format!(
+        "#define NVRM_OSDESC_TYPE_OFF\t{}u\n",
+        off!(sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS, descriptorType)
+    ));
+    o.push_str(&format!(
+        "#define NVRM_OSDESC_DESCRIPTOR_OFF\t{}u\n",
+        off!(sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS, descriptor)
+    ));
+    o.push_str(&format!(
+        "#define NVRM_OSDESC_LIMIT_OFF\t{}u\n",
+        off!(sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS, limit)
+    ));
+    o.push_str(&format!(
+        "#define NVRM_OSDESC_PARAMS_SIZE\t{}u\n",
+        size_of::<sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS>()
+    ));
     // The sgt form points at a pair of kernel pointers rather than at one.
-    o.push_str(&format!("#define NVRM_OSDESC_SGT_OFF\t{}u\n",
-                        off!(sys::NVOS32_DESCRIPTOR_TYPE_OS_SGT_PTR_PARAMETERS, sgt)));
+    o.push_str(&format!(
+        "#define NVRM_OSDESC_SGT_OFF\t{}u\n",
+        off!(sys::NVOS32_DESCRIPTOR_TYPE_OS_SGT_PTR_PARAMETERS, sgt)
+    ));
     for (n, v) in [
-        ("VIRTUAL_ADDRESS", sys::NVOS32_DESCRIPTOR_TYPE_VIRTUAL_ADDRESS),
+        (
+            "VIRTUAL_ADDRESS",
+            sys::NVOS32_DESCRIPTOR_TYPE_VIRTUAL_ADDRESS,
+        ),
         ("OS_PAGE_ARRAY", sys::NVOS32_DESCRIPTOR_TYPE_OS_PAGE_ARRAY),
         ("OS_IO_MEMORY", sys::NVOS32_DESCRIPTOR_TYPE_OS_IO_MEMORY),
         ("OS_PHYS_ADDR", sys::NVOS32_DESCRIPTOR_TYPE_OS_PHYS_ADDR),
@@ -611,9 +807,11 @@ fn generate<A: RmAbi>() -> String {
     let scalars = nvrm_abi::mediate::bdf_scalars();
     for (i, (n, cmd, off)) in scalars.iter().enumerate() {
         let last = i + 1 == scalars.len();
-        o.push_str(&format!("\t{{ {cmd:#x}u, {off}u }}{} /* {n} */{}\n",
-                            if last { " " } else { "," },
-                            if last { "" } else { " \\" }));
+        o.push_str(&format!(
+            "\t{{ {cmd:#x}u, {off}u }}{} /* {n} */{}\n",
+            if last { " " } else { "," },
+            if last { "" } else { " \\" }
+        ));
     }
     // The address does not only travel as a gpuId. NVML reads it as three
     // separate {index, data} entries through NV2080_CTRL_CMD_BUS_GET_INFO_V2
@@ -621,41 +819,65 @@ fn generate<A: RmAbi>() -> String {
     // gpuId-bearing control had been mediated. Measured, not assumed: a scan
     // of every control reply for the host id found nothing, because the bus
     // number is not the id.
-    o.push_str(&format!("#define NVRM_CTRL_BUS_GET_INFO\t{:#x}u\n",
-                        sys::NV2080_CTRL_CMD_BUS_GET_INFO));
-    o.push_str(&format!("#define NVRM_CTRL_BUS_GET_INFO_V2\t{:#x}u\n",
-                        sys::NV2080_CTRL_CMD_BUS_GET_INFO_V2));
-    o.push_str(&format!("#define NVRM_BUS_INFO_LIST_OFF\t{}u\n",
-                        off!(sys::NV2080_CTRL_BUS_GET_INFO_V2_PARAMS, busInfoList)));
-    o.push_str(&format!("#define NVRM_BUS_INFO_ENTRY_SIZE\t{}u\n",
-                        size_of::<sys::NV2080_CTRL_BUS_INFO>()));
-    o.push_str(&format!("#define NVRM_BUS_INFO_DATA_OFF\t{}u\n",
-                        off!(sys::NV2080_CTRL_BUS_INFO, data)));
-    o.push_str(&format!("#define NVRM_BUS_INFO_MAX_LIST\t{}u\n",
-                        sys::NV2080_CTRL_BUS_INFO_MAX_LIST_SIZE));
-    o.push_str(&format!("#define NVRM_BUS_INFO_INDEX_BUS\t{:#x}u\n",
-                        sys::NV2080_CTRL_BUS_INFO_INDEX_BUS_NUMBER));
-    o.push_str(&format!("#define NVRM_BUS_INFO_INDEX_DEVICE\t{:#x}u\n",
-                        sys::NV2080_CTRL_BUS_INFO_INDEX_DEVICE_NUMBER));
-    o.push_str(&format!("#define NVRM_BUS_INFO_INDEX_DOMAIN\t{:#x}u\n",
-                        sys::NV2080_CTRL_BUS_INFO_INDEX_DOMAIN_NUMBER));
+    o.push_str(&format!(
+        "#define NVRM_CTRL_BUS_GET_INFO\t{:#x}u\n",
+        sys::NV2080_CTRL_CMD_BUS_GET_INFO
+    ));
+    o.push_str(&format!(
+        "#define NVRM_CTRL_BUS_GET_INFO_V2\t{:#x}u\n",
+        sys::NV2080_CTRL_CMD_BUS_GET_INFO_V2
+    ));
+    o.push_str(&format!(
+        "#define NVRM_BUS_INFO_LIST_OFF\t{}u\n",
+        off!(sys::NV2080_CTRL_BUS_GET_INFO_V2_PARAMS, busInfoList)
+    ));
+    o.push_str(&format!(
+        "#define NVRM_BUS_INFO_ENTRY_SIZE\t{}u\n",
+        size_of::<sys::NV2080_CTRL_BUS_INFO>()
+    ));
+    o.push_str(&format!(
+        "#define NVRM_BUS_INFO_DATA_OFF\t{}u\n",
+        off!(sys::NV2080_CTRL_BUS_INFO, data)
+    ));
+    o.push_str(&format!(
+        "#define NVRM_BUS_INFO_MAX_LIST\t{}u\n",
+        sys::NV2080_CTRL_BUS_INFO_MAX_LIST_SIZE
+    ));
+    o.push_str(&format!(
+        "#define NVRM_BUS_INFO_INDEX_BUS\t{:#x}u\n",
+        sys::NV2080_CTRL_BUS_INFO_INDEX_BUS_NUMBER
+    ));
+    o.push_str(&format!(
+        "#define NVRM_BUS_INFO_INDEX_DEVICE\t{:#x}u\n",
+        sys::NV2080_CTRL_BUS_INFO_INDEX_DEVICE_NUMBER
+    ));
+    o.push_str(&format!(
+        "#define NVRM_BUS_INFO_INDEX_DOMAIN\t{:#x}u\n",
+        sys::NV2080_CTRL_BUS_INFO_INDEX_DOMAIN_NUMBER
+    ));
 
     // And the address that is not a control at all: NV_ESC_CARD_INFO is a
     // plain ioctl whose reply lands in the INLINE block, carrying both the
     // BDF and the gpuId. NVML reads it, which is why nvidia-smi kept
     // printing the host address after every control had been mediated.
-    o.push_str(&format!("#define NVRM_ESC_CARD_INFO\t{}u\n",
-                        nvrm_abi::nvgpu::NV_ESC_CARD_INFO));
+    o.push_str(&format!(
+        "#define NVRM_ESC_CARD_INFO\t{}u\n",
+        nvrm_abi::nvgpu::NV_ESC_CARD_INFO
+    ));
 
     // The second escape that carries an address, and it carries nothing
     // else: NV_ESC_ATTACH_GPUS_TO_FD's whole inline block is an array of
     // gpuIds. No size goes with it -- the host derives the count from the
     // _IOC size (arg_size / sizeof(NvU32), nv.c:2605) and so does the
     // module. A constant here would be a promise the ABI does not make.
-    o.push_str(&format!("#define NVRM_ESC_ATTACH_GPUS_TO_FD\t{}u\n",
-                        nvrm_abi::nvgpu::NV_ESC_ATTACH_GPUS_TO_FD));
-    o.push_str(&format!("#define NVRM_CARD_INFO_ENTRY\t{}u\n",
-                        size_of::<sys::nv_ioctl_card_info_t>()));
+    o.push_str(&format!(
+        "#define NVRM_ESC_ATTACH_GPUS_TO_FD\t{}u\n",
+        nvrm_abi::nvgpu::NV_ESC_ATTACH_GPUS_TO_FD
+    ));
+    o.push_str(&format!(
+        "#define NVRM_CARD_INFO_ENTRY\t{}u\n",
+        size_of::<sys::nv_ioctl_card_info_t>()
+    ));
     for (n, v) in [
         ("CARD_INFO_VALID", off!(sys::nv_ioctl_card_info_t, valid)),
         ("CARD_INFO_GPUID", off!(sys::nv_ioctl_card_info_t, gpu_id)),
@@ -672,7 +894,9 @@ fn generate<A: RmAbi>() -> String {
         o.push_str(&format!("#define NVRM_{n}_OFF\t{v}u\n"));
     }
 
-    o.push_str("/* { cmd, offset, count, stride } -- an array of gpuIds, `stride` bytes apart */\n");
+    o.push_str(
+        "/* { cmd, offset, count, stride } -- an array of gpuIds, `stride` bytes apart */\n",
+    );
     o.push_str("#define NVRM_BDF_ARRAYS \\\n");
     // The stride column exists for ONE control so far, and it is the
     // one that broke raytracing: GET_ACTIVE_DEVICE_IDS answers an array of
@@ -684,9 +908,11 @@ fn generate<A: RmAbi>() -> String {
     let arrays = nvrm_abi::mediate::bdf_arrays::<A>();
     for (i, (n, cmd, off, cnt, stride)) in arrays.iter().enumerate() {
         let last = i + 1 == arrays.len();
-        o.push_str(&format!("\t{{ {cmd:#x}u, {off}u, {cnt}u, {stride}u }}{} /* {n} */{}\n",
-                            if last { " " } else { "," },
-                            if last { "" } else { " \\" }));
+        o.push_str(&format!(
+            "\t{{ {cmd:#x}u, {off}u, {cnt}u, {stride}u }}{} /* {n} */{}\n",
+            if last { " " } else { "," },
+            if last { "" } else { " \\" }
+        ));
     }
     o.push('\n');
 
@@ -700,26 +926,58 @@ fn generate<A: RmAbi>() -> String {
     // buffer -- so the pointer's offset is what finds the list there.
     use nvrm_abi::mediate as md;
     o.push_str("/* ---- FB_GET_INFO: where vram_debug learns the advertised size ---- */\n");
-    o.push_str(&format!("#define NVRM_CTRL_FB_GET_INFO\t{:#x}u\n", md::CMD_FB_GET_INFO));
-    o.push_str(&format!("#define NVRM_CTRL_FB_GET_INFO_V2\t{:#x}u\n", md::CMD_FB_GET_INFO_V2));
-    o.push_str(&format!("#define NVRM_FB_INFO_V2_COUNT_OFF\t{}u\n", md::FBINFO_COUNT_OFF));
-    o.push_str(&format!("#define NVRM_FB_INFO_V2_LIST_OFF\t{}u\n", md::FBINFO_LIST_OFF));
-    o.push_str(&format!("#define NVRM_FB_INFO_V1_COUNT_OFF\t{}u\n",
-                        off!(sys::NV2080_CTRL_FB_GET_INFO_PARAMS, fbInfoListSize)));
-    o.push_str(&format!("#define NVRM_FB_INFO_V1_LIST_PTR_OFF\t{}u\n",
-                        off!(sys::NV2080_CTRL_FB_GET_INFO_PARAMS, fbInfoList)));
-    o.push_str(&format!("#define NVRM_FB_INFO_ENTRY_SIZE\t{}u\n", md::FBINFO_ENTRY));
-    o.push_str(&format!("#define NVRM_FB_INFO_DATA_OFF\t{}u\n", md::FBINFO_DATA_OFF));
-    o.push_str(&format!("#define NVRM_FB_INFO_MAX_LIST\t{}u\n", md::FBINFO_MAX));
-    o.push_str(&format!("#define NVRM_FB_INFO_INDEX_TOTAL_RAM_SIZE\t{:#x}u\n",
-                        md::FB_INFO_INDEX_TOTAL_RAM_SIZE));
+    o.push_str(&format!(
+        "#define NVRM_CTRL_FB_GET_INFO\t{:#x}u\n",
+        md::CMD_FB_GET_INFO
+    ));
+    o.push_str(&format!(
+        "#define NVRM_CTRL_FB_GET_INFO_V2\t{:#x}u\n",
+        md::CMD_FB_GET_INFO_V2
+    ));
+    o.push_str(&format!(
+        "#define NVRM_FB_INFO_V2_COUNT_OFF\t{}u\n",
+        md::FBINFO_COUNT_OFF
+    ));
+    o.push_str(&format!(
+        "#define NVRM_FB_INFO_V2_LIST_OFF\t{}u\n",
+        md::FBINFO_LIST_OFF
+    ));
+    o.push_str(&format!(
+        "#define NVRM_FB_INFO_V1_COUNT_OFF\t{}u\n",
+        off!(sys::NV2080_CTRL_FB_GET_INFO_PARAMS, fbInfoListSize)
+    ));
+    o.push_str(&format!(
+        "#define NVRM_FB_INFO_V1_LIST_PTR_OFF\t{}u\n",
+        off!(sys::NV2080_CTRL_FB_GET_INFO_PARAMS, fbInfoList)
+    ));
+    o.push_str(&format!(
+        "#define NVRM_FB_INFO_ENTRY_SIZE\t{}u\n",
+        md::FBINFO_ENTRY
+    ));
+    o.push_str(&format!(
+        "#define NVRM_FB_INFO_DATA_OFF\t{}u\n",
+        md::FBINFO_DATA_OFF
+    ));
+    o.push_str(&format!(
+        "#define NVRM_FB_INFO_MAX_LIST\t{}u\n",
+        md::FBINFO_MAX
+    ));
+    o.push_str(&format!(
+        "#define NVRM_FB_INFO_INDEX_TOTAL_RAM_SIZE\t{:#x}u\n",
+        md::FB_INFO_INDEX_TOTAL_RAM_SIZE
+    ));
     // The same size through an escape: NVOS32_FUNCTION_INFO answers `total`
     // and `free` in bytes in the NVOS32 block itself, from an FB_GET_INFO_V2
     // the host RM makes internally (rmapi_deprecated_vidheapctrl.c:340-383).
     // The backend caps them like the list above; vram_debug names them.
-    o.push_str(&format!("#define NVRM_ESC_RM_VID_HEAP_CONTROL\t{:#x}u\n",
-                        sys::NV_ESC_RM_VID_HEAP_CONTROL));
-    o.push_str(&format!("#define NVRM_NVOS32_SIZE\t{}u\n", size_of::<sys::NVOS32_PARAMETERS>()));
+    o.push_str(&format!(
+        "#define NVRM_ESC_RM_VID_HEAP_CONTROL\t{:#x}u\n",
+        sys::NV_ESC_RM_VID_HEAP_CONTROL
+    ));
+    o.push_str(&format!(
+        "#define NVRM_NVOS32_SIZE\t{}u\n",
+        size_of::<sys::NVOS32_PARAMETERS>()
+    ));
     for (n, v) in [
         ("FUNCTION", off!(sys::NVOS32_PARAMETERS, function)),
         ("TOTAL", off!(sys::NVOS32_PARAMETERS, total)),
@@ -727,7 +985,10 @@ fn generate<A: RmAbi>() -> String {
     ] {
         o.push_str(&format!("#define NVRM_NVOS32_{n}_OFF\t{v}u\n"));
     }
-    o.push_str(&format!("#define NVRM_NVOS32_FUNCTION_INFO\t{}u\n", sys::NVOS32_FUNCTION_INFO));
+    o.push_str(&format!(
+        "#define NVRM_NVOS32_FUNCTION_INFO\t{}u\n",
+        sys::NVOS32_FUNCTION_INFO
+    ));
     o.push('\n');
 
     // The VRAM balloon (virtio_nvrm.c, display_reserve_mib): the module
@@ -737,15 +998,32 @@ fn generate<A: RmAbi>() -> String {
     // and everything it reads to recognise a display allocation, is named
     // here -- the same fields vram.rs charges by.
     use nvrm_abi::nvgpu::{nvos32_attr, nvos32_attr2};
-    o.push_str("/* ---- the VRAM balloon: its own objects, and what a display buffer looks like ---- */\n");
+    o.push_str(
+        "/* ---- the VRAM balloon: its own objects, and what a display buffer looks like ---- */\n",
+    );
     // cl0040.h:34. Not in the bindings (wrapper.h does not pull cl0040.h);
     // vram.rs and xlate.rs name the same number.
     o.push_str("#define NVRM_CLASS_MEMORY_LOCAL_USER\t0x40u\n");
-    o.push_str(&format!("#define NVRM_CLASS_ROOT\t{:#x}u\n", sys::NV01_ROOT));
-    o.push_str(&format!("#define NVRM_CLASS_DEVICE\t{:#x}u\n", sys::NV01_DEVICE_0));
-    o.push_str(&format!("#define NVRM_DEVICE_ALLOC_SIZE\t{}u\n", size_of::<sys::NV0080_ALLOC_PARAMETERS>()));
-    o.push_str(&format!("#define NVRM_DEVICE_ALLOC_ID_OFF\t{}u\n", off!(sys::NV0080_ALLOC_PARAMETERS, deviceId)));
-    o.push_str(&format!("#define NVRM_MEMALLOC_SIZE\t{}u\n", size_of::<sys::NV_MEMORY_ALLOCATION_PARAMS>()));
+    o.push_str(&format!(
+        "#define NVRM_CLASS_ROOT\t{:#x}u\n",
+        sys::NV01_ROOT
+    ));
+    o.push_str(&format!(
+        "#define NVRM_CLASS_DEVICE\t{:#x}u\n",
+        sys::NV01_DEVICE_0
+    ));
+    o.push_str(&format!(
+        "#define NVRM_DEVICE_ALLOC_SIZE\t{}u\n",
+        size_of::<sys::NV0080_ALLOC_PARAMETERS>()
+    ));
+    o.push_str(&format!(
+        "#define NVRM_DEVICE_ALLOC_ID_OFF\t{}u\n",
+        off!(sys::NV0080_ALLOC_PARAMETERS, deviceId)
+    ));
+    o.push_str(&format!(
+        "#define NVRM_MEMALLOC_SIZE\t{}u\n",
+        size_of::<sys::NV_MEMORY_ALLOCATION_PARAMS>()
+    ));
     for (n, v) in [
         ("OWNER", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, owner)),
         ("TYPE", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, type_)),
@@ -753,14 +1031,23 @@ fn generate<A: RmAbi>() -> String {
         ("ATTR", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, attr)),
         ("ATTR2", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, attr2)),
         ("SIZE", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, size)),
-        ("ALIGNMENT", off!(sys::NV_MEMORY_ALLOCATION_PARAMS, alignment)),
+        (
+            "ALIGNMENT",
+            off!(sys::NV_MEMORY_ALLOCATION_PARAMS, alignment),
+        ),
     ] {
         o.push_str(&format!("#define NVRM_MEMALLOC_{n}_OFF\t{v}u\n"));
     }
     for (n, v) in [
         ("NVOS00_HROOT", off!(sys::NVOS00_PARAMETERS, hRoot)),
-        ("NVOS00_HOBJECTPARENT", off!(sys::NVOS00_PARAMETERS, hObjectParent)),
-        ("NVOS00_HOBJECTOLD", off!(sys::NVOS00_PARAMETERS, hObjectOld)),
+        (
+            "NVOS00_HOBJECTPARENT",
+            off!(sys::NVOS00_PARAMETERS, hObjectParent),
+        ),
+        (
+            "NVOS00_HOBJECTOLD",
+            off!(sys::NVOS00_PARAMETERS, hObjectOld),
+        ),
         ("NVOS00_STATUS", off!(sys::NVOS00_PARAMETERS, status)),
     ] {
         o.push_str(&format!("#define NVRM_{n}_OFF\t{v}u\n"));
@@ -771,20 +1058,48 @@ fn generate<A: RmAbi>() -> String {
     // NV_EVO_SURFACE_ALIGNMENT, CONTIGUOUS, ISO_YES, GPU_CACHEABLE_NO.
     for (n, v) in [
         ("NVOS32_TYPE_PRIMARY", sys::NVOS32_TYPE_PRIMARY),
-        ("NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE", sys::NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE),
-        ("NVOS32_ALLOC_FLAGS_FORCE_MEM_GROWS_UP", sys::NVOS32_ALLOC_FLAGS_FORCE_MEM_GROWS_UP),
-        ("NVOS32_ALLOC_FLAGS_NO_SCANOUT", sys::NVOS32_ALLOC_FLAGS_NO_SCANOUT),
-        ("NVOS32_ALLOC_FLAGS_VIRTUAL", sys::NVOS32_ALLOC_FLAGS_VIRTUAL),
-        ("NVOS32_ATTR_LOCATION_MASK", nvos32_attr::LOCATION.set(u32::MAX)),
-        ("NVOS32_ATTR_LOCATION_VIDMEM", nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM)),
-        ("NVOS32_ATTR_PHYSICALITY_CONTIGUOUS",
-         nvos32_attr::PHYSICALITY.set(sys::NVOS32_ATTR_PHYSICALITY_CONTIGUOUS)),
-        ("NVOS32_ATTR2_ISO_YES", nvos32_attr2::ISO.set(sys::NVOS32_ATTR2_ISO_YES)),
-        ("NVOS32_ATTR2_GPU_CACHEABLE_NO",
-         nvos32_attr2::GPU_CACHEABLE.set(sys::NVOS32_ATTR2_GPU_CACHEABLE_NO)),
+        (
+            "NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE",
+            sys::NVOS32_ALLOC_FLAGS_ALIGNMENT_FORCE,
+        ),
+        (
+            "NVOS32_ALLOC_FLAGS_FORCE_MEM_GROWS_UP",
+            sys::NVOS32_ALLOC_FLAGS_FORCE_MEM_GROWS_UP,
+        ),
+        (
+            "NVOS32_ALLOC_FLAGS_NO_SCANOUT",
+            sys::NVOS32_ALLOC_FLAGS_NO_SCANOUT,
+        ),
+        (
+            "NVOS32_ALLOC_FLAGS_VIRTUAL",
+            sys::NVOS32_ALLOC_FLAGS_VIRTUAL,
+        ),
+        (
+            "NVOS32_ATTR_LOCATION_MASK",
+            nvos32_attr::LOCATION.set(u32::MAX),
+        ),
+        (
+            "NVOS32_ATTR_LOCATION_VIDMEM",
+            nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM),
+        ),
+        (
+            "NVOS32_ATTR_PHYSICALITY_CONTIGUOUS",
+            nvos32_attr::PHYSICALITY.set(sys::NVOS32_ATTR_PHYSICALITY_CONTIGUOUS),
+        ),
+        (
+            "NVOS32_ATTR2_ISO_YES",
+            nvos32_attr2::ISO.set(sys::NVOS32_ATTR2_ISO_YES),
+        ),
+        (
+            "NVOS32_ATTR2_GPU_CACHEABLE_NO",
+            nvos32_attr2::GPU_CACHEABLE.set(sys::NVOS32_ATTR2_GPU_CACHEABLE_NO),
+        ),
         // nvkms-types.h:92, an NVKMS header the bindings do not carry.
         ("NV_EVO_SURFACE_ALIGNMENT", 0x1000),
-        ("NVOS32_FUNCTION_ALLOC_SIZE", sys::NVOS32_FUNCTION_ALLOC_SIZE),
+        (
+            "NVOS32_FUNCTION_ALLOC_SIZE",
+            sys::NVOS32_FUNCTION_ALLOC_SIZE,
+        ),
         ("NV_ERR_NO_MEMORY", sys::NV_ERR_NO_MEMORY),
     ] {
         o.push_str(&format!("#define NVRM_{n}\t{v:#x}u\n"));
@@ -800,27 +1115,80 @@ fn generate<A: RmAbi>() -> String {
     o.push_str("/* ---- offset of `status` per op, so a refusal can be stated ---- */\n");
     for (name, op, off) in [
         ("FREE", sys::NV01_FREE, off!(sys::NVOS00_PARAMETERS, status)),
-        ("ALLOC_MEMORY", sys::NV01_ALLOC_MEMORY, off!(sys::NVOS02_PARAMETERS, status)),
-        ("ALLOC", sys::NV04_ALLOC, off!(sys::NVOS64_PARAMETERS, status)),
-        ("MAP_MEMORY", sys::NV04_MAP_MEMORY, off!(sys::NVOS33_PARAMETERS, status)),
-        ("UNMAP_MEMORY", sys::NV04_UNMAP_MEMORY, off!(sys::NVOS34_PARAMETERS, status)),
-        ("ALLOC_CONTEXT_DMA", sys::NV04_ALLOC_CONTEXT_DMA, off!(sys::NVOS39_PARAMETERS, status)),
-        ("MAP_MEMORY_DMA", sys::NV04_MAP_MEMORY_DMA, off!(sys::NVOS46_PARAMETERS, status)),
-        ("UNMAP_MEMORY_DMA", sys::NV04_UNMAP_MEMORY_DMA, off!(sys::NVOS47_PARAMETERS, status)),
-        ("BIND_CONTEXT_DMA", sys::NV04_BIND_CONTEXT_DMA, off!(sys::NVOS49_PARAMETERS, status)),
-        ("CONTROL", sys::NV04_CONTROL, off!(sys::NVOS54_PARAMETERS, status)),
-        ("DUP_OBJECT", sys::NV04_DUP_OBJECT, off!(sys::NVOS55_PARAMETERS, status)),
-        ("SHARE", sys::NV04_SHARE, off!(sys::NVOS57_PARAMETERS, status)),
-        ("ADD_VBLANK_CALLBACK", sys::NV04_ADD_VBLANK_CALLBACK, off!(sys::NVOS61_PARAMETERS, status)),
+        (
+            "ALLOC_MEMORY",
+            sys::NV01_ALLOC_MEMORY,
+            off!(sys::NVOS02_PARAMETERS, status),
+        ),
+        (
+            "ALLOC",
+            sys::NV04_ALLOC,
+            off!(sys::NVOS64_PARAMETERS, status),
+        ),
+        (
+            "MAP_MEMORY",
+            sys::NV04_MAP_MEMORY,
+            off!(sys::NVOS33_PARAMETERS, status),
+        ),
+        (
+            "UNMAP_MEMORY",
+            sys::NV04_UNMAP_MEMORY,
+            off!(sys::NVOS34_PARAMETERS, status),
+        ),
+        (
+            "ALLOC_CONTEXT_DMA",
+            sys::NV04_ALLOC_CONTEXT_DMA,
+            off!(sys::NVOS39_PARAMETERS, status),
+        ),
+        (
+            "MAP_MEMORY_DMA",
+            sys::NV04_MAP_MEMORY_DMA,
+            off!(sys::NVOS46_PARAMETERS, status),
+        ),
+        (
+            "UNMAP_MEMORY_DMA",
+            sys::NV04_UNMAP_MEMORY_DMA,
+            off!(sys::NVOS47_PARAMETERS, status),
+        ),
+        (
+            "BIND_CONTEXT_DMA",
+            sys::NV04_BIND_CONTEXT_DMA,
+            off!(sys::NVOS49_PARAMETERS, status),
+        ),
+        (
+            "CONTROL",
+            sys::NV04_CONTROL,
+            off!(sys::NVOS54_PARAMETERS, status),
+        ),
+        (
+            "DUP_OBJECT",
+            sys::NV04_DUP_OBJECT,
+            off!(sys::NVOS55_PARAMETERS, status),
+        ),
+        (
+            "SHARE",
+            sys::NV04_SHARE,
+            off!(sys::NVOS57_PARAMETERS, status),
+        ),
+        (
+            "ADD_VBLANK_CALLBACK",
+            sys::NV04_ADD_VBLANK_CALLBACK,
+            off!(sys::NVOS61_PARAMETERS, status),
+        ),
     ] {
         o.push_str(&format!("#define NVRM_KSTAT_{name}\t{op}u, {off}u\n"));
     }
     // NV04_VID_HEAP_CONTROL is deliberately absent: its union member is a
     // POINTER to NVOS32_PARAMETERS, not the block itself, so the status does
     // not live at a fixed offset from the op.
-    o.push_str(&format!("#define NVRM_KOP_VID_HEAP_CONTROL\t{}u\n",
-                        sys::NV04_VID_HEAP_CONTROL));
-    o.push_str(&format!("#define NVRM_NV_ERR_NOT_SUPPORTED\t{:#x}u\n", sys::NV_ERR_NOT_SUPPORTED));
+    o.push_str(&format!(
+        "#define NVRM_KOP_VID_HEAP_CONTROL\t{}u\n",
+        sys::NV04_VID_HEAP_CONTROL
+    ));
+    o.push_str(&format!(
+        "#define NVRM_NV_ERR_NOT_SUPPORTED\t{:#x}u\n",
+        sys::NV_ERR_NOT_SUPPORTED
+    ));
     o.push('\n');
 
     // ---- Wire structs -----------------------------------------------------
@@ -857,10 +1225,22 @@ fn generate<A: RmAbi>() -> String {
             // assert here can see -- and the guest then cannot name the field.
             F("__u32", "fd_field_proc", off!(proto::Req, fd_field_proc)),
             F("__u64", "fd_field_token", off!(proto::Req, fd_field_token)),
-            F("__u32", "embedded_ptr_off", off!(proto::Req, embedded_ptr_off)),
+            F(
+                "__u32",
+                "embedded_ptr_off",
+                off!(proto::Req, embedded_ptr_off),
+            ),
             F("__u32", "nested_count", off!(proto::Req, nested_count)),
-            F("struct nvrm_nested_desc", "nested[NVRM_MAX_NESTED]", off!(proto::Req, nested)),
-            F("__u32", "aux_fd_field_off", off!(proto::Req, aux_fd_field_off)),
+            F(
+                "struct nvrm_nested_desc",
+                "nested[NVRM_MAX_NESTED]",
+                off!(proto::Req, nested),
+            ),
+            F(
+                "__u32",
+                "aux_fd_field_off",
+                off!(proto::Req, aux_fd_field_off),
+            ),
             // WARNING: this row must sit at the SAME INDEX as the Rust field.
             // emit_struct walks the list in order and emits no padding
             // members, so `aux_fd_field_proc` occupies the hole the compiler
@@ -868,8 +1248,16 @@ fn generate<A: RmAbi>() -> String {
             // struct stays 160 bytes and every offset assert still passes --
             // the only thing that catches it is the guest C failing to
             // compile against a member that is not there.
-            F("__u32", "aux_fd_field_proc", off!(proto::Req, aux_fd_field_proc)),
-            F("__u64", "aux_fd_field_token", off!(proto::Req, aux_fd_field_token)),
+            F(
+                "__u32",
+                "aux_fd_field_proc",
+                off!(proto::Req, aux_fd_field_proc),
+            ),
+            F(
+                "__u64",
+                "aux_fd_field_token",
+                off!(proto::Req, aux_fd_field_token),
+            ),
             F("__u64", "map_len", off!(proto::Req, map_len)),
             F("__u64", "addr", off!(proto::Req, addr)),
             F("__u32", "gpa_run_count", off!(proto::Req, gpa_run_count)),
@@ -916,9 +1304,18 @@ fn generate<A: RmAbi>() -> String {
 
     // ---- Table format -----------------------------------------------------
     o.push_str("/* ---- descriptor tables (the host sends them, we interpret) ---- */\n\n");
-    o.push_str(&format!("#define NVRM_TABLE_MAGIC\t0x{:08x}u\n", t::TABLE_MAGIC));
-    o.push_str(&format!("#define NVRM_TABLE_VERSION\t{}u\n", t::TABLE_VERSION));
-    o.push_str(&format!("#define NVRM_SIZE_FROM_IOC\t{}u\n\n", t::SIZE_FROM_IOC));
+    o.push_str(&format!(
+        "#define NVRM_TABLE_MAGIC\t0x{:08x}u\n",
+        t::TABLE_MAGIC
+    ));
+    o.push_str(&format!(
+        "#define NVRM_TABLE_VERSION\t{}u\n",
+        t::TABLE_VERSION
+    ));
+    o.push_str(&format!(
+        "#define NVRM_SIZE_FROM_IOC\t{}u\n\n",
+        t::SIZE_FROM_IOC
+    ));
     for (n, v) in [
         ("EMB_NONE", t::EMB_NONE),
         ("EMB_LEN_FIELD", t::EMB_LEN_FIELD),
@@ -952,16 +1349,36 @@ fn generate<A: RmAbi>() -> String {
             F("__u32", "n_ctrl", off!(t::TableHdr, n_ctrl)),
             F("__u32", "n_nested", off!(t::TableHdr, n_nested)),
             F("__u32", "xfer_nr", off!(t::TableHdr, xfer_nr)),
-            F("__u32", "xfer_struct_len", off!(t::TableHdr, xfer_struct_len)),
+            F(
+                "__u32",
+                "xfer_struct_len",
+                off!(t::TableHdr, xfer_struct_len),
+            ),
             F("__u32", "xfer_cmd_off", off!(t::TableHdr, xfer_cmd_off)),
             F("__u32", "xfer_size_off", off!(t::TableHdr, xfer_size_off)),
             F("__u32", "xfer_ptr_off", off!(t::TableHdr, xfer_ptr_off)),
             F("__u32", "max_ioctl_size", off!(t::TableHdr, max_ioctl_size)),
             F("__u32", "osdesc_class", off!(t::TableHdr, osdesc_class)),
-            F("__u32", "osdesc_pmem_off", off!(t::TableHdr, osdesc_pmem_off)),
-            F("__u32", "osdesc_limit_off", off!(t::TableHdr, osdesc_limit_off)),
-            F("__u32", "osdesc_status_off", off!(t::TableHdr, osdesc_status_off)),
-            F("__u32", "osdesc_handle_off", off!(t::TableHdr, osdesc_handle_off)),
+            F(
+                "__u32",
+                "osdesc_pmem_off",
+                off!(t::TableHdr, osdesc_pmem_off),
+            ),
+            F(
+                "__u32",
+                "osdesc_limit_off",
+                off!(t::TableHdr, osdesc_limit_off),
+            ),
+            F(
+                "__u32",
+                "osdesc_status_off",
+                off!(t::TableHdr, osdesc_status_off),
+            ),
+            F(
+                "__u32",
+                "osdesc_handle_off",
+                off!(t::TableHdr, osdesc_handle_off),
+            ),
             F("__u32", "max_inline", off!(t::TableHdr, max_inline)),
             F("__u32", "max_aux", off!(t::TableHdr, max_aux)),
             F("__u32", "max_nested", off!(t::TableHdr, max_nested)),
@@ -983,7 +1400,11 @@ fn generate<A: RmAbi>() -> String {
             F("__u32", "emb_len_off", off!(t::IoctlDesc, emb_len_off)),
             F("__u32", "cmd_off", off!(t::IoctlDesc, cmd_off)),
             F("__u32", "rights_off", off!(t::IoctlDesc, rights_off)),
-            F("__u32", "rights_if_size", off!(t::IoctlDesc, rights_if_size)),
+            F(
+                "__u32",
+                "rights_if_size",
+                off!(t::IoctlDesc, rights_if_size),
+            ),
             F("__u32", "handle_off", off!(t::IoctlDesc, handle_off)),
             F("__u32", "flags", off!(t::IoctlDesc, flags)),
         ],
@@ -1041,10 +1462,26 @@ mod tests {
     /// the WARNING at `aux_fd_field_proc`: a dropped row leaves the struct
     /// the same 160 bytes and every size and offset assert still passes.
     const REQ_FIELDS: &[&str] = &[
-        "seq", "kind", "dev_tag", "ioctl_nr", "target_token", "inline_len", "aux_len",
-        "fd_field_off", "fd_field_proc", "fd_field_token", "embedded_ptr_off", "nested_count",
-        "nested", "aux_fd_field_off", "aux_fd_field_proc", "aux_fd_field_token", "map_len",
-        "addr", "gpa_run_count", "guest_proc",
+        "seq",
+        "kind",
+        "dev_tag",
+        "ioctl_nr",
+        "target_token",
+        "inline_len",
+        "aux_len",
+        "fd_field_off",
+        "fd_field_proc",
+        "fd_field_token",
+        "embedded_ptr_off",
+        "nested_count",
+        "nested",
+        "aux_fd_field_off",
+        "aux_fd_field_proc",
+        "aux_fd_field_token",
+        "map_len",
+        "addr",
+        "gpa_run_count",
+        "guest_proc",
     ];
 
     /// The output is a C header that goes into a Linux kernel module tree
@@ -1085,7 +1522,8 @@ mod tests {
         // And no field beyond the list above: a new one added to `Req`
         // without a row here would go unnoticed otherwise.
         assert_eq!(
-            text.matches("_Static_assert(offsetof(struct nvrm_req, ").count(),
+            text.matches("_Static_assert(offsetof(struct nvrm_req, ")
+                .count(),
             REQ_FIELDS.len(),
             "the number of nvrm_req offset asserts changed"
         );
@@ -1102,7 +1540,11 @@ mod tests {
             text.contains("#define NVRM_PROTO_VERSION\t6u"),
             "the header must define NVRM_PROTO_VERSION as 6u"
         );
-        assert_eq!(nvrm_wire::PROTO_VERSION, 6, "the constant this is generated from");
+        assert_eq!(
+            nvrm_wire::PROTO_VERSION,
+            6,
+            "the constant this is generated from"
+        );
     }
 
     /// Two calls produce byte-identical output. `nvrm-genhdr --check`
@@ -1112,6 +1554,9 @@ mod tests {
     /// random.
     #[test]
     fn generation_is_deterministic() {
-        assert_eq!(generate::<nvrm_sys::DefaultAbi>(), generate::<nvrm_sys::DefaultAbi>());
+        assert_eq!(
+            generate::<nvrm_sys::DefaultAbi>(),
+            generate::<nvrm_sys::DefaultAbi>()
+        );
     }
 }

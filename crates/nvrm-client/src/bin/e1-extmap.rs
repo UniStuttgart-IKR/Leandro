@@ -149,13 +149,13 @@ fn main() {
     wfd.params.pMemory = host_va as usize as sys::NvP64;
     wfd.params.limit = (POOL_BYTES - 1) as u64;
     wfd.fd = -1; // VIRTUAL_ADDRESS descriptor, not a dma-buf
-    // On a GPU node, not ctl: NV_ACTUAL_DEVICE_ONLY (escape.c:399) yields
-    // EINVAL on /dev/nvidiactl before RM ever sets a status. Matches the
-    // trace: every 0x27 there runs on `gpu`. And the fd must be bound to
-    // the client's ctl fd via NV_ESC_REGISTER_FD, otherwise the client
-    // does not validate (NV_ERR_INVALID_CLIENT 0x23, measured) -
-    // secInfo.clientOSInfo falls back to the GPU nvfp itself
-    // (escape.c:379-381).
+                 // On a GPU node, not ctl: NV_ACTUAL_DEVICE_ONLY (escape.c:399) yields
+                 // EINVAL on /dev/nvidiactl before RM ever sets a status. Matches the
+                 // trace: every 0x27 there runs on `gpu`. And the fd must be bound to
+                 // the client's ctl fd via NV_ESC_REGISTER_FD, otherwise the client
+                 // does not validate (NV_ERR_INVALID_CLIENT 0x23, measured) -
+                 // secInfo.clientOSInfo falls back to the GPU nvfp itself
+                 // (escape.c:379-381).
     let gpu_reg = gpu.open_for_mapping(rm.ctl()).expect("REGISTER_FD");
     unsafe {
         gpu_reg
@@ -209,7 +209,12 @@ fn main() {
         cr.base = base;
         cr.length = POOL_BYTES as u64;
         let (r, e) = uvm_ioctl(&uvm, UVM_CREATE_EXTERNAL_RANGE, &mut cr);
-        fail |= !step(&format!("CREATE_EXTERNAL_RANGE @{base:#x}"), r, e, cr.rmStatus);
+        fail |= !step(
+            &format!("CREATE_EXTERNAL_RANGE @{base:#x}"),
+            r,
+            e,
+            cr.rmStatus,
+        );
 
         let mut mp: Box<sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS> =
             unsafe { Box::new(std::mem::zeroed()) };
@@ -224,7 +229,12 @@ fn main() {
         mp.hClient = root;
         mp.hMemory = osdesc;
         let (r, e) = uvm_ioctl(&uvm, UVM_MAP_EXTERNAL_ALLOCATION, mp.as_mut());
-        fail |= !step(&format!("MAP_EXTERNAL_ALLOCATION @{base:#x}"), r, e, mp.rmStatus);
+        fail |= !step(
+            &format!("MAP_EXTERNAL_ALLOCATION @{base:#x}"),
+            r,
+            e,
+            mp.rmStatus,
+        );
     }
 
     // Counter-check: a broken hMemory MUST fail, otherwise NV_OK above
@@ -235,7 +245,12 @@ fn main() {
     cr.base = neg_base;
     cr.length = POOL_BYTES as u64;
     let (r, e) = uvm_ioctl(&uvm, UVM_CREATE_EXTERNAL_RANGE, &mut cr);
-    fail |= !step(&format!("CREATE_EXTERNAL_RANGE @{neg_base:#x} (negative check)"), r, e, cr.rmStatus);
+    fail |= !step(
+        &format!("CREATE_EXTERNAL_RANGE @{neg_base:#x} (negative check)"),
+        r,
+        e,
+        cr.rmStatus,
+    );
     let mut mp: Box<sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS> =
         unsafe { Box::new(std::mem::zeroed()) };
     mp.base = neg_base;
@@ -260,6 +275,13 @@ fn main() {
     let first = unsafe { std::ptr::read_volatile(host_va as *const u8) };
     println!("cpu byte = {first:#x} (expected 0xa5)");
 
-    println!("{}", if fail { "E1: FAIL" } else { "E1: PASS - the chain carries" });
+    println!(
+        "{}",
+        if fail {
+            "E1: FAIL"
+        } else {
+            "E1: PASS - the chain carries"
+        }
+    );
     std::process::exit(if fail { 1 } else { 0 });
 }

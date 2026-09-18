@@ -34,7 +34,10 @@ impl Default for Mirror {
 
 impl Mirror {
     pub fn new() -> Self {
-        Self { next: 1, map: HashMap::new() }
+        Self {
+            next: 1,
+            map: HashMap::new(),
+        }
     }
 
     /// Take in a new real FD, get the token back.
@@ -122,7 +125,11 @@ mod tests {
         let want = f.as_raw_fd();
         let tok = m.insert(f);
 
-        assert_eq!(m.raw(tok), Some(want), "the token names the FD it was given");
+        assert_eq!(
+            m.raw(tok),
+            Some(want),
+            "the token names the FD it was given"
+        );
         assert_eq!(m.raw(0), None, "0 is never a token");
         assert_eq!(m.raw(tok + 1), None, "a token never issued");
         assert_eq!(m.raw(u64::MAX), None, "a number the guest invented");
@@ -145,7 +152,11 @@ mod tests {
     #[test]
     fn len_is_empty_and_ever_count_different_things() {
         let mut m = Mirror::new();
-        assert_eq!((m.len(), m.is_empty(), m.ever()), (0, true, 0), "fresh mirror");
+        assert_eq!(
+            (m.len(), m.is_empty(), m.ever()),
+            (0, true, 0),
+            "fresh mirror"
+        );
 
         let a = m.insert(fd());
         let b = m.insert(fd());
@@ -153,7 +164,11 @@ mod tests {
 
         m.remove(a);
         assert_eq!(m.len(), 1, "one given back");
-        assert_eq!(m.ever(), 2, "but two were handed out, and that does not shrink");
+        assert_eq!(
+            m.ever(),
+            2,
+            "but two were handed out, and that does not shrink"
+        );
 
         m.remove(b);
         assert!(m.is_empty(), "nothing held any more");

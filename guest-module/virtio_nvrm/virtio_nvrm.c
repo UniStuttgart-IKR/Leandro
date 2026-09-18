@@ -100,9 +100,9 @@
  * libcuda looks its nodes up under. Cross-checked against the host's
  * /proc/devices: "195 nvidia", "195 nvidiactl", "235 nvidia-uvm". */
 #define NV_FRONTEND_MAJOR 195
-#define NV_UVM_MAJOR	  235
-#define NV_MINOR_CTL	  255
-#define NV_MAX_GPUS	  8
+#define NV_UVM_MAJOR 235
+#define NV_MINOR_CTL 255
+#define NV_MAX_GPUS 8
 
 /* Pages per pin_user_pages_fast round: bounds the latency and allocation
  * size of a single call without capping the total length. */
@@ -116,7 +116,9 @@
 
 static bool create_nodes = true;
 module_param(create_nodes, bool, 0444);
-MODULE_PARM_DESC(create_nodes, "Create the NVIDIA nodes (default: yes). Off when nvrm_nodes.ko holds them");
+MODULE_PARM_DESC(
+	create_nodes,
+	"Create the NVIDIA nodes (default: yes). Off when nvrm_nodes.ko holds them");
 
 static unsigned int gpu_count = 1;
 module_param(gpu_count, uint, 0444);
@@ -173,7 +175,9 @@ MODULE_PARM_DESC(gpu_count, "Number of /dev/nvidiaN nodes (default 1)");
  */
 static unsigned int bdf_mediation;
 module_param(bdf_mediation, uint, 0644);
-MODULE_PARM_DESC(bdf_mediation, "report the guest's own PCI address for the card in every RM answer (default 0 = off, see the comment)");
+MODULE_PARM_DESC(
+	bdf_mediation,
+	"report the guest's own PCI address for the card in every RM answer (default 0 = off, see the comment)");
 
 /*
  * Finds what the table misses. With this on, every control reply is scanned
@@ -183,7 +187,9 @@ MODULE_PARM_DESC(bdf_mediation, "report the guest's own PCI address for the card
  */
 static unsigned int bdf_debug;
 module_param(bdf_debug, uint, 0644);
-MODULE_PARM_DESC(bdf_debug, "log every control reply that still carries the host's gpuId (default 0)");
+MODULE_PARM_DESC(
+	bdf_debug,
+	"log every control reply that still carries the host's gpuId (default 0)");
 
 /*
  * The display path, off by default.
@@ -199,7 +205,9 @@ MODULE_PARM_DESC(bdf_debug, "log every control reply that still carries the host
  */
 static unsigned int display;
 module_param(display, uint, 0644);
-MODULE_PARM_DESC(display, "serve the kernel-path RM operations a display needs (0 = off, 1 = on, 2 = on and verbose)");
+MODULE_PARM_DESC(
+	display,
+	"serve the kernel-path RM operations a display needs (0 = off, 1 = on, 2 = on and verbose)");
 
 /*
  * The virtual display, off by default.
@@ -227,7 +235,9 @@ MODULE_PARM_DESC(display, "serve the kernel-path RM operations a display needs (
  */
 static unsigned int vdisplay;
 module_param(vdisplay, uint, 0644);
-MODULE_PARM_DESC(vdisplay, "present a virtual display to NVKMS via NVA083_GRID_DISPLAYLESS (0 = off, 1 = on). Needs display=1: the kernel-path RM operations a display uses are refused without it");
+MODULE_PARM_DESC(
+	vdisplay,
+	"present a virtual display to NVKMS via NVA083_GRID_DISPLAYLESS (0 = off, 1 = on). Needs display=1: the kernel-path RM operations a display uses are refused without it");
 
 static unsigned int vdisplay_width = 1920;
 module_param(vdisplay_width, uint, 0644);
@@ -235,7 +245,8 @@ MODULE_PARM_DESC(vdisplay_width, "width of the virtual display (default 1920)");
 
 static unsigned int vdisplay_height = 1080;
 module_param(vdisplay_height, uint, 0644);
-MODULE_PARM_DESC(vdisplay_height, "height of the virtual display (default 1080)");
+MODULE_PARM_DESC(vdisplay_height,
+		 "height of the virtual display (default 1080)");
 
 /*
  * The CEILING, which is a different thing from the mode above.
@@ -255,22 +266,29 @@ MODULE_PARM_DESC(vdisplay_height, "height of the virtual display (default 1080)"
  */
 static unsigned int vdisplay_max_width = 2560;
 module_param(vdisplay_max_width, uint, 0644);
-MODULE_PARM_DESC(vdisplay_max_width, "maximum width NVKMS may use (default 2560, NVIDIA's Linux displayless limit)");
+MODULE_PARM_DESC(
+	vdisplay_max_width,
+	"maximum width NVKMS may use (default 2560, NVIDIA's Linux displayless limit)");
 
 static unsigned int vdisplay_max_height = 1600;
 module_param(vdisplay_max_height, uint, 0644);
-MODULE_PARM_DESC(vdisplay_max_height, "maximum height NVKMS may use (default 1600, NVIDIA's Linux displayless limit)");
+MODULE_PARM_DESC(
+	vdisplay_max_height,
+	"maximum height NVKMS may use (default 1600, NVIDIA's Linux displayless limit)");
 
 static unsigned int vdisplay_max_pixels = 4096000;
 module_param(vdisplay_max_pixels, uint, 0644);
-MODULE_PARM_DESC(vdisplay_max_pixels, "maximum pixel count, a bound of its own next to the resolution (default 4096000 = 2560x1600)");
+MODULE_PARM_DESC(
+	vdisplay_max_pixels,
+	"maximum pixel count, a bound of its own next to the resolution (default 4096000 = 2560x1600)");
 
 /* The raster rate of a raster generator that does not exist. The EDID this
  * module invents advertises 60 Hz, and the callbacks served from it (see the
  * vblank section) fire at this rate. Writable for experiments. */
 static unsigned int vdisplay_vblank_hz = 60;
 module_param(vdisplay_vblank_hz, uint, 0644);
-MODULE_PARM_DESC(vdisplay_vblank_hz, "rate of the virtual display's vblank callbacks (default 60)");
+MODULE_PARM_DESC(vdisplay_vblank_hz,
+		 "rate of the virtual display's vblank callbacks (default 60)");
 
 /*
  * The VRAM balloon: how many MiB of this guest's VRAM the module holds
@@ -320,8 +338,11 @@ static const struct kernel_param_ops display_reserve_ops = {
 	.set = display_reserve_set,
 	.get = param_get_int,
 };
-module_param_cb(display_reserve_mib, &display_reserve_ops, &display_reserve_mib, 0644);
-MODULE_PARM_DESC(display_reserve_mib, "MiB of VRAM the module holds and gives back when NVKMS is refused a display buffer (-1 = auto from vdisplay_width/height when display is on, 0 = off, >0 = fixed; default -1)");
+module_param_cb(display_reserve_mib, &display_reserve_ops, &display_reserve_mib,
+		0644);
+MODULE_PARM_DESC(
+	display_reserve_mib,
+	"MiB of VRAM the module holds and gives back when NVKMS is refused a display buffer (-1 = auto from vdisplay_width/height when display is on, 0 = off, >0 = fixed; default -1)");
 
 /*
  * Finds where the VRAM size travels. With this on, every control reply
@@ -341,15 +362,20 @@ MODULE_PARM_DESC(display_reserve_mib, "MiB of VRAM the module holds and gives ba
  */
 static unsigned int vram_debug;
 module_param(vram_debug, uint, 0644);
-MODULE_PARM_DESC(vram_debug, "log every RM answer that carries the advertised FB size (1 = once per command, offset and process, 2 = every hit; default 0)");
+MODULE_PARM_DESC(
+	vram_debug,
+	"log every RM answer that carries the advertised FB size (1 = once per command, offset and process, 2 = every hit; default 0)");
 
 static unsigned int vram_debug_card_mib;
 module_param(vram_debug_card_mib, uint, 0644);
-MODULE_PARM_DESC(vram_debug_card_mib, "with vram_debug: also look for this physical card size in MiB (default 0 = do not)");
+MODULE_PARM_DESC(
+	vram_debug_card_mib,
+	"with vram_debug: also look for this physical card size in MiB (default 0 = do not)");
 
 static unsigned long stat_vblank_fired;
 module_param(stat_vblank_fired, ulong, 0444);
-MODULE_PARM_DESC(stat_vblank_fired, "vblank callback invocations served from the virtual display");
+MODULE_PARM_DESC(stat_vblank_fired,
+		 "vblank callback invocations served from the virtual display");
 
 /* The event return channel (queue 1, KIND_EVENT_FIRED). Three counters, so
  * that "26 registered, 0 delivered" -- the measured GNOME state before this
@@ -361,30 +387,42 @@ MODULE_PARM_DESC(stat_vblank_fired, "vblank callback invocations served from the
  * Under GNOME with `vkprobe --present` running, `delivered` must tick. */
 static unsigned long stat_events_delivered;
 module_param(stat_events_delivered, ulong, 0444);
-MODULE_PARM_DESC(stat_events_delivered, "host events handed on: fd wake-ups plus kernel-callback invocations");
+MODULE_PARM_DESC(
+	stat_events_delivered,
+	"host events handed on: fd wake-ups plus kernel-callback invocations");
 
 static unsigned long stat_events_dropped;
 module_param(stat_events_dropped, ulong, 0444);
-MODULE_PARM_DESC(stat_events_dropped, "host events with nowhere to go, all reasons (see the four below)");
+MODULE_PARM_DESC(
+	stat_events_dropped,
+	"host events with nowhere to go, all reasons (see the four below)");
 /* The four reasons apart -- 144k "dropped" in half an hour of CS2 read
  * like a leak until the split showed them to be the host monitor's DP_IRQ
  * at 60 Hz, filtered on purpose (2026-08-15). */
 static unsigned long stat_events_drop_ringfull;
 module_param(stat_events_drop_ringfull, ulong, 0444);
-MODULE_PARM_DESC(stat_events_drop_ringfull, "dropped: guest ring full before the workqueue drained it -- the one that costs frames");
+MODULE_PARM_DESC(
+	stat_events_drop_ringfull,
+	"dropped: guest ring full before the workqueue drained it -- the one that costs frames");
 static unsigned long stat_events_drop_filtered;
 module_param(stat_events_drop_filtered, ulong, 0444);
-MODULE_PARM_DESC(stat_events_drop_filtered, "dropped: DP_IRQ/HDMI/LPWR notifiers of the HOST display, filtered on purpose");
+MODULE_PARM_DESC(
+	stat_events_drop_filtered,
+	"dropped: DP_IRQ/HDMI/LPWR notifiers of the HOST display, filtered on purpose");
 static unsigned long stat_events_drop_noslot;
 module_param(stat_events_drop_noslot, ulong, 0444);
-MODULE_PARM_DESC(stat_events_drop_noslot, "dropped: no callback slot for (client, hEvent) -- registration missed or freed");
+MODULE_PARM_DESC(
+	stat_events_drop_noslot,
+	"dropped: no callback slot for (client, hEvent) -- registration missed or freed");
 static unsigned long stat_events_drop_class;
 module_param(stat_events_drop_class, ulong, 0444);
-MODULE_PARM_DESC(stat_events_drop_class, "dropped: class 0x78 or unknown -- not callable in the guest");
+MODULE_PARM_DESC(stat_events_drop_class,
+		 "dropped: class 0x78 or unknown -- not callable in the guest");
 
 static unsigned long stat_events_registered;
 module_param(stat_events_registered, ulong, 0444);
-MODULE_PARM_DESC(stat_events_registered, "kernel-callback events (0x7e) this module holds a slot for");
+MODULE_PARM_DESC(stat_events_registered,
+		 "kernel-callback events (0x7e) this module holds a slot for");
 
 /*
  * How many device nodes this guest currently holds open, as the module sees
@@ -402,13 +440,15 @@ MODULE_PARM_DESC(stat_events_registered, "kernel-callback events (0x7e) this mod
  */
 static unsigned long stat_ctx_open;
 module_param(stat_ctx_open, ulong, 0444);
-MODULE_PARM_DESC(stat_ctx_open, "device-node contexts (struct file) currently open");
+MODULE_PARM_DESC(stat_ctx_open,
+		 "device-node contexts (struct file) currently open");
 static unsigned long stat_ctx_opened;
 module_param(stat_ctx_opened, ulong, 0444);
 MODULE_PARM_DESC(stat_ctx_opened, "device-node contexts ever opened");
 static unsigned long stat_ctx_closed;
 module_param(stat_ctx_closed, ulong, 0444);
-MODULE_PARM_DESC(stat_ctx_closed, "device-node contexts ever released (KIND_CLOSE sent)");
+MODULE_PARM_DESC(stat_ctx_closed,
+		 "device-node contexts ever released (KIND_CLOSE sent)");
 
 /* A semaphore surface (NV_SEMAPHORE_SURFACE) is the object nvidia-drm hangs
  * its fences off; its WAITERS (control 0xda0003) are the SECOND way NVKMS
@@ -419,20 +459,27 @@ MODULE_PARM_DESC(stat_ctx_closed, "device-node contexts ever released (KIND_CLOS
  * `fired` must tick once per frame while one runs. */
 static unsigned long stat_semsurf_waiters;
 module_param(stat_semsurf_waiters, ulong, 0444);
-MODULE_PARM_DESC(stat_semsurf_waiters, "semaphore-surface waiter slots currently armed (control 0xda0003)");
+MODULE_PARM_DESC(
+	stat_semsurf_waiters,
+	"semaphore-surface waiter slots currently armed (control 0xda0003)");
 /* Unregisters RM refused because the waiter had already fired, i.e. the
  * races that semsurf_after_control() now retires instead of leaving armed.
  * Each one is a use-after-free that did NOT happen. */
 static unsigned long stat_semsurf_late_unreg;
 module_param(stat_semsurf_late_unreg, ulong, 0444);
-MODULE_PARM_DESC(stat_semsurf_late_unreg, "unregisters that lost the race with the firing (slot retired anyway)");
+MODULE_PARM_DESC(
+	stat_semsurf_late_unreg,
+	"unregisters that lost the race with the firing (slot retired anyway)");
 static unsigned long stat_semsurf_fired;
 module_param(stat_semsurf_fired, ulong, 0444);
-MODULE_PARM_DESC(stat_semsurf_fired, "semaphore-surface waiter callbacks invoked");
+MODULE_PARM_DESC(stat_semsurf_fired,
+		 "semaphore-surface waiter callbacks invoked");
 
 static unsigned int max_pin_mib = 1024;
 module_param(max_pin_mib, uint, 0644);
-MODULE_PARM_DESC(max_pin_mib, "Upper bound on concurrently pinned guest memory in MiB (default 1024)");
+MODULE_PARM_DESC(
+	max_pin_mib,
+	"Upper bound on concurrently pinned guest memory in MiB (default 1024)");
 
 /* Read-only observability -- /sys/module/virtio_nvrm/parameters/. Without
  * them, "the pin path fired" would be a guess instead of a measurement,
@@ -443,7 +490,8 @@ MODULE_PARM_DESC(stat_pinned_kib, "Guest memory currently pinned, in KiB");
 
 static unsigned long stat_osdesc_pins;
 module_param(stat_osdesc_pins, ulong, 0444);
-MODULE_PARM_DESC(stat_osdesc_pins, "OS descriptors whose pages were resolved here");
+MODULE_PARM_DESC(stat_osdesc_pins,
+		 "OS descriptors whose pages were resolved here");
 
 static unsigned long stat_pool_pages;
 module_param(stat_pool_pages, ulong, 0444);
@@ -509,7 +557,8 @@ struct nvrm_dev {
 	 * from the work item (process) the same way. */
 	spinlock_t evq_lock;
 	struct nvrm_req ev_ring[NVRM_EV_RING];
-	unsigned int ev_head, ev_tail;	/* under evq_lock; tail - head = filled */
+	unsigned int ev_head,
+		ev_tail; /* under evq_lock; tail - head = filled */
 	/* Hands the ring on in process context. Nothing is CALLED from the
 	 * IRQ callback: neither NVKMS' callbacks nor a wait-queue lookup. */
 	struct work_struct events_work;
@@ -530,7 +579,7 @@ struct nvrm_dev {
 	/* Host-visible window: guest-physical memory, filled by the host. */
 	u64 win_base;
 	u64 win_len;
-	unsigned long *win_bitmap;	/* one page per bit */
+	unsigned long *win_bitmap; /* one page per bit */
 	struct mutex win_lock;
 
 	struct nvrm_tables tbl;
@@ -549,9 +598,9 @@ struct nvrm_dev {
 	 * stand for two addresses without inventing one -- so mediation turns
 	 * itself OFF there rather than lie. That boundary is deliberate.
 	 */
-	u32 bdf_guest_id;	/* 0 = no PCI parent, mediation impossible */
-	u32 bdf_host_id;	/* 0 = not learned yet */
-	bool bdf_disabled;	/* more than one GPU seen */
+	u32 bdf_guest_id; /* 0 = no PCI parent, mediation impossible */
+	u32 bdf_host_id; /* 0 = not learned yet */
+	bool bdf_disabled; /* more than one GPU seen */
 	u16 bdf_domain;
 	u8 bdf_bus, bdf_slot, bdf_func;
 
@@ -708,7 +757,8 @@ static struct nvrm_xfer *nvrm_xfer_alloc(size_t req_cap, size_t rsp_cap)
 
 	if (req_cap > NVRM_MAX_MSG || rsp_cap > NVRM_MAX_MSG)
 		return ERR_PTR(-EMSGSIZE);
-	if (req_cap < sizeof(struct nvrm_req) || rsp_cap < sizeof(struct nvrm_rsp))
+	if (req_cap < sizeof(struct nvrm_req) ||
+	    rsp_cap < sizeof(struct nvrm_rsp))
 		return ERR_PTR(-EINVAL);
 
 	x = kzalloc(sizeof(*x), GFP_KERNEL);
@@ -719,8 +769,10 @@ static struct nvrm_xfer *nvrm_xfer_alloc(size_t req_cap, size_t rsp_cap)
 	x->rsp_cap = rsp_cap;
 	x->req = kvzalloc(req_cap, GFP_KERNEL);
 	x->rsp = kvzalloc(rsp_cap, GFP_KERNEL);
-	x->sg_req = kmalloc_array(nvrm_sg_max(req_cap), sizeof(*x->sg_req), GFP_KERNEL);
-	x->sg_rsp = kmalloc_array(nvrm_sg_max(rsp_cap), sizeof(*x->sg_rsp), GFP_KERNEL);
+	x->sg_req = kmalloc_array(nvrm_sg_max(req_cap), sizeof(*x->sg_req),
+				  GFP_KERNEL);
+	x->sg_rsp = kmalloc_array(nvrm_sg_max(rsp_cap), sizeof(*x->sg_rsp),
+				  GFP_KERNEL);
 	if (!x->req || !x->rsp || !x->sg_req || !x->sg_rsp) {
 		nvrm_xfer_free(x);
 		return ERR_PTR(-ENOMEM);
@@ -794,7 +846,8 @@ static void nvrm_evq_cb(struct virtqueue *vq)
 
 		if (len >= sizeof(*r) && r->kind == NVRM_KIND_EVENT_FIRED) {
 			if (dev->ev_tail - dev->ev_head < NVRM_EV_RING) {
-				dev->ev_ring[dev->ev_tail & (NVRM_EV_RING - 1)] = *r;
+				dev->ev_ring[dev->ev_tail & (NVRM_EV_RING - 1)] =
+					*r;
 				dev->ev_tail++;
 				queued = true;
 			} else {
@@ -829,7 +882,8 @@ static void nvrm_evq_cb(struct virtqueue *vq)
  * `x` belongs to the callback from that moment on. The caller must neither
  * touch nor free it -- the device may still be writing into it.
  */
-static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x, bool interruptible)
+static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x,
+			 bool interruptible)
 {
 	struct scatterlist *sgs[2];
 	unsigned long flags;
@@ -838,8 +892,10 @@ static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x, bool interru
 	if (x->req_len < sizeof(struct nvrm_req) || x->req_len > x->req_cap)
 		return -EINVAL;
 
-	x->n_req = nvrm_sg_fill(x->sg_req, nvrm_sg_max(x->req_cap), x->req, x->req_len);
-	x->n_rsp = nvrm_sg_fill(x->sg_rsp, nvrm_sg_max(x->rsp_cap), x->rsp, x->rsp_cap);
+	x->n_req = nvrm_sg_fill(x->sg_req, nvrm_sg_max(x->req_cap), x->req,
+				x->req_len);
+	x->n_rsp = nvrm_sg_fill(x->sg_rsp, nvrm_sg_max(x->rsp_cap), x->rsp,
+				x->rsp_cap);
 	sgs[0] = x->sg_req;
 	sgs[1] = x->sg_rsp;
 
@@ -858,7 +914,8 @@ static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x, bool interru
 			if (wait_event_interruptible(dev->vq_space,
 						     dev->vq->num_free > 0))
 				return -ERESTARTSYS;
-		} else if (!wait_event_timeout(dev->vq_space, dev->vq->num_free > 0,
+		} else if (!wait_event_timeout(dev->vq_space,
+					       dev->vq->num_free > 0,
 					       NVRM_TEARDOWN_TIMEOUT)) {
 			return -ETIMEDOUT;
 		}
@@ -930,7 +987,9 @@ static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x, bool interru
 	}
 
 	if (x->rsp_len < sizeof(struct nvrm_rsp)) {
-		pr_warn_ratelimited("virtio_nvrm: reply of %u bytes is too short\n", x->rsp_len);
+		pr_warn_ratelimited(
+			"virtio_nvrm: reply of %u bytes is too short\n",
+			x->rsp_len);
 		return -EIO;
 	}
 	return 0;
@@ -939,8 +998,8 @@ static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x, bool interru
 /* Prepare a request header. `guest_proc` is the dense id of the guest process
  * doing the talking (0 = device-wide request without an owner, e.g. HELLO or
  * GET_TABLES). */
-static struct nvrm_req *nvrm_req_init(struct nvrm_dev *dev, struct nvrm_xfer *x, u32 kind,
-				      u32 guest_proc)
+static struct nvrm_req *nvrm_req_init(struct nvrm_dev *dev, struct nvrm_xfer *x,
+				      u32 kind, u32 guest_proc)
 {
 	struct nvrm_req *r = x->req;
 
@@ -963,10 +1022,10 @@ static struct nvrm_req *nvrm_req_init(struct nvrm_dev *dev, struct nvrm_xfer *x,
 
 /* A small request with at most a short payload (`info`, currently only the
  * process description sent on open); the reply is the header alone. */
-static int nvrm_simple_info(struct nvrm_dev *dev, u32 kind, u32 dev_tag, u32 ioctl_nr,
-			    u64 target_token, u64 addr, u64 map_len, u64 *token_out,
-			    bool interruptible, u32 guest_proc,
-			    const struct nvrm_proc_info *info)
+static int nvrm_simple_info(struct nvrm_dev *dev, u32 kind, u32 dev_tag,
+			    u32 ioctl_nr, u64 target_token, u64 addr,
+			    u64 map_len, u64 *token_out, bool interruptible,
+			    u32 guest_proc, const struct nvrm_proc_info *info)
 {
 	struct nvrm_xfer *x;
 	struct nvrm_req *r;
@@ -991,7 +1050,7 @@ static int nvrm_simple_info(struct nvrm_dev *dev, u32 kind, u32 dev_tag, u32 ioc
 
 	ret = nvrm_xfer_run(dev, x, interruptible);
 	if (ret)
-		return ret;	/* on -ERESTARTSYS/-ETIMEDOUT x belongs to the callback */
+		return ret; /* on -ERESTARTSYS/-ETIMEDOUT x belongs to the callback */
 
 	rsp = x->rsp;
 	ret = rsp->ret;
@@ -1002,12 +1061,13 @@ static int nvrm_simple_info(struct nvrm_dev *dev, u32 kind, u32 dev_tag, u32 ioc
 }
 
 /* A small request without payload; the reply is the header alone. */
-static int nvrm_simple(struct nvrm_dev *dev, u32 kind, u32 dev_tag, u32 ioctl_nr,
-		       u64 target_token, u64 addr, u64 map_len, u64 *token_out,
-		       bool interruptible, u32 guest_proc)
+static int nvrm_simple(struct nvrm_dev *dev, u32 kind, u32 dev_tag,
+		       u32 ioctl_nr, u64 target_token, u64 addr, u64 map_len,
+		       u64 *token_out, bool interruptible, u32 guest_proc)
 {
-	return nvrm_simple_info(dev, kind, dev_tag, ioctl_nr, target_token, addr,
-				map_len, token_out, interruptible, guest_proc, NULL);
+	return nvrm_simple_info(dev, kind, dev_tag, ioctl_nr, target_token,
+				addr, map_len, token_out, interruptible,
+				guest_proc, NULL);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1040,18 +1100,21 @@ static int nvrm_fetch_tables(struct nvrm_dev *dev)
 
 		ret = nvrm_xfer_run(dev, x, false);
 		if (ret)
-			goto fail;	/* x may now belong to the callback */
+			goto fail; /* x may now belong to the callback */
 		rsp = x->rsp;
 		if (rsp->ret != 0) {
-			pr_err("virtio_nvrm: GET_TABLES rejected: %d\n", rsp->ret);
+			pr_err("virtio_nvrm: GET_TABLES rejected: %d\n",
+			       rsp->ret);
 			ret = -EIO;
 			nvrm_xfer_free(x);
 			goto fail;
 		}
 		if (!total) {
 			total = rsp->token;
-			if (total < sizeof(struct nvrm_table_hdr) || total > SZ_1M) {
-				pr_err("virtio_nvrm: implausible table length %llu\n", total);
+			if (total < sizeof(struct nvrm_table_hdr) ||
+			    total > SZ_1M) {
+				pr_err("virtio_nvrm: implausible table length %llu\n",
+				       total);
 				ret = -EPROTO;
 				nvrm_xfer_free(x);
 				goto fail;
@@ -1090,8 +1153,8 @@ static int nvrm_fetch_tables(struct nvrm_dev *dev)
 	}
 
 	pr_info("virtio_nvrm: tables v%u accepted -- %zu bytes, checksum %#010x (%u ioctls, %u classes, %u controls, %u nested)\n",
-		t->hdr.table_version, t->len, t->hdr.checksum,
-		t->hdr.n_ioctl, t->hdr.n_class, t->hdr.n_ctrl, t->hdr.n_nested);
+		t->hdr.table_version, t->len, t->hdr.checksum, t->hdr.n_ioctl,
+		t->hdr.n_class, t->hdr.n_ctrl, t->hdr.n_nested);
 	return 0;
 
 fail:
@@ -1113,16 +1176,19 @@ static long win_alloc(struct nvrm_dev *dev, size_t len)
 	if (!dev->win_bitmap || !npages)
 		return -ENOMEM;
 	mutex_lock(&dev->win_lock);
-	start = bitmap_find_next_zero_area(dev->win_bitmap, total, 0, npages, 0);
+	start = bitmap_find_next_zero_area(dev->win_bitmap, total, 0, npages,
+					   0);
 	if (start >= total) {
 		unsigned long used = bitmap_weight(dev->win_bitmap, total);
 
 		mutex_unlock(&dev->win_lock);
 		/* Refusal ledger: this one was SILENT and cost CS2 its life
 		 * (2026-08-15: 938 MiB in a 1 GiB window, then a 32 MiB ask). */
-		pr_warn_ratelimited("virtio_nvrm: window full: %s[%d] asked %zu KiB, %lu of %lu MiB in use -- ENOSPC\n",
-				    current->comm, task_pid_nr(current), len >> 10,
-				    (used << PAGE_SHIFT) >> 20, (total << PAGE_SHIFT) >> 20);
+		pr_warn_ratelimited(
+			"virtio_nvrm: window full: %s[%d] asked %zu KiB, %lu of %lu MiB in use -- ENOSPC\n",
+			current->comm, task_pid_nr(current), len >> 10,
+			(used << PAGE_SHIFT) >> 20,
+			(total << PAGE_SHIFT) >> 20);
 		return -ENOSPC;
 	}
 	bitmap_set(dev->win_bitmap, start, npages);
@@ -1295,7 +1361,8 @@ static void nvrm_unpin(struct nvrm_pin *p)
  * `dev` must be a device that can do DMA. A struct virtio_device cannot;
  * its PCI parent can. See os_device_ptr in kapi_enumerate_gpus().
  */
-static struct nvrm_pin *nvrm_pin_dmabuf(struct dma_buf *dmabuf, struct device *dev)
+static struct nvrm_pin *nvrm_pin_dmabuf(struct dma_buf *dmabuf,
+					struct device *dev)
 {
 	struct dma_buf_attachment *attach;
 	struct scatterlist *sg;
@@ -1372,7 +1439,7 @@ static struct nvrm_pin *nvrm_pin_range(unsigned long va, size_t len)
 
 	if (!len || (va & ~PAGE_MASK) || (len & ~PAGE_MASK))
 		return ERR_PTR(-EINVAL);
-	if (va + len < va)	/* overflow */
+	if (va + len < va) /* overflow */
 		return ERR_PTR(-EINVAL);
 
 	npages = len >> PAGE_SHIFT;
@@ -1397,7 +1464,8 @@ static struct nvrm_pin *nvrm_pin_range(unsigned long va, size_t len)
 	 * at the shared zero page), FOLL_LONGTERM prevents later migration --
 	 * which is exactly what mlock does not do. */
 	while (done < npages) {
-		unsigned long want = min_t(unsigned long, PIN_CHUNK_PAGES, npages - done);
+		unsigned long want =
+			min_t(unsigned long, PIN_CHUNK_PAGES, npages - done);
 		long got = pin_user_pages_fast(va + (done << PAGE_SHIFT), want,
 					       FOLL_WRITE | FOLL_LONGTERM,
 					       p->pages + done);
@@ -1454,7 +1522,8 @@ static u32 nvrm_runs_from_pages(struct page **pages, unsigned long npages,
 
 /* Which node is this? From (major, minor) -- the only place where the real
  * driver's numbers matter. */
-static int node_dev_tag(unsigned int major, unsigned int minor, u32 *tag, u32 *idx)
+static int node_dev_tag(unsigned int major, unsigned int minor, u32 *tag,
+			u32 *idx)
 {
 	*idx = 0;
 	if (major == NV_FRONTEND_MAJOR) {
@@ -1509,7 +1578,7 @@ static struct nvrm_proc *nvrm_proc_get(struct nvrm_dev *dev)
 		put_pid(pid);
 		return ERR_PTR(id);
 	}
-	fresh->pid = pid;		/* the reference passes to the entry */
+	fresh->pid = pid; /* the reference passes to the entry */
 	fresh->id = (u32)id;
 	fresh->vnr = (u32)pid_vnr(pid);
 	get_task_comm(fresh->comm, current);
@@ -1577,7 +1646,8 @@ static int nvrm_node_open(struct inode *inode, struct file *filp)
 	atomic_set(&ctx->events_pending, 0);
 	ctx->dev = dev;
 
-	ret = node_dev_tag(imajor(inode), iminor(inode), &ctx->dev_tag, &ctx->gpu_index);
+	ret = node_dev_tag(imajor(inode), iminor(inode), &ctx->dev_tag,
+			   &ctx->gpu_index);
 	if (ret)
 		goto err;
 
@@ -1593,11 +1663,13 @@ static int nvrm_node_open(struct inode *inode, struct file *filp)
 	 * had been given. */
 	memset(&info, 0, sizeof(info));
 	info.pid = ctx->proc->vnr;
-	memcpy(info.comm, ctx->proc->comm, min(sizeof(info.comm), sizeof(ctx->proc->comm)));
+	memcpy(info.comm, ctx->proc->comm,
+	       min(sizeof(info.comm), sizeof(ctx->proc->comm)));
 	info.comm[sizeof(info.comm) - 1] = '\0';
 
-	ret = nvrm_simple_info(dev, NVRM_KIND_OPEN, ctx->dev_tag, ctx->gpu_index,
-			       0, 0, 0, &token, true, ctx->proc->id, &info);
+	ret = nvrm_simple_info(dev, NVRM_KIND_OPEN, ctx->dev_tag,
+			       ctx->gpu_index, 0, 0, 0, &token, true,
+			       ctx->proc->id, &info);
 	if (ret < 0)
 		goto err;
 	ctx->token = token;
@@ -1609,11 +1681,14 @@ static int nvrm_node_open(struct inode *inode, struct file *filp)
 		unsigned long key;
 
 		if (!nvrm_ctx_key(ctx->proc->id, token, &key)) {
-			pr_warn_once("virtio_nvrm: token %llu does not fit the event index -- fd will not wake\n",
-				     (unsigned long long)token);
-		} else if (xa_err(xa_store(&dev->ctx_xa, key, ctx, GFP_KERNEL))) {
-			pr_warn_ratelimited("virtio_nvrm: event index full for proc %u token %llu -- fd will not wake\n",
-					    ctx->proc->id, (unsigned long long)token);
+			pr_warn_once(
+				"virtio_nvrm: token %llu does not fit the event index -- fd will not wake\n",
+				(unsigned long long)token);
+		} else if (xa_err(xa_store(&dev->ctx_xa, key, ctx,
+					   GFP_KERNEL))) {
+			pr_warn_ratelimited(
+				"virtio_nvrm: event index full for proc %u token %llu -- fd will not wake\n",
+				ctx->proc->id, (unsigned long long)token);
 		} else {
 			ctx->indexed = true;
 		}
@@ -1661,8 +1736,8 @@ static int nvrm_node_release(struct inode *inode, struct file *filp)
 	}
 	/* Not interruptible: the caller may already be dying, an -ERESTARTSYS
 	 * would have no recipient here. */
-	nvrm_simple(ctx->dev, NVRM_KIND_CLOSE, ctx->dev_tag, 0, ctx->token, 0, 0,
-		    NULL, false, ctx->proc ? ctx->proc->id : 0);
+	nvrm_simple(ctx->dev, NVRM_KIND_CLOSE, ctx->dev_tag, 0, ctx->token, 0,
+		    0, NULL, false, ctx->proc ? ctx->proc->id : 0);
 	stat_ctx_closed++;
 	if (stat_ctx_open)
 		stat_ctx_open--;
@@ -1732,7 +1807,7 @@ struct call {
 
 	u32 nr;
 	u32 size;
-	u64 addr;		/* where the inline block is written back */
+	u64 addr; /* where the inline block is written back */
 	/* Kernel caller (NVKMS through nvidia_get_rm_ops) instead of a guest
 	 * process through ioctl(2). Decides ONLY how memory is fetched and
 	 * written back -- see call_in()/call_out(). */
@@ -1742,10 +1817,10 @@ struct call {
 	/* the out-of-line block beside inl: embedded-pointer payloads */
 	u8 *aux;
 	size_t aux_len;
-	size_t params_len;	/* the params buffer only, without nested */
+	size_t params_len; /* the params buffer only, without nested */
 
 	u32 emb_off;
-	u64 saved_ptr;		/* guest address of the params buffer */
+	u64 saved_ptr; /* guest address of the params buffer */
 
 	u32 fd_off;
 	u64 fd_token;
@@ -1753,7 +1828,7 @@ struct call {
 	 * NVRM_NONE_U32 = not stated, never 0. A token is minted per session,
 	 * so the host cannot resolve it without being told whose it is. */
 	u32 fd_proc;
-	u32 fd_orig;		/* the application's own fd number */
+	u32 fd_orig; /* the application's own fd number */
 
 	u32 aux_fd_off;
 	u64 aux_fd_token;
@@ -1761,7 +1836,7 @@ struct call {
 	 * never 0, which is a live session id (the "not stated" caller). */
 	u32 aux_fd_proc;
 	u8 aux_fd_orig[8];
-	u32 aux_fd_len;		/* 8 for an NvP64 (alloc), 4 for an NvS32 (control) */
+	u32 aux_fd_len; /* 8 for an NvP64 (alloc), 4 for an NvS32 (control) */
 
 	u32 n_nested;
 	struct nvrm_nested_desc nested[NVRM_MAX_NESTED];
@@ -1910,11 +1985,19 @@ static u32 bdf_to_host(struct nvrm_dev *dev, u32 id)
  * SDK structs -- see nvrm-genhdr.rs for why this is not a hand-written
  * switch.
  */
-struct bdf_scalar { u32 cmd; u32 off; };
-struct bdf_array  { u32 cmd; u32 off; u32 count; u32 stride; };
+struct bdf_scalar {
+	u32 cmd;
+	u32 off;
+};
+struct bdf_array {
+	u32 cmd;
+	u32 off;
+	u32 count;
+	u32 stride;
+};
 
 static const struct bdf_scalar bdf_scalars[] = { NVRM_BDF_SCALARS };
-static const struct bdf_array  bdf_arrays[]  = { NVRM_BDF_ARRAYS };
+static const struct bdf_array bdf_arrays[] = { NVRM_BDF_ARRAYS };
 
 static const struct bdf_array *bdf_find_array(u32 cmd)
 {
@@ -1954,7 +2037,8 @@ static void bdf_rewrite_card_info(struct call *c)
 		id = rd32(c->inl, base + NVRM_CARD_INFO_GPUID_OFF);
 		if (id != dev->bdf_host_id)
 			continue;
-		wr32(c->inl, base + NVRM_CARD_INFO_GPUID_OFF, dev->bdf_guest_id);
+		wr32(c->inl, base + NVRM_CARD_INFO_GPUID_OFF,
+		     dev->bdf_guest_id);
 		wr32(c->inl, pci + NVRM_PCI_DOMAIN_OFF, dev->bdf_domain);
 		c->inl[pci + NVRM_PCI_BUS_OFF] = dev->bdf_bus;
 		c->inl[pci + NVRM_PCI_SLOT_OFF] = dev->bdf_slot;
@@ -2001,8 +2085,9 @@ static void bdf_rewrite_attach_gpus(struct call *c, bool to_host)
 	for (off = 0; off + 4 <= c->size; off += 4) {
 		u32 id = rd32(c->inl, off);
 
-		wr32(c->inl, off, to_host ? bdf_to_host(dev, id)
-					  : bdf_to_guest(dev, id, false));
+		wr32(c->inl, off,
+		     to_host ? bdf_to_host(dev, id) :
+			       bdf_to_guest(dev, id, false));
 	}
 }
 
@@ -2031,7 +2116,8 @@ static void bdf_rewrite_request(struct call *c, u32 cmd)
 		sc = &bdf_scalars[i];
 		if (c->params_len < 4 || sc->off > c->params_len - 4)
 			continue;
-		wr32(c->aux, sc->off, bdf_to_host(c->dev, rd32(c->aux, sc->off)));
+		wr32(c->aux, sc->off,
+		     bdf_to_host(c->dev, rd32(c->aux, sc->off)));
 	}
 	if (sc)
 		return;
@@ -2046,7 +2132,8 @@ static void bdf_rewrite_request(struct call *c, u32 cmd)
 
 			if (c->params_len < 4 || off > c->params_len - 4)
 				break;
-			wr32(c->aux, off, bdf_to_host(c->dev, rd32(c->aux, off)));
+			wr32(c->aux, off,
+			     bdf_to_host(c->dev, rd32(c->aux, off)));
 		}
 	}
 }
@@ -2083,37 +2170,39 @@ static void bdf_rewrite_reply(struct call *c, u32 cmd)
 		u32 off;
 
 		for (off = 0; off + 4 <= c->params_len; off += 4) {
-		u32 v = rd32(c->aux, off);
+			u32 v = rd32(c->aux, off);
 
-		/* The id as a whole, and -- at bdf_debug 2 --
-		 * the bare bus number, because an address does
-		 * not have to travel as an id. */
-		if (v == dev->bdf_host_id)
-			pr_info_ratelimited("virtio_nvrm: bdf_debug: control %#x carries host id %#x at +%u (params %zu)\n",
-				    cmd, dev->bdf_host_id,
-				    off, c->params_len);
-		else if (bdf_debug > 1 && v == hbus)
-			pr_info_ratelimited("virtio_nvrm: bdf_debug: control %#x carries host bus %#x at +%u (params %zu)\n",
-				    cmd, hbus, off, c->params_len);
+			/* The id as a whole, and -- at bdf_debug 2 --
+			 * the bare bus number, because an address does
+			 * not have to travel as an id. */
+			if (v == dev->bdf_host_id)
+				pr_info_ratelimited(
+					"virtio_nvrm: bdf_debug: control %#x carries host id %#x at +%u (params %zu)\n",
+					cmd, dev->bdf_host_id, off,
+					c->params_len);
+			else if (bdf_debug > 1 && v == hbus)
+				pr_info_ratelimited(
+					"virtio_nvrm: bdf_debug: control %#x carries host bus %#x at +%u (params %zu)\n",
+					cmd, hbus, off, c->params_len);
 		}
 		/* An address does not have to be a number at all --
 		 * RM hands NVML a printed busId in places. Level 3
 		 * looks for the text. */
 		if (bdf_debug > 2 && c->params_len >= 5) {
-		char want[8];
-		size_t k;
+			char want[8];
+			size_t k;
 
-		scnprintf(want, sizeof(want), "%02x:%02x",
-			  hbus, (dev->bdf_host_id) & 0xff);
-		for (k = 0; k + 5 <= c->params_len; k++)
-			if (!strncasecmp((char *)c->aux + k, want, 5)) {
-			pr_info_ratelimited("virtio_nvrm: bdf_debug: control %#x carries the printed host address at +%zu (params %zu)\n",
-				    cmd, k, c->params_len);
-			break;
-			}
+			scnprintf(want, sizeof(want), "%02x:%02x", hbus,
+				  (dev->bdf_host_id) & 0xff);
+			for (k = 0; k + 5 <= c->params_len; k++)
+				if (!strncasecmp((char *)c->aux + k, want, 5)) {
+					pr_info_ratelimited(
+						"virtio_nvrm: bdf_debug: control %#x carries the printed host address at +%zu (params %zu)\n",
+						cmd, k, c->params_len);
+					break;
+				}
 		}
 	}
-
 
 	/* The address as {index, data} pairs, which is how NVML reads it --
 	 * and the reason nvidia-smi kept printing the host's bus long after
@@ -2123,21 +2212,29 @@ static void bdf_rewrite_reply(struct call *c, u32 cmd)
 
 		if (!bdf_on(dev) || c->params_len < NVRM_BUS_INFO_LIST_OFF + 4)
 			return;
-		n = rd32(c->aux, 0);			/* busInfoListSize */
+		n = rd32(c->aux, 0); /* busInfoListSize */
 		if (n > NVRM_BUS_INFO_MAX_LIST)
 			n = NVRM_BUS_INFO_MAX_LIST;
 		for (i = 0; i < n; i++) {
-			u32 e = NVRM_BUS_INFO_LIST_OFF + i * NVRM_BUS_INFO_ENTRY_SIZE;
+			u32 e = NVRM_BUS_INFO_LIST_OFF +
+				i * NVRM_BUS_INFO_ENTRY_SIZE;
 			u32 d = e + NVRM_BUS_INFO_DATA_OFF;
 			u32 val;
 
 			if (d + 4 > c->params_len)
 				return;
 			switch (rd32(c->aux, e)) {
-			case NVRM_BUS_INFO_INDEX_BUS:    val = dev->bdf_bus; break;
-			case NVRM_BUS_INFO_INDEX_DEVICE: val = dev->bdf_slot; break;
-			case NVRM_BUS_INFO_INDEX_DOMAIN: val = dev->bdf_domain; break;
-			default: continue;
+			case NVRM_BUS_INFO_INDEX_BUS:
+				val = dev->bdf_bus;
+				break;
+			case NVRM_BUS_INFO_INDEX_DEVICE:
+				val = dev->bdf_slot;
+				break;
+			case NVRM_BUS_INFO_INDEX_DOMAIN:
+				val = dev->bdf_domain;
+				break;
+			default:
+				continue;
 			}
 			wr32(c->aux, d, val);
 		}
@@ -2153,12 +2250,14 @@ static void bdf_rewrite_reply(struct call *c, u32 cmd)
 			for (i = 0; i < ar->count; i++) {
 				u32 off = ar->off + i * ar->stride;
 
-				if (c->params_len < 4 || off > c->params_len - 4)
+				if (c->params_len < 4 ||
+				    off > c->params_len - 4)
 					break;
 				wr32(c->aux, off,
-				     bdf_to_guest(dev, rd32(c->aux, off),
-						  cmd == NVRM_CTRL_GPU_GET_PROBED_IDS ||
-						  cmd == NVRM_CTRL_GPU_GET_ATTACHED_IDS));
+				     bdf_to_guest(
+					     dev, rd32(c->aux, off),
+					     cmd == NVRM_CTRL_GPU_GET_PROBED_IDS ||
+						     cmd == NVRM_CTRL_GPU_GET_ATTACHED_IDS));
 			}
 		}
 		return;
@@ -2171,7 +2270,8 @@ static void bdf_rewrite_reply(struct call *c, u32 cmd)
 		sc = &bdf_scalars[i];
 		if (c->params_len < 4 || sc->off > c->params_len - 4)
 			continue;
-		wr32(c->aux, sc->off, bdf_to_guest(dev, rd32(c->aux, sc->off), false));
+		wr32(c->aux, sc->off,
+		     bdf_to_guest(dev, rd32(c->aux, sc->off), false));
 	}
 	if (!sc)
 		return;
@@ -2212,10 +2312,12 @@ static u8 *vram_fb_list(struct call *c, u32 cmd, u32 *n)
 	if (c->params_len < 4)
 		return NULL;
 	if (cmd == NVRM_CTRL_FB_GET_INFO_V2) {
-		if (c->params_len < NVRM_FB_INFO_V2_LIST_OFF + NVRM_FB_INFO_ENTRY_SIZE)
+		if (c->params_len <
+		    NVRM_FB_INFO_V2_LIST_OFF + NVRM_FB_INFO_ENTRY_SIZE)
 			return NULL;
 		want = rd32(c->aux, NVRM_FB_INFO_V2_COUNT_OFF);
-		fits = (c->params_len - NVRM_FB_INFO_V2_LIST_OFF) / NVRM_FB_INFO_ENTRY_SIZE;
+		fits = (c->params_len - NVRM_FB_INFO_V2_LIST_OFF) /
+		       NVRM_FB_INFO_ENTRY_SIZE;
 		*n = min3(want, fits, NVRM_FB_INFO_MAX_LIST);
 		return c->aux + NVRM_FB_INFO_V2_LIST_OFF;
 	}
@@ -2240,7 +2342,11 @@ static u8 *vram_fb_list(struct call *c, u32 cmd, u32 *n)
  * handle, an 8 KiB size or a table index far more often than a card, and
  * the first census (2026-09-17) drowned in exactly those. */
 enum vram_form {
-	VRAM_FB_KB, VRAM_FB_BYTES, VRAM_CARD_KB, VRAM_CARD_BYTES, VRAM_HEAP_INFO,
+	VRAM_FB_KB,
+	VRAM_FB_BYTES,
+	VRAM_CARD_KB,
+	VRAM_CARD_BYTES,
+	VRAM_HEAP_INFO,
 };
 static const char *const vram_form_name[] = {
 	[VRAM_FB_KB] = "the advertised FB size in KB",
@@ -2263,12 +2369,12 @@ static DEFINE_SPINLOCK(vram_seen_lock);
 
 /* A first sighting is printed whole -- the census is the point, and the
  * table bounds it. Level 2, and a full table, go through the rate limit. */
-#define vram_debug_say(first, fmt, ...)					\
-	do {								\
-		if ((first) && READ_ONCE(vram_debug) < 2)		\
-			pr_info(fmt, ##__VA_ARGS__);			\
-		else							\
-			pr_info_ratelimited(fmt, ##__VA_ARGS__);	\
+#define vram_debug_say(first, fmt, ...)                          \
+	do {                                                     \
+		if ((first) && READ_ONCE(vram_debug) < 2)        \
+			pr_info(fmt, ##__VA_ARGS__);             \
+		else                                             \
+			pr_info_ratelimited(fmt, ##__VA_ARGS__); \
 	} while (0)
 
 static bool vram_debug_first(u32 cmd, u32 off, enum vram_form form)
@@ -2284,7 +2390,8 @@ static bool vram_debug_first(u32 cmd, u32 off, enum vram_form form)
 	spin_lock_irqsave(&vram_seen_lock, flags);
 	for (i = 0; i < vram_seen_n; i++)
 		if (vram_seen[i].cmd == cmd && vram_seen[i].off == off &&
-		    vram_seen[i].form == form && !strcmp(vram_seen[i].comm, comm)) {
+		    vram_seen[i].form == form &&
+		    !strcmp(vram_seen[i].comm, comm)) {
 			first = false;
 			break;
 		}
@@ -2302,7 +2409,8 @@ static bool vram_debug_first(u32 cmd, u32 off, enum vram_form form)
 /* Which form, if any, the value at `off` is. The advertised size first: on a
  * card whose guest FB is the whole card the two coincide, and the question
  * the census answers is what the GUEST is told. */
-static int vram_debug_form(const struct nvrm_dev *dev, const u8 *p, size_t len, u32 off)
+static int vram_debug_form(const struct nvrm_dev *dev, const u8 *p, size_t len,
+			   u32 off)
 {
 	u32 fb_kb = dev->vram_fb_kb;
 	u64 card = (u64)READ_ONCE(vram_debug_card_mib) << 20;
@@ -2332,14 +2440,15 @@ static void vram_debug_control(struct call *c, u32 cmd)
 
 		if (form < 0 || !vram_debug_first(cmd, off, form))
 			continue;
-		vram_debug_say(vram_seen_n < ARRAY_SIZE(vram_seen),
-				    "virtio_nvrm: vram_debug: control %#x carries %s at %s+%u (params %zu, with nested %zu; %s %s[%d])\n",
-				    cmd, vram_form_name[form],
-				    off < c->params_len ? "params" : "nested",
-				    off < c->params_len ? off : off - (u32)c->params_len,
-				    c->params_len, c->aux_len,
-				    c->kern ? "kernel path in" : "process",
-				    current->comm, task_tgid_nr(current));
+		vram_debug_say(
+			vram_seen_n < ARRAY_SIZE(vram_seen),
+			"virtio_nvrm: vram_debug: control %#x carries %s at %s+%u (params %zu, with nested %zu; %s %s[%d])\n",
+			cmd, vram_form_name[form],
+			off < c->params_len ? "params" : "nested",
+			off < c->params_len ? off : off - (u32)c->params_len,
+			c->params_len, c->aux_len,
+			c->kern ? "kernel path in" : "process", current->comm,
+			task_tgid_nr(current));
 	}
 }
 
@@ -2353,25 +2462,30 @@ static void vram_debug_inline(struct call *c)
 
 	if (ctx_is_uvm(c->ctx))
 		return;
-	if (c->nr == NVRM_ESC_RM_VID_HEAP_CONTROL && c->size >= NVRM_NVOS32_SIZE &&
-	    rd32(c->inl, NVRM_NVOS32_FUNCTION_OFF) == NVRM_NVOS32_FUNCTION_INFO &&
+	if (c->nr == NVRM_ESC_RM_VID_HEAP_CONTROL &&
+	    c->size >= NVRM_NVOS32_SIZE &&
+	    rd32(c->inl, NVRM_NVOS32_FUNCTION_OFF) ==
+		    NVRM_NVOS32_FUNCTION_INFO &&
 	    vram_debug_first(c->nr, NVRM_NVOS32_FUNCTION_OFF, VRAM_HEAP_INFO))
-		vram_debug_say(vram_seen_n < ARRAY_SIZE(vram_seen),
-				    "virtio_nvrm: vram_debug: NVOS32_FUNCTION_INFO answers total %llu MiB, free %llu MiB (%s %s[%d])\n",
-				    rd64(c->inl, NVRM_NVOS32_TOTAL_OFF) >> 20,
-				    rd64(c->inl, NVRM_NVOS32_FREE_OFF) >> 20,
-				    c->kern ? "kernel path in" : "process",
-				    current->comm, task_tgid_nr(current));
+		vram_debug_say(
+			vram_seen_n < ARRAY_SIZE(vram_seen),
+			"virtio_nvrm: vram_debug: NVOS32_FUNCTION_INFO answers total %llu MiB, free %llu MiB (%s %s[%d])\n",
+			rd64(c->inl, NVRM_NVOS32_TOTAL_OFF) >> 20,
+			rd64(c->inl, NVRM_NVOS32_FREE_OFF) >> 20,
+			c->kern ? "kernel path in" : "process", current->comm,
+			task_tgid_nr(current));
 	for (off = 0; off + 4 <= c->size; off += 4) {
 		int form = vram_debug_form(c->dev, c->inl, c->size, off);
 
-		if (form < 0 || !vram_debug_first(c->nr | 0x80000000u, off, form))
+		if (form < 0 ||
+		    !vram_debug_first(c->nr | 0x80000000u, off, form))
 			continue;
-		vram_debug_say(vram_seen_n < ARRAY_SIZE(vram_seen),
-				    "virtio_nvrm: vram_debug: escape %#x inline carries %s at +%u (size %u; %s %s[%d])\n",
-				    c->nr, vram_form_name[form], off, c->size,
-				    c->kern ? "kernel path in" : "process",
-				    current->comm, task_tgid_nr(current));
+		vram_debug_say(
+			vram_seen_n < ARRAY_SIZE(vram_seen),
+			"virtio_nvrm: vram_debug: escape %#x inline carries %s at +%u (size %u; %s %s[%d])\n",
+			c->nr, vram_form_name[form], off, c->size,
+			c->kern ? "kernel path in" : "process", current->comm,
+			task_tgid_nr(current));
 	}
 }
 
@@ -2399,7 +2513,8 @@ static void vram_debug_reply(struct call *c, u32 cmd)
 
 		if (rd32(list, e) == NVRM_FB_INFO_INDEX_TOTAL_RAM_SIZE &&
 		    rd32(list, e + NVRM_FB_INFO_DATA_OFF))
-			WRITE_ONCE(c->dev->vram_fb_kb, rd32(list, e + NVRM_FB_INFO_DATA_OFF));
+			WRITE_ONCE(c->dev->vram_fb_kb,
+				   rd32(list, e + NVRM_FB_INFO_DATA_OFF));
 	}
 	if (READ_ONCE(vram_debug))
 		vram_debug_control(c, cmd);
@@ -2426,7 +2541,8 @@ static int call_in(const struct call *c, void *dst, u64 src, size_t n)
 		memcpy(dst, (void *)(uintptr_t)src, n);
 		return 0;
 	}
-	return copy_from_user(dst, (void __user *)(uintptr_t)src, n) ? -EFAULT : 0;
+	return copy_from_user(dst, (void __user *)(uintptr_t)src, n) ? -EFAULT :
+								       0;
 }
 
 static int call_out(const struct call *c, u64 dst, const void *src, size_t n)
@@ -2437,7 +2553,8 @@ static int call_out(const struct call *c, u64 dst, const void *src, size_t n)
 		memcpy((void *)(uintptr_t)dst, src, n);
 		return 0;
 	}
-	return copy_to_user((void __user *)(uintptr_t)dst, src, n) ? -EFAULT : 0;
+	return copy_to_user((void __user *)(uintptr_t)dst, src, n) ? -EFAULT :
+								     0;
 }
 
 /* Resolve XFER: the real number, size and pointer sit in the payload. Must
@@ -2489,11 +2606,13 @@ static int gather_embedded(struct call *c)
 	 * it. The effective block sits in the HOST; here it only saves the trip
 	 * and makes the failure early and unambiguous. */
 	if (d->cmd_off != NVRM_NONE_U32 && d->cmd_off + 4 <= c->size) {
-		const struct nvrm_ctrl_desc *blk = find_ctrl(c->t, rd32(c->inl, d->cmd_off));
+		const struct nvrm_ctrl_desc *blk =
+			find_ctrl(c->t, rd32(c->inl, d->cmd_off));
 
 		if (blk && (blk->flags & NVRM_CF_BLOCK)) {
-			pr_warn_ratelimited("virtio_nvrm: control %#x is blocked -- not forwarded\n",
-					    rd32(c->inl, d->cmd_off));
+			pr_warn_ratelimited(
+				"virtio_nvrm: control %#x is blocked -- not forwarded\n",
+				rd32(c->inl, d->cmd_off));
 			return -EPERM;
 		}
 	}
@@ -2522,15 +2641,17 @@ static int gather_embedded(struct call *c)
 			/* Unknown hClass: do NOT guess. A wrong length would be
 			 * an out-of-bounds read in the driver's copy_from_user
 			 * on the host side. */
-			pr_warn_ratelimited("virtio_nvrm: hClass %#x unknown -- EOPNOTSUPP instead of a guess (%s[%d])\n",
-					    rd32(c->inl, d->emb_len_off),
-					    current->comm, task_pid_nr(current));
+			pr_warn_ratelimited(
+				"virtio_nvrm: hClass %#x unknown -- EOPNOTSUPP instead of a guess (%s[%d])\n",
+				rd32(c->inl, d->emb_len_off), current->comm,
+				task_pid_nr(current));
 			return -EOPNOTSUPP;
 		}
 		plen = cls->param_size;
 		/* pRightsRequested is not supported -- it appears in no
 		 * measured run. Non-null here: fail loudly. */
-		if (d->rights_off != NVRM_NONE_U32 && c->size == d->rights_if_size) {
+		if (d->rights_off != NVRM_NONE_U32 &&
+		    c->size == d->rights_if_size) {
 			if (d->rights_off + 8 > c->size)
 				return -EINVAL;
 			if (rd64(c->inl, d->rights_off))
@@ -2552,7 +2673,7 @@ static int gather_embedded(struct call *c)
 	}
 
 	if (!plen)
-		return 0;	/* length 0: nothing to take along */
+		return 0; /* length 0: nothing to take along */
 	if (plen > c->t->hdr.max_aux)
 		return -EMSGSIZE;
 
@@ -2572,10 +2693,15 @@ static int gather_embedded(struct call *c)
 	 * sits, comes from the control table. Without an entry RM would receive
 	 * a guest VA and answer with 0x1e/0x3a. */
 	if (d->cmd_off != NVRM_NONE_U32 && d->cmd_off + 4 <= c->size) {
-		const struct nvrm_ctrl_desc *ct = find_ctrl(c->t, rd32(c->inl, d->cmd_off));
+		const struct nvrm_ctrl_desc *ct =
+			find_ctrl(c->t, rd32(c->inl, d->cmd_off));
 
 		if (ct && ct->count) {
-			struct { u32 ptr_off; u64 gva; u32 len; } plan[NVRM_MAX_NESTED];
+			struct {
+				u32 ptr_off;
+				u64 gva;
+				u32 len;
+			} plan[NVRM_MAX_NESTED];
 			u32 n = 0;
 			size_t total = c->params_len;
 			u8 *bigger;
@@ -2588,7 +2714,8 @@ static int gather_embedded(struct call *c)
 			 * copy it over -- otherwise a remembered pointer refers
 			 * to the old buffer. */
 			for (i = 0; i < ct->count; i++) {
-				const struct nvrm_nested_row *row = &c->t->nested[ct->first + i];
+				const struct nvrm_nested_row *row =
+					&c->t->nested[ct->first + i];
 				u64 gva;
 				u32 nlen;
 
@@ -2600,8 +2727,9 @@ static int gather_embedded(struct call *c)
 				} else {
 					if (row->len_off + 4 > c->params_len)
 						return -EINVAL;
-					if (check_mul_overflow(rd32(c->aux, row->len_off),
-							       row->elem, &nlen))
+					if (check_mul_overflow(
+						    rd32(c->aux, row->len_off),
+						    row->elem, &nlen))
 						return -EINVAL;
 				}
 				if (!gva || !nlen)
@@ -2671,15 +2799,17 @@ static int gather_embedded(struct call *c)
 			/* See the control-fd branch below: a kernel caller has
 			 * no fd table of its own, and current's is somebody
 			 * else's. */
-			pr_warn_ratelimited("virtio_nvrm: kernel path names fd %lld in alloc params\n",
-					    (long long)val);
+			pr_warn_ratelimited(
+				"virtio_nvrm: kernel path names fd %lld in alloc params\n",
+				(long long)val);
 			return -EBADF;
 		} else {
 			u64 tok;
 
 			if (nvrm_token_of_fd((int)val, &tok, &c->aux_fd_proc)) {
-				pr_warn_ratelimited("virtio_nvrm: alloc params name foreign fd %lld\n",
-						    (long long)val);
+				pr_warn_ratelimited(
+					"virtio_nvrm: alloc params name foreign fd %lld\n",
+					(long long)val);
 				return -EBADF;
 			}
 			c->aux_fd_token = tok;
@@ -2704,7 +2834,8 @@ no_alloc_fd:
 		const struct nvrm_ctrl_desc *ct =
 			find_ctrl(c->t, rd32(c->inl, d->cmd_off));
 
-		if (ct && (ct->flags & NVRM_CF_FD) && ct->fd_off != NVRM_NONE_U32) {
+		if (ct && (ct->flags & NVRM_CF_FD) &&
+		    ct->fd_off != NVRM_NONE_U32) {
 			s32 val;
 
 			/* Written so it cannot wrap: fd_off is a u32 out of
@@ -2753,17 +2884,19 @@ no_alloc_fd:
 				 * number that means nothing here fails rather
 				 * than resolving to something wrong.
 				 */
-				pr_warn_ratelimited("virtio_nvrm: kthread names fd %d in control %#x (comm %s, pid %d) -- no table to read it against\n",
-						    val, rd32(c->inl, d->cmd_off),
-						    current->comm, current->pid);
+				pr_warn_ratelimited(
+					"virtio_nvrm: kthread names fd %d in control %#x (comm %s, pid %d) -- no table to read it against\n",
+					val, rd32(c->inl, d->cmd_off),
+					current->comm, current->pid);
 				return -EBADF;
 			} else {
 				u64 tok;
 
 				if (nvrm_token_of_fd((int)val, &tok,
 						     &c->aux_fd_proc)) {
-					pr_warn_ratelimited("virtio_nvrm: control %#x names foreign fd %d\n",
-							    rd32(c->inl, d->cmd_off), val);
+					pr_warn_ratelimited(
+						"virtio_nvrm: control %#x names foreign fd %d\n",
+						rd32(c->inl, d->cmd_off), val);
 					return -EBADF;
 				}
 				c->aux_fd_token = tok;
@@ -2808,7 +2941,7 @@ static int gather_osdesc_kern(struct call *c)
 		return -EINVAL;
 
 	dtype = rd32(c->aux, NVRM_OSDESC_TYPE_OFF);
-	desc  = rd64(c->aux, NVRM_OSDESC_DESCRIPTOR_OFF);
+	desc = rd64(c->aux, NVRM_OSDESC_DESCRIPTOR_OFF);
 	limit = rd64(c->aux, NVRM_OSDESC_LIMIT_OFF);
 
 	if (display > 1)
@@ -2840,12 +2973,14 @@ static int gather_osdesc_kern(struct call *c)
 		 * pages without a struct page. Reading it as "the import path
 		 * needs sg_table support" sends the next person to build the
 		 * wrong thing. */
-		pr_warn_ratelimited("virtio_nvrm: OS descriptor type %u (sg_table) is not built; the dma-buf import above failed first -- look there\n",
-				    dtype);
+		pr_warn_ratelimited(
+			"virtio_nvrm: OS descriptor type %u (sg_table) is not built; the dma-buf import above failed first -- look there\n",
+			dtype);
 		return -EOPNOTSUPP;
 	default:
-		pr_warn_ratelimited("virtio_nvrm: OS descriptor from the kernel path with descriptorType %u -- not built\n",
-				    dtype);
+		pr_warn_ratelimited(
+			"virtio_nvrm: OS descriptor from the kernel path with descriptorType %u -- not built\n",
+			dtype);
 		return -EOPNOTSUPP;
 	}
 	if (!dmabuf)
@@ -2857,14 +2992,16 @@ static int gather_osdesc_kern(struct call *c)
 	    dev_is_pci(c->dev->vdev->dev.parent))
 		dmadev = c->dev->vdev->dev.parent;
 	if (!dmadev) {
-		pr_warn_ratelimited("virtio_nvrm: no DMA-capable device for a PRIME import\n");
+		pr_warn_ratelimited(
+			"virtio_nvrm: no DMA-capable device for a PRIME import\n");
 		return -EOPNOTSUPP;
 	}
 
 	pin = nvrm_pin_dmabuf(dmabuf, dmadev);
 	if (IS_ERR(pin)) {
-		pr_warn_ratelimited("virtio_nvrm: PRIME import: page walk failed: %ld\n",
-				    PTR_ERR(pin));
+		pr_warn_ratelimited(
+			"virtio_nvrm: PRIME import: page walk failed: %ld\n",
+			PTR_ERR(pin));
 		return PTR_ERR(pin);
 	}
 	c->pin = pin;
@@ -2937,16 +3074,18 @@ static int gather_osdesc(struct call *c)
 		 * an "osdesc:" line about a FREE reads like a finding when it
 		 * is a tautology. */
 		if (display > 1 && c->kern && c->nr == NVRM_KESC_ALLOC)
-			pr_info("virtio_nvrm: osdesc: alloc nr %#x has no OSDESC flag\n", c->nr);
+			pr_info("virtio_nvrm: osdesc: alloc nr %#x has no OSDESC flag\n",
+				c->nr);
 		return 0;
 	}
 	if (d->emb_len_off + 4 > c->size)
 		return -EINVAL;
 	if (display > 1 && c->kern)
 		pr_info("virtio_nvrm: osdesc: class at +%u is %#x, looking for %#x\n",
-			d->emb_len_off, rd32(c->inl, d->emb_len_off), h->osdesc_class);
+			d->emb_len_off, rd32(c->inl, d->emb_len_off),
+			h->osdesc_class);
 	if (rd32(c->inl, d->emb_len_off) != h->osdesc_class)
-		return 0;	/* other memory class: forward normally */
+		return 0; /* other memory class: forward normally */
 	/* A kernel caller describes KERNEL memory here, and nvrm_pin_range()
 	 * below resolves a USER address with get_user_pages(). Pinning the
 	 * wrong address space would not fail, it would send the host somebody
@@ -2964,8 +3103,9 @@ static int gather_osdesc(struct call *c)
 		 * Those two are guest RAM the host already has mapped -- the
 		 * same GpaRun wire the user path uses, only walked out of an
 		 * sg_table instead of pinned out of a user VA. */
-		pr_warn_ratelimited("virtio_nvrm: OS descriptor from the kernel path is not supported (descriptorType %u)\n",
-				    dtype);
+		pr_warn_ratelimited(
+			"virtio_nvrm: OS descriptor from the kernel path is not supported (descriptorType %u)\n",
+			dtype);
 		return -EOPNOTSUPP;
 	}
 	/* Every field the pin path reads out of the inline block, and every
@@ -2973,8 +3113,10 @@ static int gather_osdesc(struct call *c)
 	 * nvrm_call_run: status and the created handle) has to lie inside
 	 * the block the caller sent -- the _IOC size of a 0x27 is the
 	 * caller's word. */
-	if (h->osdesc_pmem_off + 8 > c->size || h->osdesc_limit_off + 8 > c->size ||
-	    h->osdesc_status_off + 4 > c->size || h->osdesc_handle_off + 4 > c->size)
+	if (h->osdesc_pmem_off + 8 > c->size ||
+	    h->osdesc_limit_off + 8 > c->size ||
+	    h->osdesc_status_off + 4 > c->size ||
+	    h->osdesc_handle_off + 4 > c->size)
 		return -EINVAL;
 
 	pmem = (unsigned long)rd64(c->inl, h->osdesc_pmem_off);
@@ -3001,7 +3143,8 @@ static int gather_osdesc(struct call *c)
 	runs = kvzalloc((size_t)max_runs * sizeof(*runs), GFP_KERNEL);
 	if (!runs)
 		return -ENOMEM;
-	nruns = nvrm_runs_from_pages(c->pin->pages, c->pin->npages, runs, max_runs);
+	nruns = nvrm_runs_from_pages(c->pin->pages, c->pin->npages, runs,
+				     max_runs);
 	if (!nruns) {
 		kvfree(runs);
 		return -EMSGSIZE;
@@ -3015,7 +3158,8 @@ static int gather_osdesc(struct call *c)
 }
 
 /* Perform the write-back to the application. */
-static int write_back(struct call *c, const struct nvrm_rsp *rsp, const u8 *body)
+static int write_back(struct call *c, const struct nvrm_rsp *rsp,
+		      const u8 *body)
 {
 	size_t il = min_t(size_t, rsp->inline_len, c->size);
 	size_t al = min_t(size_t, rsp->aux_len, c->aux_len);
@@ -3073,9 +3217,10 @@ static int write_back(struct call *c, const struct nvrm_rsp *rsp, const u8 *body
 
 		for (off = 0; off + 4 <= c->size; off += 4)
 			if (rd32(c->inl, off) == c->dev->bdf_host_id) {
-				pr_info_ratelimited("virtio_nvrm: bdf_debug: ioctl %u inline still names host %#x at +%u (size %u)\n",
-						    c->nr, c->dev->bdf_host_id,
-						    off, c->size);
+				pr_info_ratelimited(
+					"virtio_nvrm: bdf_debug: ioctl %u inline still names host %#x at +%u (size %u)\n",
+					c->nr, c->dev->bdf_host_id, off,
+					c->size);
 				break;
 			}
 	}
@@ -3123,10 +3268,12 @@ static bool balloon_gated(const struct call *c)
 	 * both doors use. hClass sits at +12 in NVOS64 and in NVOS21 alike. */
 	if (c->nr == NVRM_KESC_ALLOC)
 		return c->size >= NVRM_NVOS64_HCLASS_OFF + 4 &&
-		       rd32(c->inl, NVRM_NVOS64_HCLASS_OFF) == NVRM_CLASS_MEMORY_LOCAL_USER;
+		       rd32(c->inl, NVRM_NVOS64_HCLASS_OFF) ==
+			       NVRM_CLASS_MEMORY_LOCAL_USER;
 	if (c->nr == NVRM_ESC_RM_VID_HEAP_CONTROL)
 		return c->size >= NVRM_NVOS32_FUNCTION_OFF + 4 &&
-		       rd32(c->inl, NVRM_NVOS32_FUNCTION_OFF) == NVRM_NVOS32_FUNCTION_ALLOC_SIZE;
+		       rd32(c->inl, NVRM_NVOS32_FUNCTION_OFF) ==
+			       NVRM_NVOS32_FUNCTION_ALLOC_SIZE;
 	return false;
 }
 
@@ -3191,9 +3338,12 @@ static long nvrm_call_run(struct call *c)
 		c->fd_off = c->desc->fd_off;
 		memcpy(&c->fd_orig, &n, 4);
 		if (n < 0) {
-			c->fd_token = NVRM_NONE_U64;	/* -1: pass through unchanged */
+			c->fd_token =
+				NVRM_NONE_U64; /* -1: pass through unchanged */
 		} else if (nvrm_token_of_fd(n, &c->fd_token, &c->fd_proc)) {
-			pr_warn_ratelimited("virtio_nvrm: fd field points at foreign fd %d\n", n);
+			pr_warn_ratelimited(
+				"virtio_nvrm: fd field points at foreign fd %d\n",
+				n);
 			ret = -EBADF;
 			goto out;
 		}
@@ -3221,7 +3371,8 @@ static long nvrm_call_run(struct call *c)
 		x = NULL;
 		goto out;
 	}
-	r = nvrm_req_init(dev, x, NVRM_KIND_IOCTL, ctx->proc ? ctx->proc->id : 0);
+	r = nvrm_req_init(dev, x, NVRM_KIND_IOCTL,
+			  ctx->proc ? ctx->proc->id : 0);
 	r->dev_tag = ctx->dev_tag;
 	r->ioctl_nr = c->nr;
 	r->target_token = ctx->token;
@@ -3258,13 +3409,15 @@ static long nvrm_call_run(struct call *c)
 	ret = nvrm_xfer_run(dev, x, !c->kern);
 	if (ret) {
 		if (ret == -ERESTARTSYS || ret == -ETIMEDOUT)
-			x = NULL;	/* now belongs to the callback */
+			x = NULL; /* now belongs to the callback */
 		goto out;
 	}
 	rsp = x->rsp;
-	if (sizeof(*rsp) + (size_t)rsp->inline_len + rsp->aux_len > x->rsp_len) {
-		pr_warn_ratelimited("virtio_nvrm: reply claims %u+%u bytes, but only %u arrived\n",
-				    rsp->inline_len, rsp->aux_len, x->rsp_len);
+	if (sizeof(*rsp) + (size_t)rsp->inline_len + rsp->aux_len >
+	    x->rsp_len) {
+		pr_warn_ratelimited(
+			"virtio_nvrm: reply claims %u+%u bytes, but only %u arrived\n",
+			rsp->inline_len, rsp->aux_len, x->rsp_len);
 		ret = -EIO;
 		goto out;
 	}
@@ -3292,15 +3445,17 @@ static long nvrm_call_run(struct call *c)
 		u32 status = rd32(c->inl, c->t->hdr.osdesc_status_off);
 
 		if (status == 0) {
-			c->pin->handle = rd32(c->inl, c->t->hdr.osdesc_handle_off);
+			c->pin->handle =
+				rd32(c->inl, c->t->hdr.osdesc_handle_off);
 			spin_lock(&ctx->pin_lock);
 			list_add_tail(&c->pin->node, &ctx->pins);
 			spin_unlock(&ctx->pin_lock);
-			c->pin = NULL;	/* now belongs to the context */
+			c->pin = NULL; /* now belongs to the context */
 		}
 	}
 	if (ret == 0 && c->desc && (c->desc->flags & NVRM_F_FREE) &&
-	    c->desc->handle_off != NVRM_NONE_U32 && c->desc->handle_off + 4 <= c->size) {
+	    c->desc->handle_off != NVRM_NONE_U32 &&
+	    c->desc->handle_off + 4 <= c->size) {
 		u32 h = rd32(c->inl, c->desc->handle_off);
 		struct nvrm_pin *p, *tmp;
 
@@ -3333,7 +3488,8 @@ out:
 	return ret;
 }
 
-static long nvrm_node_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+static long nvrm_node_ioctl(struct file *filp, unsigned int cmd,
+			    unsigned long arg)
 {
 	struct nvrm_ctx *ctx = filp->private_data;
 	struct nvrm_dev *dev;
@@ -3368,8 +3524,9 @@ static long nvrm_node_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 		c.nr = cmd;
 		c.desc = find_ioctl(c.t, ctx->dev_tag, c.nr);
 		if (!c.desc || c.desc->size == NVRM_SIZE_FROM_IOC) {
-			pr_warn_ratelimited("virtio_nvrm: UVM command %#x unknown -- no size available\n",
-					    cmd);
+			pr_warn_ratelimited(
+				"virtio_nvrm: UVM command %#x unknown -- no size available\n",
+				cmd);
 			return -EOPNOTSUPP;
 		}
 		c.size = c.desc->size;
@@ -3413,8 +3570,8 @@ static void winmap_release(struct kref *ref)
 {
 	struct nvrm_winmap *m = container_of(ref, struct nvrm_winmap, ref);
 
-	nvrm_simple(m->dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, m->off, m->len, NULL, false,
-		    m->guest_proc);
+	nvrm_simple(m->dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, m->off, m->len,
+		    NULL, false, m->guest_proc);
 	win_free(m->dev, m->off, m->len);
 	kfree(m);
 }
@@ -3429,7 +3586,8 @@ static void nvrm_win_vm_open(struct vm_area_struct *vma)
 
 static void nvrm_win_vm_close(struct vm_area_struct *vma)
 {
-	kref_put(&((struct nvrm_winmap *)vma->vm_private_data)->ref, winmap_release);
+	kref_put(&((struct nvrm_winmap *)vma->vm_private_data)->ref,
+		 winmap_release);
 }
 
 static const struct vm_operations_struct nvrm_win_vm_ops = {
@@ -3437,7 +3595,8 @@ static const struct vm_operations_struct nvrm_win_vm_ops = {
 	.close = nvrm_win_vm_close,
 };
 
-static int nvrm_mmap_window(struct nvrm_ctx *ctx, struct vm_area_struct *vma, size_t len)
+static int nvrm_mmap_window(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
+			    size_t len)
 {
 	struct nvrm_dev *dev = ctx->dev;
 	struct nvrm_winmap *m;
@@ -3463,18 +3622,21 @@ static int nvrm_mmap_window(struct nvrm_ctx *ctx, struct vm_area_struct *vma, si
 	/* The host places the mapping at the offset in the window named here
 	 * and reports back the CACHEABILITY -- the host knows the NVOS33
 	 * flags, the guest does not guess. */
-	ret = nvrm_simple(dev, NVRM_KIND_MAP_PREPARE, ctx->dev_tag, 0, ctx->token,
-			  off, len, &cache, true, ctx->proc ? ctx->proc->id : 0);
+	ret = nvrm_simple(dev, NVRM_KIND_MAP_PREPARE, ctx->dev_tag, 0,
+			  ctx->token, off, len, &cache, true,
+			  ctx->proc ? ctx->proc->id : 0);
 	if (ret < 0) {
 		/* WHO asked for WHAT. A bare errno cost an hour on 2026-08-16
 		 * (which process, which size?) -- the rule since: every
 		 * refusal names its caller, or it is not a measurement. */
 		if (ret != -ERESTARTSYS)
-			pr_warn_ratelimited("virtio_nvrm: MAP_PREPARE failed: %d (%s[%d], %s node, %zu KiB at window+%#lx)\n",
-					    ret, current->comm, task_pid_nr(current),
-					    ctx->dev_tag == NVRM_DEV_CTL ? "ctl" :
-					    ctx->dev_tag == NVRM_DEV_GPU ? "gpu" : "other",
-					    (size_t)(len >> 10), (unsigned long)off);
+			pr_warn_ratelimited(
+				"virtio_nvrm: MAP_PREPARE failed: %d (%s[%d], %s node, %zu KiB at window+%#lx)\n",
+				ret, current->comm, task_pid_nr(current),
+				ctx->dev_tag == NVRM_DEV_CTL ? "ctl" :
+				ctx->dev_tag == NVRM_DEV_GPU ? "gpu" :
+							       "other",
+				(size_t)(len >> 10), (unsigned long)off);
 		/*
 		 * A refusal is not the only way out of that call. On
 		 * -ERESTARTSYS and -ETIMEDOUT the request BELONGS TO THE
@@ -3500,8 +3662,9 @@ static int nvrm_mmap_window(struct nvrm_ctx *ctx, struct vm_area_struct *vma, si
 		 * never prepared is harmless; a leaked window is not.
 		 */
 		if (ret == -ERESTARTSYS || ret == -ETIMEDOUT)
-			nvrm_simple(dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, off, len,
-				    NULL, false, ctx->proc ? ctx->proc->id : 0);
+			nvrm_simple(dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, off,
+				    len, NULL, false,
+				    ctx->proc ? ctx->proc->id : 0);
 		kfree(m);
 		win_free(dev, off, len);
 		return ret;
@@ -3520,10 +3683,10 @@ static int nvrm_mmap_window(struct nvrm_ctx *ctx, struct vm_area_struct *vma, si
 	vm_flags_set(vma, VM_DONTCOPY);
 
 	if (io_remap_pfn_range(vma, vma->vm_start,
-			       (dev->win_base + off) >> PAGE_SHIFT,
-			       len, vma->vm_page_prot)) {
-		nvrm_simple(dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, off, len, NULL, false,
-			    ctx->proc ? ctx->proc->id : 0);
+			       (dev->win_base + off) >> PAGE_SHIFT, len,
+			       vma->vm_page_prot)) {
+		nvrm_simple(dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, off, len, NULL,
+			    false, ctx->proc ? ctx->proc->id : 0);
 		kfree(m);
 		win_free(dev, off, len);
 		return -EAGAIN;
@@ -3565,7 +3728,8 @@ static void nvrm_pool_vm_open(struct vm_area_struct *vma)
 
 static void nvrm_pool_vm_close(struct vm_area_struct *vma)
 {
-	kref_put(&((struct nvrm_pool *)vma->vm_private_data)->ref, pool_release);
+	kref_put(&((struct nvrm_pool *)vma->vm_private_data)->ref,
+		 pool_release);
 }
 
 static const struct vm_operations_struct nvrm_pool_vm_ops = {
@@ -3628,7 +3792,8 @@ static int nvrm_mmap_pool(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 	p->npages = npages;
 	stat_pool_pages += npages;
 
-	vm_flags_set(vma, VM_MIXEDMAP | VM_DONTEXPAND | VM_DONTDUMP | VM_DONTCOPY);
+	vm_flags_set(vma,
+		     VM_MIXEDMAP | VM_DONTEXPAND | VM_DONTDUMP | VM_DONTCOPY);
 
 	for (i = 0; i < npages; i++) {
 		/* __GFP_RETRY_MAYFAIL: this may fail, but it must NOT summon the
@@ -3642,7 +3807,8 @@ static int nvrm_mmap_pool(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 			ret = -ENOMEM;
 			goto err;
 		}
-		ret = vm_insert_page(vma, vma->vm_start + (i << PAGE_SHIFT), p->pages[i]);
+		ret = vm_insert_page(vma, vma->vm_start + (i << PAGE_SHIFT),
+				     p->pages[i]);
 		if (ret)
 			goto err;
 	}
@@ -3659,13 +3825,15 @@ static int nvrm_mmap_pool(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 		goto err;
 	}
 
-	x = nvrm_xfer_alloc(sizeof(*r) + (size_t)nruns * sizeof(*runs), sizeof(*rsp));
+	x = nvrm_xfer_alloc(sizeof(*r) + (size_t)nruns * sizeof(*runs),
+			    sizeof(*rsp));
 	if (IS_ERR(x)) {
 		kvfree(runs);
 		ret = PTR_ERR(x);
 		goto err;
 	}
-	r = nvrm_req_init(dev, x, NVRM_KIND_UVM_POOL_BACK, ctx->proc ? ctx->proc->id : 0);
+	r = nvrm_req_init(dev, x, NVRM_KIND_UVM_POOL_BACK,
+			  ctx->proc ? ctx->proc->id : 0);
 	r->dev_tag = ctx->dev_tag;
 	r->target_token = ctx->token;
 	r->addr = gpu_va;
@@ -3750,9 +3918,9 @@ struct chrdev_range {
 };
 
 static struct chrdev_range ranges[] = {
-	{ NV_FRONTEND_MAJOR, 0,		   NV_MAX_GPUS, "nvidia" },
-	{ NV_FRONTEND_MAJOR, NV_MINOR_CTL, 1,		"nvidiactl" },
-	{ NV_UVM_MAJOR,	     0,		   2,		"nvidia-uvm" },
+	{ NV_FRONTEND_MAJOR, 0, NV_MAX_GPUS, "nvidia" },
+	{ NV_FRONTEND_MAJOR, NV_MINOR_CTL, 1, "nvidiactl" },
+	{ NV_UVM_MAJOR, 0, 2, "nvidia-uvm" },
 };
 
 struct node_spec {
@@ -3783,7 +3951,8 @@ static void nvrm_nodes_teardown(void)
 
 	for (i = 0; i < n_nodes; i++) {
 		if (nodes[i].created) {
-			device_destroy(nvrm_class, MKDEV(nodes[i].major, nodes[i].minor));
+			device_destroy(nvrm_class,
+				       MKDEV(nodes[i].major, nodes[i].minor));
 			nodes[i].created = false;
 		}
 	}
@@ -3794,7 +3963,8 @@ static void nvrm_nodes_teardown(void)
 	}
 	for (i = 0; i < ARRAY_SIZE(ranges); i++) {
 		if (ranges[i].registered) {
-			__unregister_chrdev(ranges[i].major, ranges[i].baseminor,
+			__unregister_chrdev(ranges[i].major,
+					    ranges[i].baseminor,
 					    ranges[i].count, ranges[i].name);
 			ranges[i].registered = false;
 		}
@@ -3815,7 +3985,8 @@ static int nvrm_nodes_setup(void)
 					&nvrm_node_fops);
 		if (ret) {
 			pr_err("virtio_nvrm: chrdev %u:%u '%s': %d -- does nvrm_nodes.ko hold the nodes? Then load nvrm_nodes.ko with create_nodes=0\n",
-			       ranges[i].major, ranges[i].baseminor, ranges[i].name, ret);
+			       ranges[i].major, ranges[i].baseminor,
+			       ranges[i].name, ret);
 			goto err;
 		}
 		ranges[i].registered = true;
@@ -3832,19 +4003,23 @@ static int nvrm_nodes_setup(void)
 	n_nodes = 0;
 	for (g = 0; g < gpu_count; g++) {
 		snprintf(gpu_names[g], sizeof(gpu_names[g]), "nvidia%u", g);
-		nodes[n_nodes++] = (struct node_spec){ NV_FRONTEND_MAJOR, g, gpu_names[g] };
+		nodes[n_nodes++] = (struct node_spec){ NV_FRONTEND_MAJOR, g,
+						       gpu_names[g] };
 	}
-	nodes[n_nodes++] = (struct node_spec){ NV_FRONTEND_MAJOR, NV_MINOR_CTL, "nvidiactl" };
+	nodes[n_nodes++] = (struct node_spec){ NV_FRONTEND_MAJOR, NV_MINOR_CTL,
+					       "nvidiactl" };
 	nodes[n_nodes++] = (struct node_spec){ NV_UVM_MAJOR, 0, "nvidia-uvm" };
-	nodes[n_nodes++] = (struct node_spec){ NV_UVM_MAJOR, 1, "nvidia-uvm-tools" };
+	nodes[n_nodes++] =
+		(struct node_spec){ NV_UVM_MAJOR, 1, "nvidia-uvm-tools" };
 
 	for (i = 0; i < n_nodes; i++) {
-		nodes[i].dev = device_create(nvrm_class, NULL,
-					     MKDEV(nodes[i].major, nodes[i].minor),
-					     NULL, "%s", nodes[i].name);
+		nodes[i].dev = device_create(
+			nvrm_class, NULL, MKDEV(nodes[i].major, nodes[i].minor),
+			NULL, "%s", nodes[i].name);
 		if (IS_ERR(nodes[i].dev)) {
 			ret = PTR_ERR(nodes[i].dev);
-			pr_err("virtio_nvrm: device_create %s: %d\n", nodes[i].name, ret);
+			pr_err("virtio_nvrm: device_create %s: %d\n",
+			       nodes[i].name, ret);
 			goto err;
 		}
 		nodes[i].created = true;
@@ -3880,7 +4055,7 @@ static int nvrm_find_vqs(struct nvrm_dev *dev)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 	{
 		vq_callback_t *cbs[2] = { nvrm_vq_cb, nvrm_evq_cb };
-		const char * const names[2] = { "nvrm", "nvrm-events" };
+		const char *const names[2] = { "nvrm", "nvrm-events" };
 
 		ret = virtio_find_vqs(vdev, 2, vqs, cbs, names, NULL);
 	}
@@ -4011,7 +4186,8 @@ static int nvrm_probe(struct virtio_device *vdev)
 	if (virtio_get_shm_region(vdev, &shm, NVRM_SHM_ID_HOST_VISIBLE)) {
 		dev->win_base = shm.addr;
 		dev->win_len = shm.len;
-		dev->win_bitmap = bitmap_zalloc(shm.len >> PAGE_SHIFT, GFP_KERNEL);
+		dev->win_bitmap =
+			bitmap_zalloc(shm.len >> PAGE_SHIFT, GFP_KERNEL);
 		if (!dev->win_bitmap) {
 			ret = -ENOMEM;
 			goto err_vq;
@@ -4028,7 +4204,8 @@ static int nvrm_probe(struct virtio_device *vdev)
 	if (dev->evq) {
 		ret = nvrm_evq_fill(dev);
 		if (ret) {
-			pr_warn("virtio_nvrm: event inbufs: %d -- events disabled\n", ret);
+			pr_warn("virtio_nvrm: event inbufs: %d -- events disabled\n",
+				ret);
 			/* Not fatal: the request path does not depend on it. */
 		} else {
 			virtqueue_kick(dev->evq);
@@ -4059,8 +4236,8 @@ static int nvrm_probe(struct virtio_device *vdev)
 	}
 
 	pr_info("virtio_nvrm: ready (nodes %s, %u GPU%s, max_pin %u MiB)\n",
-		create_nodes ? "on" : "off", gpu_count, gpu_count > 1 ? "s" : "",
-		max_pin_mib);
+		create_nodes ? "on" : "off", gpu_count,
+		gpu_count > 1 ? "s" : "", max_pin_mib);
 	balloon_start();
 	return 0;
 
@@ -4105,9 +4282,11 @@ static void nvrm_remove(struct virtio_device *vdev)
 	kapi_session_close();
 	nvrm = NULL;
 
-	wait_event_timeout(dev->drain, atomic_read(&dev->inflight) == 0, 5 * HZ);
+	wait_event_timeout(dev->drain, atomic_read(&dev->inflight) == 0,
+			   5 * HZ);
 	if (atomic_read(&dev->inflight))
-		pr_warn("virtio_nvrm: %d requests still outstanding\n", atomic_read(&dev->inflight));
+		pr_warn("virtio_nvrm: %d requests still outstanding\n",
+			atomic_read(&dev->inflight));
 
 	virtio_reset_device(vdev);
 	/* After the reset no vq callback runs any more, so nothing queues the
@@ -4207,7 +4386,8 @@ static u32 kapi_gpu_count;
  * ever handing this entry to a real process -- that lookup compares against
  * a `struct pid *` it just took, and that is never NULL.
  */
-static struct nvrm_proc *nvrm_proc_kernel(struct nvrm_dev *dev, const char *comm)
+static struct nvrm_proc *nvrm_proc_kernel(struct nvrm_dev *dev,
+					  const char *comm)
 {
 	struct nvrm_proc *p;
 	int id;
@@ -4236,8 +4416,8 @@ static struct nvrm_proc *nvrm_proc_kernel(struct nvrm_dev *dev, const char *comm
 /* Open a kernel session on one node, as `proc`, or as NVKMS when `proc` is
  * NULL (the VRAM balloon is the one caller with an identity of its own).
  * Caller holds kapi_lock. */
-static struct nvrm_ctx *kapi_ctx_open(struct nvrm_dev *dev, u32 dev_tag, u32 index,
-				      struct nvrm_proc *proc)
+static struct nvrm_ctx *kapi_ctx_open(struct nvrm_dev *dev, u32 dev_tag,
+				      u32 index, struct nvrm_proc *proc)
 {
 	struct nvrm_proc_info info;
 	struct nvrm_ctx *ctx;
@@ -4286,8 +4466,9 @@ static struct nvrm_ctx *kapi_ctx_open(struct nvrm_dev *dev, u32 dev_tag, u32 ind
 	       min(sizeof(info.comm), sizeof(ctx->proc->comm)));
 	info.comm[sizeof(info.comm) - 1] = '\0';
 
-	ret = nvrm_simple_info(dev, NVRM_KIND_OPEN, ctx->dev_tag, ctx->gpu_index,
-			       0, 0, 0, &token, false, ctx->proc->id, &info);
+	ret = nvrm_simple_info(dev, NVRM_KIND_OPEN, ctx->dev_tag,
+			       ctx->gpu_index, 0, 0, 0, &token, false,
+			       ctx->proc->id, &info);
 	if (ret < 0)
 		goto err;
 	/* Counted on the same books as the user nodes: NVKMS's sessions are
@@ -4301,7 +4482,8 @@ static struct nvrm_ctx *kapi_ctx_open(struct nvrm_dev *dev, u32 dev_tag, u32 ind
 
 err:
 	if (ctx->proc) {
-		if (ctx->proc == kapi_proc && refcount_read(&kapi_proc->ref) == 1)
+		if (ctx->proc == kapi_proc &&
+		    refcount_read(&kapi_proc->ref) == 1)
 			kapi_proc = NULL;
 		nvrm_proc_put(dev, ctx->proc);
 	}
@@ -4325,8 +4507,8 @@ static void kapi_ctx_close(struct nvrm_ctx *ctx)
 		list_del(&p->node);
 		nvrm_unpin(p);
 	}
-	nvrm_simple(ctx->dev, NVRM_KIND_CLOSE, ctx->dev_tag, 0, ctx->token, 0, 0,
-		    NULL, false, ctx->proc ? ctx->proc->id : 0);
+	nvrm_simple(ctx->dev, NVRM_KIND_CLOSE, ctx->dev_tag, 0, ctx->token, 0,
+		    0, NULL, false, ctx->proc ? ctx->proc->id : 0);
 	stat_ctx_closed++;
 	if (stat_ctx_open)
 		stat_ctx_open--;
@@ -4352,7 +4534,8 @@ static struct nvrm_ctx *kapi_session(void)
 	if (IS_ERR(ctx))
 		return ctx;
 	kapi_ctx = ctx;
-	pr_info("virtio_nvrm: NVKMS session open (guest_proc %u)\n", ctx->proc->id);
+	pr_info("virtio_nvrm: NVKMS session open (guest_proc %u)\n",
+		ctx->proc->id);
 	return ctx;
 }
 
@@ -4578,7 +4761,8 @@ static bool vdisp_control(u8 *params)
 			if ((cmd & 0xffff0000u) == 0xa0830000u)
 				pr_warn_ratelimited(
 					"virtio_nvrm: virtual display: NVA083 control %#x on object %#x of client %#x, but our pair is %#x/%#x -- forwarding to a host that does not have this object (OPEN-QUESTIONS 16)\n",
-					cmd, obj, client, have_client, have_handle);
+					cmd, obj, client, have_client,
+					have_handle);
 			return false;
 		}
 	}
@@ -4691,7 +4875,7 @@ static bool vdisp_control(u8 *params)
 		want = rd32(p, 8);
 		wr32(p, 8, NVRM_EDID_LEN);
 		if (want == 0)
-			break;			/* size query, nothing to write */
+			break; /* size query, nothing to write */
 		if (want < NVRM_EDID_LEN) {
 			pr_warn("virtio_nvrm: virtual display: EDID buffer of %u bytes, need %u\n",
 				want, (u32)NVRM_EDID_LEN);
@@ -4708,7 +4892,7 @@ static bool vdisp_control(u8 *params)
 			u8 edid[NVRM_EDID_LEN];
 
 			nvrm_build_edid(edid, vdisplay_width, vdisplay_height,
-				vdisplay_vblank_hz);
+					vdisplay_vblank_hz);
 			memcpy((void *)(uintptr_t)buf, edid, NVRM_EDID_LEN);
 		}
 		break;
@@ -4724,7 +4908,8 @@ static bool vdisp_control(u8 *params)
 	}
 
 	if (display > 1)
-		pr_info("virtio_nvrm: virtual display: control %#x answered\n", cmd);
+		pr_info("virtio_nvrm: virtual display: control %#x answered\n",
+			cmd);
 	wr32(params, NVRM_NVOS54_STATUS_OFF, NVRM_NV_OK);
 	return true;
 
@@ -4773,7 +4958,7 @@ static void vdisp_rewrite_classlist(u8 *params)
 		if (list[i] == NVRM_CLASS_DISPLAYLESS)
 			have_displayless = true;
 	if (have_displayless)
-		return;			/* already done, or a card that has it */
+		return; /* already done, or a card that has it */
 
 	/* Compact in place: every class NVKMS would choose AHEAD of the
 	 * displayless one has to go, or it picks that HAL and then runs with
@@ -4791,7 +4976,8 @@ static void vdisp_rewrite_classlist(u8 *params)
 		list[out++] = list[i];
 	}
 	if (!dropped) {
-		pr_warn_ratelimited("virtio_nvrm: virtual display: nothing to drop from the class list -- left alone\n");
+		pr_warn_ratelimited(
+			"virtio_nvrm: virtual display: nothing to drop from the class list -- left alone\n");
 		return;
 	}
 	list[out++] = NVRM_CLASS_DISPLAYLESS;
@@ -4845,7 +5031,8 @@ static void vdisp_event_on_missing_parent(u8 *params)
 		return;
 	if (rd32(params, NVRM_NVOS64_HCLASS_OFF) != NVRM_CLASS_EVENT_OS_EVENT)
 		return;
-	if (rd32(params, NVRM_NVOS64_STATUS_OFF) != NVRM_NV_ERR_OBJECT_NOT_FOUND)
+	if (rd32(params, NVRM_NVOS64_STATUS_OFF) !=
+	    NVRM_NV_ERR_OBJECT_NOT_FOUND)
 		return;
 
 	wr32(params, NVRM_NVOS64_STATUS_OFF, NVRM_NV_OK);
@@ -4899,12 +5086,12 @@ static void vdisp_event_on_missing_parent(u8 *params)
  * headsurface can add their own. Eight is headroom, not a measurement. */
 #define NVRM_VBLANK_SLOTS 8u
 struct vblank_slot {
-	u32 handle;		/* 0 = free */
-	u32 client;		/* hRoot, for the log */
-	u64 proc;		/* OSVBLANKCALLBACKPROC in guest kernel text */
+	u32 handle; /* 0 = free */
+	u32 client; /* hRoot, for the log */
+	u64 proc; /* OSVBLANKCALLBACKPROC in guest kernel text */
 	u64 parm1;
 	u64 parm2;
-	bool enabled;		/* bIsVblankNotifyEnable, NV_TRUE at construct */
+	bool enabled; /* bIsVblankNotifyEnable, NV_TRUE at construct */
 };
 static struct vblank_slot vblank_slots[NVRM_VBLANK_SLOTS];
 /* The vblank callback (pProc) is CALLED under this lock, from the hrtimer.
@@ -4916,7 +5103,7 @@ static struct vblank_slot vblank_slots[NVRM_VBLANK_SLOTS];
  * nvidia-modeset text. */
 static DEFINE_SPINLOCK(vblank_lock);
 static struct hrtimer vblank_timer;
-static bool vblank_armed;	/* under vblank_lock */
+static bool vblank_armed; /* under vblank_lock */
 /* Serialises arm/disarm transitions against each other. The 9010 traffic
  * itself is serialised by NVKMS (nvkms_lock), but the device-remove path
  * (kapi_session_close -> vblank_drop_all) is not -- and an unserialised
@@ -4950,7 +5137,8 @@ static u32 vblank_hz(void)
 {
 	u32 w, h, hz, hb;
 
-	nvrm_edid_effective(READ_ONCE(vdisplay_width), READ_ONCE(vdisplay_height),
+	nvrm_edid_effective(READ_ONCE(vdisplay_width),
+			    READ_ONCE(vdisplay_height),
 			    READ_ONCE(vdisplay_vblank_hz), &w, &h, &hz, &hb);
 	return hz;
 }
@@ -5014,8 +5202,7 @@ static void vblank_engine_update(void)
 	spin_unlock_irqrestore(&vblank_lock, flags);
 
 	if (want)
-		hrtimer_start(&vblank_timer, vblank_period(),
-			      HRTIMER_MODE_REL);
+		hrtimer_start(&vblank_timer, vblank_period(), HRTIMER_MODE_REL);
 	else
 		hrtimer_cancel(&vblank_timer);
 	mutex_unlock(&vblank_engine_lock);
@@ -5043,7 +5230,8 @@ static bool vblank_alloc(u8 *params)
 	 * cl9010.h: pProc@0, LogicalHead@8, pParm1@16, pParm2@24. */
 	ap = (const u8 *)(uintptr_t)rd64(params, NVRM_NVOS64_PALLOCPARMS_OFF);
 	if (!ap) {
-		wr32(params, NVRM_NVOS64_STATUS_OFF, NVRM_NV_ERR_INVALID_ARGUMENT);
+		wr32(params, NVRM_NVOS64_STATUS_OFF,
+		     NVRM_NV_ERR_INVALID_ARGUMENT);
 		return true;
 	}
 	proc = rd64(ap, 0);
@@ -5052,7 +5240,8 @@ static bool vblank_alloc(u8 *params)
 	parm2 = rd64(ap, 24);
 
 	if (!proc || head >= NVRM_VDISP_NUM_HEADS) {
-		wr32(params, NVRM_NVOS64_STATUS_OFF, NVRM_NV_ERR_INVALID_ARGUMENT);
+		wr32(params, NVRM_NVOS64_STATUS_OFF,
+		     NVRM_NV_ERR_INVALID_ARGUMENT);
 		return true;
 	}
 
@@ -5068,8 +5257,11 @@ static bool vblank_alloc(u8 *params)
 		return true;
 	}
 	vblank_slots[i] = (struct vblank_slot){
-		.handle = handle, .client = client,
-		.proc = proc, .parm1 = parm1, .parm2 = parm2,
+		.handle = handle,
+		.client = client,
+		.proc = proc,
+		.parm1 = parm1,
+		.parm2 = parm2,
 		/* NV_TRUE at construct, exactly like vblcbConstruct_IMPL. */
 		.enabled = true,
 	};
@@ -5133,7 +5325,8 @@ static bool vblank_control(u8 *params)
 	u32 cmd = rd32(params, NVRM_NVOS54_CMD_OFF);
 	u32 obj = rd32(params, NVRM_NVOS54_HOBJECT_OFF);
 	u32 size = rd32(params, NVRM_NVOS54_PARAMSSIZE_OFF);
-	const u8 *p = (const u8 *)(uintptr_t)rd64(params, NVRM_NVOS54_PARAMS_OFF);
+	const u8 *p =
+		(const u8 *)(uintptr_t)rd64(params, NVRM_NVOS54_PARAMS_OFF);
 	unsigned long flags;
 	bool ours = false;
 	u32 i;
@@ -5227,13 +5420,13 @@ static void vblank_drop_all(void)
 
 /* Which Req field means what -- kept as macros so that a reader of the work
  * item sees the roles, not the carrier's field names. */
-#define ev_class(r)	((r)->ioctl_nr)
-#define ev_hclient(r)	((r)->fd_field_off)
-#define ev_hevent(r)	((r)->embedded_ptr_off)
-#define ev_data(r)	((r)->inline_len)
-#define ev_status(r)	((r)->aux_len)
-#define ev_notify(r)	((r)->nested_count)
-#define ev_kc(r)	((r)->addr)
+#define ev_class(r) ((r)->ioctl_nr)
+#define ev_hclient(r) ((r)->fd_field_off)
+#define ev_hevent(r) ((r)->embedded_ptr_off)
+#define ev_data(r) ((r)->inline_len)
+#define ev_status(r) ((r)->aux_len)
+#define ev_notify(r) ((r)->nested_count)
+#define ev_kc(r) ((r)->addr)
 
 /* backend log: 26 kernel-callback events registered in one GNOME session
  * (nvidia-drm fences, NVKMS hotplug/completion per head). 64 is headroom, not
@@ -5241,12 +5434,12 @@ static void vblank_drop_all(void)
  * and the log says which registration will never fire. */
 #define NVRM_EVENT_CB_SLOTS 64u
 struct event_cb_slot {
-	u32 client;		/* NVOS64.hRoot */
-	u32 handle;		/* NVOS64.hObjectNew; 0 = free */
-	u32 cls;		/* what the guest asked for (0x7e) */
-	u32 notify_index;	/* NV0005.notifyIndex, unstripped */
-	u32 proc;		/* the NVKMS session's process id */
-	u64 kc;			/* NVOS10_EVENT_KERNEL_CALLBACK_EX*, guest kernel VA */
+	u32 client; /* NVOS64.hRoot */
+	u32 handle; /* NVOS64.hObjectNew; 0 = free */
+	u32 cls; /* what the guest asked for (0x7e) */
+	u32 notify_index; /* NV0005.notifyIndex, unstripped */
+	u32 proc; /* the NVKMS session's process id */
+	u64 kc; /* NVOS10_EVENT_KERNEL_CALLBACK_EX*, guest kernel VA */
 };
 static struct event_cb_slot event_cb_slots[NVRM_EVENT_CB_SLOTS];
 /* Callback is invoked UNDER this lock (fence semantics, see event_cb_free).
@@ -5279,12 +5472,14 @@ struct event_cb_pending {
 	u64 kc;
 };
 
-static void event_cb_before_alloc(const u8 *params, struct event_cb_pending *pend)
+static void event_cb_before_alloc(const u8 *params,
+				  struct event_cb_pending *pend)
 {
 	const u8 *ap;
 
 	pend->armed = false;
-	if (rd32(params, NVRM_NVOS64_HCLASS_OFF) != NVRM_CLASS_EVENT_KERNEL_CALLBACK_EX)
+	if (rd32(params, NVRM_NVOS64_HCLASS_OFF) !=
+	    NVRM_CLASS_EVENT_KERNEL_CALLBACK_EX)
 		return;
 	ap = (const u8 *)(uintptr_t)rd64(params, NVRM_NVOS64_PALLOCPARMS_OFF);
 	if (!ap)
@@ -5299,7 +5494,8 @@ static void event_cb_before_alloc(const u8 *params, struct event_cb_pending *pen
  * over there and will fire. Take a slot, keyed (client, handle) -- both, for
  * the reason vblank_free spells out: NVKMS core and nvidia-drm's client hand
  * out handles from the same sequence. */
-static void event_cb_after_alloc(const u8 *params, const struct event_cb_pending *pend, long ret)
+static void event_cb_after_alloc(const u8 *params,
+				 const struct event_cb_pending *pend, long ret)
 {
 	u32 handle = rd32(params, NVRM_NVOS64_HOBJECTNEW_OFF);
 	unsigned long flags;
@@ -5308,7 +5504,8 @@ static void event_cb_after_alloc(const u8 *params, const struct event_cb_pending
 
 	if (!pend->armed)
 		return;
-	if (ret || rd32(params, NVRM_NVOS64_STATUS_OFF) != NVRM_NV_OK || !handle)
+	if (ret || rd32(params, NVRM_NVOS64_STATUS_OFF) != NVRM_NV_OK ||
+	    !handle)
 		return;
 	/* kapi_lock is held by kapi_forward's caller chain (kapi_op runs
 	 * under nvidia-modeset's own serialisation, kapi_forward_on takes
@@ -5326,10 +5523,12 @@ static void event_cb_after_alloc(const u8 *params, const struct event_cb_pending
 		return;
 	}
 	event_cb_slots[i] = (struct event_cb_slot){
-		.client = pend->client, .handle = handle,
+		.client = pend->client,
+		.handle = handle,
 		.cls = NVRM_CLASS_EVENT_KERNEL_CALLBACK_EX,
 		.notify_index = pend->notify_index,
-		.proc = proc, .kc = pend->kc,
+		.proc = proc,
+		.kc = pend->kc,
 	};
 	stat_events_registered++;
 	spin_unlock_irqrestore(&event_cb_lock, flags);
@@ -5418,9 +5617,9 @@ static void event_cb_drop_all(void)
 #define NVRM_SEMSURF_SLOTS 64u
 struct semsurf_slot {
 	bool used;
-	u32 client;		/* NVOS54.hClient of the registration */
-	u32 proc;		/* the NVKMS session's process id */
-	u64 kc;			/* NVOS10_EVENT_KERNEL_CALLBACK_EX*, guest kernel VA */
+	u32 client; /* NVOS54.hClient of the registration */
+	u32 proc; /* the NVKMS session's process id */
+	u64 kc; /* NVOS10_EVENT_KERNEL_CALLBACK_EX*, guest kernel VA */
 	/*
 	 * `func`/`arg` are read ONCE here, at arm time, and never again.
 	 *
@@ -5464,15 +5663,16 @@ static void semsurf_slot_del(u32 client, u64 kc)
 }
 
 struct semsurf_pending {
-	bool armed;		/* REGISTER_WAITER, slot pre-filled */
-	bool unreg;		/* UNREGISTER_WAITER */
+	bool armed; /* REGISTER_WAITER, slot pre-filled */
+	bool unreg; /* UNREGISTER_WAITER */
 	u32 client;
 	u64 kc;
 };
 
 /* Kernel CONTROL, BEFORE it is sent. `params` is the NVOS54 block in guest
  * kernel memory; its `params` pointer likewise (the kapi path). */
-static void semsurf_before_control(const u8 *params, struct semsurf_pending *pend)
+static void semsurf_before_control(const u8 *params,
+				   struct semsurf_pending *pend)
 {
 	u32 cmd = rd32(params, NVRM_NVOS54_CMD_OFF);
 	unsigned long flags;
@@ -5489,7 +5689,8 @@ static void semsurf_before_control(const u8 *params, struct semsurf_pending *pen
 	if (!pp)
 		return;
 	kc = rd64(pp, cmd == NVRM_CTRL_SEMSURF_REG_WAITER ?
-		  NVRM_SEMSURF_REG_HANDLE_OFF : NVRM_SEMSURF_UNREG_HANDLE_OFF);
+			      NVRM_SEMSURF_REG_HANDLE_OFF :
+			      NVRM_SEMSURF_UNREG_HANDLE_OFF);
 	/* 0 = no notification asked; a value that fits in 32 bits is a user
 	 * client's OS-event id, which passes through and works natively --
 	 * only a kernel VA is ours to serve. */
@@ -5514,12 +5715,16 @@ static void semsurf_before_control(const u8 *params, struct semsurf_pending *pen
 		return;
 	}
 	semsurf_slots[i] = (struct semsurf_slot){
-		.used = true, .client = pend->client,
-		.proc = kapi_proc ? kapi_proc->id : 0, .kc = kc,
+		.used = true,
+		.client = pend->client,
+		.proc = kapi_proc ? kapi_proc->id : 0,
+		.kc = kc,
 		/* While the block is provably alive: the caller is executing
 		 * the registration control that names it. */
-		.func = rd64((const u8 *)(uintptr_t)kc, NVRM_NVOS10_CB_EX_FUNC_OFF),
-		.arg  = rd64((const u8 *)(uintptr_t)kc, NVRM_NVOS10_CB_EX_ARG_OFF),
+		.func = rd64((const u8 *)(uintptr_t)kc,
+			     NVRM_NVOS10_CB_EX_FUNC_OFF),
+		.arg = rd64((const u8 *)(uintptr_t)kc,
+			    NVRM_NVOS10_CB_EX_ARG_OFF),
 	};
 	stat_semsurf_waiters++;
 	pend->armed = true;
@@ -5530,8 +5735,8 @@ static void semsurf_before_control(const u8 *params, struct semsurf_pending *pen
 }
 
 /* Kernel CONTROL, AFTER the answer. */
-static void semsurf_after_control(const u8 *params, const struct semsurf_pending *pend,
-				  long ret)
+static void semsurf_after_control(const u8 *params,
+				  const struct semsurf_pending *pend, long ret)
 {
 	unsigned long flags;
 	bool ok;
@@ -5607,9 +5812,9 @@ static void semsurf_fire(const struct nvrm_req *r)
 		func = sl->func;
 		arg = sl->arg;
 		if (func)
-			((void (*)(void *, void *, u32, u32, u32))(uintptr_t)func)(
-				(void *)(uintptr_t)arg, NULL, 0,
-				ev_data(r), ev_status(r));
+			((void (*)(void *, void *, u32, u32, u32))(
+				uintptr_t)func)((void *)(uintptr_t)arg, NULL, 0,
+						ev_data(r), ev_status(r));
 		stat_semsurf_fired++;
 		stat_events_delivered++;
 		spin_unlock_irqrestore(&event_cb_lock, flags);
@@ -5618,8 +5823,9 @@ static void semsurf_fire(const struct nvrm_req *r)
 	spin_unlock_irqrestore(&event_cb_lock, flags);
 	stat_events_dropped++;
 	stat_events_drop_noslot++;
-	pr_warn_ratelimited("virtio_nvrm: events: semsurf waiter kc %#llx (client %#x, proc %u) fired, no slot -- dropped\n",
-			    (unsigned long long)ev_kc(r), ev_hclient(r), r->guest_proc);
+	pr_warn_ratelimited(
+		"virtio_nvrm: events: semsurf waiter kc %#llx (client %#x, proc %u) fired, no slot -- dropped\n",
+		(unsigned long long)ev_kc(r), ev_hclient(r), r->guest_proc);
 }
 
 /* The NVKMS session is going away, semsurf half. */
@@ -5645,8 +5851,9 @@ static void event_fire_callback(const struct nvrm_req *r)
 		/* 0x78, or a class the host invented later: see the header. */
 		stat_events_dropped++;
 		stat_events_drop_class++;
-		pr_warn_ratelimited("virtio_nvrm: events: class %#x cannot be served in the guest -- dropped\n",
-				    ev_class(r));
+		pr_warn_ratelimited(
+			"virtio_nvrm: events: class %#x cannot be served in the guest -- dropped\n",
+			ev_class(r));
 		return;
 	}
 
@@ -5674,10 +5881,11 @@ static void event_fire_callback(const struct nvrm_req *r)
 			spin_unlock_irqrestore(&event_cb_lock, flags);
 			stat_events_dropped++;
 			stat_events_drop_noslot++;
-			pr_warn_ratelimited("virtio_nvrm: events: %#x/%#x fired with kc %#llx, slot holds %#llx -- dropped\n",
-					    ev_hclient(r), ev_hevent(r),
-					    (unsigned long long)ev_kc(r),
-					    (unsigned long long)sl->kc);
+			pr_warn_ratelimited(
+				"virtio_nvrm: events: %#x/%#x fired with kc %#llx, slot holds %#llx -- dropped\n",
+				ev_hclient(r), ev_hevent(r),
+				(unsigned long long)ev_kc(r),
+				(unsigned long long)sl->kc);
 			return;
 		}
 		/* Denylist. These NVKMS handlers dereference their second
@@ -5713,12 +5921,15 @@ static void event_fire_callback(const struct nvrm_req *r)
 		 * Completion and Hotplug allocate a timer
 		 * (nvkms_alloc_timer_with_ref_ptr, GFP_ATOMIC). Signature =
 		 * Callback5ArgVoidReturn (nvos.h:398), call form os.c:1538. */
-		func = rd64((const u8 *)(uintptr_t)sl->kc, NVRM_NVOS10_CB_EX_FUNC_OFF);
-		arg = rd64((const u8 *)(uintptr_t)sl->kc, NVRM_NVOS10_CB_EX_ARG_OFF);
+		func = rd64((const u8 *)(uintptr_t)sl->kc,
+			    NVRM_NVOS10_CB_EX_FUNC_OFF);
+		arg = rd64((const u8 *)(uintptr_t)sl->kc,
+			   NVRM_NVOS10_CB_EX_ARG_OFF);
 		if (func)
-			((void (*)(void *, void *, u32, u32, u32))(uintptr_t)func)(
-				(void *)(uintptr_t)arg, NULL, ev_hevent(r),
-				ev_data(r), ev_status(r));
+			((void (*)(void *, void *, u32, u32, u32))(
+				uintptr_t)func)((void *)(uintptr_t)arg, NULL,
+						ev_hevent(r), ev_data(r),
+						ev_status(r));
 		stat_events_delivered++;
 		spin_unlock_irqrestore(&event_cb_lock, flags);
 		return;
@@ -5726,8 +5937,9 @@ static void event_fire_callback(const struct nvrm_req *r)
 	spin_unlock_irqrestore(&event_cb_lock, flags);
 	stat_events_dropped++;
 	stat_events_drop_noslot++;
-	pr_warn_ratelimited("virtio_nvrm: events: %#x/%#x fired, no slot (proc %u) -- dropped\n",
-			    ev_hclient(r), ev_hevent(r), r->guest_proc);
+	pr_warn_ratelimited(
+		"virtio_nvrm: events: %#x/%#x fired, no slot (proc %u) -- dropped\n",
+		ev_hclient(r), ev_hevent(r), r->guest_proc);
 }
 
 /* One firing of an OS event: make the fd readable. Process context. The
@@ -5904,7 +6116,8 @@ static long kapi_forward_on(struct nvrm_ctx *target, u32 nr, void *params,
 		if (c.desc->fd_off + 4 <= c.size) {
 			c.fd_off = c.desc->fd_off;
 			memcpy(&c.fd_orig, (u8 *)params + c.desc->fd_off, 4);
-			c.fd_token = fd_tok != NVRM_NONE_U64 ? fd_tok : ctx->token;
+			c.fd_token = fd_tok != NVRM_NONE_U64 ? fd_tok :
+							       ctx->token;
 		} else {
 			pr_warn("virtio_nvrm: escape %#x claims an fd at +%u, past its %u-byte block\n",
 				nr, c.desc->fd_off, size);
@@ -5977,12 +6190,14 @@ static int kapi_client_ensure(void)
 
 	ret = kapi_forward(NVRM_KESC_ALLOC, p, NVRM_KSIZE_ALLOC);
 	if (ret) {
-		pr_warn("virtio_nvrm: could not allocate an RM client: %ld\n", ret);
+		pr_warn("virtio_nvrm: could not allocate an RM client: %ld\n",
+			ret);
 		return ret;
 	}
 	status = rd32(p, NVRM_NVOS64_STATUS_OFF);
 	if (status) {
-		pr_warn("virtio_nvrm: RM refused a client: status %#x\n", status);
+		pr_warn("virtio_nvrm: RM refused a client: status %#x\n",
+			status);
 		return -EIO;
 	}
 	kapi_client = rd32(p, NVRM_NVOS64_HOBJECTNEW_OFF);
@@ -6080,7 +6295,8 @@ static u32 kapi_enumerate_gpus(struct nvrm_gpu_info *gpu_info)
 		wr32(pci, NVRM_PCI_INFO_GPUID_OFF, id);
 		if (kapi_control(NVRM_CTRL_GPU_GET_PCI_INFO, pci,
 				 NVRM_SIZE_PCI_INFO)) {
-			pr_warn("virtio_nvrm: no PCI info for GPU %#x -- skipped\n", id);
+			pr_warn("virtio_nvrm: no PCI info for GPU %#x -- skipped\n",
+				id);
 			continue;
 		}
 
@@ -6092,9 +6308,12 @@ static u32 kapi_enumerate_gpus(struct nvrm_gpu_info *gpu_info)
 		 * bdf_rewrite_request(). Mediating twice was measured as the
 		 * false "second GPU" above. */
 		gpu_info[count].gpu_id = id;
-		gpu_info[count].pci_info.domain = rd32(pci, NVRM_PCI_INFO_DOMAIN_OFF);
-		gpu_info[count].pci_info.bus = (u8)rd16(pci, NVRM_PCI_INFO_BUS_OFF);
-		gpu_info[count].pci_info.slot = (u8)rd16(pci, NVRM_PCI_INFO_SLOT_OFF);
+		gpu_info[count].pci_info.domain =
+			rd32(pci, NVRM_PCI_INFO_DOMAIN_OFF);
+		gpu_info[count].pci_info.bus =
+			(u8)rd16(pci, NVRM_PCI_INFO_BUS_OFF);
+		gpu_info[count].pci_info.slot =
+			(u8)rd16(pci, NVRM_PCI_INFO_SLOT_OFF);
 		/* GET_PCI_INFO returns domain, bus and slot and NO function.
 		 * Unmediated that leaves a zero we know about rather than one
 		 * we guessed; mediated, the guest's own function is known and
@@ -6177,7 +6396,8 @@ static int kapi_open_gpu(u32 gpu_id, void *sp, u8 reset_aware)
 	}
 	g->ctx = ctx;
 	g->refs = 1;
-	pr_info("virtio_nvrm: open_gpu(%#x) -> /dev/nvidia%u\n", gpu_id, g->index);
+	pr_info("virtio_nvrm: open_gpu(%#x) -> /dev/nvidia%u\n", gpu_id,
+		g->index);
 out:
 	mutex_unlock(&kapi_lock);
 	return ret;
@@ -6273,7 +6493,7 @@ struct kapi_map {
 	 * every kernel mapping leaks one on the host. */
 	u64 host_linear;
 	u64 off;
-	size_t len;		/* window bytes reserved: page-rounded */
+	size_t len; /* window bytes reserved: page-rounded */
 	/* The node this mapping lives on, and it is ITS OWN.
 	 *
 	 * RM keeps at most ONE mmap context per open file, for the whole
@@ -6340,8 +6560,8 @@ static struct nvrm_ctx *kapi_map_ctx_open(bool ctl)
 		return sess;
 	}
 	sess_token = sess->token;
-	ctx = ctl ? kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0, NULL)
-		  : kapi_ctx_open(nvrm, NVRM_DEV_GPU, index, NULL);
+	ctx = ctl ? kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0, NULL) :
+		    kapi_ctx_open(nvrm, NVRM_DEV_GPU, index, NULL);
 	mutex_unlock(&kapi_lock);
 	if (IS_ERR(ctx))
 		return ctx;
@@ -6485,7 +6705,8 @@ static long kapi_map_memory(u8 *params)
 			memset(wire, 0, sizeof(wire));
 			memcpy(wire, params, NVRM_KSIZE_MAP_MEMORY);
 			ret = kapi_forward_fd(NVRM_KESC_MAP_MEMORY, wire,
-					      NVRM_KWIRE_MAP_MEMORY, mctx->token);
+					      NVRM_KWIRE_MAP_MEMORY,
+					      mctx->token);
 			memcpy(params, wire, NVRM_KSIZE_MAP_MEMORY);
 			if (ret) {
 				kapi_map_ctx_close(mctx);
@@ -6506,8 +6727,9 @@ static long kapi_map_memory(u8 *params)
 				continue;
 			}
 			pr_warn("virtio_nvrm: kernel MAP_MEMORY refused: status %#x, hClient %#x hDevice %#x hMemory %#x offset %#llx length %llu (%s node)\n",
-				st, rd32(params, 0), rd32(params, 4), rd32(params, 8),
-				rd64(params, 16), rd64(params, NVRM_NVOS33_LENGTH_OFF),
+				st, rd32(params, 0), rd32(params, 4),
+				rd32(params, 8), rd64(params, 16),
+				rd64(params, NVRM_NVOS33_LENGTH_OFF),
 				ctl ? "control" : "GPU");
 			return 0;
 		}
@@ -6536,7 +6758,7 @@ static long kapi_map_memory(u8 *params)
 	 * ioremap branch below.
 	 */
 	win_len = ALIGN(len, PAGE_SIZE);
-	if (win_len < len) {		/* only reachable on a bogus huge length */
+	if (win_len < len) { /* only reachable on a bogus huge length */
 		pr_warn("virtio_nvrm: kernel MAP_MEMORY with unusable length %llu\n",
 			len);
 		kapi_map_ctx_close(mctx);
@@ -6552,7 +6774,8 @@ static long kapi_map_memory(u8 *params)
 	 * would be two halves of two different mappings. */
 	off = win_alloc(dev, (size_t)win_len);
 	if (off < 0) {
-		pr_warn("virtio_nvrm: kernel MAP_MEMORY: no window slot for %llu bytes\n", win_len);
+		pr_warn("virtio_nvrm: kernel MAP_MEMORY: no window slot for %llu bytes\n",
+			win_len);
 		kapi_map_ctx_close(mctx);
 		wr32(params, NVRM_NVOS33_STATUS_OFF, NVRM_NV_ERR_NOT_SUPPORTED);
 		return 0;
@@ -6561,9 +6784,11 @@ static long kapi_map_memory(u8 *params)
 	 * kthreads, and nobody signals those. Measured once as an rmmod that
 	 * never returned. */
 	ret = nvrm_simple(dev, NVRM_KIND_MAP_PREPARE, mctx->dev_tag, 0,
-			  mctx->token, (u64)off, win_len, &cache, false, proc_id);
+			  mctx->token, (u64)off, win_len, &cache, false,
+			  proc_id);
 	if (ret < 0) {
-		pr_warn("virtio_nvrm: kernel MAP_MEMORY: MAP_PREPARE failed: %ld\n", ret);
+		pr_warn("virtio_nvrm: kernel MAP_MEMORY: MAP_PREPARE failed: %ld\n",
+			ret);
 		win_free(dev, (u64)off, (size_t)win_len);
 		kapi_map_ctx_close(mctx);
 		wr32(params, NVRM_NVOS33_STATUS_OFF, NVRM_NV_ERR_NOT_SUPPORTED);
@@ -6572,8 +6797,8 @@ static long kapi_map_memory(u8 *params)
 
 	km = kzalloc(sizeof(*km), GFP_KERNEL);
 	if (!km) {
-		nvrm_simple(dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, (u64)off, win_len,
-			    NULL, false, proc_id);
+		nvrm_simple(dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, (u64)off,
+			    win_len, NULL, false, proc_id);
 		win_free(dev, (u64)off, (size_t)win_len);
 		kapi_map_ctx_close(mctx);
 		wr32(params, NVRM_NVOS33_STATUS_OFF, NVRM_NV_ERR_NOT_SUPPORTED);
@@ -6600,17 +6825,20 @@ static long kapi_map_memory(u8 *params)
 	 * writing it out anyway means the day cache_for() learns to tell a
 	 * register from a framebuffer, this end already follows. */
 	if (want_kva) {
-		km->kva = (cache == 2) ? ioremap(dev->win_base + (u64)off, km->len)
-				       : ioremap_cache(dev->win_base + (u64)off, km->len);
+		km->kva = (cache == 2) ?
+				  ioremap(dev->win_base + (u64)off, km->len) :
+				  ioremap_cache(dev->win_base + (u64)off,
+						km->len);
 		if (!km->kva) {
 			pr_warn("virtio_nvrm: kernel MAP_MEMORY: ioremap of %zu bytes at %#llx (cache %llu) failed\n",
 				km->len, dev->win_base + (u64)off, cache);
 			kfree(km);
-			nvrm_simple(dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, (u64)off,
-				    win_len, NULL, false, proc_id);
+			nvrm_simple(dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0,
+				    (u64)off, win_len, NULL, false, proc_id);
 			win_free(dev, (u64)off, (size_t)win_len);
 			kapi_map_ctx_close(mctx);
-			wr32(params, NVRM_NVOS33_STATUS_OFF, NVRM_NV_ERR_NOT_SUPPORTED);
+			wr32(params, NVRM_NVOS33_STATUS_OFF,
+			     NVRM_NV_ERR_NOT_SUPPORTED);
 			return 0;
 		}
 		km->linear = (u64)(uintptr_t)km->kva;
@@ -6654,7 +6882,8 @@ static long kapi_unmap_memory(u8 *params)
 	/* Give RM back the address RM issued. See `host_linear`. */
 	if (found)
 		wr64(params, NVRM_NVOS34_LINEAR_OFF, found->host_linear);
-	ret = kapi_forward(NVRM_KESC_UNMAP_MEMORY, params, NVRM_KSIZE_UNMAP_MEMORY);
+	ret = kapi_forward(NVRM_KESC_UNMAP_MEMORY, params,
+			   NVRM_KSIZE_UNMAP_MEMORY);
 	if (found)
 		wr64(params, NVRM_NVOS34_LINEAR_OFF, linear);
 
@@ -6664,8 +6893,9 @@ static long kapi_unmap_memory(u8 *params)
 		if (found->kva)
 			iounmap(found->kva);
 		if (!kapi_session_ids(&dev_tag, &token, &proc_id))
-			nvrm_simple(dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, found->off,
-				    found->len, NULL, false, proc_id);
+			nvrm_simple(dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0,
+				    found->off, found->len, NULL, false,
+				    proc_id);
 		win_free(dev, found->off, found->len);
 		/* Last: closing the node is what frees RM's mmap context, and
 		 * nothing else does (nv.c:1079). A node kept beyond its
@@ -6675,8 +6905,9 @@ static long kapi_unmap_memory(u8 *params)
 	} else if (linear) {
 		/* Not ours: say so rather than leaving the window slot behind
 		 * on the assumption that it will turn up later. */
-		pr_warn_ratelimited("virtio_nvrm: kernel UNMAP_MEMORY for %#llx, which this module never handed out\n",
-				    linear);
+		pr_warn_ratelimited(
+			"virtio_nvrm: kernel UNMAP_MEMORY for %#llx, which this module never handed out\n",
+			linear);
 	}
 	return ret;
 }
@@ -6709,8 +6940,8 @@ static void kapi_maps_drop(void)
 		if (km->kva)
 			iounmap(km->kva);
 		if (nvrm && have_ids)
-			nvrm_simple(nvrm, NVRM_KIND_MAP_RELEASE, 0, 0, 0, km->off,
-				    km->len, NULL, false, proc_id);
+			nvrm_simple(nvrm, NVRM_KIND_MAP_RELEASE, 0, 0, 0,
+				    km->off, km->len, NULL, false, proc_id);
 		if (nvrm)
 			win_free(nvrm, km->off, km->len);
 		kapi_map_ctx_close(km->ctx);
@@ -6752,8 +6983,8 @@ static void kapi_maps_drop(void)
 /* A refill that the ledger refuses waits 1 s, then twice as long each time,
  * up to 30 s: the balloon takes room the ledger gives and never asks in a
  * loop. */
-#define NVRM_BALLOON_BACKOFF_MIN	HZ
-#define NVRM_BALLOON_BACKOFF_MAX	(30 * HZ)
+#define NVRM_BALLOON_BACKOFF_MIN HZ
+#define NVRM_BALLOON_BACKOFF_MAX (30 * HZ)
 
 static void balloon_worker(struct work_struct *work);
 static DECLARE_DELAYED_WORK(balloon_work, balloon_worker);
@@ -6763,18 +6994,18 @@ static DECLARE_DELAYED_WORK(balloon_work, balloon_worker);
 static DEFINE_MUTEX(balloon_lock);
 
 static struct {
-	struct nvrm_proc *proc;		/* the identity both sessions share */
+	struct nvrm_proc *proc; /* the identity both sessions share */
 	struct nvrm_ctx *ctl, *gpu;
-	u32 client, device;		/* RM handles, 0 = not allocated */
-	bool cut;			/* `shape` is cut for `target` */
-	u64 target;			/* bytes */
+	u32 client, device; /* RM handles, 0 = not allocated */
+	bool cut; /* `shape` is cut for `target` */
+	u64 target; /* bytes */
 	struct nvrm_balloon_shape shape;
 	/* Bit i: chunk i is held. Bit shape.full is the rest. Chunk i is
 	 * handle device + 1 + i, so a handle needs no table. */
 	DECLARE_BITMAP(held, NVRM_BALLOON_MAX_CHUNKS + 1);
 	u64 held_bytes;
 	unsigned long backoff;
-	bool filled_once;		/* the first fill was announced */
+	bool filled_once; /* the first fill was announced */
 } balloon;
 
 /* Queueing the work is allowed only while the device lives: remove sets
@@ -6827,16 +7058,21 @@ static u64 balloon_target(u64 *scanout)
 	int v = READ_ONCE(display_reserve_mib);
 	u32 w = READ_ONCE(vdisplay_width), h = READ_ONCE(vdisplay_height);
 
-	*scanout = w && h && w <= NVRM_RESERVE_MAX_DIM && h <= NVRM_RESERVE_MAX_DIM ?
-		   nvrm_scanout_bytes(w, h) : 0;
+	*scanout = w && h && w <= NVRM_RESERVE_MAX_DIM &&
+				   h <= NVRM_RESERVE_MAX_DIM ?
+			   nvrm_scanout_bytes(w, h) :
+			   0;
 	if (v >= 0)
 		return (u64)v << 20;
-	return READ_ONCE(display) ? (u64)nvrm_display_reserve_auto_mib(w, h) << 20 : 0;
+	return READ_ONCE(display) ?
+		       (u64)nvrm_display_reserve_auto_mib(w, h) << 20 :
+		       0;
 }
 
 static u64 balloon_chunk_bytes(u32 i)
 {
-	return i < balloon.shape.full ? balloon.shape.chunk : balloon.shape.rest;
+	return i < balloon.shape.full ? balloon.shape.chunk :
+					balloon.shape.rest;
 }
 
 /* One NV04_ALLOC on the balloon's control session: 0, RM's status, or the
@@ -6880,10 +7116,12 @@ static long balloon_open(void)
 	if (!balloon.ctl || !balloon.gpu) {
 		mutex_lock(&kapi_lock);
 		ctx = balloon.ctl ? balloon.ctl :
-		      kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0, balloon.proc);
+				    kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0,
+						  balloon.proc);
 		if (!IS_ERR(ctx)) {
 			balloon.ctl = ctx;
-			ctx = kapi_ctx_open(nvrm, NVRM_DEV_GPU, 0, balloon.proc);
+			ctx = kapi_ctx_open(nvrm, NVRM_DEV_GPU, 0,
+					    balloon.proc);
 			if (!IS_ERR(ctx))
 				balloon.gpu = ctx;
 		}
@@ -6928,7 +7166,8 @@ static void balloon_close(void)
 		memset(p, 0, sizeof(p));
 		wr32(p, NVRM_NVOS00_HROOT_OFF, balloon.client);
 		wr32(p, NVRM_NVOS00_HOBJECTOLD_OFF, balloon.client);
-		kapi_forward_on(balloon.ctl, NVRM_KESC_FREE, p, sizeof(p), NVRM_NONE_U64);
+		kapi_forward_on(balloon.ctl, NVRM_KESC_FREE, p, sizeof(p),
+				NVRM_NONE_U64);
 	}
 	balloon.client = 0;
 	balloon.device = 0;
@@ -6980,14 +7219,18 @@ static long balloon_free_chunk(u32 i)
 	wr32(p, NVRM_NVOS00_HROOT_OFF, balloon.client);
 	wr32(p, NVRM_NVOS00_HOBJECTPARENT_OFF, balloon.device);
 	wr32(p, NVRM_NVOS00_HOBJECTOLD_OFF, balloon.device + 1 + i);
-	ret = kapi_forward_on(balloon.ctl, NVRM_KESC_FREE, p, sizeof(p), NVRM_NONE_U64);
+	ret = kapi_forward_on(balloon.ctl, NVRM_KESC_FREE, p, sizeof(p),
+			      NVRM_NONE_U64);
 	if (ret) {
-		pr_warn_ratelimited("virtio_nvrm: balloon: freeing chunk %u failed: %ld\n", i, ret);
+		pr_warn_ratelimited(
+			"virtio_nvrm: balloon: freeing chunk %u failed: %ld\n",
+			i, ret);
 		return ret;
 	}
 	if (rd32(p, NVRM_NVOS00_STATUS_OFF))
-		pr_warn_ratelimited("virtio_nvrm: balloon: RM answered the free of chunk %u with status %#x\n",
-				    i, rd32(p, NVRM_NVOS00_STATUS_OFF));
+		pr_warn_ratelimited(
+			"virtio_nvrm: balloon: RM answered the free of chunk %u with status %#x\n",
+			i, rd32(p, NVRM_NVOS00_STATUS_OFF));
 	clear_bit(i, balloon.held);
 	balloon.held_bytes -= balloon_chunk_bytes(i);
 	return 0;
@@ -7003,7 +7246,8 @@ static u64 balloon_deflate(u64 want)
 	while (freed < want) {
 		u32 full = balloon.shape.full;
 		int k = nvrm_balloon_pick(bitmap_weight(balloon.held, full),
-					  balloon.shape.rest && test_bit(full, balloon.held),
+					  balloon.shape.rest &&
+						  test_bit(full, balloon.held),
 					  balloon.shape.rest, want - freed);
 		u32 i;
 
@@ -7035,7 +7279,8 @@ static void balloon_worker(struct work_struct *work)
 		goto out;
 	target = balloon_target(&scanout);
 	nvrm_balloon_shape(target, scanout, &shape);
-	if (!balloon.cut || target != balloon.target || shape.chunk != balloon.shape.chunk) {
+	if (!balloon.cut || target != balloon.target ||
+	    shape.chunk != balloon.shape.chunk) {
 		/* A new size: let go of everything and cut anew. */
 		if (balloon.held_bytes || !target)
 			balloon_close();
@@ -7046,7 +7291,8 @@ static void balloon_worker(struct work_struct *work)
 		balloon.filled_once = false;
 		if (!target)
 			pr_info("virtio_nvrm: balloon off (display_reserve_mib=%d, display=%u)\n",
-				READ_ONCE(display_reserve_mib), READ_ONCE(display));
+				READ_ONCE(display_reserve_mib),
+				READ_ONCE(display));
 	}
 	if (!balloon.target)
 		goto out;
@@ -7062,21 +7308,28 @@ static void balloon_worker(struct work_struct *work)
 		if (!balloon.filled_once)
 			pr_info("virtio_nvrm: balloon holds %llu MiB (%u x %llu KiB + %llu KiB, %s %ux%u) -- guest processes reach the VRAM cap that much earlier, NVKMS gets it back when it is refused a display buffer\n",
 				balloon.target >> 20, balloon.shape.full,
-				balloon.shape.chunk >> 10, balloon.shape.rest >> 10,
-				READ_ONCE(display_reserve_mib) < 0 ? "auto for" : "fixed, cut for",
-				READ_ONCE(vdisplay_width), READ_ONCE(vdisplay_height));
+				balloon.shape.chunk >> 10,
+				balloon.shape.rest >> 10,
+				READ_ONCE(display_reserve_mib) < 0 ?
+					"auto for" :
+					"fixed, cut for",
+				READ_ONCE(vdisplay_width),
+				READ_ONCE(vdisplay_height));
 		else if (balloon.held_bytes != before)
-			pr_info_ratelimited("virtio_nvrm: balloon refilled to %llu MiB (+%llu KiB)\n",
-					    balloon.target >> 20,
-					    (balloon.held_bytes - before) >> 10);
+			pr_info_ratelimited(
+				"virtio_nvrm: balloon refilled to %llu MiB (+%llu KiB)\n",
+				balloon.target >> 20,
+				(balloon.held_bytes - before) >> 10);
 		balloon.filled_once = true;
 	} else {
-		pr_info_ratelimited("virtio_nvrm: balloon holds %llu of %llu KiB, the next step failed (%s %#lx) -- again in %lu s\n",
-				    balloon.held_bytes >> 10, balloon.target >> 10,
-				    ret < 0 ? "errno" : "status", ret < 0 ? -ret : ret,
-				    balloon.backoff / HZ);
+		pr_info_ratelimited(
+			"virtio_nvrm: balloon holds %llu of %llu KiB, the next step failed (%s %#lx) -- again in %lu s\n",
+			balloon.held_bytes >> 10, balloon.target >> 10,
+			ret < 0 ? "errno" : "status", ret < 0 ? -ret : ret,
+			balloon.backoff / HZ);
 		balloon_kick(balloon.backoff, false);
-		balloon.backoff = min(balloon.backoff * 2, NVRM_BALLOON_BACKOFF_MAX);
+		balloon.backoff =
+			min(balloon.backoff * 2, NVRM_BALLOON_BACKOFF_MAX);
 	}
 out:
 	mutex_unlock(&balloon_lock);
@@ -7084,7 +7337,7 @@ out:
 
 /* An NV04_ALLOC from NVKMS as it was asked, kept for a second try. */
 struct balloon_ask {
-	u8 *alloc;			/* NVKMS's own params; NULL = not a display buffer */
+	u8 *alloc; /* NVKMS's own params; NULL = not a display buffer */
 	u8 saved[NVRM_MEMALLOC_SIZE];
 };
 
@@ -7129,7 +7382,8 @@ static long balloon_after_alloc(u8 *params, struct balloon_ask *ask, long ret)
 		memcpy(ask->alloc, ask->saved, sizeof(ask->saved));
 		ret = kapi_forward(NVRM_KESC_ALLOC, params, NVRM_KSIZE_ALLOC);
 		tries++;
-		if (ret || rd32(params, NVRM_NVOS64_STATUS_OFF) != NVRM_NV_ERR_NO_MEMORY)
+		if (ret || rd32(params, NVRM_NVOS64_STATUS_OFF) !=
+				   NVRM_NV_ERR_NO_MEMORY)
 			break;
 		/* Another NVKMS allocation took the room first: the gate holds
 		 * processes back, not NVKMS. Give the next chunk. */
@@ -7144,23 +7398,28 @@ static long balloon_after_alloc(u8 *params, struct balloon_ask *ask, long ret)
 		spin_lock_irqsave(&balloon_kick_lock, flags);
 		for (i = 0; i < ARRAY_SIZE(balloon_served); i++)
 			if (!balloon_served[i].handle) {
-				balloon_served[i].client = rd32(params, NVRM_NVOS64_HROOT_OFF);
-				balloon_served[i].handle = rd32(params, NVRM_NVOS64_HOBJECTNEW_OFF);
+				balloon_served[i].client =
+					rd32(params, NVRM_NVOS64_HROOT_OFF);
+				balloon_served[i].handle = rd32(
+					params, NVRM_NVOS64_HOBJECTNEW_OFF);
 				break;
 			}
 		spin_unlock_irqrestore(&balloon_kick_lock, flags);
 	}
 	if (gave)
 		balloon_kick(NVRM_BALLOON_BACKOFF_MIN, false);
-	pr_info_ratelimited("virtio_nvrm: balloon: %s[%d] was refused a display buffer of %llu KiB (flags %#x attr %#x attr2 %#x); gave back %llu KiB in %u tr%s, now %s -- balloon holds %llu of %llu KiB\n",
-			    current->comm, task_tgid_nr(current), want >> 10,
-			    rd32(ask->saved, NVRM_MEMALLOC_FLAGS_OFF),
-			    rd32(ask->saved, NVRM_MEMALLOC_ATTR_OFF),
-			    rd32(ask->saved, NVRM_MEMALLOC_ATTR2_OFF),
-			    gave >> 10, tries, tries == 1 ? "y" : "ies",
-			    ret ? "the transport failed" : st == NVRM_NV_OK ? "granted" :
-			    st == NVRM_NV_ERR_NO_MEMORY ? "still refused" : "refused otherwise",
-			    held >> 10, target >> 10);
+	pr_info_ratelimited(
+		"virtio_nvrm: balloon: %s[%d] was refused a display buffer of %llu KiB (flags %#x attr %#x attr2 %#x); gave back %llu KiB in %u tr%s, now %s -- balloon holds %llu of %llu KiB\n",
+		current->comm, task_tgid_nr(current), want >> 10,
+		rd32(ask->saved, NVRM_MEMALLOC_FLAGS_OFF),
+		rd32(ask->saved, NVRM_MEMALLOC_ATTR_OFF),
+		rd32(ask->saved, NVRM_MEMALLOC_ATTR2_OFF), gave >> 10, tries,
+		tries == 1 ? "y" : "ies",
+		ret			    ? "the transport failed" :
+		st == NVRM_NV_OK	    ? "granted" :
+		st == NVRM_NV_ERR_NO_MEMORY ? "still refused" :
+					      "refused otherwise",
+		held >> 10, target >> 10);
 	return ret;
 }
 
@@ -7176,7 +7435,8 @@ static void balloon_note_free(const u8 *params)
 
 	spin_lock_irqsave(&balloon_kick_lock, flags);
 	for (i = 0; i < ARRAY_SIZE(balloon_served); i++)
-		if (balloon_served[i].handle == handle && balloon_served[i].client == client) {
+		if (balloon_served[i].handle == handle &&
+		    balloon_served[i].client == client) {
 			balloon_served[i].handle = 0;
 			hit = true;
 		}
@@ -7225,13 +7485,22 @@ static void balloon_stop(void)
 
 static u32 kapi_status_off(u32 op)
 {
-	static const struct { u32 op; u32 status_off; } tbl[] = {
-		{ NVRM_KSTAT_FREE }, { NVRM_KSTAT_ALLOC_MEMORY },
-		{ NVRM_KSTAT_ALLOC }, { NVRM_KSTAT_MAP_MEMORY },
-		{ NVRM_KSTAT_UNMAP_MEMORY }, { NVRM_KSTAT_ALLOC_CONTEXT_DMA },
-		{ NVRM_KSTAT_MAP_MEMORY_DMA }, { NVRM_KSTAT_UNMAP_MEMORY_DMA },
-		{ NVRM_KSTAT_BIND_CONTEXT_DMA }, { NVRM_KSTAT_CONTROL },
-		{ NVRM_KSTAT_DUP_OBJECT }, { NVRM_KSTAT_SHARE },
+	static const struct {
+		u32 op;
+		u32 status_off;
+	} tbl[] = {
+		{ NVRM_KSTAT_FREE },
+		{ NVRM_KSTAT_ALLOC_MEMORY },
+		{ NVRM_KSTAT_ALLOC },
+		{ NVRM_KSTAT_MAP_MEMORY },
+		{ NVRM_KSTAT_UNMAP_MEMORY },
+		{ NVRM_KSTAT_ALLOC_CONTEXT_DMA },
+		{ NVRM_KSTAT_MAP_MEMORY_DMA },
+		{ NVRM_KSTAT_UNMAP_MEMORY_DMA },
+		{ NVRM_KSTAT_BIND_CONTEXT_DMA },
+		{ NVRM_KSTAT_CONTROL },
+		{ NVRM_KSTAT_DUP_OBJECT },
+		{ NVRM_KSTAT_SHARE },
 		{ NVRM_KSTAT_ADD_VBLANK_CALLBACK },
 	};
 	u32 i;
@@ -7265,8 +7534,8 @@ static void kapi_ledger(const char *verb, const u8 *params, u32 handle_off,
 		return;
 	pr_info("virtio_nvrm: ledger: %s client %#x parent %#x handle %#x class %#x -> status %#x (%s)\n",
 		verb, rd32(params, 0), rd32(params, 4),
-		rd32(params, handle_off), hclass,
-		rd32(params, status_off), who);
+		rd32(params, handle_off), hclass, rd32(params, status_off),
+		who);
 }
 
 /*
@@ -7308,11 +7577,13 @@ static void kapi_op(void *sp, void *ops_cmd)
 		/* Ours, if it is the virtual display's object -- RM has never
 		 * heard of that handle. */
 		if (vdisp_free(params)) {
-			kapi_ledger("FREE ", params, 8, 0, 12, "vdisp, NOT sent");
+			kapi_ledger("FREE ", params, 8, 0, 12,
+				    "vdisp, NOT sent");
 			return;
 		}
 		if (vblank_free(params)) {
-			kapi_ledger("FREE ", params, 8, 0, 12, "vblank, NOT sent");
+			kapi_ledger("FREE ", params, 8, 0, 12,
+				    "vblank, NOT sent");
 			return;
 		}
 		/* Not ours -- but if it is an event slot, the slot goes BEFORE
@@ -7349,7 +7620,8 @@ static void kapi_op(void *sp, void *ops_cmd)
 		}
 		/* The class list is the one real answer this module edits, and
 		 * only with `vdisplay` on. */
-		if (!ret && rd32(params, NVRM_NVOS54_CMD_OFF) == NVRM_CTRL_GET_CLASSLIST)
+		if (!ret && rd32(params, NVRM_NVOS54_CMD_OFF) ==
+				    NVRM_CTRL_GET_CLASSLIST)
 			vdisp_rewrite_classlist(params);
 		break;
 	case NVRM_KOP_ALLOC:
@@ -7386,7 +7658,8 @@ static void kapi_op(void *sp, void *ops_cmd)
 
 			event_cb_before_alloc(params, &pend);
 			balloon_before_alloc(params, &bask);
-			ret = kapi_forward(NVRM_KESC_ALLOC, params, NVRM_KSIZE_ALLOC);
+			ret = kapi_forward(NVRM_KESC_ALLOC, params,
+					   NVRM_KSIZE_ALLOC);
 			ret = balloon_after_alloc(params, &bask, ret);
 			vdisp_event_on_missing_parent(params);
 			event_cb_after_alloc(params, &pend, ret);
@@ -7497,8 +7770,8 @@ unimplemented:
 				op, ret);
 	}
 	if (ret)
-		pr_warn_ratelimited("virtio_nvrm: kernel RM op %#x failed: %ld\n",
-				    op, ret);
+		pr_warn_ratelimited(
+			"virtio_nvrm: kernel RM op %#x failed: %ld\n", op, ret);
 }
 
 /*
@@ -7515,15 +7788,15 @@ unimplemented:
 u32 nvidia_get_rm_ops(struct nvrm_modeset_rm_ops *rm_ops)
 {
 	const struct nvrm_modeset_rm_ops local = {
-		.version_string	= NVRM_DRIVER_VERSION,
-		.system_info	= { .allow_write_combining = 0 },
-		.alloc_stack	= kapi_alloc_stack,
-		.free_stack	= kapi_free_stack,
-		.enumerate_gpus	= kapi_enumerate_gpus,
-		.open_gpu	= kapi_open_gpu,
-		.close_gpu	= kapi_close_gpu,
-		.op		= kapi_op,
-		.set_callbacks	= kapi_set_callbacks,
+		.version_string = NVRM_DRIVER_VERSION,
+		.system_info = { .allow_write_combining = 0 },
+		.alloc_stack = kapi_alloc_stack,
+		.free_stack = kapi_free_stack,
+		.enumerate_gpus = kapi_enumerate_gpus,
+		.open_gpu = kapi_open_gpu,
+		.close_gpu = kapi_close_gpu,
+		.op = kapi_op,
+		.set_callbacks = kapi_set_callbacks,
 	};
 
 	if (strcmp(rm_ops->version_string, NVRM_DRIVER_VERSION) != 0) {

@@ -42,7 +42,8 @@ int main(int argc, char **argv)
 		perror(argv[1]);
 		return 2;
 	}
-	if (fseek(f, 0, SEEK_END) != 0 || (n = ftell(f)) < 0 || fseek(f, 0, SEEK_SET) != 0) {
+	if (fseek(f, 0, SEEK_END) != 0 || (n = ftell(f)) < 0 ||
+	    fseek(f, 0, SEEK_SET) != 0) {
 		perror("fseek/ftell");
 		return 2;
 	}
@@ -62,13 +63,14 @@ int main(int argc, char **argv)
 
 	/* The header, field by field in declaration order (nvrm_wire.h). */
 	printf("hdr %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u %u\n",
-	       t.hdr.magic, t.hdr.table_version, t.hdr.total_len, t.hdr.checksum,
-	       t.hdr.n_ioctl, t.hdr.n_class, t.hdr.n_ctrl, t.hdr.n_nested,
-	       t.hdr.xfer_nr, t.hdr.xfer_struct_len, t.hdr.xfer_cmd_off,
-	       t.hdr.xfer_size_off, t.hdr.xfer_ptr_off, t.hdr.max_ioctl_size,
-	       t.hdr.osdesc_class, t.hdr.osdesc_pmem_off, t.hdr.osdesc_limit_off,
-	       t.hdr.osdesc_status_off, t.hdr.osdesc_handle_off,
-	       t.hdr.max_inline, t.hdr.max_aux, t.hdr.max_nested);
+	       t.hdr.magic, t.hdr.table_version, t.hdr.total_len,
+	       t.hdr.checksum, t.hdr.n_ioctl, t.hdr.n_class, t.hdr.n_ctrl,
+	       t.hdr.n_nested, t.hdr.xfer_nr, t.hdr.xfer_struct_len,
+	       t.hdr.xfer_cmd_off, t.hdr.xfer_size_off, t.hdr.xfer_ptr_off,
+	       t.hdr.max_ioctl_size, t.hdr.osdesc_class, t.hdr.osdesc_pmem_off,
+	       t.hdr.osdesc_limit_off, t.hdr.osdesc_status_off,
+	       t.hdr.osdesc_handle_off, t.hdr.max_inline, t.hdr.max_aux,
+	       t.hdr.max_nested);
 
 	/* Every row goes through the parsed STRUCT pointers, not through raw
 	 * offsets: that is precisely what proves the C struct layout and the
@@ -76,23 +78,28 @@ int main(int argc, char **argv)
 	 * search functions are covered too -- a row that find_ioctl cannot find
 	 * again is an error, not a dump. */
 	for (i = 0; i < t.hdr.n_ioctl; i++) {
-		const struct nvrm_ioctl_desc *d = find_ioctl(&t, t.ioctls[i].dev, t.ioctls[i].nr);
+		const struct nvrm_ioctl_desc *d =
+			find_ioctl(&t, t.ioctls[i].dev, t.ioctls[i].nr);
 
 		if (d != &t.ioctls[i]) {
-			fprintf(stderr, "ERROR: find_ioctl(%u, %u) does not find row %u\n",
+			fprintf(stderr,
+				"ERROR: find_ioctl(%u, %u) does not find row %u\n",
 				t.ioctls[i].dev, t.ioctls[i].nr, i);
 			return 1;
 		}
-		printf("ioctl %u %u %u %u %u %u %u %u %u %u %u %u\n",
-		       d->dev, d->nr, d->size, d->fd_off, d->emb_ptr_off,
-		       d->emb_len_kind, d->emb_len_off, d->cmd_off, d->rights_off,
-		       d->rights_if_size, d->handle_off, d->flags);
+		printf("ioctl %u %u %u %u %u %u %u %u %u %u %u %u\n", d->dev,
+		       d->nr, d->size, d->fd_off, d->emb_ptr_off,
+		       d->emb_len_kind, d->emb_len_off, d->cmd_off,
+		       d->rights_off, d->rights_if_size, d->handle_off,
+		       d->flags);
 	}
 	for (i = 0; i < t.hdr.n_class; i++) {
-		const struct nvrm_class_desc *c = find_class(&t, t.classes[i].hclass);
+		const struct nvrm_class_desc *c =
+			find_class(&t, t.classes[i].hclass);
 
 		if (c != &t.classes[i]) {
-			fprintf(stderr, "ERROR: find_class(%u) does not find row %u\n",
+			fprintf(stderr,
+				"ERROR: find_class(%u) does not find row %u\n",
 				t.classes[i].hclass, i);
 			return 1;
 		}
@@ -103,16 +110,18 @@ int main(int argc, char **argv)
 		const struct nvrm_ctrl_desc *c = find_ctrl(&t, t.ctrls[i].cmd);
 
 		if (c != &t.ctrls[i]) {
-			fprintf(stderr, "ERROR: find_ctrl(%u) does not find row %u\n",
+			fprintf(stderr,
+				"ERROR: find_ctrl(%u) does not find row %u\n",
 				t.ctrls[i].cmd, i);
 			return 1;
 		}
-		printf("ctrl %u %u %u %u %u\n", c->cmd, c->first, c->count, c->flags, c->fd_off);
+		printf("ctrl %u %u %u %u %u\n", c->cmd, c->first, c->count,
+		       c->flags, c->fd_off);
 	}
 	for (i = 0; i < t.hdr.n_nested; i++)
-		printf("nested %u %u %u %u\n",
-		       t.nested[i].ptr_off, t.nested[i].len_kind,
-		       t.nested[i].len_off, t.nested[i].elem);
+		printf("nested %u %u %u %u\n", t.nested[i].ptr_off,
+		       t.nested[i].len_kind, t.nested[i].len_off,
+		       t.nested[i].elem);
 
 	free(buf);
 	return 0;

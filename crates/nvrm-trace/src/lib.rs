@@ -335,14 +335,24 @@ unsafe fn mmap_common(
 
 #[no_mangle]
 pub unsafe extern "C" fn mmap(
-    a: *mut c_void, l: usize, p: c_int, f: c_int, fd: c_int, o: libc::off_t,
+    a: *mut c_void,
+    l: usize,
+    p: c_int,
+    f: c_int,
+    fd: c_int,
+    o: libc::off_t,
 ) -> *mut c_void {
     mmap_common(real!(mmap, FnMmap), a, l, p, f, fd, o)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn mmap64(
-    a: *mut c_void, l: usize, p: c_int, f: c_int, fd: c_int, o: libc::off_t,
+    a: *mut c_void,
+    l: usize,
+    p: c_int,
+    f: c_int,
+    fd: c_int,
+    o: libc::off_t,
 ) -> *mut c_void {
     mmap_common(real!(mmap64, FnMmap), a, l, p, f, fd, o)
 }

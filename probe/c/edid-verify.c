@@ -74,7 +74,7 @@ static void mfg_id(const unsigned char *e, char out[4])
 static void dtd_size(const unsigned char *d, unsigned *w, unsigned *h,
 		     unsigned *hz)
 {
-	unsigned pclk = d[0] | ((unsigned)d[1] << 8);	/* in 10 kHz */
+	unsigned pclk = d[0] | ((unsigned)d[1] << 8); /* in 10 kHz */
 	unsigned hblank = d[3] | (((unsigned)d[4] & 0x0f) << 8);
 	unsigned vblank = d[6] | (((unsigned)d[7] & 0x0f) << 8);
 	unsigned htotal, vtotal;
@@ -87,11 +87,11 @@ static void dtd_size(const unsigned char *d, unsigned *w, unsigned *h,
 	/* Recomputed, never read: the rate is not stored anywhere in a DTD.
 	 * Rounded to nearest, because the clock is quantised to 10 kHz and a
 	 * truncating divide reports 59 for a 60 Hz mode. */
-	*hz = (htotal && vtotal)
-	      ? (unsigned)(((unsigned long long)pclk * 10000ULL
-			    + (unsigned long long)htotal * vtotal / 2)
-			   / ((unsigned long long)htotal * vtotal))
-	      : 0;
+	*hz = (htotal && vtotal) ?
+		      (unsigned)(((unsigned long long)pclk * 10000ULL +
+				  (unsigned long long)htotal * vtotal / 2) /
+				 ((unsigned long long)htotal * vtotal)) :
+		      0;
 }
 
 /* The monitor-name descriptor (tag 0xfc), terminated by 0x0a and padded with
@@ -156,8 +156,10 @@ int main(int argc, char **argv)
 	fclose(f);
 
 	if (got < BLOCK || got % BLOCK) {
-		fprintf(stderr, "%s: %zu bytes -- not a whole number of "
-			"128-byte EDID blocks\n", argv[1], got);
+		fprintf(stderr,
+			"%s: %zu bytes -- not a whole number of "
+			"128-byte EDID blocks\n",
+			argv[1], got);
 		return 2;
 	}
 	blocks = (int)(got / BLOCK);
@@ -186,8 +188,8 @@ int main(int argc, char **argv)
 	printf("edid-verify %s bytes=%zu blocks=%d header=%s checksum=%s "
 	       "extensions=%s mfg=%s monitor=\"%s\" preferred=%ux%u@%u",
 	       argv[1], got, blocks, header_ok ? "ok" : "BAD",
-	       sum_ok ? "ok" : "BAD", ext_ok ? "ok" : "BAD",
-	       mfg, name, w, h, hz);
+	       sum_ok ? "ok" : "BAD", ext_ok ? "ok" : "BAD", mfg, name, w, h,
+	       hz);
 	if (want_w)
 		printf(" want=%ux%u", want_w, want_h);
 	printf(" %s\n", bad ? "MISMATCH" : "ok");

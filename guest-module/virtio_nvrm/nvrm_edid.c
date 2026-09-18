@@ -22,19 +22,19 @@
  */
 
 #ifdef __KERNEL__
-# include <linux/kernel.h>
-# include <linux/math64.h>
-# include <linux/string.h>
-# include <linux/types.h>
+#include <linux/kernel.h>
+#include <linux/math64.h>
+#include <linux/string.h>
+#include <linux/types.h>
 #else
-# include <stdint.h>
-# include <string.h>
+#include <stdint.h>
+#include <string.h>
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
-# define div_u64(n, d) ((u64)(n) / (u64)(d))
-# define min_t(type, a, b) ((type)(a) < (type)(b) ? (type)(a) : (type)(b))
+#define div_u64(n, d) ((u64)(n) / (u64)(d))
+#define min_t(type, a, b) ((type)(a) < (type)(b) ? (type)(a) : (type)(b))
 #endif
 
 #define NVRM_EDID_LEN 128
@@ -119,8 +119,8 @@ static u32 nvrm_hz_ceiling(u32 w, u32 h, u32 hblank)
  * honest. The caller logs it, and the vblank timer takes the SAME number,
  * so the mode and the callbacks cannot drift apart.
  */
-static void nvrm_edid_effective(u32 w, u32 h, u32 hz, u32 *ew, u32 *eh, u32 *ehz,
-			 u32 *ehblank)
+static void nvrm_edid_effective(u32 w, u32 h, u32 hz, u32 *ew, u32 *eh,
+				u32 *ehz, u32 *ehblank)
 {
 	u32 hblank = NVRM_HBLANK, cap;
 
@@ -163,45 +163,44 @@ static void nvrm_vtiming_for(u32 w, u32 h, u32 hz, u32 hblank,
 	 * fixed 46-line vertical blanking, which is what every 1080p60 RB
 	 * panel reports. Derived rather than tabulated so a different size
 	 * still yields a self-consistent EDID. */
-	t->hactive   = w;
-	t->hblank    = hblank;
+	t->hactive = w;
+	t->hblank = hblank;
 	t->hsync_off = 48;
-	t->hsync_w   = 32;
-	t->vactive   = h;
-	t->vblank    = NVRM_VBLANK;
+	t->hsync_w = 32;
+	t->vactive = h;
+	t->vblank = NVRM_VBLANK;
 	t->vsync_off = 3;
-	t->vsync_w   = 5;
+	t->vsync_w = 5;
 	/* clock = total pixels * total lines * rate, in 10 kHz units. */
-	t->pclk_10khz = (u32)div_u64((u64)(w + t->hblank) * (h + t->vblank) *
-				     (u64)hz, 10000ULL);
+	t->pclk_10khz = (u32)div_u64(
+		(u64)(w + t->hblank) * (h + t->vblank) * (u64)hz, 10000ULL);
 }
 
 static void nvrm_edid_dtd(u8 *d, const struct nvrm_vtiming *t)
 {
 	/* Detailed Timing Descriptor, EDID 1.4 section 3.10.2. */
-	d[0]  = t->pclk_10khz & 0xff;
-	d[1]  = (t->pclk_10khz >> 8) & 0xff;
-	d[2]  = t->hactive & 0xff;
-	d[3]  = t->hblank & 0xff;
-	d[4]  = ((t->hactive >> 8) << 4) | ((t->hblank >> 8) & 0xf);
-	d[5]  = t->vactive & 0xff;
-	d[6]  = t->vblank & 0xff;
-	d[7]  = ((t->vactive >> 8) << 4) | ((t->vblank >> 8) & 0xf);
-	d[8]  = t->hsync_off & 0xff;
-	d[9]  = t->hsync_w & 0xff;
+	d[0] = t->pclk_10khz & 0xff;
+	d[1] = (t->pclk_10khz >> 8) & 0xff;
+	d[2] = t->hactive & 0xff;
+	d[3] = t->hblank & 0xff;
+	d[4] = ((t->hactive >> 8) << 4) | ((t->hblank >> 8) & 0xf);
+	d[5] = t->vactive & 0xff;
+	d[6] = t->vblank & 0xff;
+	d[7] = ((t->vactive >> 8) << 4) | ((t->vblank >> 8) & 0xf);
+	d[8] = t->hsync_off & 0xff;
+	d[9] = t->hsync_w & 0xff;
 	d[10] = ((t->vsync_off & 0xf) << 4) | (t->vsync_w & 0xf);
 	d[11] = (((t->hsync_off >> 8) & 0x3) << 6) |
 		(((t->hsync_w >> 8) & 0x3) << 4) |
-		(((t->vsync_off >> 4) & 0x3) << 2) |
-		((t->vsync_w >> 4) & 0x3);
+		(((t->vsync_off >> 4) & 0x3) << 2) | ((t->vsync_w >> 4) & 0x3);
 	/* Physical size: a 16:9 panel of 531 x 299 mm, i.e. 24 inches. It is
 	 * only used for DPI, and a zero here makes some clients compute
 	 * nonsense. */
 	d[12] = 531 & 0xff;
 	d[13] = 299 & 0xff;
 	d[14] = ((531 >> 8) << 4) | ((299 >> 8) & 0xf);
-	d[15] = 0;	/* h border */
-	d[16] = 0;	/* v border */
+	d[15] = 0; /* h border */
+	d[16] = 0; /* v border */
 	/* Digital separate sync, both polarities positive. */
 	d[17] = 0x1e;
 }
@@ -238,25 +237,26 @@ static void nvrm_build_edid(u8 *e, u32 w, u32 h, u32 hz)
 	e[7] = 0x00;
 	/* Manufacturer "LEA", five bits per letter, big endian. */
 	{
-		u16 id = ((12u & 0x1f) << 10) | ((5u & 0x1f) << 5) | (1u & 0x1f);
+		u16 id = ((12u & 0x1f) << 10) | ((5u & 0x1f) << 5) |
+			 (1u & 0x1f);
 
 		e[8] = id >> 8;
 		e[9] = id & 0xff;
 	}
-	e[10] = 0x01;	/* product code */
+	e[10] = 0x01; /* product code */
 	e[11] = 0x00;
 	/* serial 12..15 stays 0, week 16 = 1, year 17 = 2026 - 1990 */
 	e[16] = 1;
 	e[17] = 36;
-	e[18] = 1;	/* EDID 1.4 */
+	e[18] = 1; /* EDID 1.4 */
 	e[19] = 4;
 	/* Digital input, 8 bpc, DisplayPort. Bits 6:4 are the colour bit
 	 * depth and they are NOT the depth itself: 1 = 6 bpc, 2 = 8 bpc
 	 * (EDID 1.4 table 3.14). This said 8 bpc and encoded 6. */
 	e[20] = 0x80 | (0x2 << 4) | 0x5;
-	e[21] = 53;	/* max h image size, cm */
-	e[22] = 30;	/* max v image size, cm */
-	e[23] = 120;	/* gamma 2.2 */
+	e[21] = 53; /* max h image size, cm */
+	e[22] = 30; /* max v image size, cm */
+	e[23] = 120; /* gamma 2.2 */
 	/* Feature support. Bit 1: the preferred timing mode is the first DTD.
 	 * Bit 2: sRGB is the default colour space -- it has to be SIGNALLED,
 	 * not merely implied by the chromaticities below, or edid-decode
@@ -265,10 +265,20 @@ static void nvrm_build_edid(u8 *e, u32 w, u32 h, u32 hz)
 	 * this display offers a mode list, not a range. */
 	e[24] = 0x02 | 0x04;
 	/* Chromaticity, sRGB-ish. */
-	e[25] = 0xee; e[26] = 0x91; e[27] = 0xa3; e[28] = 0x54; e[29] = 0x4c;
-	e[30] = 0x99; e[31] = 0x26; e[32] = 0x0f; e[33] = 0x50; e[34] = 0x54;
+	e[25] = 0xee;
+	e[26] = 0x91;
+	e[27] = 0xa3;
+	e[28] = 0x54;
+	e[29] = 0x4c;
+	e[30] = 0x99;
+	e[31] = 0x26;
+	e[32] = 0x0f;
+	e[33] = 0x50;
+	e[34] = 0x54;
 	/* Established timings: 640x480@60 only, so the list is never empty. */
-	e[35] = 0x20; e[36] = 0x00; e[37] = 0x00;
+	e[35] = 0x20;
+	e[36] = 0x00;
+	e[37] = 0x00;
 	/* Standard timings: all unused. */
 	for (i = 38; i < 54; i += 2) {
 		e[i] = 0x01;
@@ -307,8 +317,8 @@ static void nvrm_build_edid(u8 *e, u32 w, u32 h, u32 hz)
 
 		d = e + 72;
 		d[3] = 0xfd;
-		d[5] = (u8)min_t(u32, 255, vmin);	/* min vertical Hz */
-		d[6] = (u8)min_t(u32, 255, vmax);	/* max vertical Hz */
+		d[5] = (u8)min_t(u32, 255, vmin); /* min vertical Hz */
+		d[6] = (u8)min_t(u32, 255, vmax); /* max vertical Hz */
 		/* Derived for the same reason as the vertical pair, and it was
 		 * a constant 30 for the same reason too: at 24 Hz a 640x480
 		 * mode runs at 12 kHz and fell below its own floor. */
@@ -341,7 +351,7 @@ static void nvrm_build_edid(u8 *e, u32 w, u32 h, u32 hz)
 	/* Descriptor 4: dummy. */
 	e[108 + 3] = 0x10;
 
-	e[126] = 0;	/* no extension blocks */
+	e[126] = 0; /* no extension blocks */
 	for (i = 0; i < NVRM_EDID_LEN - 1; i++)
 		sum += e[i];
 	e[127] = (u8)(256 - (sum & 0xff));

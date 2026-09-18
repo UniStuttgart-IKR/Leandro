@@ -29,22 +29,22 @@
 #include <nvos.h>
 
 /* The classes the RM object graph is built from */
-#include <class/cl0000.h>   /* NV01_ROOT / NV01_ROOT_CLIENT / NV01_NULL_OBJECT */
-#include <class/cl0005.h>   /* NV01_EVENT                             */
-#include <class/cl003e.h>   /* NV01_MEMORY_SYSTEM                     */
-#include <class/cl50a0.h>   /* NV50_MEMORY_VIRTUAL                    */
-#include <class/cl0071.h>   /* NV01_MEMORY_SYSTEM_OS_DESCRIPTOR        */
-#include <class/cl0080.h>   /* NV01_DEVICE_0                          */
-#include <class/cl2080.h>   /* NV20_SUBDEVICE_0                       */
-#include <class/cl90f1.h>   /* FERMI_VASPACE_A                        */
-#include <class/cl9067.h>   /* FERMI_CONTEXT_SHARE_A                  */
-#include <class/cla06c.h>   /* KEPLER_CHANNEL_GROUP_A (TSG)           */
-#include <class/clc361.h>   /* NVC361_NOTIFY_CHANNEL_PENDING + __SIZE */
-#include <class/clc461.h>   /* TURING_USERMODE_A - the class number only,
+#include <class/cl0000.h> /* NV01_ROOT / NV01_ROOT_CLIENT / NV01_NULL_OBJECT */
+#include <class/cl0005.h> /* NV01_EVENT                             */
+#include <class/cl003e.h> /* NV01_MEMORY_SYSTEM                     */
+#include <class/cl50a0.h> /* NV50_MEMORY_VIRTUAL                    */
+#include <class/cl0071.h> /* NV01_MEMORY_SYSTEM_OS_DESCRIPTOR        */
+#include <class/cl0080.h> /* NV01_DEVICE_0                          */
+#include <class/cl2080.h> /* NV20_SUBDEVICE_0                       */
+#include <class/cl90f1.h> /* FERMI_VASPACE_A                        */
+#include <class/cl9067.h> /* FERMI_CONTEXT_SHARE_A                  */
+#include <class/cla06c.h> /* KEPLER_CHANNEL_GROUP_A (TSG)           */
+#include <class/clc361.h> /* NVC361_NOTIFY_CHANNEL_PENDING + __SIZE */
+#include <class/clc461.h> /* TURING_USERMODE_A - the class number only,
                                the offsets live in clc361.h           */
-#include <class/clc36f.h>   /* VOLTA_CHANNEL_GPFIFO_A (base class)    */
-#include <class/clc46f.h>   /* TURING_CHANNEL_GPFIFO_A + methods      */
-#include <class/cl2080_notification.h>  /* NV2080_ENGINE_TYPE_*                   */
+#include <class/clc36f.h> /* VOLTA_CHANNEL_GPFIFO_A (base class)    */
+#include <class/clc46f.h> /* TURING_CHANNEL_GPFIFO_A + methods      */
+#include <class/cl2080_notification.h> /* NV2080_ENGINE_TYPE_*                   */
 
 /* Alloc parameters for channel, channel group and context share */
 #include <alloc/alloc_channel.h>
@@ -56,22 +56,22 @@
  * copy_from_user on the host side is that many bytes, so a wrong one is an
  * out-of-bounds read that no sweep can see: guest and host agree perfectly
  * about a truncated struct. */
-#include <class/clb0b5sw.h>  /* TURING_DMA_COPY_A and every copy engine   */
-#include <class/cl0070.h>    /* NV01_MEMORY_VIRTUAL                       */
-#include <class/cl9072.h>    /* GF100_DISP_SW                             */
-#include <class/cl2081.h>    /* NV2081_BINAPI                             */
-#include <class/cl00fe.h>    /* NV_MEMORY_MAPPER                          */
-#include <class/cl00de.h>    /* RM_USER_SHARED_DATA                       */
-#include <class/clcb33.h>    /* NV_CONFIDENTIAL_COMPUTE                   */
-#include <class/cl83de.h>    /* GT200_DEBUGGER                            */
-#include <class/cl00da.h>    /* NV_SEMAPHORE_SURFACE                      */
-#include <class/clc640.h>    /* AMPERE_SMC_MONITOR_SESSION                */
-#include <class/cla0bc.h>    /* NVENC_SW_SESSION                          */
-#include <class/cl00c2.h>    /* NV01_MEMORY_LOCAL_PHYSICAL                */
-#include <class/cl00c3.h>    /* NV01_MEMORY_SYNCPOINT                     */
+#include <class/clb0b5sw.h> /* TURING_DMA_COPY_A and every copy engine   */
+#include <class/cl0070.h> /* NV01_MEMORY_VIRTUAL                       */
+#include <class/cl9072.h> /* GF100_DISP_SW                             */
+#include <class/cl2081.h> /* NV2081_BINAPI                             */
+#include <class/cl00fe.h> /* NV_MEMORY_MAPPER                          */
+#include <class/cl00de.h> /* RM_USER_SHARED_DATA                       */
+#include <class/clcb33.h> /* NV_CONFIDENTIAL_COMPUTE                   */
+#include <class/cl83de.h> /* GT200_DEBUGGER                            */
+#include <class/cl00da.h> /* NV_SEMAPHORE_SURFACE                      */
+#include <class/clc640.h> /* AMPERE_SMC_MONITOR_SESSION                */
+#include <class/cla0bc.h> /* NVENC_SW_SESSION                          */
+#include <class/cl00c2.h> /* NV01_MEMORY_LOCAL_PHYSICAL                */
+#include <class/cl00c3.h> /* NV01_MEMORY_SYNCPOINT                     */
 
 /* Controls */
-#include <class/cl0073.h>   /* NV04_DISPLAY_COMMON -- the class whose PRESENCE
+#include <class/cl0073.h> /* NV04_DISPLAY_COMMON -- the class whose PRESENCE
                              keeps NVKMS out of the displayless path      */
 /* NVA083_GRID_DISPLAYLESS -- the class NVKMS takes when a GPU has no
  * connectors of its own -- and the six controls it defines, of which NVKMS
@@ -87,25 +87,25 @@
 #include <class/cla083.h>
 #include <ctrl/ctrla083.h>
 #endif
-#include <class/cl9010.h>   /* NV9010_VBLANK_CALLBACK -- pProc is a guest
+#include <class/cl9010.h> /* NV9010_VBLANK_CALLBACK -- pProc is a guest
                              kernel pointer, so the guest module services
                              the class itself (OPEN-QUESTIONS nr 7)      */
-#include <ctrl/ctrl9010.h>  /* SET_VBLANK_NOTIFICATION -- the one control
+#include <ctrl/ctrl9010.h> /* SET_VBLANK_NOTIFICATION -- the one control
                              the class exports                           */
-#include <ctrl/ctrl00da.h>  /* NV_SEMAPHORE_SURFACE REGISTER/UNREGISTER_
+#include <ctrl/ctrl00da.h> /* NV_SEMAPHORE_SURFACE REGISTER/UNREGISTER_
                              WAITER -- nvidia-drm's fence waiters carry a
                              guest kernel callback pointer through these */
-#include <ctrl/ctrl0080/ctrl0080gpu.h>  /* GET_CLASSLIST -- the entry point  */
+#include <ctrl/ctrl0080/ctrl0080gpu.h> /* GET_CLASSLIST -- the entry point  */
 #include <ctrl/ctrl0080/ctrl0080unix.h> /* VT_SWITCH / VT_GET_FB_INFO -- the
                                            console state of a card this guest
                                            has no console on              */
 #include <ctrl/ctrl2080/ctrl2080unix.h> /* GC6_BLOCKER_REFCNT -- the call that
                                            gates nvAllocCoreChannelEvo      */
-#include <ctrl/ctrla06c.h>  /* GPFIFO_SCHEDULE                        */
-#include <ctrl/ctrlc36f.h>  /* GPFIFO_GET_WORK_SUBMIT_TOKEN           */
-#include <ctrl/ctrl2080/ctrl2080gpu.h>  /* GET_GID_INFO - UUID for UVM_REGISTER_GPU */
-#include <ctrl/ctrl2080/ctrl2080bus.h>  /* BUS_GET_INFO_V2 - where NVML reads the BDF */
-#include <ctrl/ctrl0000/ctrl0000gpu.h>  /* GET_PROBED_IDS / GET_PCI_INFO -- what
+#include <ctrl/ctrla06c.h> /* GPFIFO_SCHEDULE                        */
+#include <ctrl/ctrlc36f.h> /* GPFIFO_GET_WORK_SUBMIT_TOKEN           */
+#include <ctrl/ctrl2080/ctrl2080gpu.h> /* GET_GID_INFO - UUID for UVM_REGISTER_GPU */
+#include <ctrl/ctrl2080/ctrl2080bus.h> /* BUS_GET_INFO_V2 - where NVML reads the BDF */
+#include <ctrl/ctrl0000/ctrl0000gpu.h> /* GET_PROBED_IDS / GET_PCI_INFO -- what
                                            enumerate_gpus asks RM, so that the
                                            GPU list nvidia-drm sees is RM's and
                                            not this module's invention        */
@@ -119,11 +119,11 @@
  * of xlate::nested_ptrs (the table under test) saying it. See
  * ctrl_nested_compiled in nvrm-abi/src/xlate.rs and the test beside it. */
 #include <ctrl/ctrl2080/ctrl2080bios.h> /* BIOS_GET_INFO                    */
-#include <ctrl/ctrl0080/ctrl0080fb.h>   /* FB_GET_CAPS                      */
+#include <ctrl/ctrl0080/ctrl0080fb.h> /* FB_GET_CAPS                      */
 #include <ctrl/ctrl0080/ctrl0080fifo.h> /* FIFO_GET_CAPS / GET_CHANNELLIST  */
-#include <ctrl/ctrl0080/ctrl0080gr.h>   /* GR_GET_CAPS / GR_GET_INFO        */
-#include <ctrl/ctrl2080/ctrl2080gr.h>   /* GR_GET_INFO (subdevice form)     */
-#include <ctrl/ctrl2080/ctrl2080fb.h>   /* FB_GET_INFO / _V2 -- the VRAM ledger
+#include <ctrl/ctrl0080/ctrl0080gr.h> /* GR_GET_CAPS / GR_GET_INFO        */
+#include <ctrl/ctrl2080/ctrl2080gr.h> /* GR_GET_INFO (subdevice form)     */
+#include <ctrl/ctrl2080/ctrl2080fb.h> /* FB_GET_INFO / _V2 -- the VRAM ledger
                                            rewrites `data` in this list, so the
                                            mediation manifest needs the entry
                                            layout COMPILED rather than typed

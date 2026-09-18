@@ -27,7 +27,12 @@ pub struct Object {
 
 impl Object {
     pub fn new(handle: u32, parent: u32, class: u32) -> Self {
-        Self { handle, parent, class, dependants: HashSet::new() }
+        Self {
+            handle,
+            parent,
+            class,
+            dependants: HashSet::new(),
+        }
     }
     pub fn root(handle: u32) -> Self {
         Self::new(handle, 0, nvrm_sys::NV01_ROOT_CLIENT)
@@ -123,7 +128,7 @@ mod tests {
     fn extra_dependency_is_honoured() {
         let mut t = ObjectTree::default();
         t.insert(1, Object::root(1));
-        t.insert(2, Object::new(2, 1, 0x3e));   // memory
+        t.insert(2, Object::new(2, 1, 0x3e)); // memory
         t.insert(3, Object::new(3, 1, 0xc46f)); // channel, uses the memory
         t.add_dependant(2, 3);
         let order = t.free_order(2);
@@ -140,10 +145,14 @@ mod tests {
     fn removing_an_object_takes_its_extra_edges_with_it() {
         let mut t = ObjectTree::default();
         t.insert(1, Object::root(1));
-        t.insert(2, Object::new(2, 1, 0x3e));   // memory
+        t.insert(2, Object::new(2, 1, 0x3e)); // memory
         t.insert(3, Object::new(3, 1, 0xc46f)); // channel, uses the memory
         t.add_dependant(2, 3);
-        assert_eq!(t.free_order(2), vec![3, 2], "the edge is there to begin with");
+        assert_eq!(
+            t.free_order(2),
+            vec![3, 2],
+            "the edge is there to begin with"
+        );
 
         t.remove(3);
         assert_eq!(t.free_order(2), vec![2], "and gone with the object");
@@ -160,10 +169,10 @@ mod tests {
     fn a_diamond_is_freed_once_and_dependants_first() {
         let mut t = ObjectTree::default();
         t.insert(1, Object::root(1));
-        t.insert(2, Object::new(2, 1, 0x80));   // device
-        t.insert(3, Object::new(3, 1, 0x3e));   // memory
+        t.insert(2, Object::new(2, 1, 0x80)); // device
+        t.insert(3, Object::new(3, 1, 0x3e)); // memory
         t.insert(4, Object::new(4, 2, 0xc46f)); // channel under the device
-        t.add_dependant(3, 4);                  // ... and using the memory
+        t.add_dependant(3, 4); // ... and using the memory
 
         let order = t.free_order(1);
         assert_eq!(order.len(), 4, "each object exactly once: {order:?}");

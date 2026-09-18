@@ -36,11 +36,12 @@ int main(int argc, char **argv)
 	 * fd against this list by DRM node path, so a list that is empty, or
 	 * that names a different node, is the whole answer. */
 	{
-		PFNEGLQUERYDEVICESEXTPROC queryDevices = (PFNEGLQUERYDEVICESEXTPROC)
-			eglGetProcAddress("eglQueryDevicesEXT");
+		PFNEGLQUERYDEVICESEXTPROC queryDevices =
+			(PFNEGLQUERYDEVICESEXTPROC)eglGetProcAddress(
+				"eglQueryDevicesEXT");
 		PFNEGLQUERYDEVICESTRINGEXTPROC queryDeviceString =
-			(PFNEGLQUERYDEVICESTRINGEXTPROC)
-			eglGetProcAddress("eglQueryDeviceStringEXT");
+			(PFNEGLQUERYDEVICESTRINGEXTPROC)eglGetProcAddress(
+				"eglQueryDeviceStringEXT");
 		EGLDeviceEXT devs[16];
 		EGLint n = 0, i;
 
@@ -52,15 +53,16 @@ int main(int argc, char **argv)
 		} else {
 			printf("eglQueryDevicesEXT: %d device(s)\n", n);
 			for (i = 0; i < n; i++) {
-				const char *dev = queryDeviceString(devs[i],
-						EGL_DRM_DEVICE_FILE_EXT);
-				const char *rnd = queryDeviceString(devs[i],
-						EGL_DRM_RENDER_NODE_FILE_EXT);
-				const char *ext = queryDeviceString(devs[i],
-						EGL_EXTENSIONS);
+				const char *dev = queryDeviceString(
+					devs[i], EGL_DRM_DEVICE_FILE_EXT);
+				const char *rnd = queryDeviceString(
+					devs[i], EGL_DRM_RENDER_NODE_FILE_EXT);
+				const char *ext = queryDeviceString(
+					devs[i], EGL_EXTENSIONS);
 
 				printf("  [%d] drm \"%s\"  render \"%s\"\n", i,
-				       dev ? dev : "(none)", rnd ? rnd : "(none)");
+				       dev ? dev : "(none)",
+				       rnd ? rnd : "(none)");
 				printf("      ext: %s\n", ext ? ext : "(none)");
 			}
 		}
@@ -76,20 +78,23 @@ int main(int argc, char **argv)
 		fprintf(stderr, "gbm_create_device(%s) failed\n", node);
 		return 1;
 	}
-	printf("%s: gbm backend \"%s\"\n", node, gbm_device_get_backend_name(gbm));
+	printf("%s: gbm backend \"%s\"\n", node,
+	       gbm_device_get_backend_name(gbm));
 
 	/* The platform path first: it is what a modern glamor uses, and it is
 	 * the only one that tells libglvnd which platform the pointer belongs
 	 * to. The legacy eglGetDisplay has to guess. */
 	{
 		PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
-			(PFNEGLGETPLATFORMDISPLAYEXTPROC)
-			eglGetProcAddress("eglGetPlatformDisplayEXT");
+			(PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress(
+				"eglGetPlatformDisplayEXT");
 
 		if (getPlatformDisplay) {
-			dpy = getPlatformDisplay(EGL_PLATFORM_GBM_KHR, gbm, NULL);
+			dpy = getPlatformDisplay(EGL_PLATFORM_GBM_KHR, gbm,
+						 NULL);
 			printf("  eglGetPlatformDisplayEXT(GBM): %s\n",
-			       dpy == EGL_NO_DISPLAY ? "EGL_NO_DISPLAY" : "got a display");
+			       dpy == EGL_NO_DISPLAY ? "EGL_NO_DISPLAY" :
+						       "got a display");
 		} else {
 			printf("  eglGetPlatformDisplayEXT: not available\n");
 		}
@@ -97,7 +102,8 @@ int main(int argc, char **argv)
 	if (dpy == EGL_NO_DISPLAY) {
 		dpy = eglGetDisplay((EGLNativeDisplayType)gbm);
 		printf("  eglGetDisplay(legacy):         %s\n",
-		       dpy == EGL_NO_DISPLAY ? "EGL_NO_DISPLAY" : "got a display");
+		       dpy == EGL_NO_DISPLAY ? "EGL_NO_DISPLAY" :
+					       "got a display");
 	}
 	if (dpy == EGL_NO_DISPLAY)
 		return 1;
@@ -107,7 +113,8 @@ int main(int argc, char **argv)
 		       eglGetError());
 		return 1;
 	}
-	printf("  eglInitialize:                 OK, EGL %d.%d\n", major, minor);
+	printf("  eglInitialize:                 OK, EGL %d.%d\n", major,
+	       minor);
 	printf("  EGL_VENDOR:  %s\n", eglQueryString(dpy, EGL_VENDOR));
 	printf("  EGL_VERSION: %s\n", eglQueryString(dpy, EGL_VERSION));
 	return 0;

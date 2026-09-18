@@ -86,10 +86,8 @@ static int fd = -1;
  */
 static uint32_t pattern(uint32_t x, uint32_t y)
 {
-	return 0xff000000u
-	     | ((x * 7u) & 0xffu) << 16
-	     | ((y * 13u) & 0xffu) << 8
-	     | ((x ^ y) & 0xffu);
+	return 0xff000000u | ((x * 7u) & 0xffu) << 16 |
+	       ((y * 13u) & 0xffu) << 8 | ((x ^ y) & 0xffu);
 }
 
 /* FNV-1a over 64 bits, fed one 32-bit pixel at a time. */
@@ -124,7 +122,8 @@ static uint64_t hash_mapping(const uint8_t *p, uint32_t w, uint32_t h,
 	uint32_t x, y;
 
 	for (y = 0; y < h; y++) {
-		const uint32_t *row = (const uint32_t *)(const void *)(p + (size_t)y * pitch);
+		const uint32_t *row =
+			(const uint32_t *)(const void *)(p + (size_t)y * pitch);
 
 		for (x = 0; x < w; x++)
 			fnv_pixel(&hash, row[x]);
@@ -141,7 +140,11 @@ static int try_ioctl(unsigned long req, void *arg, const char *what)
 	return 0;
 }
 
-#define MUST(req, arg, what) do { if (try_ioctl(req, arg, what)) return 2; } while (0)
+#define MUST(req, arg, what)                   \
+	do {                                   \
+		if (try_ioctl(req, arg, what)) \
+			return 2;              \
+	} while (0)
 
 /* The DRM driver's own name for an open node, e.g. "nvidia-drm". */
 static int drm_name(int f, char *out, size_t len)
@@ -176,7 +179,8 @@ static int find_node(const char *want, char *out, size_t len)
 		f = open(path, O_RDWR | O_CLOEXEC);
 		if (f < 0)
 			continue;
-		if (drm_name(f, name, sizeof(name)) == 0 && strcmp(name, want) == 0) {
+		if (drm_name(f, name, sizeof(name)) == 0 &&
+		    strcmp(name, want) == 0) {
 			close(f);
 			snprintf(out, len, "%s", path);
 			return 0;
@@ -246,7 +250,8 @@ int main(int argc, char **argv)
 	if (argc > 1 && !strcmp(argv[1], "--reference")) {
 		unsigned rw = 0, rh = 0;
 
-		if (argc != 3 || sscanf(argv[2], "%ux%u", &rw, &rh) != 2 || !rw || !rh)
+		if (argc != 3 || sscanf(argv[2], "%ux%u", &rw, &rh) != 2 ||
+		    !rw || !rh)
 			return usage(argv[0]);
 		/* No DRM at all: this is what generates probe/data/vdisp-frame.ref
 		 * on a machine that has no virtual display. */
@@ -255,7 +260,8 @@ int main(int argc, char **argv)
 		return 0;
 	}
 	if (argc > 1 && !strcmp(argv[1], "--find")) {
-		if (find_node(argc > 2 ? argv[2] : "nvidia-drm", node, sizeof(node)))
+		if (find_node(argc > 2 ? argv[2] : "nvidia-drm", node,
+			      sizeof(node)))
 			return 2;
 		printf("%s\n", node);
 		return 0;
@@ -282,37 +288,41 @@ int main(int argc, char **argv)
 	 * handles. Nothing else may hold it -- that is what "stop gdm3 first"
 	 * is about. */
 	if (ioctl(fd, DRM_IOCTL_SET_MASTER, 0) < 0) {
-		fprintf(stderr, "SET_MASTER: %s (someone else holds it -- "
-			"stop gdm3)\n", strerror(errno));
+		fprintf(stderr,
+			"SET_MASTER: %s (someone else holds it -- "
+			"stop gdm3)\n",
+			strerror(errno));
 		return 2;
 	}
 
 	memset(&res, 0, sizeof(res));
 	res.connector_id_ptr = (uint64_t)(uintptr_t)conn_ids;
-	res.crtc_id_ptr      = (uint64_t)(uintptr_t)crtc_ids;
-	res.encoder_id_ptr   = (uint64_t)(uintptr_t)enc_ids;
-	res.fb_id_ptr        = (uint64_t)(uintptr_t)fb_ids;
+	res.crtc_id_ptr = (uint64_t)(uintptr_t)crtc_ids;
+	res.encoder_id_ptr = (uint64_t)(uintptr_t)enc_ids;
+	res.fb_id_ptr = (uint64_t)(uintptr_t)fb_ids;
 	res.count_connectors = res.count_crtcs = 32;
-	res.count_encoders   = res.count_fbs   = 32;
+	res.count_encoders = res.count_fbs = 32;
 	MUST(DRM_IOCTL_MODE_GETRESOURCES, &res, "GETRESOURCES");
 	if (!res.count_crtcs || !res.count_connectors) {
-		fprintf(stderr, "  %u crtc(s), %u connector(s) -- nothing to set\n",
+		fprintf(stderr,
+			"  %u crtc(s), %u connector(s) -- nothing to set\n",
 			res.count_crtcs, res.count_connectors);
 		return 2;
 	}
 
 	memset(&conn, 0, sizeof(conn));
-	conn.connector_id    = conn_ids[0];
-	conn.modes_ptr       = (uint64_t)(uintptr_t)modes;
-	conn.props_ptr       = (uint64_t)(uintptr_t)props;
+	conn.connector_id = conn_ids[0];
+	conn.modes_ptr = (uint64_t)(uintptr_t)modes;
+	conn.props_ptr = (uint64_t)(uintptr_t)props;
 	conn.prop_values_ptr = (uint64_t)(uintptr_t)prop_vals;
-	conn.encoders_ptr    = (uint64_t)(uintptr_t)conn_enc_ids;
-	conn.count_modes     = 64;
-	conn.count_props     = 64;
-	conn.count_encoders  = 32;
+	conn.encoders_ptr = (uint64_t)(uintptr_t)conn_enc_ids;
+	conn.count_modes = 64;
+	conn.count_props = 64;
+	conn.count_encoders = 32;
 	MUST(DRM_IOCTL_MODE_GETCONNECTOR, &conn, "GETCONNECTOR");
 	if (!conn.count_modes) {
-		fprintf(stderr, "  connector %u has no modes\n", conn.connector_id);
+		fprintf(stderr, "  connector %u has no modes\n",
+			conn.connector_id);
 		return 2;
 	}
 	/* Mode 0 is the preferred one -- the EDID's first detailed timing,
@@ -327,8 +337,10 @@ int main(int argc, char **argv)
 	MUST(DRM_IOCTL_MODE_CREATE_DUMB, &create, "CREATE_DUMB");
 
 	memset(&addfb, 0, sizeof(addfb));
-	addfb.width = w; addfb.height = h;
-	addfb.bpp = 32; addfb.depth = 24;
+	addfb.width = w;
+	addfb.height = h;
+	addfb.bpp = 32;
+	addfb.depth = 24;
 	addfb.pitch = create.pitch;
 	addfb.handle = create.handle;
 	MUST(DRM_IOCTL_MODE_ADDFB, &addfb, "ADDFB");
@@ -337,17 +349,20 @@ int main(int argc, char **argv)
 	map.handle = create.handle;
 	MUST(DRM_IOCTL_MODE_MAP_DUMB, &map, "MAP_DUMB");
 
-	dumb = mmap(NULL, create.size, PROT_READ | PROT_WRITE, MAP_SHARED,
-		    fd, map.offset);
+	dumb = mmap(NULL, create.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd,
+		    map.offset);
 	if (dumb == MAP_FAILED) {
-		fprintf(stderr, "  mmap of the dumb buffer: %s\n", strerror(errno));
+		fprintf(stderr, "  mmap of the dumb buffer: %s\n",
+			strerror(errno));
 		return 2;
 	}
 	{
 		uint32_t x, y;
 
 		for (y = 0; y < h; y++) {
-			uint32_t *row = (uint32_t *)(void *)(dumb + (size_t)y * create.pitch);
+			uint32_t *row =
+				(uint32_t *)(void *)(dumb +
+						     (size_t)y * create.pitch);
 
 			for (x = 0; x < w; x++)
 				row[x] = pattern(x, y);
@@ -357,10 +372,10 @@ int main(int argc, char **argv)
 
 	memset(&set, 0, sizeof(set));
 	set.crtc_id = crtc_ids[0];
-	set.fb_id   = addfb.fb_id;
+	set.fb_id = addfb.fb_id;
 	set.set_connectors_ptr = (uint64_t)(uintptr_t)&conn.connector_id;
-	set.count_connectors   = 1;
-	set.mode       = modes[0];
+	set.count_connectors = 1;
+	set.mode = modes[0];
 	set.mode_valid = 1;
 	MUST(DRM_IOCTL_MODE_SETCRTC, &set, "SETCRTC");
 
@@ -374,9 +389,8 @@ int main(int argc, char **argv)
 	pitch = create.pitch;
 	memset(&getfb, 0, sizeof(getfb));
 	getfb.fb_id = got.fb_id;
-	if (got.fb_id && ioctl(fd, DRM_IOCTL_MODE_GETFB2, &getfb) == 0
-	    && getfb.handles[0]
-	    && prime_export(getfb.handles[0], &dmabuf) == 0) {
+	if (got.fb_id && ioctl(fd, DRM_IOCTL_MODE_GETFB2, &getfb) == 0 &&
+	    getfb.handles[0] && prime_export(getfb.handles[0], &dmabuf) == 0) {
 		dsize = lseek(dmabuf, 0, SEEK_END);
 		if (dsize > 0) {
 			view = mmap(NULL, (size_t)dsize, PROT_READ, MAP_SHARED,
@@ -408,7 +422,8 @@ int main(int argc, char **argv)
 		pitch = create.pitch;
 	}
 	if ((size_t)h * pitch > view_len) {
-		fprintf(stderr, "  mapping is %zu bytes, %ux%u at pitch %u needs %zu\n",
+		fprintf(stderr,
+			"  mapping is %zu bytes, %ux%u at pitch %u needs %zu\n",
 			view_len, w, h, pitch, (size_t)h * pitch);
 		return 2;
 	}
@@ -421,7 +436,8 @@ int main(int argc, char **argv)
 	       (unsigned long long)want_hash, (unsigned long long)read_hash,
 	       rc ? "MISMATCH" : "match");
 	if (got.fb_id != addfb.fb_id) {
-		fprintf(stderr, "  the CRTC names fb %u, not the fb %u that was set\n",
+		fprintf(stderr,
+			"  the CRTC names fb %u, not the fb %u that was set\n",
 			got.fb_id, addfb.fb_id);
 		rc = 1;
 	}

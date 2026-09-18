@@ -44,27 +44,32 @@ static int selfcheck(const unsigned char *e, u32 w, u32 h, u32 hz)
 	int bad = 0, i;
 
 	if (!htotal || !vtotal) {
-		fprintf(stderr, "FAIL %ux%u@%u: DTD totals are zero\n", w, h, hz);
+		fprintf(stderr, "FAIL %ux%u@%u: DTD totals are zero\n", w, h,
+			hz);
 		return 1;
 	}
 	hkhz = (u32)(((unsigned long long)pclk_10khz * 10ULL) / htotal);
-	vhz  = (u32)(((unsigned long long)pclk_10khz * 10000ULL) /
-		     ((unsigned long long)htotal * vtotal));
+	vhz = (u32)(((unsigned long long)pclk_10khz * 10000ULL) /
+		    ((unsigned long long)htotal * vtotal));
 
 	/* The three containment rules, each the one a real sink applies. */
 	if (vhz + 1 < vmin || vhz > vmax) {
-		fprintf(stderr, "FAIL %ux%u@%u: DTD is %u Hz, range limits say %u-%u Hz\n",
+		fprintf(stderr,
+			"FAIL %ux%u@%u: DTD is %u Hz, range limits say %u-%u Hz\n",
 			w, h, hz, vhz, vmin, vmax);
 		bad = 1;
 	}
 	if (hkhz + 1 < hmin || hkhz > hmax) {
-		fprintf(stderr, "FAIL %ux%u@%u: DTD is %u kHz, range limits say %u-%u kHz\n",
+		fprintf(stderr,
+			"FAIL %ux%u@%u: DTD is %u kHz, range limits say %u-%u kHz\n",
 			w, h, hz, hkhz, hmin, hmax);
 		bad = 1;
 	}
 	if (pclk_10khz > maxclk_10mhz * 1000u) {
-		fprintf(stderr, "FAIL %ux%u@%u: DTD clock %u.%02u MHz over the declared %u MHz\n",
-			w, h, hz, pclk_10khz / 100, pclk_10khz % 100, maxclk_10mhz * 10);
+		fprintf(stderr,
+			"FAIL %ux%u@%u: DTD clock %u.%02u MHz over the declared %u MHz\n",
+			w, h, hz, pclk_10khz / 100, pclk_10khz % 100,
+			maxclk_10mhz * 10);
 		bad = 1;
 	}
 	/* And the mode really is the one that will be USED -- which is the
@@ -79,11 +84,13 @@ static int selfcheck(const unsigned char *e, u32 w, u32 h, u32 hz)
 		 * At 1920x1080 that is under 1 Hz and invisible; at a 1x1
 		 * display it is two, and tightening the check there would
 		 * only be measuring the format's granularity. */
-		u32 tol = 1 + (u32)((10000u + htotal * vtotal - 1) / (htotal * vtotal));
+		u32 tol = 1 + (u32)((10000u + htotal * vtotal - 1) /
+				    (htotal * vtotal));
 
 		nvrm_edid_effective(w, h, hz, &ew, &eh, &ehz, &ehb);
 		if (vhz + tol < ehz || vhz > ehz + tol) {
-			fprintf(stderr, "FAIL %ux%u@%u: effective %ux%u@%u, DTD came out at %u Hz\n",
+			fprintf(stderr,
+				"FAIL %ux%u@%u: effective %ux%u@%u, DTD came out at %u Hz\n",
 				w, h, hz, ew, eh, ehz, vhz);
 			bad = 1;
 		}
@@ -91,7 +98,8 @@ static int selfcheck(const unsigned char *e, u32 w, u32 h, u32 hz)
 	for (i = 0; i < NVRM_EDID_LEN; i++)
 		sum += e[i];
 	if (sum % 256u) {
-		fprintf(stderr, "FAIL %ux%u@%u: checksum %u\n", w, h, hz, sum % 256u);
+		fprintf(stderr, "FAIL %ux%u@%u: checksum %u\n", w, h, hz,
+			sum % 256u);
 		bad = 1;
 	}
 	return bad;
@@ -107,7 +115,8 @@ int main(int argc, char **argv)
 	/* The rate is optional so every existing caller keeps working; it
 	 * defaults to the module's own vdisplay_vblank_hz default. */
 	if (argc != 4 && argc != 5) {
-		fprintf(stderr, "usage: %s <width> <height> [hz] <out.bin>\n", argv[0]);
+		fprintf(stderr, "usage: %s <width> <height> [hz] <out.bin>\n",
+			argv[0]);
 		return 2;
 	}
 	w = strtoul(argv[1], NULL, 10);

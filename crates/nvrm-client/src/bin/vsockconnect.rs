@@ -252,7 +252,10 @@ mod tests {
         stream.extend_from_slice(banner);
         let (line, rest) = split(&stream).expect("handshake");
         assert_eq!(line, b"OK 1073741824\n");
-        assert_eq!(rest, banner, "the SSH banner must survive the handshake read");
+        assert_eq!(
+            rest, banner,
+            "the SSH banner must survive the handshake read"
+        );
     }
 
     /// A payload that itself contains newlines must not be split further --

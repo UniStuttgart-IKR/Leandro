@@ -44,7 +44,9 @@ fn main() -> Result<()> {
         i += 2;
     }
 
-    let (Some(socket), Some(source)) = (socket, source) else { usage() };
+    let (Some(socket), Some(source)) = (socket, source) else {
+        usage()
+    };
     // A leftover socket from a killed run would make bind fail with
     // EADDRINUSE, which reads like "another backend is running" and usually
     // is not. Same handling as vhost-user-nvrm.

@@ -19,49 +19,59 @@
 #include <unistd.h>
 
 #define CHUNK (256u << 20)
-#define MAXN  64
+#define MAXN 64
 
 int main(void)
 {
-    CUresult r;
-    CUdevice dev;
-    CUcontext ctx;
-    CUdeviceptr chunks[MAXN];
-    int n = 0;
+	CUresult r;
+	CUdevice dev;
+	CUcontext ctx;
+	CUdeviceptr chunks[MAXN];
+	int n = 0;
 
-    if ((r = cuInit(0))) { printf("oomprobe: cuInit %d\n", r); return 1; }
-    cuDeviceGet(&dev, 0);
+	if ((r = cuInit(0))) {
+		printf("oomprobe: cuInit %d\n", r);
+		return 1;
+	}
+	cuDeviceGet(&dev, 0);
 #if CUDA_VERSION >= 12050
-    CUctxCreateParams cp;
-    memset(&cp, 0, sizeof cp);
-    r = cuCtxCreate(&ctx, &cp, 0, dev);
+	CUctxCreateParams cp;
+	memset(&cp, 0, sizeof cp);
+	r = cuCtxCreate(&ctx, &cp, 0, dev);
 #else
-    r = cuCtxCreate(&ctx, 0, dev);
+	r = cuCtxCreate(&ctx, 0, dev);
 #endif
-    if (r) { printf("oomprobe: cuCtxCreate %d\n", r); return 1; }
+	if (r) {
+		printf("oomprobe: cuCtxCreate %d\n", r);
+		return 1;
+	}
 
-    while (n < MAXN) {
-        r = cuMemAlloc(&chunks[n], CHUNK);
-        if (r != CUDA_SUCCESS) break;
-        n++;
-    }
-    const char *s = NULL;
-    cuGetErrorString(r, &s);
-    printf("oomprobe: %d chunks = %u MiB, then error %d (%s)\n",
-           n, n * 256u, r, s ? s : "?");
-    fflush(stdout);
+	while (n < MAXN) {
+		r = cuMemAlloc(&chunks[n], CHUNK);
+		if (r != CUDA_SUCCESS)
+			break;
+		n++;
+	}
+	const char *s = NULL;
+	cuGetErrorString(r, &s);
+	printf("oomprobe: %d chunks = %u MiB, then error %d (%s)\n", n,
+	       n * 256u, r, s ? s : "?");
+	fflush(stdout);
 
-    /* NVOOM_HOLD=<s>: hold the occupancy, so that two VMs reliably
-     * ueberlappen (Ueberbuchungstest). */
-    const char *hold = getenv("NVOOM_HOLD");
-    if (hold) sleep((unsigned)atoi(hold));
+	/* NVOOM_HOLD=<s>: hold the occupancy, so that two VMs reliably
+	 * ueberlappen (Ueberbuchungstest). */
+	const char *hold = getenv("NVOOM_HOLD");
+	if (hold)
+		sleep((unsigned)atoi(hold));
 
-    for (int i = 0; i < n; i++) cuMemFree(chunks[i]);
+	for (int i = 0; i < n; i++)
+		cuMemFree(chunks[i]);
 
-    CUdeviceptr small;
-    r = cuMemAlloc(&small, 1 << 20);
-    printf("oomprobe: recovery 1 MiB: %d %s\n", r, r ? "ERROR" : "ok");
-    if (!r) cuMemFree(small);
-    cuCtxDestroy(ctx);
-    return 0;
+	CUdeviceptr small;
+	r = cuMemAlloc(&small, 1 << 20);
+	printf("oomprobe: recovery 1 MiB: %d %s\n", r, r ? "ERROR" : "ok");
+	if (!r)
+		cuMemFree(small);
+	cuCtxDestroy(ctx);
+	return 0;
 }

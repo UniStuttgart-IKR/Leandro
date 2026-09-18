@@ -24,8 +24,8 @@ use nvrm_wire::tables as t;
 use nvrm_wire::DevTag;
 
 use crate::sys;
-use sys::RmAbi;
 use crate::xlate::{self, Dev};
+use sys::RmAbi;
 
 /// Finished table stream, header and checksum filled in.
 pub struct Tables {
@@ -44,8 +44,18 @@ fn push_u32(v: &mut Vec<u8>, x: u32) {
 
 fn push_ioctl(v: &mut Vec<u8>, d: &t::IoctlDesc) {
     for x in [
-        d.dev, d.nr, d.size, d.fd_off, d.emb_ptr_off, d.emb_len_kind, d.emb_len_off,
-        d.cmd_off, d.rights_off, d.rights_if_size, d.handle_off, d.flags,
+        d.dev,
+        d.nr,
+        d.size,
+        d.fd_off,
+        d.emb_ptr_off,
+        d.emb_len_kind,
+        d.emb_len_off,
+        d.cmd_off,
+        d.rights_off,
+        d.rights_if_size,
+        d.handle_off,
+        d.flags,
     ] {
         push_u32(v, x);
     }
@@ -121,10 +131,16 @@ fn collect<A: RmAbi>() -> Parts {
 
     // ---- UVM: sizes and fd fields, both queried from xlate ---------------
     for dev_tag in [DevTag::Uvm, DevTag::UvmTools] {
-        let xdev = if dev_tag == DevTag::Uvm { Dev::Uvm } else { Dev::UvmTools };
+        let xdev = if dev_tag == DevTag::Uvm {
+            Dev::Uvm
+        } else {
+            Dev::UvmTools
+        };
         let nrs = (0..=UVM_SCAN_MAX).chain(UVM_SPECIAL);
         for nr in nrs {
-            let Some(size) = xlate::uvm_param_size(nr) else { continue };
+            let Some(size) = xlate::uvm_param_size(nr) else {
+                continue;
+            };
             let mut d = desc(dev_tag, nr);
             d.size = size;
             if let Some(off) = xlate::fd_field_offset(xdev, nr, size) {
@@ -138,7 +154,11 @@ fn collect<A: RmAbi>() -> Parts {
     // The size sits in the _IOC encoding, so `size` stays at SIZE_FROM_IOC
     // here. An escape with no entry is simply forwarded.
     for dev_tag in [DevTag::Ctl, DevTag::Gpu] {
-        let xdev = if dev_tag == DevTag::Ctl { Dev::Ctl } else { Dev::Gpu };
+        let xdev = if dev_tag == DevTag::Ctl {
+            Dev::Ctl
+        } else {
+            Dev::Gpu
+        };
         for nr in 0..=FRONTEND_SCAN_MAX {
             let fd_off = xlate::fd_field_offset(xdev, nr, 0);
             let special = frontend_special(nr);
@@ -166,7 +186,9 @@ fn collect<A: RmAbi>() -> Parts {
     // ---- hClass -> size (+ fd inside the params buffer) ------------------
     let mut classes: Vec<t::ClassDesc> = Vec::new();
     for hclass in 0..=CLASS_SCAN_MAX {
-        let Some(param_size) = xlate::alloc_param_size::<A>(hclass) else { continue };
+        let Some(param_size) = xlate::alloc_param_size::<A>(hclass) else {
+            continue;
+        };
         classes.push(t::ClassDesc {
             hclass,
             param_size,
@@ -176,7 +198,11 @@ fn collect<A: RmAbi>() -> Parts {
             // Derived from the vendor headers either way; the flag says
             // whether it has ever run on real silicon. See
             // xlate::alloc_class_verified.
-            flags: if xlate::alloc_class_verified(hclass) { 0 } else { t::KF_UNVERIFIED },
+            flags: if xlate::alloc_class_verified(hclass) {
+                0
+            } else {
+                t::KF_UNVERIFIED
+            },
         });
     }
 
@@ -194,8 +220,11 @@ fn collect<A: RmAbi>() -> Parts {
             cmd,
             first: nested.len() as u32,
             count: specs.len() as u32,
-            flags: (if xlate::ctrl_blocked(cmd) { t::CF_BLOCK } else { 0 })
-                | (if fd.is_some() { t::CF_FD } else { 0 }),
+            flags: (if xlate::ctrl_blocked(cmd) {
+                t::CF_BLOCK
+            } else {
+                0
+            }) | (if fd.is_some() { t::CF_FD } else { 0 }),
             fd_off: fd.unwrap_or(t::NONE),
         });
         for sp in specs {
@@ -203,7 +232,12 @@ fn collect<A: RmAbi>() -> Parts {
                 xlate::LenSource::Fixed(n) => (t::NLEN_FIXED, n, 1),
                 xlate::LenSource::Field { off, elem } => (t::NLEN_FIELD, off, elem),
             };
-            nested.push(t::NestedDescRow { ptr_off: sp.ptr_off, len_kind, len_off, elem });
+            nested.push(t::NestedDescRow {
+                ptr_off: sp.ptr_off,
+                len_kind,
+                len_off,
+                elem,
+            });
         }
     }
 
@@ -214,7 +248,11 @@ fn collect<A: RmAbi>() -> Parts {
             continue; // already has a row, the flag was set above
         }
         ctrls.push(t::CtrlDesc {
-            cmd, first: 0, count: 0, flags: t::CF_BLOCK, fd_off: t::NONE,
+            cmd,
+            first: 0,
+            count: 0,
+            flags: t::CF_BLOCK,
+            fd_off: t::NONE,
         });
     }
 
@@ -231,11 +269,20 @@ fn collect<A: RmAbi>() -> Parts {
             continue;
         }
         ctrls.push(t::CtrlDesc {
-            cmd, first: 0, count: 0, flags: t::CF_FD, fd_off: off,
+            cmd,
+            first: 0,
+            count: 0,
+            flags: t::CF_FD,
+            fd_off: off,
         });
     }
 
-    Parts { ioctls, classes, ctrls, nested }
+    Parts {
+        ioctls,
+        classes,
+        ctrls,
+        nested,
+    }
 }
 
 /// The 24 header words in wire order (nvrm_wire.h) -- the ONE place that
@@ -267,7 +314,8 @@ fn header_words(p: &Parts, total_len: u32, checksum: u32) -> [u32; 24] {
         nvrm_wire::MAX_PAYLOAD as u32,
         nvrm_wire::MAX_AUX as u32,
         nvrm_wire::MAX_NESTED as u32,
-        0, 0,
+        0,
+        0,
     ]
 }
 
@@ -277,7 +325,14 @@ fn serialize(p: &Parts) -> (Vec<u8>, u32) {
         push_ioctl(&mut body, d);
     }
     for c in &p.classes {
-        for x in [c.hclass, c.param_size, c.fd_off, c.flags, c.fd_if_off, c.fd_if_val] {
+        for x in [
+            c.hclass,
+            c.param_size,
+            c.fd_off,
+            c.flags,
+            c.fd_if_off,
+            c.fd_if_val,
+        ] {
             push_u32(&mut body, x);
         }
     }
@@ -329,22 +384,44 @@ pub fn expect_dump<A: RmAbi>() -> String {
         writeln!(
             out,
             "ioctl {} {} {} {} {} {} {} {} {} {} {} {}",
-            d.dev, d.nr, d.size, d.fd_off, d.emb_ptr_off, d.emb_len_kind,
-            d.emb_len_off, d.cmd_off, d.rights_off, d.rights_if_size,
-            d.handle_off, d.flags
+            d.dev,
+            d.nr,
+            d.size,
+            d.fd_off,
+            d.emb_ptr_off,
+            d.emb_len_kind,
+            d.emb_len_off,
+            d.cmd_off,
+            d.rights_off,
+            d.rights_if_size,
+            d.handle_off,
+            d.flags
         )
         .unwrap();
     }
     for c in &p.classes {
-        writeln!(out, "class {} {} {} {} {} {}", c.hclass, c.param_size, c.fd_off,
-                 c.flags, c.fd_if_off, c.fd_if_val).unwrap();
+        writeln!(
+            out,
+            "class {} {} {} {} {} {}",
+            c.hclass, c.param_size, c.fd_off, c.flags, c.fd_if_off, c.fd_if_val
+        )
+        .unwrap();
     }
     for c in &p.ctrls {
-        writeln!(out, "ctrl {} {} {} {} {}", c.cmd, c.first, c.count, c.flags, c.fd_off)
-            .unwrap();
+        writeln!(
+            out,
+            "ctrl {} {} {} {} {}",
+            c.cmd, c.first, c.count, c.flags, c.fd_off
+        )
+        .unwrap();
     }
     for n in &p.nested {
-        writeln!(out, "nested {} {} {} {}", n.ptr_off, n.len_kind, n.len_off, n.elem).unwrap();
+        writeln!(
+            out,
+            "nested {} {} {} {}",
+            n.ptr_off, n.len_kind, n.len_off, n.elem
+        )
+        .unwrap();
     }
     out
 }
@@ -476,7 +553,10 @@ fn frontend_special(nr: u32) -> Option<Special> {
             flags: t::F_OSDESC,
             ..base
         },
-        x if x == sys::NV_ESC_IOCTL_XFER_CMD => Special { flags: t::F_XFER, ..base },
+        x if x == sys::NV_ESC_IOCTL_XFER_CMD => Special {
+            flags: t::F_XFER,
+            ..base
+        },
         // NVOS41: pEvent P64 @0 -> ONE NvUnixEvent, out-only; the length is
         // a constant, so it rides in emb_len_off itself (EMB_LEN_FIXED).
         x if x == sys::NV_ESC_RM_GET_EVENT_DATA => Special {
@@ -497,15 +577,20 @@ fn verify_against_xlate<A: RmAbi>() {
     let mut buf = [0u8; 32];
     buf[16..24].copy_from_slice(&0xdead_beef_u64.to_le_bytes()); // params != 0
     buf[24..28].copy_from_slice(&1234u32.to_le_bytes()); // paramsSize
-    let got = unsafe { xlate::embedded_ptr::<A>(Dev::Ctl, sys::NV_ESC_RM_CONTROL, buf.as_ptr(), 32) };
+    let got =
+        unsafe { xlate::embedded_ptr::<A>(Dev::Ctl, sys::NV_ESC_RM_CONTROL, buf.as_ptr(), 32) };
     match got {
         Ok(Some(e)) => assert!(
             e.ptr_off == NVOS54_PARAMS_OFF && e.len == 1234,
             "xlate::embedded_ptr(RM_CONTROL) = ({}, {}), the table says \
              ({NVOS54_PARAMS_OFF}, field @{NVOS54_PARAMSSIZE_OFF})",
-            e.ptr_off, e.len
+            e.ptr_off,
+            e.len
         ),
-        other => panic!("xlate::embedded_ptr(RM_CONTROL) unexpected: {:?}", other.is_ok()),
+        other => panic!(
+            "xlate::embedded_ptr(RM_CONTROL) unexpected: {:?}",
+            other.is_ok()
+        ),
     }
 
     // (2) RM_ALLOC: params @16, length from the hClass table.
@@ -520,34 +605,48 @@ fn verify_against_xlate<A: RmAbi>() {
             e.ptr_off == NVOS64_PARAMS_OFF && e.len == want,
             "xlate::embedded_ptr(RM_ALLOC) = ({}, {}), the table says \
              ({NVOS64_PARAMS_OFF}, hClass @{NVOS64_HCLASS_OFF} -> {want})",
-            e.ptr_off, e.len
+            e.ptr_off,
+            e.len
         ),
-        other => panic!("xlate::embedded_ptr(RM_ALLOC) unexpected: {:?}", other.is_ok()),
+        other => panic!(
+            "xlate::embedded_ptr(RM_ALLOC) unexpected: {:?}",
+            other.is_ok()
+        ),
     }
 
     // (3) pRightsRequested != 0 must fail loudly -- the table tells the
     //     module the same thing via rights_off/rights_if_size.
     buf[24..32].copy_from_slice(&1u64.to_le_bytes());
     let got = unsafe { xlate::embedded_ptr::<A>(Dev::Ctl, sys::NV_ESC_RM_ALLOC, buf.as_ptr(), 48) };
-    assert!(got.is_err(), "xlate accepts pRightsRequested != 0, the table does not");
+    assert!(
+        got.is_err(),
+        "xlate accepts pRightsRequested != 0, the table does not"
+    );
 
     // (4) GET_EVENT_DATA: pEvent @0, length = one NvUnixEvent, constant.
     let mut buf = [0u8; 16];
     buf[0..8].copy_from_slice(&0xdead_beef_u64.to_le_bytes());
-    let got = unsafe { xlate::embedded_ptr::<A>(Dev::Ctl, sys::NV_ESC_RM_GET_EVENT_DATA, buf.as_ptr(), 16) };
+    let got = unsafe {
+        xlate::embedded_ptr::<A>(Dev::Ctl, sys::NV_ESC_RM_GET_EVENT_DATA, buf.as_ptr(), 16)
+    };
     let want = core::mem::size_of::<sys::NvUnixEvent>() as u32;
     match got {
         Ok(Some(e)) => assert!(
             e.ptr_off == 0 && e.len == want,
             "xlate::embedded_ptr(GET_EVENT_DATA) = ({}, {}), the table says (0, {want})",
-            e.ptr_off, e.len
+            e.ptr_off,
+            e.len
         ),
-        other => panic!("xlate::embedded_ptr(GET_EVENT_DATA) unexpected: {:?}", other.is_ok()),
+        other => panic!(
+            "xlate::embedded_ptr(GET_EVENT_DATA) unexpected: {:?}",
+            other.is_ok()
+        ),
     }
 
     // (5) The 0x27 collision, which is why the table keys on (device, nr).
     assert_eq!(
-        sys::NV_ESC_RM_ALLOC_MEMORY, xlate::uvm::PAGEABLE_MEM_ACCESS,
+        sys::NV_ESC_RM_ALLOC_MEMORY,
+        xlate::uvm::PAGEABLE_MEM_ACCESS,
         "the 0x27 collision ctl/uvm is gone -- check the table key"
     );
 }
@@ -568,14 +667,23 @@ mod tests {
 
     fn decode(tb: &Tables) -> Decoded {
         let u32s = |bytes: &[u8]| -> Vec<u32> {
-            bytes.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect()
+            bytes
+                .chunks_exact(4)
+                .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+                .collect()
         };
         let rows = |base: usize, n: usize, len: usize| -> Vec<Vec<u32>> {
-            (0..n).map(|i| u32s(&tb.bytes[base + i * len..base + (i + 1) * len])).collect()
+            (0..n)
+                .map(|i| u32s(&tb.bytes[base + i * len..base + (i + 1) * len]))
+                .collect()
         };
         let hdr = u32s(&tb.bytes[..t::HDR_LEN]);
-        let (ni, nc, nk, nn) =
-            (hdr[4] as usize, hdr[5] as usize, hdr[6] as usize, hdr[7] as usize);
+        let (ni, nc, nk, nn) = (
+            hdr[4] as usize,
+            hdr[5] as usize,
+            hdr[6] as usize,
+            hdr[7] as usize,
+        );
         let b0 = t::HDR_LEN;
         let b1 = b0 + ni * t::IOCTL_DESC_LEN;
         let b2 = b1 + nc * t::CLASS_DESC_LEN;
@@ -613,7 +721,10 @@ mod tests {
     #[test]
     fn stream_is_self_consistent() {
         let tb = build::<sys::DefaultAbi>();
-        assert_eq!(tb.bytes.len(), u32::from_le_bytes(tb.bytes[8..12].try_into().unwrap()) as usize);
+        assert_eq!(
+            tb.bytes.len(),
+            u32::from_le_bytes(tb.bytes[8..12].try_into().unwrap()) as usize
+        );
         assert_eq!(t::fnv1a32(&tb.bytes[t::HDR_LEN..]), tb.checksum);
         let n = tb.n_ioctl as usize * t::IOCTL_DESC_LEN
             + tb.n_class as usize * t::CLASS_DESC_LEN
@@ -631,7 +742,9 @@ mod tests {
         let mut found = 0;
         for i in 0..tb.n_ioctl as usize {
             let o = t::HDR_LEN + i * t::IOCTL_DESC_LEN;
-            let f = |k: usize| u32::from_le_bytes(tb.bytes[o + k * 4..o + k * 4 + 4].try_into().unwrap());
+            let f = |k: usize| {
+                u32::from_le_bytes(tb.bytes[o + k * 4..o + k * 4 + 4].try_into().unwrap())
+            };
             if f(D_FD_OFF) != t::NONE {
                 found += 1;
             }
@@ -658,11 +771,17 @@ mod tests {
                     u32::from_le_bytes(tb.bytes[o + k * 4..o + k * 4 + 4].try_into().unwrap())
                 };
                 if f(0) == cmd {
-                    assert!(f(3) & t::CF_BLOCK != 0, "{cmd:#x} is in the stream, but without CF_BLOCK");
+                    assert!(
+                        f(3) & t::CF_BLOCK != 0,
+                        "{cmd:#x} is in the stream, but without CF_BLOCK"
+                    );
                     seen = true;
                 }
             }
-            assert!(seen, "blocked control {cmd:#x} is missing from the table stream");
+            assert!(
+                seen,
+                "blocked control {cmd:#x} is missing from the table stream"
+            );
         }
     }
 
@@ -718,7 +837,12 @@ mod tests {
         for r in &d.ioctls {
             if r[D_DEV] == DevTag::Uvm as u32 || r[D_DEV] == DevTag::UvmTools as u32 {
                 uvm_rows += 1;
-                assert_ne!(r[D_SIZE], t::SIZE_FROM_IOC, "UVM nr {:#x} without a size", r[D_NR]);
+                assert_ne!(
+                    r[D_SIZE],
+                    t::SIZE_FROM_IOC,
+                    "UVM nr {:#x} without a size",
+                    r[D_NR]
+                );
                 assert_eq!(
                     Some(r[D_SIZE]),
                     xlate::uvm_param_size(r[D_NR]),
@@ -749,9 +873,18 @@ mod tests {
         // XFER: number and wrapping layout from nv-ioctl.h (bindgen).
         assert_eq!(h[8], sys::NV_ESC_IOCTL_XFER_CMD);
         assert_eq!(h[9], core::mem::size_of::<sys::nv_ioctl_xfer_t>() as u32);
-        assert_eq!(h[10], core::mem::offset_of!(sys::nv_ioctl_xfer_t, cmd) as u32);
-        assert_eq!(h[11], core::mem::offset_of!(sys::nv_ioctl_xfer_t, size) as u32);
-        assert_eq!(h[12], core::mem::offset_of!(sys::nv_ioctl_xfer_t, ptr) as u32);
+        assert_eq!(
+            h[10],
+            core::mem::offset_of!(sys::nv_ioctl_xfer_t, cmd) as u32
+        );
+        assert_eq!(
+            h[11],
+            core::mem::offset_of!(sys::nv_ioctl_xfer_t, size) as u32
+        );
+        assert_eq!(
+            h[12],
+            core::mem::offset_of!(sys::nv_ioctl_xfer_t, ptr) as u32
+        );
         assert_eq!(h[13], crate::xfer::ABSOLUTE_MAX_IOCTL_SIZE as u32);
         let xf = find(&d, DevTag::Ctl, sys::NV_ESC_IOCTL_XFER_CMD);
         assert_eq!(xf[D_FLAGS] & t::F_XFER, t::F_XFER);
@@ -787,21 +920,43 @@ mod tests {
         let mut seen = std::collections::BTreeSet::new();
         for c in &d.classes {
             let (hclass, param_size, fd_off, flags) = (c[0], c[1], c[2], c[3]);
-            assert!(seen.insert(hclass), "hClass {hclass:#x} twice in the stream");
-            assert_eq!(Some(param_size), xlate::alloc_param_size::<sys::DefaultAbi>(hclass), "{hclass:#x}");
-            assert_eq!(fd_off, xlate::alloc_fd_field(hclass).unwrap_or(t::NONE), "{hclass:#x}");
+            assert!(
+                seen.insert(hclass),
+                "hClass {hclass:#x} twice in the stream"
+            );
+            assert_eq!(
+                Some(param_size),
+                xlate::alloc_param_size::<sys::DefaultAbi>(hclass),
+                "{hclass:#x}"
+            );
+            assert_eq!(
+                fd_off,
+                xlate::alloc_fd_field(hclass).unwrap_or(t::NONE),
+                "{hclass:#x}"
+            );
             // The flag must reach the WIRE, not just the struct: the row is
             // serialised field by field, so a hardcoded constant there would
             // leave every class looking verified.
-            let want = if xlate::alloc_class_verified(hclass) { 0 } else { t::KF_UNVERIFIED };
+            let want = if xlate::alloc_class_verified(hclass) {
+                0
+            } else {
+                t::KF_UNVERIFIED
+            };
             assert_eq!(flags, want, "{hclass:#x} flags");
         }
         // Both states must actually occur, otherwise the assertion above is
         // vacuous -- a scan that marked everything the same way would pass.
-        assert!(d.classes.iter().any(|c| c[3] & t::KF_UNVERIFIED != 0), "no unverified classes");
-        assert!(d.classes.iter().any(|c| c[3] & t::KF_UNVERIFIED == 0), "no verified classes");
-        let known: std::collections::BTreeSet<u32> =
-            (0..=CLASS_SCAN_MAX).filter(|&h| xlate::alloc_param_size::<sys::DefaultAbi>(h).is_some()).collect();
+        assert!(
+            d.classes.iter().any(|c| c[3] & t::KF_UNVERIFIED != 0),
+            "no unverified classes"
+        );
+        assert!(
+            d.classes.iter().any(|c| c[3] & t::KF_UNVERIFIED == 0),
+            "no verified classes"
+        );
+        let known: std::collections::BTreeSet<u32> = (0..=CLASS_SCAN_MAX)
+            .filter(|&h| xlate::alloc_param_size::<sys::DefaultAbi>(h).is_some())
+            .collect();
         assert_eq!(seen, known, "class set in the stream != xlate scan");
 
         // The two former errors: 0x90f1 with pasid = 56 (not 48, gVisor),
@@ -829,7 +984,11 @@ mod tests {
                 xlate::MAX_NESTED
             );
         }
-        assert_eq!(xlate::MAX_NESTED, nvrm_wire::MAX_NESTED, "both sides, one number");
+        assert_eq!(
+            xlate::MAX_NESTED,
+            nvrm_wire::MAX_NESTED,
+            "both sides, one number"
+        );
     }
 
     /// Every control entry points INTO the nested table -- the C
@@ -848,9 +1007,17 @@ mod tests {
             );
         }
         for &cmd in xlate::nested_cmds() {
-            let row = d.ctrls.iter().find(|c| c[0] == cmd).expect("nested cmd missing from the stream");
+            let row = d
+                .ctrls
+                .iter()
+                .find(|c| c[0] == cmd)
+                .expect("nested cmd missing from the stream");
             let specs = xlate::nested_ptrs(cmd);
-            assert_eq!(row[2] as usize, specs.len(), "{cmd:#x}: count != nested_ptrs");
+            assert_eq!(
+                row[2] as usize,
+                specs.len(),
+                "{cmd:#x}: count != nested_ptrs"
+            );
             for (i, sp) in specs.iter().enumerate() {
                 let n = &d.nested[row[1] as usize + i];
                 assert_eq!(n[0], sp.ptr_off, "{cmd:#x}[{i}].ptr_off");
@@ -858,7 +1025,11 @@ mod tests {
                     xlate::LenSource::Fixed(len) => (t::NLEN_FIXED, len, 1),
                     xlate::LenSource::Field { off, elem } => (t::NLEN_FIELD, off, elem),
                 };
-                assert_eq!((n[1], n[2], n[3]), (want_kind, want_off, want_elem), "{cmd:#x}[{i}]");
+                assert_eq!(
+                    (n[1], n[2], n[3]),
+                    (want_kind, want_off, want_elem),
+                    "{cmd:#x}[{i}]"
+                );
             }
         }
     }
@@ -887,12 +1058,17 @@ mod tests {
             assert!(
                 keys.insert((r[D_DEV], r[D_NR])),
                 "ioctl row (dev {}, nr {:#x}) appears twice -- the second one is dead",
-                r[D_DEV], r[D_NR]
+                r[D_DEV],
+                r[D_NR]
             );
         }
         let mut classes = BTreeSet::new();
         for c in &d.classes {
-            assert!(classes.insert(c[0]), "class row hClass {:#x} appears twice", c[0]);
+            assert!(
+                classes.insert(c[0]),
+                "class row hClass {:#x} appears twice",
+                c[0]
+            );
         }
         let mut ctrls = BTreeSet::new();
         for c in &d.ctrls {
@@ -928,7 +1104,10 @@ mod tests {
             ("blocked_ctrls", xlate::blocked_ctrls()),
         ];
         for (name, list) in lists {
-            assert!(!list.is_empty(), "{name}() is empty -- the check below would be vacuous");
+            assert!(
+                !list.is_empty(),
+                "{name}() is empty -- the check below would be vacuous"
+            );
             let mut seen = BTreeSet::new();
             for &cmd in list {
                 assert!(seen.insert(cmd), "{name}() names {cmd:#x} twice");

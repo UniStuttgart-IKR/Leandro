@@ -180,7 +180,10 @@ impl Arena {
         if base == libc::MAP_FAILED {
             return Err(std::io::Error::last_os_error()).context("reserve arena");
         }
-        let arena = Arena { base: base as *mut u8, len };
+        let arena = Arena {
+            base: base as *mut u8,
+            len,
+        };
 
         let guard = mem.memory();
         let mut off = 0u64;
@@ -189,9 +192,9 @@ impl Arena {
             let region = guard
                 .find_region(GuestAddress(r.gpa.get()))
                 .with_context(|| format!("GPA {:#x} in no region", r.gpa))?;
-            let fo = region
-                .file_offset()
-                .context("guest RAM without a file -- is the VM running with --memory shared=on?")?;
+            let fo = region.file_offset().context(
+                "guest RAM without a file -- is the VM running with --memory shared=on?",
+            )?;
             let region_base = GuestAddr::new(region.start_addr().0);
             // Computed checked: a `gpa + len` that wraps would otherwise be
             // "below the region end" and the run would count as inside it.
@@ -221,7 +224,10 @@ impl Arena {
             // do.
             let end_in_arena = off.checked_add(r.len.get()).filter(|e| *e <= total.get());
             if end_in_arena.is_none() {
-                bail!("run {:#x} no longer fits into the arena (offset {off:#x})", r.len);
+                bail!(
+                    "run {:#x} no longer fits into the arena (offset {off:#x})",
+                    r.len
+                );
             }
             // `gpa - region_base` is never negative after find_region -- the
             // subtraction stays checked anyway, because it computes with a
@@ -286,9 +292,18 @@ impl Backing {
         let gpu = NvDevice::open_gpu(0).context("open gpu (backing client)")?;
         // Registered GPU FD: 0x27 only runs on a GPU node
         // (NV_ACTUAL_DEVICE_ONLY), and the FD needs REGISTER_FD, else 0x23.
-        let gpu_reg = gpu.open_for_mapping(&ctl).context("REGISTER_FD (backing client)")?;
+        let gpu_reg = gpu
+            .open_for_mapping(&ctl)
+            .context("REGISTER_FD (backing client)")?;
 
-        let mut b = Backing { ctl, gpu_reg, root, device: 0, uuid: Default::default(), next_handle: root + 1 };
+        let mut b = Backing {
+            ctl,
+            gpu_reg,
+            root,
+            device: 0,
+            uuid: Default::default(),
+            next_handle: root + 1,
+        };
 
         // Device + subdevice, to fetch the GPU UUID.
         let device = b.handle();
@@ -356,14 +371,16 @@ impl Backing {
         wfd.params.pMemory = host_va as usize as sys::NvP64;
         wfd.params.limit = len - 1;
         wfd.fd = -1;
-        unsafe { self.gpu_reg.ioctl_raw(sys::NV_ESC_RM_ALLOC_MEMORY, &mut wfd)? };
+        unsafe {
+            self.gpu_reg
+                .ioctl_raw(sys::NV_ESC_RM_ALLOC_MEMORY, &mut wfd)?
+        };
         nvrm_abi::check_status(sys::NV_ESC_RM_ALLOC_MEMORY, wfd.params.status as u32)?;
 
         // UVM later duplicates this object into its kernel client. Without
         // the grant, MAP_EXTERNAL fails with 0x1b
         // (INSUFFICIENT_PERMISSIONS).
-        let (r, s) =
-            unsafe { share::grant_dup_same_user(self.ctl.as_raw_fd(), self.root, osdesc) };
+        let (r, s) = unsafe { share::grant_dup_same_user(self.ctl.as_raw_fd(), self.root, osdesc) };
         if r != 0 || s != 0 {
             bail!("DUP grant for OS descriptor {osdesc:#x}: ret {r} status {s:#x}");
         }
@@ -447,11 +464,17 @@ impl PoolState {
     /// became an arbitrary, guest-chosen distance from the arena base -- a
     /// directed writer into unrelated host memory.
     pub fn write_guest_u32(&self, va: GuestAddr, val: u32) -> bool {
-        let Some(end) = va.end(GuestLen::new(4)) else { return false };
+        let Some(end) = va.end(GuestLen::new(4)) else {
+            return false;
+        };
         for p in &self.pools {
-            let Some(pool_end) = p.addr.end(p.len) else { continue };
+            let Some(pool_end) = p.addr.end(p.len) else {
+                continue;
+            };
             if va >= p.addr && end <= pool_end {
-                let Some(off) = va.offset_from(p.addr) else { continue };
+                let Some(off) = va.offset_from(p.addr) else {
+                    continue;
+                };
                 // SAFETY: the arena is at least p.len big and lives as long
                 // as the pool is registered; off+4 <= len has been checked.
                 unsafe {
@@ -483,15 +506,21 @@ impl PoolState {
         let uuid = backing.uuid;
         let root = backing.root;
         let ctl_fd = backing.ctl.as_raw_fd();
-        let osdesc =
-            backing.os_descriptor(arena.base(), len.get()).context("OS descriptor for pool")?;
+        let osdesc = backing
+            .os_descriptor(arena.base(), len.get())
+            .context("OS descriptor for pool")?;
 
         // CREATE_EXTERNAL_RANGE(addr, len) on the guest's uvm FD.
         let mut cr: sys::UVM_CREATE_EXTERNAL_RANGE_PARAMS = unsafe { std::mem::zeroed() };
         cr.base = addr.get();
         cr.length = len.get();
-        uvm_call(uvm_fd, UVM_CREATE_EXTERNAL_RANGE, &mut cr, CREATE_RANGE_STATUS_OFF)
-            .context("CREATE_EXTERNAL_RANGE")?;
+        uvm_call(
+            uvm_fd,
+            UVM_CREATE_EXTERNAL_RANGE,
+            &mut cr,
+            CREATE_RANGE_STATUS_OFF,
+        )
+        .context("CREATE_EXTERNAL_RANGE")?;
 
         // MAP_EXTERNAL_ALLOCATION(addr, len, osdesc).
         let mut mp: Box<sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS> =
@@ -506,8 +535,13 @@ impl PoolState {
         mp.rmCtrlFd = ctl_fd;
         mp.hClient = root;
         mp.hMemory = osdesc;
-        uvm_call(uvm_fd, UVM_MAP_EXTERNAL_ALLOCATION, mp.as_mut(), MAP_EXTERNAL_STATUS_OFF)
-            .context("MAP_EXTERNAL_ALLOCATION")?;
+        uvm_call(
+            uvm_fd,
+            UVM_MAP_EXTERNAL_ALLOCATION,
+            mp.as_mut(),
+            MAP_EXTERNAL_STATUS_OFF,
+        )
+        .context("MAP_EXTERNAL_ALLOCATION")?;
 
         // An older entry for the same GPU VA is dropped here -- otherwise it
         // would win the search in `write_guest_u32` forever, and its arena
@@ -533,7 +567,12 @@ impl PoolState {
         // GPU-side the processes do NOT collide: each opens its own uvm FD,
         // so the host holds a separate va_space per process.
         self.pools.retain(|p| p.addr != addr);
-        self.pools.push(PoolMap { addr, len, osdesc, arena });
+        self.pools.push(PoolMap {
+            addr,
+            len,
+            osdesc,
+            arena,
+        });
         Ok(())
     }
 }
@@ -551,8 +590,13 @@ const CREATE_RANGE_STATUS_OFF: usize =
 const MAP_EXTERNAL_STATUS_OFF: usize =
     std::mem::offset_of!(sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS, rmStatus);
 const _: () = {
-    assert!(CREATE_RANGE_STATUS_OFF + 4 <= std::mem::size_of::<sys::UVM_CREATE_EXTERNAL_RANGE_PARAMS>());
-    assert!(MAP_EXTERNAL_STATUS_OFF + 4 <= std::mem::size_of::<sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS>());
+    assert!(
+        CREATE_RANGE_STATUS_OFF + 4 <= std::mem::size_of::<sys::UVM_CREATE_EXTERNAL_RANGE_PARAMS>()
+    );
+    assert!(
+        MAP_EXTERNAL_STATUS_OFF + 4
+            <= std::mem::size_of::<sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS>()
+    );
     // The numbers xlate.rs cites for these two structs (uvm_ioctl.h).
     assert!(CREATE_RANGE_STATUS_OFF == 16);
     assert!(MAP_EXTERNAL_STATUS_OFF == 9260);
@@ -570,7 +614,9 @@ fn uvm_call<T>(fd: i32, cmd: u64, p: &mut T, status_off: usize) -> Result<()> {
     let status = unsafe {
         let base = p as *const T as *const u8;
         u32::from_le_bytes(
-            std::slice::from_raw_parts(base.add(status_off), 4).try_into().unwrap(),
+            std::slice::from_raw_parts(base.add(status_off), 4)
+                .try_into()
+                .unwrap(),
         )
     };
     if status != sys::NV_OK {
@@ -626,7 +672,10 @@ mod tests {
             .filter(|l| l.contains(MEMFD_NAME))
             .filter_map(|l| {
                 let (a, b) = l.split_whitespace().next()?.split_once('-')?;
-                Some((u64::from_str_radix(a, 16).ok()?, u64::from_str_radix(b, 16).ok()?))
+                Some((
+                    u64::from_str_radix(a, 16).ok()?,
+                    u64::from_str_radix(b, 16).ok()?,
+                ))
             })
             .collect()
     }
@@ -642,7 +691,10 @@ mod tests {
     /// GpaRun from raw numbers -- the tests deliberately prepare wrapping
     /// values too, hence the direct route through the constructors.
     fn run(gpa: u64, len: u64) -> GpaRun {
-        GpaRun { gpa: GuestAddr::new(gpa), len: GuestLen::new(len) }
+        GpaRun {
+            gpa: GuestAddr::new(gpa),
+            len: GuestLen::new(len),
+        }
     }
 
     fn glen(v: u64) -> GuestLen {
@@ -694,7 +746,9 @@ mod tests {
         let mem = guest_mem();
         let write_guest = |gpa: u64, val: u8| {
             use vm_memory::{Bytes, GuestAddressSpace};
-            mem.memory().write_slice(&[val; 0x1000], GuestAddress(gpa)).unwrap();
+            mem.memory()
+                .write_slice(&[val; 0x1000], GuestAddress(gpa))
+                .unwrap();
         };
         write_guest(REGION_BASE + 0x3000, 0xaa);
         write_guest(REGION_BASE + 0x1000, 0xbb);
@@ -716,7 +770,10 @@ mod tests {
     #[test]
     fn rejects_length_zero_and_over_the_pin_limit() {
         let _x = exclusive();
-        assert!(Arena::build(&guest_mem(), &[], glen(0)).is_err(), "length 0");
+        assert!(
+            Arena::build(&guest_mem(), &[], glen(0)).is_err(),
+            "length 0"
+        );
 
         // The region must be LARGER than the pin limit, otherwise the region
         // check would already refuse and the test would prove nothing about
@@ -726,11 +783,17 @@ mod tests {
         let mem = guest_mem_at(REGION_BASE, 512 << 20);
         let huge = (256 << 20) + 0x1000; // default pin limit + 1 page
         let runs = [run(REGION_BASE, huge)];
-        assert!(Arena::build(&mem, &runs, glen(huge)).is_err(), "over the pin limit");
+        assert!(
+            Arena::build(&mem, &runs, glen(huge)).is_err(),
+            "over the pin limit"
+        );
         // Exactly at the limit it must carry -- the boundary sits where it should.
         let ok_len = 256 << 20;
         let runs = [run(REGION_BASE, ok_len)];
-        assert!(Arena::build(&mem, &runs, glen(ok_len)).is_ok(), "exactly at the limit must carry");
+        assert!(
+            Arena::build(&mem, &runs, glen(ok_len)).is_ok(),
+            "exactly at the limit must carry"
+        );
     }
 
     #[test]
@@ -738,15 +801,24 @@ mod tests {
         let _x = exclusive();
         let mem = guest_mem();
         let runs = [run(REGION_BASE, 0x1000)];
-        assert!(Arena::build(&mem, &runs, glen(0x2000)).is_err(), "sum != total");
+        assert!(
+            Arena::build(&mem, &runs, glen(0x2000)).is_err(),
+            "sum != total"
+        );
 
         // Run starts inside the region but extends past its end.
         let runs = [run(REGION_BASE + REGION_LEN as u64 - 0x1000, 0x2000)];
-        assert!(Arena::build(&mem, &runs, glen(0x2000)).is_err(), "run past the region end");
+        assert!(
+            Arena::build(&mem, &runs, glen(0x2000)).is_err(),
+            "run past the region end"
+        );
 
         // Run outside every region.
         let runs = [run(REGION_BASE + (64 << 20), 0x1000)];
-        assert!(Arena::build(&mem, &runs, glen(0x1000)).is_err(), "GPA in no region");
+        assert!(
+            Arena::build(&mem, &runs, glen(0x1000)).is_err(),
+            "GPA in no region"
+        );
     }
 
     /// WARNING: the case this is all about: two runs whose sum **wraps**.
@@ -771,12 +843,17 @@ mod tests {
         let len2 = TOTAL.wrapping_sub(BIG);
         let gpa2 = REGION_BASE + BIG;
         assert_eq!(BIG.wrapping_add(len2), TOTAL, "setup: sum wraps onto total");
-        assert!(gpa2.wrapping_add(len2) < REGION_BASE + REGION_LEN as u64,
-                "setup: the region check wraps too");
+        assert!(
+            gpa2.wrapping_add(len2) < REGION_BASE + REGION_LEN as u64,
+            "setup: the region check wraps too"
+        );
 
         let runs = [run(REGION_BASE, BIG), run(gpa2, len2)];
         let leaked = leaked_bytes(|| {
-            assert!(Arena::build(&mem, &runs, glen(TOTAL)).is_err(), "wrapping sum must be caught");
+            assert!(
+                Arena::build(&mem, &runs, glen(TOTAL)).is_err(),
+                "wrapping sum must be caught"
+            );
         });
         assert_eq!(leaked, 0, "{leaked} bytes of address space left behind");
     }
@@ -833,16 +910,31 @@ mod tests {
         let (addr, len) = (0x2000_0000u64, 0x2000u64);
         let ps = pool_state_with(&mem, addr, REGION_BASE, len);
 
-        assert!(ps.write_guest_u32(GuestAddr::new(addr), 0xdead_beef), "start of the pool");
-        assert!(ps.write_guest_u32(GuestAddr::new(addr + len - 4), 1), "last complete word");
+        assert!(
+            ps.write_guest_u32(GuestAddr::new(addr), 0xdead_beef),
+            "start of the pool"
+        );
+        assert!(
+            ps.write_guest_u32(GuestAddr::new(addr + len - 4), 1),
+            "last complete word"
+        );
         // SAFETY: the arena lives in the PoolState and is len big.
         unsafe {
             assert_eq!(*(ps.pools[0].arena.base() as *const u32), 0xdead_beef);
         }
 
-        assert!(!ps.write_guest_u32(GuestAddr::new(addr - 4), 1), "before the pool");
-        assert!(!ps.write_guest_u32(GuestAddr::new(addr + len - 3), 1), "extends past the end");
-        assert!(!ps.write_guest_u32(GuestAddr::new(addr + len), 1), "behind the pool");
+        assert!(
+            !ps.write_guest_u32(GuestAddr::new(addr - 4), 1),
+            "before the pool"
+        );
+        assert!(
+            !ps.write_guest_u32(GuestAddr::new(addr + len - 3), 1),
+            "extends past the end"
+        );
+        assert!(
+            !ps.write_guest_u32(GuestAddr::new(addr + len), 1),
+            "behind the pool"
+        );
     }
 
     /// WARNING: `va` arrives as the `semaphoreAddress` from UVM_MIGRATE, so
@@ -858,7 +950,10 @@ mod tests {
         let mem = guest_mem();
         let ps = pool_state_with(&mem, 0x2000_0000, REGION_BASE, 0x2000);
         for va in [u64::MAX, u64::MAX - 3, u64::MAX - 4] {
-            assert!(!ps.write_guest_u32(GuestAddr::new(va), 0x4141_4141), "va {va:#x} accepted");
+            assert!(
+                !ps.write_guest_u32(GuestAddr::new(va), 0x4141_4141),
+                "va {va:#x} accepted"
+            );
         }
     }
 
@@ -870,10 +965,16 @@ mod tests {
         aux.extend_from_slice(&0x1122_3344_5566_7788u64.to_le_bytes());
         aux.extend_from_slice(&0x1000u64.to_le_bytes());
         let r = GpaRun::decode(&aux, 1).unwrap();
-        assert_eq!((r[0].gpa.get(), r[0].len.get()), (0x1122_3344_5566_7788, 0x1000));
+        assert_eq!(
+            (r[0].gpa.get(), r[0].len.get()),
+            (0x1122_3344_5566_7788, 0x1000)
+        );
 
         assert!(GpaRun::decode(&aux, 2).is_none(), "too short for 2 runs");
-        assert!(GpaRun::decode(&aux[..15], 1).is_none(), "one byte too short");
+        assert!(
+            GpaRun::decode(&aux[..15], 1).is_none(),
+            "one byte too short"
+        );
         assert_eq!(GpaRun::decode(&[], 0).unwrap().len(), 0);
         // An aux buffer may be longer than the runs -- the rest is not read.
         aux.push(0xff);
@@ -886,8 +987,16 @@ mod tests {
     #[test]
     fn decode_survives_an_absurd_count() {
         let aux = [0u8; 64];
-        for count in [usize::MAX, usize::MAX / 16, (u32::MAX as usize) + 1, 1 << 60] {
-            assert!(GpaRun::decode(&aux, count).is_none(), "count {count} accepted");
+        for count in [
+            usize::MAX,
+            usize::MAX / 16,
+            (u32::MAX as usize) + 1,
+            1 << 60,
+        ] {
+            assert!(
+                GpaRun::decode(&aux, count).is_none(),
+                "count {count} accepted"
+            );
         }
     }
 
@@ -938,11 +1047,17 @@ mod tests {
             nvos02_flags::PHYSICALITY.get(OSDESC_FLAGS),
             sys::NVOS02_FLAGS_PHYSICALITY_NONCONTIGUOUS
         );
-        assert_eq!(nvos02_flags::LOCATION.get(OSDESC_FLAGS), sys::NVOS02_FLAGS_LOCATION_PCI);
+        assert_eq!(
+            nvos02_flags::LOCATION.get(OSDESC_FLAGS),
+            sys::NVOS02_FLAGS_LOCATION_PCI
+        );
         assert_eq!(
             nvos02_flags::COHERENCY.get(OSDESC_FLAGS),
             sys::NVOS02_FLAGS_COHERENCY_CACHED
         );
-        assert_eq!(nvos02_flags::MAPPING.get(OSDESC_FLAGS), sys::NVOS02_FLAGS_MAPPING_NO_MAP);
+        assert_eq!(
+            nvos02_flags::MAPPING.get(OSDESC_FLAGS),
+            sys::NVOS02_FLAGS_MAPPING_NO_MAP
+        );
     }
 }

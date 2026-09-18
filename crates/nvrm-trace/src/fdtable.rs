@@ -23,7 +23,7 @@
 //! dropped.
 
 use crate::NvDev;
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 
 const MAX_FD: usize = 65536;
 
@@ -195,8 +195,16 @@ mod tests {
 
         let before = overflow_count();
         insert(MAX_FD as i32, NvDev::Ctl);
-        assert_eq!(overflow_count(), before + 1, "an FD past the table is counted");
-        assert_eq!(get(MAX_FD as i32), None, "and it is not readable afterwards");
+        assert_eq!(
+            overflow_count(),
+            before + 1,
+            "an FD past the table is counted"
+        );
+        assert_eq!(
+            get(MAX_FD as i32),
+            None,
+            "and it is not readable afterwards"
+        );
 
         insert(-1, NvDev::Ctl);
         assert_eq!(overflow_count(), before + 2);

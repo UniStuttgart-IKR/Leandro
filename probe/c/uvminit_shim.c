@@ -32,23 +32,24 @@ static long n_hit;
 
 int ioctl(int fd, unsigned long request, ...)
 {
-    va_list ap;
-    void *arg;
+	va_list ap;
+	void *arg;
 
-    va_start(ap, request);
-    arg = va_arg(ap, void *);
-    va_end(ap);
+	va_start(ap, request);
+	arg = va_arg(ap, void *);
+	va_end(ap);
 
-    if (!real_ioctl)
-        real_ioctl = dlsym(RTLD_NEXT, "ioctl");
+	if (!real_ioctl)
+		real_ioctl = dlsym(RTLD_NEXT, "ioctl");
 
-    if (request == UVM_INITIALIZE_REQ && arg) {
-        uint64_t *flags = arg;
-        *flags |= UVM_INIT_FLAGS_MULTI_PROCESS_SHARING_MODE;
-        n_hit++;
-        fprintf(stderr, "uvminit-shim: UVM_INITIALIZE #%ld flags=0x%llx\n",
-                n_hit, (unsigned long long)*flags);
-    }
+	if (request == UVM_INITIALIZE_REQ && arg) {
+		uint64_t *flags = arg;
+		*flags |= UVM_INIT_FLAGS_MULTI_PROCESS_SHARING_MODE;
+		n_hit++;
+		fprintf(stderr,
+			"uvminit-shim: UVM_INITIALIZE #%ld flags=0x%llx\n",
+			n_hit, (unsigned long long)*flags);
+	}
 
-    return real_ioctl(fd, request, arg);
+	return real_ioctl(fd, request, arg);
 }

@@ -137,7 +137,11 @@ pub struct WaiterPoller {
 impl WaiterPoller {
     pub fn new() -> anyhow::Result<Self> {
         let shared = Arc::new(Shared {
-            state: Mutex::new(State { watch: Vec::new(), fired: Vec::new(), shutdown: false }),
+            state: Mutex::new(State {
+                watch: Vec::new(),
+                fired: Vec::new(),
+                shutdown: false,
+            }),
             kick: EventFd::new(libc::EFD_NONBLOCK)
                 .map_err(|e| anyhow::anyhow!("waiter kick eventfd: {e}"))?,
             notify: EventFd::new(libc::EFD_NONBLOCK)
@@ -150,7 +154,10 @@ impl WaiterPoller {
                 .spawn(move || run(&shared))
                 .map_err(|e| anyhow::anyhow!("waiter poller thread: {e}"))?
         };
-        Ok(Self { shared, thread: Some(t) })
+        Ok(Self {
+            shared,
+            thread: Some(t),
+        })
     }
 
     /// The fd the device's epoll watches: readable = [`WaiterPoller::take_fired`] has rows.
@@ -222,8 +229,11 @@ fn run(shared: &Shared) {
         // Snapshot under the lock, poll without it: `watch` may change while
         // this thread sleeps, and the kick eventfd is what turns that change
         // into a wake-up.
-        let mut fds: Vec<libc::pollfd> =
-            vec![libc::pollfd { fd: shared.kick.as_raw_fd(), events: libc::POLLIN, revents: 0 }];
+        let mut fds: Vec<libc::pollfd> = vec![libc::pollfd {
+            fd: shared.kick.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        }];
         // THE BRAKE, and it has to sit exactly here.
         //
         // `poll(2)` CONSUMES `dataless_event_pending` for every fd it
@@ -345,11 +355,13 @@ mod tests {
         let deadline = Instant::now() + Duration::from_millis(ms);
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
-            let mut p = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
-            // SAFETY: one valid, owned pollfd for the duration of the call.
-            let n = unsafe {
-                libc::poll(&mut p, 1, left.as_millis().min(i32::MAX as u128) as i32)
+            let mut p = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
             };
+            // SAFETY: one valid, owned pollfd for the duration of the call.
+            let n = unsafe { libc::poll(&mut p, 1, left.as_millis().min(i32::MAX as u128) as i32) };
             if n > 0 {
                 return p.revents & libc::POLLIN != 0;
             }
@@ -369,9 +381,16 @@ mod tests {
     /// poller does with a number whose file is gone, and a number that got
     /// recycled into somebody else's file would test the opposite.
     fn closed_fd_number() -> RawFd {
-        let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        let mut lim = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
         // SAFETY: fills in an owned, fully initialized struct.
-        assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) }, 0, "getrlimit");
+        assert_eq!(
+            unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) },
+            0,
+            "getrlimit"
+        );
         let mut n = (lim.rlim_cur.min(1024) as RawFd) - 1;
         // SAFETY: F_GETFD only reads; an unused number answers -1/EBADF.
         while n > 3 && unsafe { libc::fcntl(n, libc::F_GETFD) } >= 0 {
@@ -399,17 +418,27 @@ mod tests {
     fn a_readable_waiter_is_reported_once() {
         let p = WaiterPoller::new().unwrap();
         let ev = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let w = Watch { guest_proc: 42, id: 7, fd: ev.as_raw_fd() };
+        let w = Watch {
+            guest_proc: 42,
+            id: 7,
+            fd: ev.as_raw_fd(),
+        };
 
         p.watch(w);
         ev.write(1).unwrap();
 
-        assert!(readable_within(p.notify_fd(), EXPECT_MS), "notify_fd never became readable");
+        assert!(
+            readable_within(p.notify_fd(), EXPECT_MS),
+            "notify_fd never became readable"
+        );
         assert_eq!(p.take_fired(), vec![w], "the armed Watch, unchanged");
 
         // The fd is STILL readable (nobody drained the eventfd), so a
         // poller that did not retire the entry would report it again.
-        assert!(!readable_within(p.notify_fd(), QUIET_MS), "fired a second time");
+        assert!(
+            !readable_within(p.notify_fd(), QUIET_MS),
+            "fired a second time"
+        );
         assert!(p.take_fired().is_empty());
     }
 
@@ -424,15 +453,26 @@ mod tests {
     fn a_second_watch_on_the_same_fd_replaces_the_first() {
         let p = WaiterPoller::new().unwrap();
         let ev = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let stale = Watch { guest_proc: 1, id: 10, fd: ev.as_raw_fd() };
-        let fresh = Watch { guest_proc: 1, id: 11, fd: ev.as_raw_fd() };
+        let stale = Watch {
+            guest_proc: 1,
+            id: 10,
+            fd: ev.as_raw_fd(),
+        };
+        let fresh = Watch {
+            guest_proc: 1,
+            id: 11,
+            fd: ev.as_raw_fd(),
+        };
 
         // Nothing can fire between these two: the fd is not readable yet.
         p.watch(stale);
         p.watch(fresh);
         ev.write(1).unwrap();
 
-        assert!(readable_within(p.notify_fd(), EXPECT_MS), "notify_fd never became readable");
+        assert!(
+            readable_within(p.notify_fd(), EXPECT_MS),
+            "notify_fd never became readable"
+        );
         assert_eq!(p.take_fired(), vec![fresh], "the newer Watch, and it alone");
     }
 
@@ -449,11 +489,18 @@ mod tests {
         let ev = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let fd = ev.as_raw_fd();
 
-        p.watch(Watch { guest_proc: 3, id: 1, fd });
+        p.watch(Watch {
+            guest_proc: 3,
+            id: 1,
+            fd,
+        });
         p.unwatch(&[fd]);
         ev.write(1).unwrap();
 
-        assert!(!readable_within(p.notify_fd(), QUIET_MS), "an unwatched fd fired");
+        assert!(
+            !readable_within(p.notify_fd(), QUIET_MS),
+            "an unwatched fd fired"
+        );
         assert!(p.take_fired().is_empty());
     }
 
@@ -464,8 +511,16 @@ mod tests {
         let p = WaiterPoller::new().unwrap();
         let gone = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let live = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let dead_w = Watch { guest_proc: 5, id: 1, fd: gone.as_raw_fd() };
-        let live_w = Watch { guest_proc: 6, id: 2, fd: live.as_raw_fd() };
+        let dead_w = Watch {
+            guest_proc: 5,
+            id: 1,
+            fd: gone.as_raw_fd(),
+        };
+        let live_w = Watch {
+            guest_proc: 6,
+            id: 2,
+            fd: live.as_raw_fd(),
+        };
 
         p.watch(dead_w);
         p.watch(live_w);
@@ -473,9 +528,15 @@ mod tests {
         gone.write(1).unwrap();
         live.write(1).unwrap();
 
-        assert!(readable_within(p.notify_fd(), EXPECT_MS), "notify_fd never became readable");
+        assert!(
+            readable_within(p.notify_fd(), EXPECT_MS),
+            "notify_fd never became readable"
+        );
         assert_eq!(p.take_fired(), vec![live_w], "process 6 keeps its waiter");
-        assert!(!readable_within(p.notify_fd(), QUIET_MS), "process 5's waiter fired anyway");
+        assert!(
+            !readable_within(p.notify_fd(), QUIET_MS),
+            "process 5's waiter fired anyway"
+        );
         assert!(p.take_fired().is_empty());
     }
 
@@ -491,15 +552,30 @@ mod tests {
     fn an_fd_closed_underneath_the_poller_never_fires() {
         let p = WaiterPoller::new().unwrap();
         let live = EventFd::new(libc::EFD_NONBLOCK).unwrap();
-        let dead_w = Watch { guest_proc: 8, id: 1, fd: closed_fd_number() };
-        let live_w = Watch { guest_proc: 8, id: 2, fd: live.as_raw_fd() };
+        let dead_w = Watch {
+            guest_proc: 8,
+            id: 1,
+            fd: closed_fd_number(),
+        };
+        let live_w = Watch {
+            guest_proc: 8,
+            id: 2,
+            fd: live.as_raw_fd(),
+        };
 
         p.watch(dead_w);
         p.watch(live_w);
         live.write(1).unwrap();
 
-        assert!(readable_within(p.notify_fd(), EXPECT_MS), "the live waiter never fired");
-        assert_eq!(p.take_fired(), vec![live_w], "the closed fd must not appear here");
+        assert!(
+            readable_within(p.notify_fd(), EXPECT_MS),
+            "the live waiter never fired"
+        );
+        assert_eq!(
+            p.take_fired(),
+            vec![live_w],
+            "the closed fd must not appear here"
+        );
         assert!(!readable_within(p.notify_fd(), QUIET_MS));
         assert!(p.take_fired().is_empty());
     }
@@ -526,7 +602,11 @@ mod tests {
     fn dropping_the_poller_joins_its_thread() {
         let p = WaiterPoller::new().unwrap();
         let weak = Arc::downgrade(&p.shared);
-        assert_eq!(weak.strong_count(), 2, "the poller and its thread, one each");
+        assert_eq!(
+            weak.strong_count(),
+            2,
+            "the poller and its thread, one each"
+        );
 
         let (tx, rx) = std::sync::mpsc::channel();
         let after = weak.clone();
@@ -538,8 +618,14 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("drop never returned -- the poll thread missed the shutdown flag");
 
-        assert_eq!(left, 0, "the poll thread was still running when drop returned");
-        assert!(weak.upgrade().is_none(), "the poll thread outlived the poller");
+        assert_eq!(
+            left, 0,
+            "the poll thread was still running when drop returned"
+        );
+        assert!(
+            weak.upgrade().is_none(),
+            "the poll thread outlived the poller"
+        );
     }
 
     /// `LEA_FRL_HZ` parsing: a rate becomes a period, and everything that
@@ -559,11 +645,19 @@ mod tests {
         assert_eq!(frl_interval_from(Some("0")), None, "0 Hz is off, not 1/0");
         assert_eq!(frl_interval_from(Some("abc")), None, "unparsable is off");
         assert_eq!(frl_interval_from(Some("")), None, "empty is off");
-        assert_eq!(frl_interval_from(Some("-60")), None, "a negative rate is off");
+        assert_eq!(
+            frl_interval_from(Some("-60")),
+            None,
+            "a negative rate is off"
+        );
         // A rate whose period no Duration can hold is off rather than a
         // panic on the poller thread (Duration::from_secs_f64 panics on
         // overflow; that thread dying leaves every semsurf fence hanging).
-        assert_eq!(frl_interval_from(Some("1e-300")), None, "an unrepresentable period is off");
+        assert_eq!(
+            frl_interval_from(Some("1e-300")),
+            None,
+            "an unrepresentable period is off"
+        );
         assert_eq!(frl_interval_from(Some("NaN")), None, "NaN is off");
         assert_eq!(frl_interval_from(Some("inf")), None, "infinity is off");
 
@@ -572,6 +666,9 @@ mod tests {
         // 16.666.. ms -- the number the poller's `div_ceil` comment is about.
         assert_eq!(sixty.as_micros(), 16_666);
         assert_eq!(frl_interval_from(Some("30")).unwrap().as_micros(), 33_333);
-        assert_eq!(frl_interval_from(Some("1000")).unwrap(), Duration::from_millis(1));
+        assert_eq!(
+            frl_interval_from(Some("1000")).unwrap(),
+            Duration::from_millis(1)
+        );
     }
 }

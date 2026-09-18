@@ -149,8 +149,12 @@ pub struct NvDevice {
 impl NvDevice {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let cpath = std::ffi::CString::new(path.as_os_str().as_encoded_bytes())
-            .map_err(|e| Error::Open { path: path.display().to_string(), source: std::io::Error::other(e) })?;
+        let cpath = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).map_err(|e| {
+            Error::Open {
+                path: path.display().to_string(),
+                source: std::io::Error::other(e),
+            }
+        })?;
         // O_CLOEXEC on purpose: a process that survives fork/exec must not
         // hand a half-built RM state down to the exec'd image.
         let raw = unsafe { libc::open(cpath.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
@@ -195,7 +199,9 @@ impl NvDevice {
     ///
     /// No RM status field: the driver reports errors here as errno.
     pub fn register_fd(&self, ctl: &NvDevice) -> Result<()> {
-        let mut p = nvgpu::IoctlRegisterFd { ctl_fd: ctl.as_raw_fd() };
+        let mut p = nvgpu::IoctlRegisterFd {
+            ctl_fd: ctl.as_raw_fd(),
+        };
         unsafe { self.ioctl_raw(nvgpu::NV_ESC_REGISTER_FD, &mut p) }
     }
 
@@ -211,9 +217,16 @@ impl NvDevice {
     /// silent memory error, not an EINVAL.
     pub unsafe fn ioctl_raw<T>(&self, nr: u32, arg: &mut T) -> Result<()> {
         let cmd = iowr::<T>(nr);
-        let r = libc::ioctl(self.fd.as_raw_fd(), cmd as libc::Ioctl, arg as *mut T as *mut libc::c_void);
+        let r = libc::ioctl(
+            self.fd.as_raw_fd(),
+            cmd as libc::Ioctl,
+            arg as *mut T as *mut libc::c_void,
+        );
         if r < 0 {
-            return Err(Error::Ioctl { nr, source: std::io::Error::last_os_error() });
+            return Err(Error::Ioctl {
+                nr,
+                source: std::io::Error::last_os_error(),
+            });
         }
         Ok(())
     }
@@ -270,7 +283,6 @@ pub fn check_status(nr: u32, status: u32) -> Result<()> {
     }
 }
 
-
 #[cfg(test)]
 mod ioc_tests {
     use super::*;
@@ -287,10 +299,18 @@ mod ioc_tests {
                 let cmd = iowr_raw(nr, size);
                 assert_eq!(ioc_nr(cmd), nr, "nr of {cmd:#x}");
                 assert_eq!(ioc_size(cmd), size, "size of {cmd:#x}");
-                assert_eq!(ioc_type(cmd), sys::NV_IOCTL_MAGIC as u32, "type of {cmd:#x}");
+                assert_eq!(
+                    ioc_type(cmd),
+                    sys::NV_IOCTL_MAGIC as u32,
+                    "type of {cmd:#x}"
+                );
                 // Direction is READ|WRITE for every NVIDIA escape: the
                 // driver overwrites the argument in place.
-                assert_eq!(cmd >> IOC_DIRSHIFT, (IOC_READ | IOC_WRITE), "dir of {cmd:#x}");
+                assert_eq!(
+                    cmd >> IOC_DIRSHIFT,
+                    (IOC_READ | IOC_WRITE),
+                    "dir of {cmd:#x}"
+                );
             }
         }
     }
@@ -317,15 +337,28 @@ mod ioc_tests {
     /// one of those to RM would be a call into the wrong driver.
     #[test]
     fn is_nv_cmd_recognises_the_type_byte_and_nothing_else() {
-        assert_eq!(sys::NV_IOCTL_MAGIC, b'F', "the frontend magic is 'F' (nv-ioctl-numbers.h)");
+        assert_eq!(
+            sys::NV_IOCTL_MAGIC,
+            b'F',
+            "the frontend magic is 'F' (nv-ioctl-numbers.h)"
+        );
         assert!(is_nv_cmd(iowr_raw(sys::NV_ESC_RM_CONTROL, 32)));
         assert!(is_nv_cmd(iowr::<u32>(0)));
 
         // A DRM ioctl: same shape, type 'd' (drm.h DRM_IOCTL_BASE). Same
         // nr, same size, and it must NOT be taken for an NVIDIA escape.
-        let drm = ioc(IOC_READ | IOC_WRITE, b'd' as u32, sys::NV_ESC_RM_CONTROL, 32);
+        let drm = ioc(
+            IOC_READ | IOC_WRITE,
+            b'd' as u32,
+            sys::NV_ESC_RM_CONTROL,
+            32,
+        );
         assert!(!is_nv_cmd(drm));
-        assert_eq!(ioc_nr(drm), sys::NV_ESC_RM_CONTROL, "the nr alone does not distinguish them");
+        assert_eq!(
+            ioc_nr(drm),
+            sys::NV_ESC_RM_CONTROL,
+            "the nr alone does not distinguish them"
+        );
         // Type 0 is the other easy false positive (an all-zero cmd word).
         assert!(!is_nv_cmd(0));
     }
@@ -338,13 +371,19 @@ mod ioc_tests {
     fn iowr_takes_its_size_from_the_type() {
         assert_eq!(
             iowr::<sys::NVOS54_PARAMETERS>(sys::NV_ESC_RM_CONTROL),
-            iowr_raw(sys::NV_ESC_RM_CONTROL, core::mem::size_of::<sys::NVOS54_PARAMETERS>() as u32)
+            iowr_raw(
+                sys::NV_ESC_RM_CONTROL,
+                core::mem::size_of::<sys::NVOS54_PARAMETERS>() as u32
+            )
         );
         assert_eq!(
             ioc_size(iowr::<sys::NVOS64_PARAMETERS>(sys::NV_ESC_RM_ALLOC)),
             core::mem::size_of::<sys::NVOS64_PARAMETERS>() as u32
         );
         assert_eq!(ioc_size(iowr::<[u8; 0]>(0)), 0);
-        assert_eq!(ioc_size(iowr::<nvgpu::IoctlRegisterFd>(nvgpu::NV_ESC_REGISTER_FD)), 4);
+        assert_eq!(
+            ioc_size(iowr::<nvgpu::IoctlRegisterFd>(nvgpu::NV_ESC_REGISTER_FD)),
+            4
+        );
     }
 }
