@@ -1,126 +1,75 @@
 <!-- SPDX-License-Identifier: MIT -->
-# What NVIDIA userspace the guest needs, and how to check
+# Guest NVIDIA userspace
 
-The guest gets no NVIDIA kernel driver — that is what this project
-replaces. It does get NVIDIA's complete **userspace** half, staged from
-the host at exactly the version in `DRIVER_VERSION`.
+- The guest uses NVIDIA userspace libraries with Leandro's guest modules.
+  It does not load NVIDIA's GPU kernel driver.
+- Stage userspace matching the host driver. The normal rig uses `DRIVER_VERSION`;
+  version experiments can select `LEA_DRIVER` through the launcher.
+- Staging and auditing live in [Leandro-Test provision.sh](../../Leandro-Test/scripts/lib/provision.sh); the driver pin and guest modules stay in core.
 
-This document is about how you find out what is missing, because the
-obvious method does not work.
+## Check missing libraries
 
-## `ldd` answers the wrong question
+- `ldd` covers linked dependencies, but NVIDIA libraries also load dependencies
+  with `dlopen`. Missing optional libraries can disable a capability without a
+  linker error.
+- Inspect both `DT_NEEDED` and library names embedded in the binaries:
 
-NVIDIA's libraries name their siblings mostly **at runtime**, not in
-`DT_NEEDED`:
+```sh
+objdump -p /path/to/libcuda.so.$WANT | grep NEEDED
+strings /path/to/libcuda.so.$WANT | grep -oE 'libnvidia-[a-z0-9-]+\.so[.0-9]*'
+```
 
-    $ objdump -p /usr/lib/libcuda.so.610.43.03 | grep NEEDED
-    (not one NVIDIA library)
+- Run the staged-guest audit from Test:
 
-`libcuda` depends on nothing NVIDIA-shaped according to the linker, and
-`dlopen`s half the JIT chain anyway. The consequence has already cost this
-project days:
+```sh
+cd ../Leandro-Test
+./scripts/showcase.sh audit --name vm0
+```
 
-**A missing `dlopen` is not a link error and not a loud failure.** It is a
-capability that is simply absent. That is exactly how `libnvidia-rtcore`
-went missing: CS2 reported "Failed to initialize Vulkan", and it was found
-with `strace` — **no RM trace can show an `ENOENT`, because it is not an
-ioctl.**
+- The audit checks the loader paths for each bit width separately:
+  `/opt/nvrm/lib` and `/opt/nvrm-gl/lib` for 64-bit, `/opt/nvrm-gl/lib32` for 32-bit.
+- Repeat after staging missing libraries: each added library can introduce more
+  runtime dependencies.
+- Use `strace` for failed file lookups. An RM ioctl trace cannot show an `ENOENT`
+  from a library load.
 
-The right question is therefore: *which names does the library mention,
-and do they resolve in the guest?* Both sources together, `DT_NEEDED` and
-the `dlopen` names inside the binary:
+## Recorded audit: 610.43.03, 2026-08-18
 
-    strings libcuda.so.$WANT | grep -oE 'libnvidia-[a-z0-9-]+\.so[.0-9]*'
+- This is historical evidence, not certification of the currently staged driver.
+- The 64-bit audit resolved all referenced NVIDIA names after adding optional
+  tile raster, NVVM, PKCS#11, debugger, OpenCL and Vulkan SC libraries.
+- The 32-bit JIT chain gained `libnvidia-nvvm`, `libnvidia-ptxjitcompiler` and
+  `libnvidia-tileiras`, plus available video and GLES libraries.
+- The recorded host lacked 32-bit builds of `libnvidia-nvvm70`,
+  `libnvidia-pkcs11`, `libnvidia-pkcs11-openssl3`, `libcudadebugger` and
+  `libnvidia-rtcore`. Recheck availability when changing drivers.
+- The remaining audit output was:
 
-## The reader
+```text
+== 64-bit (compute + GL payload) ==
+   all referenced NVIDIA names resolve
+== 32-bit (GL payload) ==
+   MISSING: libnvidia-nvvm70.so.4
+   MISSING: libnvidia-pkcs11-openssl3.so.610.43.03
+   MISSING: libnvidia-pkcs11.so.610.43.03
+```
 
-`scripts/showcase.sh audit` does that against a running guest: it
-collects both name sources from every staged library and checks whether
-each name resolves on the loader path **of its own bit width**.
+- Without 32-bit `libnvidia-rtcore`, the recorded setup cannot provide that
+  library to a 32-bit Vulkan client requesting acceleration structures.
 
-    scripts/showcase.sh audit [--name NAME]
+## GBM backend selection
 
-Two things about it are not cosmetic:
+- GBM loads `<drivername>_gbm.so` from the name returned by `drmGetVersion`.
+  Leandro's DRM nodes report `nvidia-drm`.
+- Stage the backend for both bit widths when the host provides both.
+  `lea_display_stage` warns when 32-bit userspace is unavailable.
+- A missing 32-bit NVIDIA backend can send a client through Mesa's fallback
+  loader. The recorded Steam output included:
 
-**Bit widths stay separate.** A 64-bit hit in `/usr/lib/x86_64-linux-gnu`
-says nothing about a 32-bit client, and that is exactly where the gap was.
+```text
+pci id for fd 136: 1af4:107c, driver (null)
+```
 
-**It converges, it does not terminate in one pass.** Every newly staged
-library brings its own `dlopen` names — `libcudadebugger` is what made
-`libnvidia-opencl` and `libnvidia-vksc-core` visible at all. Run it again
-after every stage until it comes back clean.
-
-An earlier version of the reader forgot `/opt/nvrm/lib`, where `libcuda`
-lives, and reported `libcuda.so.1` as missing while in truth the 64-bit
-compute side had not been checked at all. A reader that cannot answer the
-question still answers it.
-
-## The state, measured 2026-08-18
-
-Driver 610.43.03.
-
-**64-bit: complete.** Seven names were missing and all are staged now —
-`libnvidia-tileiras`, `libnvidia-nvvm70`, `libnvidia-pkcs11`,
-`libnvidia-pkcs11-openssl3`, `libcudadebugger`, `libnvidia-opencl`,
-`libnvidia-vksc-core`. They are in `lea_payload_stage`'s optional list
-(`scripts/lib/provision.sh`): present gets staged, absent gets named and
-does not abort the payload. They are capabilities (JIT fallback, tiled
-raster, PKCS#11, debugger, OpenCL), not the CUDA core.
-
-The price is real: `libnvidia-tileiras` is 101 MB and `libnvidia-nvvm70`
-24 MB, which takes the payload to 369 MB.
-
-**32-bit: the JIT chain was missing entirely.** We shipped 32-bit
-`libcuda` and none of its JIT partners. `libnvidia-nvvm`,
-`libnvidia-ptxjitcompiler` and `libnvidia-tileiras` are staged now, plus
-an optional set that was nowhere before (`libnvidia-fbc`,
-`libnvidia-encode`, `libnvcuvid`, `libnvidia-ml`, `libnvidia-opticalflow`,
-`libGLESv2_nvidia`, `libGLESv1_CM_nvidia`).
-
-**Three names cannot be fixed, and that is a driver fact.** Checked on the
-host at 610.43.03: `libnvidia-nvvm70`, `libnvidia-pkcs11`(`-openssl3`),
-`libcudadebugger` and `libnvidia-rtcore` have **no 32-bit build at all**.
-So the reader's final output —
-
-    == 64-bit (compute + GL payload) ==
-       all referenced NVIDIA names resolve
-    == 32-bit (GL payload) ==
-       MISSING: libnvidia-nvvm70.so.4
-       MISSING: libnvidia-pkcs11-openssl3.so.610.43.03
-       MISSING: libnvidia-pkcs11.so.610.43.03
-
-— is not an open item but a documented boundary.
-
-`libnvidia-rtcore` is the one that matters: **a 32-bit client that enables
-`VK_KHR_acceleration_structure` cannot be served.** That is a statement
-about the driver, not a gap we can close, and it belongs in any later
-packaging as a known limit.
-
-## GBM selects by name, not by PCI ID
-
-Measured separately, but it belongs here because it is the same class of
-problem: something looked up by name and silently not found.
-
-`libgbm.so.1` imports exactly two symbols from libdrm — `drmGetVersion`
-and `drmFreeVersion` — and then `dlopen`s `<drivername>_gbm.so`. Our node
-answers correctly:
-
-    /dev/dri/card0      drmGetVersion name = 'nvidia-drm'
-    /dev/dri/renderD128 drmGetVersion name = 'nvidia-drm'
-
-The 64-bit backend was installed by the display staging (`lea_display_stage`); the 32-bit backend
-never was. A 32-bit client therefore finds only Mesa's `dri_gbm.so`, falls
-into Mesa's loader, and **that** one asks the PCI ID — which is the line
-in Steam's log:
-
-    pci id for fd 136: 1af4:107c, driver (null)
-
-the display staging installs the 32-bit backend now, when the host has
-the 32-bit userspace to stage (`lib32-nvidia-utils`; without it the
-staging warns and goes on). Note this is a testable
-prediction rather than an established cause: Steam has 32-bit parts and
-pressure-vessel copies the gap into its container overrides, so if Steam's
-window stays invisible afterwards, this was not it.
-
-Xwayland is 64-bit and loads the backend that already existed, so this gap
-does **not** explain defect 22-C. B and C stay separate.
+- This was a suspected cause of the Steam issue, not a confirmed explanation.
+  It did not explain the separate 64-bit Xwayland issue; see
+  [OPEN-QUESTIONS](OPEN-QUESTIONS.md), issue 22.

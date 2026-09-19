@@ -1,35 +1,12 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! What this boundary REWRITES, as data -- so the rewriting can be tested.
+//! Describe fields rewritten by the guest or backend for trace comparison.
 //!
-//! Everything else in this tree describes what can be CARRIED. This
-//! describes what is deliberately NOT carried unchanged: the gpuIds that
-//! name a different card on the two sides, the pointers that name a
-//! different address space, the answers the backend writes itself, and the
-//! card's own name.
-//!
-//! WHY IT IS A TABLE AND NOT A COMMENT. `verify` compares the answer bytes
-//! of a forwarded control native against guest, and for a mediated command
-//! byte equality is the WRONG TEST -- `NV2080_CTRL_CMD_GPU_GET_NAME_STRING`
-//! answers `NVID...` natively and `Lean...` in a guest, working exactly as
-//! designed, and that was reported as a mismatch. The right test is
-//! "differs in exactly the fields the mediation rewrites, and nowhere
-//! else", and that test needs the mediation to NAME ITS OWN FIELDS. It
-//! could not, so a whole class of commands was unjudgeable.
-//!
-//! Note which direction that makes the comparison go. This is not a list of
-//! bytes to ignore. A word inside one of these fields is allowed to differ;
-//! a word OUTSIDE them is a finding, on a command where the old test could
-//! only shrug. It is the fourth mask and, like the other three, it is
-//! DERIVED -- from `xlate`, from the BDF tables below, and from
-//! `offset_of!` on the vendor structs. Nothing here is a number somebody
-//! typed next to the code that uses it; `crates/vhost-user-nvrm/src/vram.rs`
-//! reads its offsets from here rather than keeping a second copy.
-//!
-//! ONE NUMBER, ONE PLACE: the BDF tables live here and the generated C
-//! header (`nvrm-genhdr`) is written from them, so the guest module and this
-//! manifest cannot disagree about which field carries an address.
+//! `verify` permits differences within these fields and reports differences
+//! outside them. Offsets come from `xlate`, vendor structs and the BDF tables
+//! shared with `nvrm-genhdr`. Backend mediation also uses these offsets, so
+//! the manifest and implementations describe the same fields.
 
 use core::mem::{offset_of, size_of};
 
@@ -49,7 +26,7 @@ pub enum Kind {
     BdfScalar,
     /// An array of gpuIds, `stride` bytes apart, `count` of them.
     BdfArray,
-    /// The PCI ADDRESS itself -- domain, bus, slot. Not the same thing as a
+    /// The PCI ADDRESS itself; domain, bus, slot. Not the same thing as a
     /// gpuId even though one is derived from the other, and it is rewritten
     /// by a separate step in the guest module.
     BdfAddress,
@@ -59,7 +36,7 @@ pub enum Kind {
     /// A process-local file descriptor inside the params buffer.
     CtrlFd,
     /// The backend writes this field itself rather than forwarding RM's
-    /// answer -- the VRAM ledger and the process list.
+    /// answer; the VRAM ledger and the process list.
     BackendAnswered,
     /// The card's own name.
     IdentityString,
@@ -82,12 +59,7 @@ impl Kind {
 /// One rewritten field of one command.
 #[derive(Copy, Clone, Debug)]
 pub struct Mediated {
-    /// The ESCAPE this field belongs to. Almost everything mediated is a
-    /// RM_CONTROL, but not everything: `NV_ESC_CARD_INFO` carries the BDF
-    /// and the gpuId in its own inline block, with no control involved, and
-    /// a manifest that only had a `cmd` column could not name it. NVML reads
-    /// that escape, which is why nvidia-smi kept printing the host address
-    /// after every control had been mediated.
+    /// Escape number. CARD_INFO carries its fields inline rather than in a control.
     pub nr: u32,
     /// The control command, when `nr` is RM_CONTROL. Meaningless otherwise,
     /// and `sig()` is what a caller should use.
@@ -108,12 +80,8 @@ pub struct Mediated {
 }
 
 impl Mediated {
-    /// The catalogue signature this field belongs to.
-    ///
-    /// Everything mediated is on the control node: mediation happens where
-    /// the boundary answers, and that is `/dev/nvidiactl`. A field on
-    /// another node would need a `dev` column here, and would be a finding
-    /// in its own right.
+    /// Catalogue signature, currently keyed to the control node.
+    /// Mediation on other nodes would require a device field in this manifest.
     pub fn sig(&self) -> String {
         if self.nr == NR_RM_CONTROL {
             format!("ctl {:#x} {:#x}", self.nr, self.cmd)
@@ -132,24 +100,11 @@ impl Mediated {
     }
 }
 
-// ---------------------------------------------------------------------------
-// the address, as scalars and as arrays
-// ---------------------------------------------------------------------------
-// These two tables were literals inside `nvrm-genhdr`'s generator until the
-// manifest needed them as well. They are here now and the generator reads
-// them, because a table the C header is built from and a table the mask is
-// built from must be THE SAME TABLE -- otherwise the guest module could
-// translate a field the mask does not know about, and the mask would report
-// the translation as a defect.
-//
-// Hand-listing cost a working NVKMS once: mediating GET_ID_INFO (0x202) but
-// not GET_ID_INFO_V2 (0x205) let a mediated id reach RM unmapped, and
-// nvidia-drm answered "Failed to allocate NvKmsKapiDevice" -- three layers
-// away from the missing line. Every control whose parameter block carries a
-// gpuId belongs here, and the offsets come from the SDK structs, never from
-// a count of fields.
+// GPU address fields shared by the manifest and generated C header.
+// Include legacy and V2 controls: an untranslated ID can prevent NVKMS
+// initialization. Offsets come from SDK structs.
 
-/// `(name, cmd, offset)` -- one gpuId at a fixed offset.
+/// `(name, cmd, offset)`; one gpuId at a fixed offset.
 pub fn bdf_scalars() -> &'static [(&'static str, u32, usize)] {
     &[
         (
@@ -162,10 +117,8 @@ pub fn bdf_scalars() -> &'static [(&'static str, u32, usize)] {
             sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO_V2,
             offset_of!(sys::NV0000_CTRL_GPU_GET_ID_INFO_V2_PARAMS, gpuId),
         ),
-        // The SAME id a second time in the same block. Measured with
-        // bdf_debug: GET_ID_INFO carries 0x2d00 at +0 and again at +28, and
-        // the second one is boardId -- which is what NVML prints the address
-        // from. A command can appear more than once in this table.
+        // GET_ID_INFO also returns the ID as boardId; NVML uses that address.
+        // Multiple rows may describe different fields of one command.
         (
             "GET_ID_INFO boardId",
             sys::NV0000_CTRL_CMD_GPU_GET_ID_INFO,
@@ -201,10 +154,7 @@ pub fn bdf_scalars() -> &'static [(&'static str, u32, usize)] {
             sys::NV0000_CTRL_CMD_GPU_QUERY_DRAIN_STATE,
             offset_of!(sys::NV0000_CTRL_GPU_QUERY_DRAIN_STATE_PARAMS, gpuId),
         ),
-        // These two are the ones NVML actually attaches with, and leaving
-        // them out was measured, not theorised: nvidia-smi kept printing the
-        // host's 2D:00.0 because ASYNC_ATTACH_ID echoed the host id straight
-        // back and NVML decodes the address OUT OF THE ID.
+        // NVML derives the PCI address from these attach-control IDs.
         (
             "ASYNC_ATTACH_ID",
             sys::NV0000_CTRL_CMD_GPU_ASYNC_ATTACH_ID,
@@ -215,15 +165,9 @@ pub fn bdf_scalars() -> &'static [(&'static str, u32, usize)] {
             sys::NV0000_CTRL_CMD_GPU_WAIT_ATTACH_ID,
             offset_of!(sys::NV0000_CTRL_GPU_WAIT_ATTACH_ID_PARAMS, gpuId),
         ),
-        // Found by the guest sweep on 2026-08-20 (OPEN-QUESTIONS number 51),
-        // and the only control in nvidia-smi's whole run that answered
-        // NV_ERR_INVALID_ARGUMENT (0x1f) in a guest -- which is what RM says
-        // about a gpuId it does not know, and the same failure as
-        // P2P_CAPS_MATRIX in the raytracing work. Params are
-        // { gpuId, pid, state } = 12 bytes, and the guest trace agrees
-        // (psize 0xc). NVML asks it per GPU while building the accounting
-        // section of `-q`; the report prints without the answer, which is
-        // why no gate has ever seen this and only a trace diff could.
+        // Accounting query: { gpuId, pid, state }, 12 bytes.
+        // Missing gpuId translation produced INVALID_ARGUMENT in the 2026-08-20
+        // nvidia-smi sweep (OPEN-QUESTIONS 51), despite a successful report.
         (
             "GPUACCT_GET_ACCOUNTING_STATE",
             sys::NV0000_CTRL_CMD_GPUACCT_GET_ACCOUNTING_STATE,
@@ -232,15 +176,10 @@ pub fn bdf_scalars() -> &'static [(&'static str, u32, usize)] {
     ]
 }
 
-/// `(name, cmd, offset, count, stride)` -- an array of gpuIds.
-///
-/// The stride column exists for ONE control so far, and it is the one that
-/// broke raytracing: GET_ACTIVE_DEVICE_IDS answers an array of
-/// {gpuId, gpuInstanceId, computeInstanceId} -- 12 bytes apart. Measured
-/// 2026-08-15 with the tracer's answer payloads: every other enumeration
-/// said gpuId 0x6 (mediated), this one said 0x2d00 (the host's), and the RT
-/// device init, which asks it right after GET_ID_INFO_V2, found its active
-/// device in no list it knew and returned INITIALIZATION_FAILED.
+/// `(name, cmd, offset, count, stride)` for gpuId arrays.
+/// GET_ACTIVE_DEVICE_IDS uses 12-byte { gpuId, gpuInstanceId,
+/// computeInstanceId } entries. Translating only contiguous u32 arrays
+/// misses it and prevented raytracing initialization (2026-08-15 trace).
 pub fn bdf_arrays<A: RmAbi>() -> Vec<(&'static str, u32, usize, u32, usize)> {
     vec![
         (
@@ -279,10 +218,7 @@ pub fn bdf_arrays<A: RmAbi>() -> Vec<(&'static str, u32, usize, u32, usize)> {
             sys::NV0000_CTRL_GPU_MAX_ACTIVE_DEVICES,
             size_of::<sys::NV0000_CTRL_GPU_ACTIVE_DEVICE>(),
         ),
-        // The QUESTION side of raytracing init: "P2P caps of GPU group A to
-        // group B", both groups arrays of gpuIds. Two arrays, one control,
-        // hence two rows with the same cmd (the rewrite loop takes every row
-        // that matches).
+        // P2P_CAPS_MATRIX contains two gpuId arrays; rewrite both matching rows.
         (
             "P2P_CAPS_MATRIX_A",
             sys::NV0000_CTRL_CMD_SYSTEM_GET_P2P_CAPS_MATRIX,
@@ -300,19 +236,10 @@ pub fn bdf_arrays<A: RmAbi>() -> Vec<(&'static str, u32, usize, u32, usize)> {
     ]
 }
 
-/// The PCI ADDRESS inside `NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS`.
-///
-/// `(suffix, member, offset, bytes)`. The generated C header defines
-/// `NVRM_<suffix>_OFF` from this and the guest module writes the guest's own
-/// domain/bus/slot there (`bdf_rewrite_reply`, virtio_nvrm.c), so the id and
-/// the address cannot contradict each other -- gpuId is DERIVED from the
-/// address (`gpuGenerate32BitId()`, gpu.c:292).
-///
-/// It is here because the mask found it missing. `verify` reported
-/// GET_PCI_INFO differing at `bus` with "this command IS mediated, and this
-/// byte is in none of the fields the mediation declares" -- which is the
-/// fourth mask doing exactly what it is for, on the first run, before any
-/// deliberate test. The manifest was incomplete; the code was right.
+/// PCI address fields in `NV0000_CTRL_GPU_GET_PCI_INFO_PARAMS`.
+/// `(suffix, member, offset, bytes)` generates the C rewrite offsets.
+/// The guest rewrites domain/bus/slot consistently with gpuId, which RM
+/// derives from the PCI address (`gpuGenerate32BitId`, gpu.c:292).
 pub fn pci_info_fields() -> &'static [(&'static str, &'static str, usize, u32)] {
     &[
         (
@@ -342,15 +269,8 @@ pub fn pci_info_fields() -> &'static [(&'static str, &'static str, usize, u32)] 
     ]
 }
 
-// ---------------------------------------------------------------------------
-// what the backend answers itself
-// ---------------------------------------------------------------------------
-// The offsets `crates/vhost-user-nvrm/src/vram.rs` rewrites at. They are
-// defined HERE and used THERE, rather than the other way round, so the
-// manifest cannot describe a field the code does not touch or miss one it
-// does. Every one is an `offset_of!` on the bindgen struct -- the numbers in
-// the doc comments are what those expressions evaluate to on this driver,
-// recorded so a reader need not compile to follow the prose.
+// Offsets used by backend answer mediation and the comparison manifest.
+// Derive them from vendor structs; do not keep another copy in vram.rs.
 
 /// `NV2080_CTRL_CMD_GPU_GET_PIDS` (ctrl2080gpu.h:3501).
 pub const CMD_GPU_GET_PIDS: u32 = 0x2080_018d;
@@ -358,24 +278,19 @@ pub const CMD_GPU_GET_PIDS: u32 = 0x2080_018d;
 pub const CMD_GPU_GET_PID_INFO: u32 = 0x2080_018e;
 /// `NV2080_CTRL_CMD_FB_GET_INFO_V2` (ctrl2080fb.h:489).
 pub const CMD_FB_GET_INFO_V2: u32 = 0x2080_1303;
-/// `NV2080_CTRL_CMD_FB_GET_INFO` (ctrl2080fb.h:480), the V1 form -- the SAME
+/// `NV2080_CTRL_CMD_FB_GET_INFO` (ctrl2080fb.h:480), the V1 form; the SAME
 /// index list, but the array hangs off an `NvP64` instead of sitting in the
 /// params buffer (`xlate::nested_ptrs`, ptr_off 8).
 pub const CMD_FB_GET_INFO: u32 = 0x2080_1301;
 /// `NV0080_CTRL_CMD_GPU_GET_VIRTUALIZATION_MODE` (ctrl0080gpu.h:300).
-///
-/// The question every client asks about the card it just opened. Measured
-/// (matrix/catalog-610.57.04.json): **34 calls from 20 library classes** --
-/// every CUDA probe, all four EGL platforms, GL, GLES, NVDEC, NVENC, NVML,
-/// OpenCL and all three Vulkan probes -- and today the guest is handed the
-/// HOST's answer, `NONE`, unchanged.
+/// The 610.57.04 catalogue records 34 calls across 20 library classes.
 pub const CMD_GPU_GET_VIRTUALIZATION_MODE: u32 = 0x0080_0289;
 /// `NV2080_CTRL_CMD_GPU_GET_ENCODER_CAPACITY` (ctrl2080gpu.h:2322). 22
 /// calls, from `nvenc` alone.
 pub const CMD_GPU_GET_ENCODER_CAPACITY: u32 = 0x2080_016c;
 
 /// `NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS`: `virtualizationMode`
-/// @0, `isGridBuild` @4 -- a `NvBool`, which is one byte.
+/// @0, `isGridBuild` @4; a `NvBool`, which is one byte.
 pub const VIRTMODE_OFF: usize = offset_of!(
     sys::NV0080_CTRL_GPU_GET_VIRTUALIZATION_MODE_PARAMS,
     virtualizationMode
@@ -403,14 +318,8 @@ pub const ENCCAP_OFF: usize = offset_of!(
 );
 pub const ENCCAP_LEN: usize = size_of::<sys::NV2080_CTRL_GPU_GET_ENCODER_CAPACITY_PARAMS>();
 
-/// `NV2080_CTRL_CMD_GPU_GET_GID_INFO` (ctrl2080gpu.h:1749) -- the card's
-/// UUID, which is what every orchestrator keys a GPU on.
-///
-/// Measured 2026-08-21 on a running fleet of four guests: **all four
-/// answered `GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d`**, the host card's
-/// own UUID, because the control is forwarded. Four VMs that a scheduler
-/// cannot tell apart is the same class of leak as the host PID table, one
-/// namespace further out.
+/// `NV2080_CTRL_CMD_GPU_GET_GID_INFO` (ctrl2080gpu.h:1749).
+/// UUID mediation distinguishes VMs sharing one physical card.
 pub const CMD_GPU_GET_GID_INFO: u32 = 0x2080_014a;
 
 /// `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` (ctrl2080gpu.h:325).
@@ -439,7 +348,7 @@ pub const PIDINFO_MEM_PRIVATE: usize = offset_of!(sys::NV2080_CTRL_GPU_PID_INFO,
 pub const PIDINFO_INDEX_VIDEO_MEMORY_USAGE: u32 = 0;
 
 /// `NV2080_CTRL_FB_GET_INFO_V2_PARAMS`: `fbInfoListSize` @0, then
-/// `NV2080_CTRL_FB_INFO { u32 index; u32 data; }` -- 1028 bytes for the
+/// `NV2080_CTRL_FB_INFO { u32 index; u32 data; }`; 1028 bytes for the
 /// 128-entry maximum.
 pub const FBINFO_COUNT_OFF: usize = 0;
 pub const FBINFO_LIST_OFF: usize = 4;
@@ -450,15 +359,8 @@ pub const FBINFO_MAX: usize = 128;
 /// wrong index, which is a real defect and has to stay visible.
 pub const FBINFO_DATA_OFF: usize = offset_of!(sys::NV2080_CTRL_FB_INFO, data);
 
-/// The `NV2080_CTRL_FB_INFO_INDEX_*` values that carry a MEMORY SIZE, all
-/// of them in kilobytes (ctrl2080fb.h:76-112, :254-260).
-///
-/// They live here rather than beside their one consumer because there is
-/// more than one now: the backend rewrites them on the way back to the
-/// guest, and the vGPU-shaped catalogue ([`crate::vgpu`]) reads the same
-/// two on the way in, from the host's own card. Two lists that could
-/// disagree about which index is a size is exactly the drift this module
-/// exists to prevent.
+/// Framebuffer size indexes, in KiB (ctrl2080fb.h:76-112,254-260).
+/// Shared by backend answer rewriting and host vGPU profile queries.
 pub const FB_INFO_INDEX_RAM_SIZE: u32 = 0x07;
 pub const FB_INFO_INDEX_TOTAL_RAM_SIZE: u32 = 0x08;
 pub const FB_INFO_INDEX_HEAP_SIZE: u32 = 0x09;
@@ -486,10 +388,8 @@ const _: () = {
     assert!(FBINFO_ENTRY == 8 && FBINFO_DATA_OFF == 4);
 };
 
-// The name field's two numbers, which the prose above quotes, for the version
-// this build defaults to. They are NOT the same on every supported driver --
-// 580.178.04 has a 128-byte union here -- so this is pinned rather than
-// general, and the general answer is `name_off`/`name_max`, which ask the ABI.
+// Default-ABI name layout. Use name_off/name_max for other ABIs;
+// 580.178.04 uses a 128-byte union.
 #[cfg(feature = "v610")]
 const _: () = {
     assert!(
@@ -501,16 +401,10 @@ const _: () = {
     assert!(size_of::<sys::v610::NV2080_CTRL_GPU_GET_NAME_STRING_PARAMS__bindgen_ty_1>() == 64);
 };
 
-// ---------------------------------------------------------------------------
 // the manifest
-// ---------------------------------------------------------------------------
 
-/// Every field this boundary rewrites, one record per `(command, field)`.
-///
-/// Derived in full: the BDF halves from the two tables above, the pointers
-/// and the fd fields from `xlate` (the same functions `table::build()` pours
-/// into the descriptor stream), and the backend's own from `offset_of!` on
-/// the vendor structs. There is no literal offset in this function.
+/// One record per rewritten field, derived from the BDF tables, xlate
+/// pointer/FD descriptors and vendor struct offsets.
 pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
     let mut out: Vec<Mediated> = Vec::new();
 
@@ -653,11 +547,8 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
                   stays visible",
         });
     }
-    // The two the vGPU-shaped policy answers (number 69). They are listed
-    // unconditionally, exactly like the VRAM sizes above: the manifest says
-    // which fields this boundary MAY rewrite, not which policy happens to
-    // be running -- a manifest that changed with the configuration could
-    // not be compared against a native run at all.
+    // Include all fields a policy may rewrite, independent of configuration,
+    // so the same manifest applies to native and guest comparisons.
     out.push(Mediated {
         nr: NR_RM_CONTROL,
         cmd: CMD_GPU_GET_VIRTUALIZATION_MODE,
@@ -681,10 +572,7 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
         field: "isGridBuild",
         why: "the boolean beside the mode, kept consistent with it",
     });
-    // The card's UUID, in the three controls that carry it: this VM's own
-    // in every answer, whatever the policy. Forwarded, every guest on the
-    // card answers with the CARD's UUID and no scheduler can tell them
-    // apart. The same length both ways, so no length field moves.
+    // Per-VM UUID fields have the same length as the native UUID.
     for (cmd, off, field) in [
         (
             CMD_GPU_GET_GID_INFO,
@@ -738,20 +626,9 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
         why: "the mediated card name (`Leandro ...`), whose content depends on \
               the VRAM cap and is therefore not a constant",
     });
-    // NV_ESC_CARD_INFO, the mediated field that is not a control at all.
-    //
-    // The guest module rewrites the BDF and the gpuId of every valid entry
-    // of the inline block (`virtio_nvrm.c`, at NVRM_CARD_INFO_PCI_OFF and
-    // NVRM_CARD_INFO_GPUID_OFF -- offsets this file generates). Nothing said
-    // so, so `verify` reported the rewrite as a MISMATCH the moment escape
-    // payloads were dumped at all: 0x2d natively, 0x05 in the guest, which
-    // is this rig's bus number against the guest's slot number and the
-    // mediation working exactly as designed.
-    //
-    // ONE ENTRY, not the whole array. The block holds NV_MAX_DEVICES of
-    // them, but only the first is filled on a single-GPU rig and a count
-    // here would be a promise about the others that nothing has measured.
-    // The comparison covers what the dump covers.
+    // CARD_INFO rewrites PCI address and gpuId in the inline array.
+    // Describe its first entry only: current single-GPU dumps do not validate
+    // the remaining NV_MAX_DEVICES entries.
     for (member, off, len) in [
         (
             "pci_info.domain",
@@ -791,12 +668,8 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
         why: "a gpuId: the host's card id in, this guest's id out. Already               covered by the derived gpuId mask, and declared here anyway --               the manifest describes what the code REWRITES, not what some               other mask happens to catch",
     });
 
-    // NVOS32_FUNCTION_INFO, the card's size through an escape rather than a
-    // control: `total` and `free` in the NVOS32 block itself, which RM fills
-    // from an FB_GET_INFO_V2 of its own and the backend rewrites under a cap
-    // like the list above (vram::rewrite_vidheap_info). OUT fields of every
-    // NVOS32 function, zero for all but INFO, so the record needs no
-    // function column: a native run and a guest run agree on the zeros.
+    // NVOS32 INFO returns total/free inline; the backend rewrites both under
+    // a cap. These output fields are zero for other functions.
     for (member, off) in [
         ("total", offset_of!(sys::NVOS32_PARAMETERS, total)),
         ("free", offset_of!(sys::NVOS32_PARAMETERS, free)),
@@ -819,10 +692,7 @@ pub fn manifest<A: RmAbi>() -> Vec<Mediated> {
     out
 }
 
-/// The manifest as text, one record per line, for the artefact beside
-/// `tables.txt`. Same spirit as `table::expect_dump()`: a stream a reader
-/// and a script can both take apart, written by the code that owns the
-/// numbers.
+/// Print one manifest record per line alongside tables.txt.
 pub fn dump<A: RmAbi>() -> String {
     let mut o = String::from(
         "# GENERATED by nvrm-genhdr --mediation-dump -- do not edit.\n\
@@ -905,10 +775,8 @@ mod tests {
         assert_eq!(name.end(), 68);
     }
 
-    /// Every command the backend answers itself has at least one record.
-    /// The catalogue reports seven such commands; the two semaphore-surface
-    /// controls are intercepted rather than answered and rewrite no field of
-    /// the params buffer, so they are deliberately not here.
+    /// Each backend-answered control needs a manifest record.
+    /// Semaphore waiter controls are intercepted separately and omitted here.
     #[test]
     fn every_backend_answered_command_is_described() {
         let m = manifest::<sys::DefaultAbi>();

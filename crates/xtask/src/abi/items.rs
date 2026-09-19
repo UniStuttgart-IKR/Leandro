@@ -1,23 +1,9 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! bindgen's output, cut into one group per name.
-//!
-//! A group is everything bindgen emitted ABOUT one name: the `struct` or
-//! `union` or `type` or `const`, plus the `impl Default` block that follows
-//! it. They travel together, because a module that has the struct and not its
-//! `Default` is a module that does not compile.
-//!
-//! Two derived facts per group, and the emitter needs both:
-//!
-//!   * `text` -- the group rendered back to Rust. Two versions agree about a
-//!     name when this string is equal, which is a stronger test than equal
-//!     layout: it also catches a field that kept its offset and changed its
-//!     type, and a constant that kept its type and changed its value.
-//!   * `refs` -- every other footprint name that appears anywhere in the
-//!     group. A struct whose own text is unchanged still cannot be shared
-//!     between versions if something it names differs, so the emitter has to
-//!     close over this.
+//! Group bindgen declarations with their impl blocks.
+//! Rendered text detects type/value changes; referenced names propagate
+//! version differences through dependent declarations.
 
 use anyhow::{bail, Result};
 use proc_macro2::TokenTree;
@@ -45,8 +31,7 @@ pub struct ItemGroup {
 }
 
 pub struct Items {
-    /// Declaration order, which is bindgen's, which is the headers'. Kept so
-    /// that a generated module reads in the order somebody wrote the C.
+    /// Preserve bindgen's declaration order in generated modules.
     pub order: Vec<String>,
     pub groups: BTreeMap<String, ItemGroup>,
 }
@@ -61,9 +46,7 @@ impl Items {
                 Item::Struct(s) => (s.ident.to_string(), GroupKind::Type),
                 Item::Union(u) => (u.ident.to_string(), GroupKind::Type),
                 Item::Type(t) => (t.ident.to_string(), GroupKind::Alias),
-                // bindgen's layout assertions. They are read into the
-                // manifest and re-emitted from it, so the originals are
-                // dropped here rather than carried twice.
+                // Layout assertions are regenerated from the manifest.
                 Item::Const(c) if c.ident == "_" => continue,
                 Item::Const(c) => (c.ident.to_string(), GroupKind::Const),
                 Item::Impl(i) => match base_ident(&i.self_ty) {

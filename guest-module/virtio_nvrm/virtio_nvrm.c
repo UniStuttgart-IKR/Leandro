@@ -1,48 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-/*
- * virtio_nvrm - the guest driver that actually serves the NVIDIA nodes.
- *
- * The device is called virtio-nvrm, the host end vhost-user-nvrm. What is
- * transported here is the NVIDIA RM ESCAPE SURFACE (RM = the Resource
- * Manager, the kernel driver behind /dev/nvidiactl and /dev/nvidiaN, whose
- * ioctls NVIDIA calls escapes) -- not CUDA, which sits one
- * layer above and is why the API completeness comes for free. Display is
- * not a second transport either: with `vdisplay=1` this module presents
- * NVIDIA's own displayless class to NVKMS (NVIDIA's modesetting kernel
- * module, nvidia-modeset.ko, which reaches RM through nvidia_get_rm_ops()
- * rather than through a device node) and services the vblank (per-frame
- * vertical-blank) and event
- * callbacks itself (the sections further down). "nvrm" is also the honest
- * statement of scope: a version-locked proprietary kernel ABI, lockstep as
- * a design assumption. How the pieces fit together, at length:
- * docs/ARCHITECTURE.md.
- *
- * The point of the whole exercise: an UNMODIFIED application (nvidia-smi,
- * python train.py, a third-party CUDA binary) runs in the guest without
- * LD_PRELOAD, because /dev/nvidia* are real nodes and this module carries
- * open/ioctl/mmap across the VM boundary.
- *
- * THIS MODULE IS DUMB, ON PURPOSE.
- * Not a single NVIDIA constant lives here: no escape number, no struct
- * size, no field offset. The host sends a descriptor table at startup
- * (kind GET_TABLES), and this code is merely its interpreter. The source
- * of truth stays crates/nvrm-abi/src/xlate.rs -- one number, one place, one
- * version bump. The table keys on (device type, nr), because 0x27 on the
- * ctl node is RM_ALLOC_MEMORY and on the uvm node PAGEABLE_MEM_ACCESS --
- * uvm being /dev/nvidia-uvm, NVIDIA's unified-memory driver, whose commands
- * travel as raw numbers with no _IOC encoding to read a size out of.
- *
- * Coexistence with nvrm_nodes.ko (docs/OPEN-QUESTIONS.md item 2):
- * /proc/driver/nvidia belongs to nvrm_nodes.ko and is NOT touched here.
- * Both modules run side by side: nvrm_nodes.ko with create_nodes=0
- * (supplies params), virtio_nvrm.ko owns the nodes and the forwarding.
- * Without nvrm_nodes.ko, params is missing -- this module deliberately
- * does not stand alone.
- *
- * Kernel pin: 6.8.0-136-generic (Ubuntu 24.04, GUEST_IMAGE).
- */
+/* Forward NVIDIA RM open/ioctl/mmap calls over virtio-nvrm; guest userspace
+ * stays unmodified and driver ABIs must match.
+ * GET_TABLES supplies ioctl layouts keyed by (device type, ioctl number).
+ * nvrm_wire.h supplies generated ABI constants.
+ * With vdisplay=1, serve NVIDIA's displayless class and guest callbacks
+ * through nvidia_get_rm_ops(). nvrm_nodes.ko supplies procfs with
+ * create_nodes=0; this module owns the device nodes. See
+ * docs/ARCHITECTURE.md and docs/DISPLAY.md. */
 
 #include <linux/build_bug.h>
 #include <linux/cdev.h>
@@ -51,7 +17,6 @@
 #include <linux/fs.h>
 #include <linux/highmem.h>
 #include <linux/hrtimer.h>
-#include <linux/idr.h>
 #include <linux/kref.h>
 #include <linux/list.h>
 #include <linux/mm.h>
@@ -76,17 +41,11 @@
 
 #include "nvrm_kapi.h"
 #include "nvrm_wire.h"
+#include "nvrm_identity.h"
 
-/*
- * Virtio-PCI *modern* maps PCI device 0x1040+type and accepts only
- * 0x1040..0x107f -- i.e. types 0..63. The obvious candidate 0x4E56 ("NV")
- * lies outside that window; measured: the driver silently never binds. 60
- * lies above the ids assigned by virtio 1.3 (~42) and inside the window.
- *
- * THE ONE PLACE. Should virtio-nvrm ever get an official spec id, the
- * number changes here and in crates/vhost-user-nvrm/src/nvrm.rs -- nowhere
- * else.
- */
+/* Modern virtio-PCI supports device types 0..63 (PCI IDs 0x1040..0x107f).
+ * Type 60 is the project's unassigned ID; keep it equal to the backend's ID
+ * in crates/vhost-user-nvrm/src/nvrm.rs. */
 #define VIRTIO_ID_NVRM 60
 
 /* The shmid under which the host-visible window (the shared-memory
@@ -96,9 +55,8 @@
  * HOST_VISIBLE region. */
 #define NVRM_SHM_ID_HOST_VISIBLE 1
 
-/* Majors/minors of the real driver -- NO RM semantics, just the numbers
- * libcuda looks its nodes up under. Cross-checked against the host's
- * /proc/devices: "195 nvidia", "195 nvidiactl", "235 nvidia-uvm". */
+/* Device major/minor numbers expected by NVIDIA userspace: 195 for
+ * nvidia/nvidiactl, 235 for nvidia-uvm on the measured host. */
 #define NV_FRONTEND_MAJOR 195
 #define NV_UVM_MAJOR 235
 #define NV_MINOR_CTL 255
@@ -108,10 +66,8 @@
  * size of a single call without capping the total length. */
 #define PIN_CHUNK_PAGES 4096
 
-/* How long a teardown call (MAP_RELEASE from vm_ops->close) waits for the
- * host. It must not wait for a signal there -- the caller cannot handle
- * -ERESTARTSYS -- but it must not hang forever either. After the timeout
- * the buffer passes to the callback. */
+/* Bound noninterruptible teardown waits, including vm_ops->close. On
+ * timeout, the callback retains any submitted request. */
 #define NVRM_TEARDOWN_TIMEOUT (10 * HZ)
 
 static bool create_nodes = true;
@@ -124,115 +80,41 @@ static unsigned int gpu_count = 1;
 module_param(gpu_count, uint, 0444);
 MODULE_PARM_DESC(gpu_count, "Number of /dev/nvidiaN nodes (default 1)");
 
-/*
- * Full BDF mediation: which PCI address the guest is told the card sits at.
- *
- * With the switch off, enumerate_gpus() and every other answer forward the
- * HOST's, because that is what RM answers: this rig's card sits at
- * 0000:2d:00.0 on the host, and nothing in the guest's own PCI bus is at
- * that address. Everything that then looks the address up -- NVIDIA's X
- * driver reads /sys/bus/pci/devices/<BDF>/config, and libnvidia-glcore
- * carries the same pattern -- looks somewhere empty.
- *
- * A real vGPU guest never sees this: there the mediated function, RM's
- * answer and sysfs all name the GUEST's address, and the guest's view is
- * internally consistent. Setting this to 1 makes ours consistent the same
- * way, by reporting the address of the virtio device that actually mediates
- * the card -- in every answer that carries an address, and in every question
- * that names one.
- *
- * It is one switch and not two because gpuId IS the address
- * (gpuGenerate32BitId(), gpu.c:292):
- *
- *     ((domain & 0xffff) << 16) | (bus << 8) | device
- *
- * Host 0000:2d:00.0 -> 0x2d00, measured. Rewriting the address but not the
- * id (or the other way round) would produce a contradiction that any caller
- * asking both questions can see.
- *
- * WARNING: the guest address is read from the PARENT PCI FUNCTION of this
- * virtio device, never computed from the virtio device type. OASIS derives
- * the PCI DEVICE ID from the type (0x1040 + type, so type 60 -> 0x107c);
- * the ADDRESS is whatever slot the VMM handed out, and cloud-hypervisor
- * hands out the next free one in creation order. Measured on this rig, same
- * device, same type, two runs: 00:07.0 with a virtio-gpu beside it, 00:06.0
- * without. The device id was 1af4:107c both times.
- *
- * OFF by default, and the reason is a measurement, not caution.
- *
- * The host id is LEARNED from the first enumeration answer, and the very
- * first NVML call after the module loads is that answer -- so it is served
- * half mediated and fails. Measured 2026-08-08 on a fresh module:
- *
- *     1. nvidia-smi -L   ->  "No devices found."
- *     2. nvidia-smi -L   ->  GPU 0: Leandro RTX 2070 (UUID: ...)
- *
- * That is what turned the `smi` stage of the GPU gate red. Until the id is
- * learned EAGERLY -- at probe, not from the first reply that needs it --
- * this switch stays off, and the display rig (lea_display_modules,
- * scripts/lib/provision.sh) turns it on where a consistent address actually
- * matters.
- */
+/* Report the mediating PCI function's guest BDF instead of the host GPU's
+ * BDF. Rewrite gpuId consistently: ((domain & 0xffff) << 16) | (bus << 8) |
+ * device (gpuGenerate32BitId, gpu.c:292).
+ * Read the address from the parent PCI function; the virtio device type
+ * determines its device ID, not its bus address.
+ * Default off: lazy host-ID discovery breaks the first nvidia-smi
+ * enumeration after load (2026-08-08). The display rig enables mediation;
+ * eager discovery at probe remains needed. */
 static unsigned int bdf_mediation;
 module_param(bdf_mediation, uint, 0644);
 MODULE_PARM_DESC(
 	bdf_mediation,
 	"report the guest's own PCI address for the card in every RM answer (default 0 = off, see the comment)");
 
-/*
- * Finds what the table misses. With this on, every control reply is scanned
- * for the host's gpuId and the command that carries it is named -- which
- * beats guessing which of ~900 controls quotes an address. Off by default:
- * it reads the whole params buffer of every control.
- */
+/* Diagnostic scan of all control replies for the host gpuId. Disabled by
+ * default because it reads every params buffer. */
 static unsigned int bdf_debug;
 module_param(bdf_debug, uint, 0644);
 MODULE_PARM_DESC(
 	bdf_debug,
 	"log every control reply that still carries the host's gpuId (default 0)");
 
-/*
- * The display path, off by default.
- *
- * Everything this gates is work that only a DISPLAY needs -- kernel-path RM
- * operations that NVKMS and nvidia-drm ask for while building a screen. The
- * compute path (CUDA, PyTorch, nvidia-smi) does not reach any of it, and the
- * gate measures the compute path. So the switch exists for one reason: with
- * `display=0` this module behaves EXACTLY as it did before the display work
- * started, which is what makes a regression provable rather than argued.
- *
- * `display=1` is set by the display rig (scripts/lib/provision.sh) and by the display gate.
- */
+/* Enable kernel RM operations needed by NVKMS/nvidia-drm. The display rig
+ * and display gate set display=1; compute guests leave it disabled. */
 static unsigned int display;
 module_param(display, uint, 0644);
 MODULE_PARM_DESC(
 	display,
 	"serve the kernel-path RM operations a display needs (0 = off, 1 = on, 2 = on and verbose)");
 
-/*
- * The virtual display, off by default.
- *
- * NVKMS has a path for a GPU with no connectors of its own -- NVIDIA built it
- * for GRID -- and it asks for exactly three things: how many heads, how large
- * they may be, and an EDID. `DisplaylessProbeValidDisplays` (nvkms-rm.c:402)
- * derives the connector list from the head count alone, with no RM call at
- * all. Measured 2026-08-08.
- *
- * What this switch turns on is an INVENTION: there is no monitor. The
- * module answers `NVA083_GRID_DISPLAYLESS` itself -- nothing about it reaches
- * the host, because there is no host state behind it -- and hands NVKMS an
- * EDID this file writes. That is a different kind of mediation from the BDF
- * or the card name, where a real answer is rewritten; here the answer is
- * made up, and the log says so at load time.
- *
- * The entry point is the class list: `nvRmAllocDisplays` checks
- * NV04_DISPLAY_COMMON FIRST (nvkms-rm.c:1819), and this card has it, so the
- * displayless branch is unreachable until 0x0073 is swapped for 0xa083 in
- * the answer to NV0080_CTRL_CMD_GPU_GET_CLASSLIST. One out, one in --
- * numClasses does not change, so the counting call needs no handling.
- *
- * Needs `display` on as well: the kernel-path ops still have to be served.
- */
+/* Serve NVA083_GRID_DISPLAYLESS locally: head count, resolution limits and
+ * EDID describe a virtual monitor with no host display state.
+ * Replace NV04_DISPLAY_COMMON in GET_CLASSLIST so nvRmAllocDisplays selects
+ * this path (nvkms-rm.c:1819). The class count stays unchanged. Requires
+ * display=1. */
 static unsigned int vdisplay;
 module_param(vdisplay, uint, 0644);
 MODULE_PARM_DESC(
@@ -248,22 +130,12 @@ module_param(vdisplay_height, uint, 0644);
 MODULE_PARM_DESC(vdisplay_height,
 		 "height of the virtual display (default 1080)");
 
-/*
- * The CEILING, which is a different thing from the mode above.
- *
- * NVKMS copies GET_MAX_RESOLUTION straight into pDevEvo->caps
- * (nvkms-rm.c:1409) -- maxWidthInPixels, maxHeight and maxWidthInBytes, which
- * bound every surface it will accept. Answering that call with
- * vdisplay_width/height, as this did, makes the one offered mode also the
- * hard limit: nothing larger can ever be allocated, not even a client's
- * offscreen buffer.
- *
- * The defaults are NVIDIA's own for unlicensed passthrough on Linux
- * (GRID_DISPLAYLESS_LINUX_MAX_HRES/VRES/PIXELS,
- * objgriddisplayless.c:38-39,54). maxPixels is a SEPARATE bound next to the
- * resolution, not derived from it: 4096000 is exactly 2560x1600, so 1080p
- * fits and 4K does not. Whoever raises one raises both.
- */
+/* GET_MAX_RESOLUTION bounds every NVKMS surface, including offscreen
+ * buffers (nvkms-rm.c:1409). Keep these limits separate from the offered
+ * mode.
+ * Defaults match unlicensed Linux passthrough (objgriddisplayless.c:38-54).
+ * maxPixels is independent: 4096000 permits 2560x1600, not 4K. Raise both
+ * bounds when needed. */
 static unsigned int vdisplay_max_width = 2560;
 module_param(vdisplay_max_width, uint, 0644);
 MODULE_PARM_DESC(
@@ -290,48 +162,17 @@ module_param(vdisplay_vblank_hz, uint, 0644);
 MODULE_PARM_DESC(vdisplay_vblank_hz,
 		 "rate of the virtual display's vblank callbacks (default 60)");
 
-/*
- * The VRAM balloon: how many MiB of this guest's VRAM the module holds
- * itself, so that the display can have them back when it is refused.
- *
- * The problem, measured on .23 (4Q, 2816 MiB guest FB, GNOME 46 on Wayland,
- * Shadow of the Tomb Raider's benchmark beside Steam and Sunshine,
- * 2026-09-17): the game and the desktop around it fill the FB, and then ONE
- * buffer the display needs on demand is refused -- nvidia-modeset's 8.4 MiB
- * SCANOUT gbm_bo for Xwayland's fullscreen window (NVOS64 class 0x40, flags
- * 0x102, attr 0x10020000) -- and the picture stands until the game exits
- * (132-193 s), because Xwayland does not recover from that first failure.
- * 7 of 9 runs froze, exactly the 7 with that refusal. Real NVIDIA cards on
- * Wayland do the same: RM evicts nothing, scanout memory has no
- * system-memory fallback (nvidia-drm-gem-nvkms-memory.c:654-673, KDE bug
- * 471809), and a vGPU guest keeps no display reserve either (rsvdISOSize is
- * 0 in every branch, mem_mgr_gm107.c:1880,1895,1914). Telling userspace a
- * smaller card did not help: the game's budget did not follow it.
- *
- * So the room is HELD. Once the device answers, the module allocates R MiB
- * of VIDMEM through a client, a device and NV01_MEMORY_LOCAL_USER chunks of
- * its own ("nvrm-balloon" in the backend's ledger). The host counts them
- * like any allocation, so every process reaches the VM's cap R MiB earlier.
- * When NVKMS is refused a display buffer with NV_ERR_NO_MEMORY, kapi_op frees
- * chunks and asks again in the same call: NVKMS only ever sees the answer to
- * the second question. The kernel-only counterpart in RM is its reserved
- * heap, which only kernel clients allocate from
- * (NVOS32_ATTR_ALLOCATE_FROM_RESERVED_HEAP, video_mem.c:628-631). The host
- * sets the limit and isolates; the guest manages its share inside it.
- *
- *   -1  auto, from vdisplay_width x vdisplay_height, only with `display` on
- *       (a compute guest has no display path): five scanout buffers of that
- *       size plus 1 MiB of cursor -- the display path's peak above idle,
- *       measured 2026-09-17: 44 MiB at 1920x1080, 76 at 2560x1440, 161 at
- *       3840x2160. The table: nvrm_vram.c.
- *    0  off: nothing held, nothing given back
- *   >0  this many MiB, whatever the display
- *
- * Writable at runtime: the balloon lets go of what it holds and fills to the
- * new size (a write is also what makes a changed vdisplay_width/height
- * count). In the guest's nvidia-smi the balloon is used memory without a
- * process, like NVKMS's own buffers. How it works: the balloon section.
- */
+/* Hold VRAM inside the guest's quota; release chunks and retry when NVKMS
+ * gets NV_ERR_NO_MEMORY for a display buffer.
+ * Measured 2026-09-17 on .23 (4Q, 2816 MiB FB): 7/9 SotTR runs stalled
+ * after refusal of an 8.4 MiB Xwayland scanout. Scanout has no sysmem
+ * fallback (nvidia-drm-gem-nvkms-memory.c:654-673).
+ * -1: auto reserve with display enabled, five scanouts plus 1 MiB of
+ * cursors. Measured peaks: 44/76/161 MiB at 1080p/1440p/4K; see
+ * nvrm_vram.c.
+ * 0: disabled. Positive values: explicit MiB. Runtime writes release and
+ * refill the balloon, also applying changed display dimensions. Allocations
+ * use a separate nvrm-balloon client and remain charged by the host ledger. */
 static int display_reserve_mib = -1;
 static int display_reserve_set(const char *val, const struct kernel_param *kp);
 static const struct kernel_param_ops display_reserve_ops = {
@@ -344,22 +185,12 @@ MODULE_PARM_DESC(
 	display_reserve_mib,
 	"MiB of VRAM the module holds and gives back when NVKMS is refused a display buffer (-1 = auto from vdisplay_width/height when display is on, 0 = off, >0 = fixed; default -1)");
 
-/*
- * Finds where the VRAM size travels. With this on, every control reply
- * (params and nested buffers) and every escape's inline block is scanned for
- * the FB size this guest is advertised -- in KB and in bytes, the units of
- * FB_GET_INFO and of NVOS32, learned from the last FB_GET_INFO answer -- and,
- * if vram_debug_card_mib is set, for the physical card's size in the same
- * two units. Each hit is named once per (command, offset, form, process)
- * with the process that asked; vram_debug=2 names every hit, rate-limited.
- * NVOS32_FUNCTION_INFO is named with the
- * `total` and `free` it answered, because the host RM fills those from an
- * FB_GET_INFO_V2 of its own, which no rewrite of that control sees.
- *
- * The card's size is a power of two, and so are a great many other numbers:
- * a hit in that form is a lead to read, not a finding. Off by default: it
- * reads every reply whole.
- */
+/* Scan replies for advertised FB size and optional physical-card size, in
+ * KiB and bytes. Log once per (command, offset, form, process);
+ * vram_debug=2 logs every hit with rate limiting. Also log
+ * NVOS32_FUNCTION_INFO total/free, which bypass FB_GET_INFO rewriting.
+ * Hits are diagnostic candidates, not proof of a size field. Disabled by
+ * default because every reply is scanned. */
 static unsigned int vram_debug;
 module_param(vram_debug, uint, 0644);
 MODULE_PARM_DESC(
@@ -377,14 +208,10 @@ module_param(stat_vblank_fired, ulong, 0444);
 MODULE_PARM_DESC(stat_vblank_fired,
 		 "vblank callback invocations served from the virtual display");
 
-/* The event return channel (queue 1, KIND_EVENT_FIRED). Three counters, so
- * that "26 registered, 0 delivered" -- the measured GNOME state before this
- * channel existed -- has a reader on the guest side too:
- *   registered  0x7e slots filled (kernel callbacks NVKMS asked for)
- *   delivered   0x79 wake-ups + 0x7e callback invocations
- *   dropped     ring full, unknown fd, no slot, kc mismatch, denylisted
- *               notifier, class 0x78/unknown
- * Under GNOME with `vkprobe --present` running, `delivered` must tick. */
+/* Queue-1 event counters: registered counts 0x7e callback slots; delivered
+ * counts 0x79 wakes and 0x7e calls; dropped counts overflow,
+ * missing/mismatched owners, and unsupported notifiers. delivered should
+ * advance during vkprobe --present. */
 static unsigned long stat_events_delivered;
 module_param(stat_events_delivered, ulong, 0444);
 MODULE_PARM_DESC(
@@ -396,9 +223,8 @@ module_param(stat_events_dropped, ulong, 0444);
 MODULE_PARM_DESC(
 	stat_events_dropped,
 	"host events with nowhere to go, all reasons (see the four below)");
-/* The four reasons apart -- 144k "dropped" in half an hour of CS2 read
- * like a leak until the split showed them to be the host monitor's DP_IRQ
- * at 60 Hz, filtered on purpose (2026-08-15). */
+/* Separate drop reasons distinguish ring pressure from intentionally
+ * filtered host-display events, such as DP_IRQ. */
 static unsigned long stat_events_drop_ringfull;
 module_param(stat_events_drop_ringfull, ulong, 0444);
 MODULE_PARM_DESC(
@@ -424,20 +250,9 @@ module_param(stat_events_registered, ulong, 0444);
 MODULE_PARM_DESC(stat_events_registered,
 		 "kernel-callback events (0x7e) this module holds a slot for");
 
-/*
- * How many device nodes this guest currently holds open, as the module sees
- * them -- one per struct file, which is what the host mirrors one for one.
- *
- * The number the host could not check itself. The session behind
- * OPEN-QUESTIONS 31 measured 2003 open nvidiactl FDs in the backend while
- * the guest showed 48 in its per-process fd directories (the question
- * records the 2003; the 48 was read alongside), and the two are not
- * comparable: a struct file
- * outlives its FD for as long as a mapping references it, and the mirror is
- * keyed on the FILE. Without this counter "the host leaks" and "the guest
- * still holds them" look exactly alike from the host, and two nights of
- * guessing went into that gap.
- */
+/* Count open struct files, including those retained by VMAs after their FDs
+ * close. Compare this with backend mirrors; per-process FD counts alone
+ * undercount guest ownership (OPEN-QUESTIONS 31). */
 static unsigned long stat_ctx_open;
 module_param(stat_ctx_open, ulong, 0444);
 MODULE_PARM_DESC(stat_ctx_open,
@@ -450,21 +265,15 @@ module_param(stat_ctx_closed, ulong, 0444);
 MODULE_PARM_DESC(stat_ctx_closed,
 		 "device-node contexts ever released (KIND_CLOSE sent)");
 
-/* A semaphore surface (NV_SEMAPHORE_SURFACE) is the object nvidia-drm hangs
- * its fences off; its WAITERS (control 0xda0003) are the SECOND way NVKMS
- * hands out a kernel callback pointer, and the first user is a Wayland
- * compositor: nvidia-drm's semsurf fences never signalled, weston hung in
- * gbm_surface_lock_front_buffer polling a sync_file forever (2026-08-16).
- * `waiters` must go back to its idle count after a compositor exits;
- * `fired` must tick once per frame while one runs. */
+/* Semaphore-surface waiter counters: waiters should return to idle after
+ * compositor exit; fired should advance once per frame. */
 static unsigned long stat_semsurf_waiters;
 module_param(stat_semsurf_waiters, ulong, 0444);
 MODULE_PARM_DESC(
 	stat_semsurf_waiters,
 	"semaphore-surface waiter slots currently armed (control 0xda0003)");
-/* Unregisters RM refused because the waiter had already fired, i.e. the
- * races that semsurf_after_control() now retires instead of leaving armed.
- * Each one is a use-after-free that did NOT happen. */
+/* Cancellation refusals after an RM waiter fired. semsurf_after_control
+ * retires these slots to suppress stale callbacks. */
 static unsigned long stat_semsurf_late_unreg;
 module_param(stat_semsurf_late_unreg, ulong, 0444);
 MODULE_PARM_DESC(
@@ -481,9 +290,7 @@ MODULE_PARM_DESC(
 	max_pin_mib,
 	"Upper bound on concurrently pinned guest memory in MiB (default 1024)");
 
-/* Read-only observability -- /sys/module/virtio_nvrm/parameters/. Without
- * them, "the pin path fired" would be a guess instead of a measurement,
- * and a leak would show only as missing memory. */
+/* Read-only pin/pool counters in /sys/module/virtio_nvrm/parameters/. */
 static unsigned long stat_pinned_kib;
 module_param(stat_pinned_kib, ulong, 0444);
 MODULE_PARM_DESC(stat_pinned_kib, "Guest memory currently pinned, in KiB");
@@ -503,58 +310,44 @@ MODULE_PARM_DESC(stat_pool_pages, "Pages owned by this module for UVM pools");
 #define nvrm_fd_file(f) fd_file(f)
 #endif
 
-/* ------------------------------------------------------------------ *
- * Tables: parsed, not trusted
- *
- * Parser and lookup functions live in nvrm_tables.c -- included as one
- * translation unit so that test/tabcheck.c can run the SAME code in
- * userspace against the stream from `nvrm-genhdr --dump-tables`. After
- * changing anything here, run test.sh check (step c-interpreter) -- the diff
- * test compares the C reader's view field by field with the Rust
- * writer's view.
- * ------------------------------------------------------------------ */
+/* Parse and validate host tables. nvrm_tables.c is shared with userspace C
+ * tests; scripts/test.sh check compares its interpretation with the real
+ * Rust-generated table stream. */
 
 #include "nvrm_tables.c"
 
-/* ------------------------------------------------------------------ *
- * Device
- * ------------------------------------------------------------------ */
+/* Device */
 
 /* Receive buffers pre-posted on the event queue. The host writes ONE
  * `struct nvrm_req` per firing (KIND_EVENT_FIRED) and never waits: no free
  * buffer on its side means the event is dropped and counted there. */
 #define NVRM_EVQ_BUFS 256u
-/* Firings taken out of the queue but not yet handed on. Power of two.
- * Every drop is a wait that falls back to its 10 ms poll.
- *
- * 128 overflowed under CS2: 106k ring-full drops in one deathmatch
- * (2026-08-15) while the workqueue drained.
- * 1024 holds the RUNNING desktop -- including a live Moonlight stream
- * at 34,500 events/s, 3.87 M events in a burst test and 1.55 M during a
- * deathmatch, all with drop_ringfull at 0. What it does NOT hold is the
- * SESSION START: sampling the counter every 2 s across a fresh
- * desktop `up` put every drop in one 26-second window ~2 minutes after
- * boot (gdm handing the session over, and the X restart), ~10 000 of them while
- * ~19 000 events/s arrived and the workqueue competed with X and GNOME
- * coming up. ~2 % overflowed; the ring was close, not hopeless.
- * 8192 x 160 B = 1.25 MiB, once per guest, to absorb 8x that burst. */
+/* Pending event ring, power-of-two sized. Overflow drops a firing and
+ * leaves the caller's 10 ms fallback poll.
+ * Measured 2026-08-15: 128 slots lost 106k events in CS2; 1024 handled
+ * 34,500 events/s during play but lost about 10k during session startup.
+ * 8192 x 160 B = 1.25 MiB absorbs that startup burst. */
 #define NVRM_EV_RING 8192u
 
 struct nvrm_dev {
+	struct kref ref;
 	struct virtio_device *vdev;
+	bool stopping;
+	unsigned int vq_free;
+	struct mutex quarantine_lock;
+	struct list_head quarantined_pins;
+	struct list_head quarantined_pools;
 	struct virtqueue *vq;
+	struct workqueue_struct *release_wq;
 	/* Protects the virtqueue AND every request's done/abandoned fields.
 	 * Spinlock, because the callback arrives from interrupt context. */
 	spinlock_t vq_lock;
 
-	/* Queue 1, host -> guest: RM events (see the event section). NULL when
-	 * the device offers only one queue -- then poll() never wakes and the
-	 * kernel callbacks never fire, exactly the state before this channel. */
+	/* Queue 1 delivers host RM events. NULL in one-queue mode, which
+	 * has no event-driven fd wakes or kernel callbacks. */
 	struct virtqueue *evq;
-	/* Protects `evq` AND the ring below. NOT vq_lock: that one belongs to
-	 * queue 0 and to requests in flight; the two queues have nothing to
-	 * say to each other. Taken from the vq callback (IRQ) with irqsave and
-	 * from the work item (process) the same way. */
+	/* Protect evq and its pending ring with irqsave in both IRQ and
+	 * workqueue context. Queue 0 uses the separate vq_lock. */
 	spinlock_t evq_lock;
 	struct nvrm_req ev_ring[NVRM_EV_RING];
 	unsigned int ev_head,
@@ -562,17 +355,13 @@ struct nvrm_dev {
 	/* Hands the ring on in process context. Nothing is CALLED from the
 	 * IRQ callback: neither NVKMS' callbacks nor a wait-queue lookup. */
 	struct work_struct events_work;
-	/* (proc id << 32 | token) -> nvrm_ctx, USER nodes only. Answers "which
-	 * fd does this EVENT_FIRED mean" for the 0x79 wake-ups. Tokens are
-	 * per session (the host's Mirror starts at 1 for every session), so
-	 * the token alone would collide between processes -- hence the
-	 * unsigned-long key with the process id in the upper half, and an
-	 * XArray rather than the int-keyed IDR. */
+	/* Index userspace contexts by (proc id << 32 | token). Tokens are
+	 * session-local; the 64-bit XArray key includes their owner. */
 	struct xarray ctx_xa;
 	/* Waiters for a free descriptor slot. */
 	wait_queue_head_t vq_space;
 	atomic_t seq;
-	/* Requests in flight -- remove() waits for them. */
+	/* Inflight request count used by remove(). */
 	atomic_t inflight;
 	wait_queue_head_t drain;
 
@@ -584,20 +373,13 @@ struct nvrm_dev {
 
 	struct nvrm_tables tbl;
 
-	/* Guest processes that have this device open. The dense id from the
-	 * IDR travels in every req; the host keeps one session per id. */
-	struct idr proc_idr;
+	/* Guest processes with this device open, each with one host session. */
 	struct list_head procs;
 	struct mutex proc_lock;
 
-	/* BDF mediation -- see the bdf_mediation parameter.
-	 *
-	 * `host_id` is LEARNED, not configured: the first gpuId RM names in an
-	 * answer is the host's, and it encodes the host address. A second,
-	 * different one means more than one GPU, and one virtio device cannot
-	 * stand for two addresses without inventing one -- so mediation turns
-	 * itself OFF there rather than lie. That boundary is deliberate.
-	 */
+	/* Learn the host gpuId from enumeration. Disable BDF mediation if a
+	 * second GPU ID appears: one virtio PCI function cannot represent
+	 * two GPU addresses. */
 	u32 bdf_guest_id; /* 0 = no PCI parent, mediation impossible */
 	u32 bdf_host_id; /* 0 = not learned yet */
 	bool bdf_disabled; /* more than one GPU seen */
@@ -609,24 +391,9 @@ struct nvrm_dev {
 	u32 vram_fb_kb;
 };
 
-/*
- * A guest process the way the host gets to see it.
- *
- * Why an OWN, dense id instead of the tgid: Linux hands out PIDs again after
- * a process ends. A recycled number would attribute a dead process's
- * allocations to a new one -- and since RM anchors its USERD (a
- * channel's user-mode doorbell page) separation on
- * that (kernel_fifo.c:508-511), the result would be worse than one wrong row
- * in a table. The IDR id becomes free once the host has torn the session down
- * (KIND_PROC_GONE), and never before.
- *
- * The key is the `struct pid *` of the THREAD GROUP, not the number: the same
- * process gets ONE entry for all of its nodes (ctl, gpu, uvm) -- it has to
- * share them, its RM handles live in ONE session. `vnr` is the number as seen
- * from inside the guest (pid_vnr), so the display stays correct when
- * containers run in the guest.
- */
+/* One host session per struct pid identity. vnr is the guest-visible PID. */
 struct nvrm_proc {
+	struct nvrm_dev *dev;
 	struct list_head node;
 	struct pid *pid;
 	u32 id;
@@ -635,17 +402,94 @@ struct nvrm_proc {
 	refcount_t ref;
 };
 
-/* Exactly one device. Several would mean several sets of /dev/nvidia* --
- * that is not an extension path, it is a mix-up. */
+/* One virtio device owns the global /dev/nvidia* nodes. */
 static struct nvrm_dev *nvrm;
+static DEFINE_MUTEX(nvrm_device_lock);
+static bool nvrm_bound;
 
-/*
- * Guest memory this module holds down -- pinned application pages AND
- * self-owned pool pages, across all contexts. ONE account, ONE knob: that
- * way the error message can name both the limit and the parameter that
- * changes it, and nobody has to add two numbers in their head.
- */
+static void nvrm_dev_release(struct kref *ref)
+{
+	struct nvrm_dev *dev = container_of(ref, struct nvrm_dev, ref);
+
+	WARN_ON(!list_empty(&dev->procs));
+	WARN_ON(!xa_empty(&dev->ctx_xa));
+	kvfree(dev->tbl.blob);
+	bitmap_free(dev->win_bitmap);
+	xa_destroy(&dev->ctx_xa);
+	mutex_destroy(&dev->proc_lock);
+	mutex_destroy(&dev->win_lock);
+	mutex_destroy(&dev->quarantine_lock);
+	put_device(&dev->vdev->dev);
+	kfree(dev);
+}
+
+static void nvrm_dev_put(struct nvrm_dev *dev)
+{
+	if (dev)
+		kref_put(&dev->ref, nvrm_dev_release);
+}
+
+/* Publication and reference acquisition share this lock with remove. */
+static struct nvrm_dev *nvrm_dev_get(void)
+{
+	struct nvrm_dev *dev;
+
+	mutex_lock(&nvrm_device_lock);
+	dev = nvrm;
+	if (dev)
+		kref_get(&dev->ref);
+	mutex_unlock(&nvrm_device_lock);
+	return dev;
+}
+
+/* Preserve session identity across virtio rebind within one module load.
+ * Module reload still requires a fresh backend session; IDs restart then. */
+static DEFINE_MUTEX(proc_id_lock);
+static u32 last_proc_id;
+
+static int nvrm_proc_alloc_id(u32 *id)
+{
+	int ret;
+
+	mutex_lock(&proc_id_lock);
+	ret = nvrm_next_process_id(&last_proc_id, id);
+	mutex_unlock(&proc_id_lock);
+	return ret;
+}
+
+/* One quota covers pinned application pages and module-owned pool pages
+ * across all contexts. */
 static atomic_long_t held_pages = ATOMIC_LONG_INIT(0);
+static atomic_long_t quarantined_pages = ATOMIC_LONG_INIT(0);
+
+static int nvrm_quarantined_pages_get(char *buf, const struct kernel_param *kp)
+{
+	return scnprintf(buf, PAGE_SIZE, "%ld\n",
+			 atomic_long_read(&quarantined_pages));
+}
+
+static const struct kernel_param_ops quarantine_param_ops = {
+	.get = nvrm_quarantined_pages_get,
+};
+module_param_cb(stat_quarantined_pages, &quarantine_param_ops, NULL, 0444);
+MODULE_PARM_DESC(
+	stat_quarantined_pages,
+	"Charged pages retained after uncertain host completion; cleared by guest restart");
+
+/* No native final-release notification exists. Retain exceptional backing,
+ * its device and this module until guest restart, under the existing quota. */
+static void nvrm_quarantine(struct nvrm_dev *dev, struct list_head *node,
+			    struct list_head *list, unsigned long npages)
+{
+	kref_get(&dev->ref);
+	mutex_lock(&dev->quarantine_lock);
+	list_add_tail(node, list);
+	mutex_unlock(&dev->quarantine_lock);
+	atomic_long_add(npages, &quarantined_pages);
+	pr_warn_ratelimited(
+		"virtio_nvrm: retained %lu uncertain backing pages until guest restart (%ld total)\n",
+		npages, atomic_long_read(&quarantined_pages));
+}
 
 /* Charge the quota. 0 = ok, otherwise -ENOMEM (with a message naming the knob). */
 static int nvrm_charge(unsigned long npages)
@@ -667,11 +511,12 @@ static void nvrm_uncharge(unsigned long npages)
 	atomic_long_sub(npages, &held_pages);
 }
 
-/* ------------------------------------------------------------------ *
- * One round trip over the virtqueue
- * ------------------------------------------------------------------ */
+/* One round trip over the virtqueue */
 
 struct nvrm_xfer {
+	struct nvrm_dev *dev;
+	struct work_struct release_work;
+	int transport_error;
 	void *req;
 	size_t req_cap;
 	size_t req_len;
@@ -694,11 +539,18 @@ static void nvrm_xfer_free(struct nvrm_xfer *x)
 	kvfree(x->rsp);
 	kfree(x->sg_req);
 	kfree(x->sg_rsp);
+	nvrm_dev_put(x->dev);
 	kfree(x);
 }
 
-/* How many scatterlist entries a buffer of this size needs at most. kvmalloc
- * may fall back to vmalloc -- then the buffer is split page by page. */
+/* kvfree and final device release require process context. */
+static void nvrm_xfer_release_work(struct work_struct *work)
+{
+	nvrm_xfer_free(container_of(work, struct nvrm_xfer, release_work));
+}
+
+/* Maximum scatterlist entries; vmalloc-backed buffers split at page
+ * boundaries. */
 static unsigned int nvrm_sg_max(size_t len)
 {
 	return (unsigned int)(len / PAGE_SIZE) + 2;
@@ -731,20 +583,8 @@ static unsigned int nvrm_sg_fill(struct scatterlist *sg, unsigned int max,
 			done += take;
 		}
 	}
-	/* n == 0 means the vmalloc branch ran with len == 0: the loop body
-	 * never executed and sg_mark_end(&sg[n - 1]) would set the end bit on
-	 * the entry BEFORE the table.
-	 *
-	 * Unreachable by construction today, and this line says so rather than
-	 * pretending otherwise: nvrm_xfer_alloc refuses a cap below
-	 * sizeof(struct nvrm_req)/sizeof(struct nvrm_rsp), and nvrm_xfer_run
-	 * refuses a req_len below the header, so both callers pass len > 0. It
-	 * becomes effective the moment a third caller builds a list over a
-	 * buffer whose length it has not bounded -- which is the change a
-	 * refactor makes. sg_init_table has already terminated the table, so
-	 * returning 0 leaves a well-formed empty list and the WARN says who
-	 * did it.
-	 */
+	/* Allocation and request validation guarantee a nonempty buffer.
+	 * Guard sg[n - 1] if another caller violates that contract. */
 	if (WARN_ON_ONCE(!n))
 		return 0;
 	sg_mark_end(&sg[n - 1]);
@@ -765,6 +605,7 @@ static struct nvrm_xfer *nvrm_xfer_alloc(size_t req_cap, size_t rsp_cap)
 	if (!x)
 		return ERR_PTR(-ENOMEM);
 	init_waitqueue_head(&x->wq);
+	INIT_WORK(&x->release_work, nvrm_xfer_release_work);
 	x->req_cap = req_cap;
 	x->rsp_cap = rsp_cap;
 	x->req = kvzalloc(req_cap, GFP_KERNEL);
@@ -792,21 +633,15 @@ static void nvrm_vq_cb(struct virtqueue *vq)
 	spin_lock_irqsave(&dev->vq_lock, flags);
 	while ((x = virtqueue_get_buf(vq, &len)) != NULL) {
 		x->rsp_len = len;
-		x->done = true;
-		if (x->abandoned) {
-			/* The waiter left on a signal and handed the buffer
-			 * over -- only NOW may it be freed, the device has
-			 * just stopped writing into it. */
-			spin_unlock_irqrestore(&dev->vq_lock, flags);
-			nvrm_xfer_free(x);
-			atomic_dec(&dev->inflight);
-			spin_lock_irqsave(&dev->vq_lock, flags);
-		} else {
+		WRITE_ONCE(x->done, true);
+		if (x->abandoned)
+			queue_work(dev->release_wq, &x->release_work);
+		else
 			wake_up(&x->wq);
-			atomic_dec(&dev->inflight);
-		}
+		atomic_dec(&dev->inflight);
 		woke = true;
 	}
+	WRITE_ONCE(dev->vq_free, vq->num_free);
 	spin_unlock_irqrestore(&dev->vq_lock, flags);
 	if (woke) {
 		wake_up(&dev->vq_space);
@@ -817,20 +652,11 @@ static void nvrm_vq_cb(struct virtqueue *vq)
 /* Defined in the event section, below the vblank engine it is modelled on. */
 static void nvrm_events_work(struct work_struct *work);
 
-/*
- * Queue 1 callback: the host has written KIND_EVENT_FIRED requests into the
- * inbufs this module posted. IRQ context, under evq_lock.
- *
- * Only two things happen here: the firing is copied into the ring, and the
- * SAME buffer goes straight back onto the queue (GFP_ATOMIC -- nothing is
- * allocated, the sg entry describes memory the driver already owns). Every
- * consequence -- waking an fd, calling into nvidia-modeset.ko -- is left to
- * events_work: a wait-queue lookup wants the XArray lock, and NVKMS' callback
- * is a foreign function that this module must not run with interrupts off
- * and a virtqueue lock held. The ring, not the queue, is what absorbs a
- * burst; when it is full the firing is dropped and counted, never waited
- * for -- the host is not waiting either.
- */
+/* Queue-1 IRQ callback, under evq_lock. Copy firings into the ring and
+ * immediately repost the existing inbuf with GFP_ATOMIC.
+ * Workqueue processing performs XArray lookups, fd wakes and NVKMS
+ * callbacks outside IRQ context and the virtqueue lock. Ring overflow drops
+ * and counts events; this callback never waits. */
 static void nvrm_evq_cb(struct virtqueue *vq)
 {
 	struct nvrm_dev *dev = vq->vdev->priv;
@@ -855,10 +681,8 @@ static void nvrm_evq_cb(struct virtqueue *vq)
 				stat_events_drop_ringfull++;
 			}
 		}
-		/* Re-post the very buffer, whatever it carried. A buffer that
-		 * cannot be re-posted (queue torn down underneath us) is
-		 * freed here rather than leaked -- the detach path in remove
-		 * only sees buffers the queue still holds. */
+		/* Repost the same inbuf. Free it if reposting fails;
+		 * remove() only detaches buffers still owned by the queue. */
 		sg_init_one(&sg, buf, sizeof(struct nvrm_req));
 		if (virtqueue_add_inbuf(vq, &sg, 1, buf, GFP_ATOMIC) < 0)
 			kfree(buf);
@@ -870,25 +694,19 @@ static void nvrm_evq_cb(struct virtqueue *vq)
 		queue_work(system_highpri_wq, &dev->events_work);
 }
 
-/*
- * One round trip: queue the request, kick, wait for the reply.
- *
- * `interruptible`: in the ioctl path YES -- a process must stay killable even
- * when the host stays silent (this is the spot where a guest would otherwise
- * hang unkillably). In the teardown path (vm_ops->close) NO, there is nobody
- * there who could act on -ERESTARTSYS; a timeout takes its place.
- *
- * WARNING, ownership: if this function returns -ERESTARTSYS or -ETIMEDOUT,
- * `x` belongs to the callback from that moment on. The caller must neither
- * touch nor free it -- the device may still be writing into it.
- */
-static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x,
-			 bool interruptible)
+/* Queue and wait. User calls wait killably; kernel calls have a timeout.
+ * On abandonment, clear *owned before the callback can free the request.
+ * On every other return, the caller still owns and must free *owned. */
+static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer **owned,
+			 bool interruptible, bool *submitted)
 {
+	struct nvrm_xfer *x = *owned;
 	struct scatterlist *sgs[2];
 	unsigned long flags;
 	int err;
 
+	if (submitted)
+		*submitted = false;
 	if (x->req_len < sizeof(struct nvrm_req) || x->req_len > x->req_cap)
 		return -EINVAL;
 
@@ -901,8 +719,17 @@ static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x,
 
 	for (;;) {
 		spin_lock_irqsave(&dev->vq_lock, flags);
+		if (dev->stopping) {
+			spin_unlock_irqrestore(&dev->vq_lock, flags);
+			return -ENODEV;
+		}
 		err = virtqueue_add_sgs(dev->vq, sgs, 1, 1, x, GFP_ATOMIC);
+		WRITE_ONCE(dev->vq_free, dev->vq->num_free);
 		if (!err) {
+			kref_get(&dev->ref);
+			x->dev = dev;
+			if (submitted)
+				*submitted = true;
 			atomic_inc(&dev->inflight);
 			virtqueue_kick(dev->vq);
 		}
@@ -911,11 +738,15 @@ static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x,
 			break;
 		/* Queue full: wait until a slot frees up. */
 		if (interruptible) {
-			if (wait_event_interruptible(dev->vq_space,
-						     dev->vq->num_free > 0))
+			if (wait_event_interruptible(
+				    dev->vq_space,
+				    READ_ONCE(dev->stopping) ||
+					    READ_ONCE(dev->vq_free) > 0))
 				return -ERESTARTSYS;
 		} else if (!wait_event_timeout(dev->vq_space,
-					       dev->vq->num_free > 0,
+					       READ_ONCE(dev->stopping) ||
+						       READ_ONCE(dev->vq_free) >
+							       0,
 					       NVRM_TEARDOWN_TIMEOUT)) {
 			return -ETIMEDOUT;
 		}
@@ -924,50 +755,19 @@ static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x,
 		return err;
 
 	if (interruptible) {
-		/*
-		 * KILLABLE, not interruptible, and the difference is a bug.
-		 *
-		 * By this line the request is ALREADY on the virtqueue and
-		 * kicked, so the host may have carried it out. Waiting
-		 * interruptibly and answering -ERESTARTSYS hands the decision
-		 * to the kernel, which re-runs the WHOLE ioctl -- issuing a
-		 * second time an operation that has already taken effect on
-		 * the host. For a read that is merely wasteful. For a
-		 * one-shot escape it is wrong: NV_ESC_ATTACH_GPUS_TO_FD is
-		 * refused with EINVAL once the FD carries GPUs (nv.c,
-		 * `nvlfp->num_attached_gpus != 0`), so the restart is told
-		 * "invalid" for an attach that SUCCEEDED, and the caller
-		 * builds its GL state believing the FD has no GPU.
-		 *
-		 * Measured 2026-08-20 with `strace -f` on the compositor's
-		 * Xwayland under 30 concurrent GL clients:
-		 *
-		 *   ioctl(142, ...0x46,0xd4...) = ? ERESTARTSYS
-		 *   ioctl(142, ...0x46,0xd4...) = -1 EINVAL
-		 *
-		 * -- the same FD, twice, the second one the kernel's restart.
-		 * The backend saw the pair as one token attached twice: 118
-		 * of 118 failures in that session, none of them a fresh
-		 * token, so nothing was RM refusing an id. Under serial load
-		 * the signal pressure is absent and it never fires, which is
-		 * why this hid behind "2 in 1_392_006 calls" for so long.
-		 * See OPEN-QUESTIONS 45.
-		 *
-		 * Killable keeps the escape hatch that matters: a wedged host
-		 * must not leave an unkillable task. A fatal signal still
-		 * returns here, and there is no restart to fear then because
-		 * the task is dying. Ordinary signals no longer re-issue.
-		 *
-		 * The queue-full wait above stays interruptible on purpose:
-		 * nothing has been submitted at that point, so a restart
-		 * re-issues nothing.
-		 */
+		/* The host may already have executed this request. Ordinary signals
+		 * must not restart the ioctl: ATTACH_GPUS_TO_FD, for example,
+		 * rejects a second attach (nv.c, nvlfp->num_attached_gpus).
+		 * Only fatal signals may abandon a submitted user request.
+		 * The queue-full wait remains interruptible because it submits
+		 * nothing before returning. See docs/OPEN-QUESTIONS.md, item 45. */
 		if (wait_event_killable(x->wq, READ_ONCE(x->done))) {
-			/* Signal. The buffer stays with the device -- it must
-			 * not be freed here, so ownership is handed over. */
+			/* Transfer ownership only while the submitted
+			 * request is unfinished. */
 			spin_lock_irqsave(&dev->vq_lock, flags);
 			if (!x->done) {
 				x->abandoned = true;
+				*owned = NULL;
 				spin_unlock_irqrestore(&dev->vq_lock, flags);
 				return -ERESTARTSYS;
 			}
@@ -979,6 +779,7 @@ static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x,
 		spin_lock_irqsave(&dev->vq_lock, flags);
 		if (!x->done) {
 			x->abandoned = true;
+			*owned = NULL;
 			spin_unlock_irqrestore(&dev->vq_lock, flags);
 			pr_warn("virtio_nvrm: host does not answer -- teardown request abandoned\n");
 			return -ETIMEDOUT;
@@ -986,10 +787,17 @@ static int nvrm_xfer_run(struct nvrm_dev *dev, struct nvrm_xfer *x,
 		spin_unlock_irqrestore(&dev->vq_lock, flags);
 	}
 
-	if (x->rsp_len < sizeof(struct nvrm_rsp)) {
+	/* done may be visible before the callback finishes using x and its wait
+	 * queue. Wait for that critical section before returning ownership. */
+	spin_lock_irqsave(&dev->vq_lock, flags);
+	spin_unlock_irqrestore(&dev->vq_lock, flags);
+
+	if (x->transport_error)
+		return x->transport_error;
+	if (x->rsp_len < sizeof(struct nvrm_rsp) || x->rsp_len > x->rsp_cap) {
 		pr_warn_ratelimited(
-			"virtio_nvrm: reply of %u bytes is too short\n",
-			x->rsp_len);
+			"virtio_nvrm: reply length %u outside [%zu, %zu]\n",
+			x->rsp_len, sizeof(struct nvrm_rsp), x->rsp_cap);
 		return -EIO;
 	}
 	return 0;
@@ -1048,9 +856,11 @@ static int nvrm_simple_info(struct nvrm_dev *dev, u32 kind, u32 dev_tag,
 	}
 	x->req_len = len;
 
-	ret = nvrm_xfer_run(dev, x, interruptible);
-	if (ret)
-		return ret; /* on -ERESTARTSYS/-ETIMEDOUT x belongs to the callback */
+	ret = nvrm_xfer_run(dev, &x, interruptible, NULL);
+	if (ret) {
+		nvrm_xfer_free(x);
+		return ret;
+	}
 
 	rsp = x->rsp;
 	ret = rsp->ret;
@@ -1070,9 +880,7 @@ static int nvrm_simple(struct nvrm_dev *dev, u32 kind, u32 dev_tag,
 				guest_proc, NULL);
 }
 
-/* ------------------------------------------------------------------ *
- * Fetch and parse the tables
- * ------------------------------------------------------------------ */
+/* Fetch and parse the tables */
 
 static int nvrm_fetch_tables(struct nvrm_dev *dev)
 {
@@ -1098,9 +906,11 @@ static int nvrm_fetch_tables(struct nvrm_dev *dev)
 		r->map_len = chunk;
 		x->req_len = sizeof(*r);
 
-		ret = nvrm_xfer_run(dev, x, false);
-		if (ret)
-			goto fail; /* x may now belong to the callback */
+		ret = nvrm_xfer_run(dev, &x, false, NULL);
+		if (ret) {
+			nvrm_xfer_free(x);
+			goto fail;
+		}
 		rsp = x->rsp;
 		if (rsp->ret != 0) {
 			pr_err("virtio_nvrm: GET_TABLES rejected: %d\n",
@@ -1140,8 +950,8 @@ static int nvrm_fetch_tables(struct nvrm_dev *dev)
 		nvrm_xfer_free(x);
 	} while (got < total);
 
-	/* From here on the stream is checked, not believed -- in nvrm_tables.c,
-	 * so the test binary can run the same checks. */
+	/* Validate the complete stream using the parser shared with
+	 * userspace tests. */
 	{
 		const char *why;
 
@@ -1163,9 +973,7 @@ fail:
 	return ret;
 }
 
-/* ------------------------------------------------------------------ *
- * The window: the guest manages the space, the host fills it
- * ------------------------------------------------------------------ */
+/* The window: the guest manages the space, the host fills it */
 
 static long win_alloc(struct nvrm_dev *dev, size_t len)
 {
@@ -1205,32 +1013,18 @@ static void win_free(struct nvrm_dev *dev, u64 off, size_t len)
 	mutex_unlock(&dev->win_lock);
 }
 
-/* ------------------------------------------------------------------ *
- * Context: one per struct file
- *
- * The host mirrors every open device fd and answers with a TOKEN -- its id
- * for that file, minted per session, and the only name this module ever uses
- * for it afterwards. Which session is the guest_proc id (struct nvrm_proc
- * above): this module's own dense per-process number, not a pid.
- * ------------------------------------------------------------------ */
+/* One context per struct file. The host token names its mirrored file
+ * within the dense guest_proc session, not a Linux PID. */
 
-/* One pinned memory range behind an OS descriptor
- * (NV01_MEMORY_SYSTEM_OS_DESCRIPTOR: memory RM pins rather than copies).
- *
- * Keyed on the hMemory handle, NOT "everything lives until close()": RM holds
- * the pages only until the guest frees the object, and a training run creates
- * and drops thousands of them. Whatever is left falls in release() at the
- * latest.
- */
+/* Pinned OS-descriptor memory, retained by hMemory until successful RM_FREE
+ * or context release. A context may allocate and free many such objects. */
 struct nvrm_pin {
 	struct list_head node;
-	u32 handle;
+	struct nvrm_object_key object;
 	struct page **pages;
 	unsigned long npages;
-	/* A PRIME import -- a dma-buf handed over from another DRM device --
-	 * BORROWS its pages from the exporter: they were never
-	 * pinned by us, and unpinning them would decrement somebody else's
-	 * reference. The attachment is what has to be given back instead. */
+	/* PRIME pages belong to the exporter. Release the dma-buf
+	 * attachment; never unpin pages this module did not pin. */
 	struct dma_buf *dmabuf;
 	struct dma_buf_attachment *attach;
 	struct sg_table *sgt;
@@ -1238,10 +1032,8 @@ struct nvrm_pin {
 
 struct nvrm_ctx {
 	struct nvrm_dev *dev;
-	/* Who owns this FD -- the process that OPENED it. An inherited FD, or
-	 * one passed along via SCM_RIGHTS, keeps that owner: the RM handles
-	 * behind it live in that session, not in the user's. Same rule as for
-	 * the open file description. */
+	/* The opening process owns the host session. Inheritance or
+	 * SCM_RIGHTS transfer does not change that owner. */
 	struct nvrm_proc *proc;
 	u32 dev_tag;
 	u32 gpu_index;
@@ -1253,15 +1045,14 @@ struct nvrm_ctx {
 	spinlock_t pin_lock;
 	struct list_head pins;
 
-	/* The event return channel, per fd. nvrm_node_poll sleeps on the
-	 * wait queue; the flag is what the host's "readable" (an EVENT_FIRED
-	 * of class NV01_EVENT_OS_EVENT for this token) sets, and what poll
-	 * clears -- see nvrm_node_poll for why poll clears it. */
+	/* OS-event firings set events_pending and wake this queue; poll
+	 * consumes the flag. */
 	wait_queue_head_t events_wq;
 	atomic_t events_pending;
-	/* In dev->ctx_xa. User nodes only; the NVKMS session (kapi_ctx_open)
-	 * is never indexed -- its events go through the callback slots. */
+	/* Userspace ctx_xa entry. NVKMS sessions deliver events through
+	 * callback slots instead. */
 	bool indexed;
+	bool uncertain; /* a submitted request has no trustworthy outcome */
 };
 
 /* Key of dev->ctx_xa. Tokens are per session, so the process id is half of
@@ -1282,23 +1073,11 @@ static bool ctx_is_uvm(const struct nvrm_ctx *c)
 
 static const struct file_operations nvrm_node_fops;
 
-/*
- * FD translation via the IDENTITY of the open file, not via the number:
- * fdget() yields the struct file, and f_op decides whether it is one of this
- * module's. That makes dup(), fork() and O_CLOEXEC irrelevant -- the number
- * may change freely, the token hangs off the open file description.
- *
- * And a token is only half an answer.
- *
- * The host mints tokens PER SESSION and every guest process has its own, so
- * the same number means different files in different sessions. Whoever sends
- * a token onwards has to send whose it is -- and this is the only place that
- * can say: the owner is readable from the ctx behind the file, and only while
- * fdget() still holds it. There is no token -> proc map to ask afterwards.
- *
- * `proc_out` may be NULL for the escape-level fd field, which names the
- * caller's own session by construction and needs no owner.
- */
+/* Translate by struct file identity: fdget() holds the file while f_op
+ * validates our node and ctx supplies its token and owning session. dup()
+ * and fork() preserve that identity.
+ * Tokens are session-local; send the owner with cross-process references.
+ * proc_out may be NULL for an escape-level FD already scoped to the caller. */
 static int nvrm_token_of_fd(int n, u64 *tok, u32 *proc_out)
 {
 	struct fd f = fdget(n);
@@ -1310,10 +1089,8 @@ static int nvrm_token_of_fd(int n, u64 *tok, u32 *proc_out)
 
 		if (c) {
 			*tok = c->token;
-			/* ctx->proc is assigned once at open and released only
-			 * at release, and the fdget reference keeps the file --
-			 * hence the ctx, hence the proc -- alive here. No
-			 * proc_lock needed. */
+			/* fdget holds the immutable ctx->proc reference
+			 * until fdput; proc_lock is unnecessary here. */
 			if (proc_out)
 				*proc_out = c->proc ? c->proc->id : 0;
 			ret = 0;
@@ -1323,21 +1100,20 @@ static int nvrm_token_of_fd(int n, u64 *tok, u32 *proc_out)
 	return ret;
 }
 
-/* ------------------------------------------------------------------ *
- * Pinning with accounting
- * ------------------------------------------------------------------ */
+/* Pinning with accounting */
 
 static void nvrm_unpin(struct nvrm_pin *p)
 {
 	if (p->attach) {
-		/* BORROWED pages (a PRIME import). They were never pinned by
-		 * us and are not ours to charge, dirty or unpin -- giving the
-		 * attachment back is the whole release. */
+		/* Exporter-owned pages are not unpinned or dirtied here. */
 		dma_buf_unmap_attachment_unlocked(p->attach, p->sgt,
 						  DMA_BIDIRECTIONAL);
 		dma_buf_detach(p->dmabuf, p->attach);
+		dma_buf_put(p->dmabuf);
+		nvrm_uncharge(p->npages);
 		kvfree(p->pages);
 		kfree(p);
+		module_put(THIS_MODULE);
 		return;
 	}
 	/* dirty_lock(..., true): the pin used FOLL_WRITE, the GPU may have
@@ -1347,20 +1123,13 @@ static void nvrm_unpin(struct nvrm_pin *p)
 	stat_pinned_kib -= p->npages << (PAGE_SHIFT - 10);
 	kvfree(p->pages);
 	kfree(p);
+	module_put(THIS_MODULE);
 }
 
-/*
- * The same GpaRun wire, filled from an sg_table instead of from a user VA.
- *
- * This is the PRIME import: the DISPLAY device allocated the buffer and the
- * RENDER device imports it, which is how every Optimus laptop works and what
- * NVKMS asks for with NVOS32_DESCRIPTOR_TYPE_OS_DMA_BUF_PTR. The pages are
- * guest RAM the host already has mapped, so nothing new is invented -- only
- * the source of the page list differs.
- *
- * `dev` must be a device that can do DMA. A struct virtio_device cannot;
- * its PCI parent can. See os_device_ptr in kapi_enumerate_gpus().
- */
+/* Build GPA runs from a dma-buf scatterlist for PRIME imports. The pages
+ * are guest RAM; no user VA needs pinning here.
+ * The attachment device must support DMA. Use the virtio PCI parent, not
+ * struct virtio_device (see kapi_enumerate_gpus). */
 static struct nvrm_pin *nvrm_pin_dmabuf(struct dma_buf *dmabuf,
 					struct device *dev)
 {
@@ -1411,6 +1180,20 @@ static struct nvrm_pin *nvrm_pin_dmabuf(struct dma_buf *dmabuf,
 		err = -ENOMEM;
 		goto fail;
 	}
+	err = nvrm_charge(npages);
+	if (err) {
+		kvfree(p->pages);
+		kfree(p);
+		goto fail;
+	}
+	if (!try_module_get(THIS_MODULE)) {
+		nvrm_uncharge(npages);
+		kvfree(p->pages);
+		kfree(p);
+		err = -ENODEV;
+		goto fail;
+	}
+	get_dma_buf(dmabuf);
 	p->npages = npages;
 	p->dmabuf = dmabuf;
 	p->attach = attach;
@@ -1460,9 +1243,8 @@ static struct nvrm_pin *nvrm_pin_range(unsigned long va, size_t len)
 	}
 	p->npages = npages;
 
-	/* FOLL_WRITE breaks COW (otherwise a fresh anonymous page still points
-	 * at the shared zero page), FOLL_LONGTERM prevents later migration --
-	 * which is exactly what mlock does not do. */
+	/* FOLL_WRITE breaks COW; FOLL_LONGTERM requests pins suitable for
+	 * long-lived DMA. */
 	while (done < npages) {
 		unsigned long want =
 			min_t(unsigned long, PIN_CHUNK_PAGES, npages - done);
@@ -1487,6 +1269,15 @@ static struct nvrm_pin *nvrm_pin_range(unsigned long va, size_t len)
 			nvrm_uncharge(npages);
 			return ERR_PTR(-EINTR);
 		}
+	}
+	/* Reserve a module reference before this backing can be submitted or
+	 * quarantined. Taking one during module_exit would be too late. */
+	if (!try_module_get(THIS_MODULE)) {
+		unpin_user_pages(p->pages, npages);
+		kvfree(p->pages);
+		kfree(p);
+		nvrm_uncharge(npages);
+		return ERR_PTR(-ENODEV);
 	}
 	stat_pinned_kib += npages << (PAGE_SHIFT - 10);
 	stat_osdesc_pins++;
@@ -1516,12 +1307,9 @@ static u32 nvrm_runs_from_pages(struct page **pages, unsigned long npages,
 	return n;
 }
 
-/* ------------------------------------------------------------------ *
- * open / release
- * ------------------------------------------------------------------ */
+/* open / release */
 
-/* Which node is this? From (major, minor) -- the only place where the real
- * driver's numbers matter. */
+/* Resolve the node type from major/minor numbers. */
 static int node_dev_tag(unsigned int major, unsigned int minor, u32 *tag,
 			u32 *idx)
 {
@@ -1542,13 +1330,12 @@ static int node_dev_tag(unsigned int major, unsigned int minor, u32 *tag,
 	return -ENODEV;
 }
 
-/* Get this guest process's entry -- share an existing one or create a new
- * one. Returns with a reference held. */
+/* Find or create this process identity; return with a reference held. */
 static struct nvrm_proc *nvrm_proc_get(struct nvrm_dev *dev)
 {
 	struct pid *pid = get_task_pid(current, PIDTYPE_TGID);
 	struct nvrm_proc *p, *fresh = NULL;
-	int id;
+	int ret;
 
 	if (!pid)
 		return ERR_PTR(-ESRCH);
@@ -1569,17 +1356,16 @@ static struct nvrm_proc *nvrm_proc_get(struct nvrm_dev *dev)
 		put_pid(pid);
 		return ERR_PTR(-ENOMEM);
 	}
-	/* Starts at 1: id 0 stays reserved for "not specified" (device-wide
-	 * requests that have no owning process). */
-	id = idr_alloc(&dev->proc_idr, fresh, 1, 0, GFP_KERNEL);
-	if (id < 0) {
+	ret = nvrm_proc_alloc_id(&fresh->id);
+	if (ret) {
 		mutex_unlock(&dev->proc_lock);
 		kfree(fresh);
 		put_pid(pid);
-		return ERR_PTR(id);
+		return ERR_PTR(ret);
 	}
+	kref_get(&dev->ref);
+	fresh->dev = dev;
 	fresh->pid = pid; /* the reference passes to the entry */
-	fresh->id = (u32)id;
 	fresh->vnr = (u32)pid_vnr(pid);
 	get_task_comm(fresh->comm, current);
 	refcount_set(&fresh->ref, 1);
@@ -1588,17 +1374,8 @@ static struct nvrm_proc *nvrm_proc_get(struct nvrm_dev *dev)
 	return fresh;
 }
 
-/* Drop a reference. When the last one falls the guest process is done with
- * the GPU: the host may tear its session down, and only THEN does the id
- * become free again.
- *
- * The ORDER is the point. Until 2026-08-18 the id left the IDR before
- * PROC_GONE went out, and idr_alloc hands out the lowest free id: a process
- * opening a node in that window got the very id whose session the host was
- * about to tear down, and its OPEN could land in that session -- every later
- * ioctl on the new fd then answered EBADF. So: off the list under the lock
- * (a new open by the same pid gets a fresh entry), the round trip to the
- * host with the id still allocated, and only then the id back to the IDR. */
+/* Remove the process from lookup before host teardown. IDs are never reused,
+ * including when PROC_GONE times out and its reply arrives later. */
 static void nvrm_proc_put(struct nvrm_dev *dev, struct nvrm_proc *p)
 {
 	u32 id;
@@ -1614,31 +1391,31 @@ static void nvrm_proc_put(struct nvrm_dev *dev, struct nvrm_proc *p)
 	id = p->id;
 	mutex_unlock(&dev->proc_lock);
 
-	/* Outside the lock: this message waits for the host. Not interruptible
-	 * -- this path is also taken on SIGKILL. */
+	/* Wait outside proc_lock. Teardown also runs after SIGKILL, so use
+	 * the bounded noninterruptible path. */
 	nvrm_simple(dev, NVRM_KIND_PROC_GONE, 0, 0, 0, 0, 0, NULL, false, id);
 
-	mutex_lock(&dev->proc_lock);
-	idr_remove(&dev->proc_idr, id);
-	mutex_unlock(&dev->proc_lock);
 	put_pid(p->pid);
+	nvrm_dev_put(p->dev);
 	kfree(p);
 }
 
 static int nvrm_node_open(struct inode *inode, struct file *filp)
 {
-	struct nvrm_dev *dev = nvrm;
+	struct nvrm_dev *dev = nvrm_dev_get();
 	struct nvrm_ctx *ctx;
 	struct nvrm_proc_info info;
 	u64 token = 0;
 	int ret;
 
-	if (!dev || !dev->tbl.blob)
+	if (!dev)
 		return -ENODEV;
 
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
-	if (!ctx)
+	if (!ctx) {
+		nvrm_dev_put(dev);
 		return -ENOMEM;
+	}
 	mutex_init(&ctx->lock);
 	spin_lock_init(&ctx->pin_lock);
 	INIT_LIST_HEAD(&ctx->pins);
@@ -1674,9 +1451,8 @@ static int nvrm_node_open(struct inode *inode, struct file *filp)
 		goto err;
 	ctx->token = token;
 
-	/* Into the token index, so that a host wake-up can find this fd. A
-	 * failure here is not a failed open: the fd works, it just never
-	 * wakes -- the pre-channel behaviour, said out loud. */
+	/* Index the token for event wakes. Index failure leaves a usable fd
+	 * without asynchronous wakes. */
 	{
 		unsigned long key;
 
@@ -1694,6 +1470,7 @@ static int nvrm_node_open(struct inode *inode, struct file *filp)
 		}
 	}
 	filp->private_data = ctx;
+	nvrm_dev_put(dev);
 	stat_ctx_opened++;
 	stat_ctx_open++;
 	return 0;
@@ -1703,22 +1480,35 @@ err:
 		nvrm_proc_put(dev, ctx->proc);
 	mutex_destroy(&ctx->lock);
 	kfree(ctx);
+	nvrm_dev_put(dev);
 	return ret;
+}
+
+static void nvrm_ctx_release_pins(struct nvrm_ctx *ctx, int close_ret)
+{
+	struct nvrm_pin *p, *tmp;
+
+	list_for_each_entry_safe(p, tmp, &ctx->pins, node) {
+		list_del(&p->node);
+		if (close_ret || ctx->uncertain ||
+		    READ_ONCE(ctx->dev->stopping))
+			nvrm_quarantine(ctx->dev, &p->node,
+					&ctx->dev->quarantined_pins, p->npages);
+		else
+			nvrm_unpin(p);
+	}
 }
 
 static int nvrm_node_release(struct inode *inode, struct file *filp)
 {
 	struct nvrm_ctx *ctx = filp->private_data;
-	struct nvrm_pin *p, *tmp;
+	int ret;
 
 	if (!ctx)
 		return 0;
 
-	/* Out of the event index FIRST, under the XArray's own lock -- the
-	 * same lock events_work holds while it dereferences what it found.
-	 * After xa_erase returns, no wake-up can reach this ctx any more, and
-	 * the kfree at the bottom is safe against a firing that is still in
-	 * the ring. */
+	/* Erase under the XArray lock used by events_work. No firing can
+	 * retain ctx after xa_erase returns. */
 	if (ctx->indexed) {
 		unsigned long key;
 
@@ -1727,52 +1517,29 @@ static int nvrm_node_release(struct inode *inode, struct file *filp)
 		ctx->indexed = false;
 	}
 
-	/* Own pages first, then the host. This path is taken on SIGKILL just
-	 * the same -- which is why EVERYTHING the context owns hangs off here,
-	 * and nothing off a cleanup ioctl that nobody calls. */
-	list_for_each_entry_safe(p, tmp, &ctx->pins, node) {
-		list_del(&p->node);
-		nvrm_unpin(p);
-	}
-	/* Not interruptible: the caller may already be dying, an -ERESTARTSYS
-	 * would have no recipient here. */
-	nvrm_simple(ctx->dev, NVRM_KIND_CLOSE, ctx->dev_tag, 0, ctx->token, 0,
-		    0, NULL, false, ctx->proc ? ctx->proc->id : 0);
+	/* Native copies can outlive a successful source close. Normal shared
+	 * backing reclamation still requires the planned host ownership ledger. */
+	ret = nvrm_simple(ctx->dev, NVRM_KIND_CLOSE, ctx->dev_tag, 0,
+			  ctx->token, 0, 0, NULL, false,
+			  ctx->proc ? ctx->proc->id : 0);
+	nvrm_ctx_release_pins(ctx, ret);
 	stat_ctx_closed++;
 	if (stat_ctx_open)
 		stat_ctx_open--;
-	/* Node first, process second: if the last reference falls here, a
-	 * PROC_GONE follows -- and the host tears down a session whose tokens
-	 * are already closed. */
+	/* Close the node before dropping the process identity; the last
+	 * reference sends PROC_GONE. */
 	nvrm_proc_put(ctx->dev, ctx->proc);
 	mutex_destroy(&ctx->lock);
 	kfree(ctx);
 	return 0;
 }
 
-/*
- * poll: readable when the host said so.
- *
- * Without .poll the VFS would return DEFAULT_POLLMASK -- "always readable" --
- * and libcuda would spin in its event loop (it polls eight event FDs, 193
- * calls in a measured CUDA start-up). Modelled on nvidia_poll (nv.c:2276-
- * 2324): sleep on the fd's wait queue, answer POLLIN|POLLPRI when an event
- * is pending. The host tells us with a KIND_EVENT_FIRED of class
- * NV01_EVENT_OS_EVENT for this token; events_work sets the flag and wakes
- * the queue.
- *
- * WHY poll CLEARS the flag (like the native `dataless_event_pending`,
- * nv.c:2320): NVIDIA's Vulkan never calls NV_ESC_RM_GET_EVENT_DATA
- * after `poll -> 3` (vkcube trace: 0 x 0x52, 8 x poll) -- a flag that
- * stayed up would make that client spin. Nothing is lost by it: every host
- * post produces its own EVENT_FIRED (flag back to 1), and a forwarded 0x52
- * that comes back with status NV_OK and MoreEvents != 0 re-arms the flag
- * (nvrm_call_run, step 8b) because the host queue is not empty yet. One
- * spurious wake-up (flag from a FIRED, then a 0x52 that drains everything)
- * is harmless: poll may be spurious, and the native 0x52 then answers
- * NV_ERR_OPERATING_SYSTEM (osapi.c:519-524), which is what the userspace
- * loop expects to see at the end of a drain.
- */
+/* Sleep on the file's wait queue until a host OS event arrives. Without
+ * .poll, DEFAULT_POLLMASK would make libcuda spin.
+ * Consume the pending flag as native nvidia_poll does (nv.c:2320): Vulkan
+ * may poll without GET_EVENT_DATA. Each firing re-arms it; a successful
+ * GET_EVENT_DATA with MoreEvents also re-arms it. Spurious wakes are
+ * allowed. */
 static __poll_t nvrm_node_poll(struct file *filp, struct poll_table_struct *pt)
 {
 	struct nvrm_ctx *ctx = filp->private_data;
@@ -1780,23 +1547,15 @@ static __poll_t nvrm_node_poll(struct file *filp, struct poll_table_struct *pt)
 	if (!ctx)
 		return EPOLLERR;
 	poll_wait(filp, &ctx->events_wq, pt);
+	if (READ_ONCE(ctx->dev->stopping))
+		return EPOLLERR | EPOLLHUP;
 	if (atomic_xchg(&ctx->events_pending, 0))
 		return EPOLLIN | EPOLLPRI;
 	return 0;
 }
 
-/* ------------------------------------------------------------------ *
- * ioctl -- the interpreter
- *
- * Every escape carries one of RM's fixed parameter blocks from nvos.h, named
- * after the struct: NVOS64 for RM_ALLOC, NVOS54 for RM_CONTROL, NVOS00 for
- * RM_FREE, NVOS02 for RM_ALLOC_MEMORY, NVOS33 for RM_MAP_MEMORY (later in
- * this file also NVOS41 for RM_GET_EVENT_DATA, NVOS10 for RM_ALLOC_EVENT,
- * NVOS34 for RM_CONFIG_GET_EX). Their field
- * offsets are never typed in here -- they arrive in the table or come out of
- * nvrm_wire.h. hClass, where one appears, is RM's class number for the kind
- * of object an alloc creates.
- * ------------------------------------------------------------------ */
+/* Shared ioctl interpreter. NVOS parameter layouts and hClass-specific
+ * metadata come from host tables and nvrm_wire.h. */
 
 /* Everything one call needs as intermediate state. */
 struct call {
@@ -1808,9 +1567,8 @@ struct call {
 	u32 nr;
 	u32 size;
 	u64 addr; /* where the inline block is written back */
-	/* Kernel caller (NVKMS through nvidia_get_rm_ops) instead of a guest
-	 * process through ioctl(2). Decides ONLY how memory is fetched and
-	 * written back -- see call_in()/call_out(). */
+	/* Kernel callers use memcpy through call_in/call_out instead of
+	 * user-memory accessors. */
 	bool kern;
 
 	u8 *inl;
@@ -1883,15 +1641,8 @@ static void wr32(u8 *p, u32 off, u32 v)
 	memcpy(p + off, &v, sizeof(v));
 }
 
-/*
- * ---- BDF mediation -------------------------------------------------------
- *
- * Two directions, and both are needed. The guest asks questions that NAME a
- * gpuId (GET_ID_INFO, GET_PCI_INFO) and gets answers that CONTAIN gpuIds and
- * addresses (GET_PROBED_IDS, GET_ATTACHED_IDS, and the two above echoing
- * their argument). Rewriting only the answers would give the guest an id it
- * cannot then ask about.
- */
+/* BDF mediation rewrites both directions: requests may name guest gpuIds,
+ * while replies contain host gpuIds and PCI addresses. */
 
 /* The guest's own address, as gpuGenerate32BitId() would encode it. */
 static void bdf_init(struct nvrm_dev *dev)
@@ -1923,19 +1674,14 @@ static bool bdf_on(const struct nvrm_dev *dev)
 	return bdf_mediation && dev && dev->bdf_guest_id && !dev->bdf_disabled;
 }
 
-/*
- * Learn the host's id from an answer. Everything downstream keys off this,
- * and it is the one place that decides mediation is not representable.
- */
+/* Learn the host's id from an answer. Everything downstream keys off this,
+ * and it is the one place that decides mediation is not representable. */
 static void bdf_learn(struct nvrm_dev *dev, u32 host_id)
 {
 	if (host_id == NVRM_GPU_INVALID_ID || host_id == 0)
 		return;
-	/* Our OWN id coming back is not a second GPU. It arrives constantly:
-	 * every mediated answer is read again by the next caller, and NVKMS
-	 * hands the id it was given straight back to us. Measured as a false
-	 * "second GPU" that switched mediation off two milliseconds after it
-	 * had been switched on. */
+	/* The mediated guest ID can return in later requests; do not treat
+	 * it as a second host GPU. */
 	if (host_id == dev->bdf_guest_id)
 		return;
 	if (!dev->bdf_host_id) {
@@ -1951,16 +1697,9 @@ static void bdf_learn(struct nvrm_dev *dev, u32 host_id)
 	}
 }
 
-/*
- * host -> guest, for ids travelling towards the guest.
- *
- * `learn` is false everywhere except the two ENUMERATION answers
- * (GET_PROBED_IDS, GET_ATTACHED_IDS). Those two are RM's statement of which
- * GPUs exist; every other field merely quotes one. Learning from all of them
- * was measured as a false "second GPU (0xffff)" -- a derived field whose
- * value is not an id at all -- which switched mediation off in the middle of
- * an X server start and left nvidia-drm with a half-mediated view.
- */
+/* Translate host IDs to guest IDs. Learn only from GET_PROBED_IDS and
+ * GET_ATTACHED_IDS; other fields may contain derived values that resemble
+ * IDs and would falsely disable single-GPU mediation. */
 static u32 bdf_to_guest(struct nvrm_dev *dev, u32 id, bool learn)
 {
 	if (id == NVRM_GPU_INVALID_ID || id == 0)
@@ -1980,11 +1719,8 @@ static u32 bdf_to_host(struct nvrm_dev *dev, u32 id)
 	return dev->bdf_host_id;
 }
 
-/*
- * The table, generated. NVRM_BDF_SCALARS and NVRM_BDF_ARRAYS come from the
- * SDK structs -- see nvrm-genhdr.rs for why this is not a hand-written
- * switch.
- */
+/* BDF scalar/array offsets are generated from SDK structs by
+ * nvrm-genhdr.rs. */
 struct bdf_scalar {
 	u32 cmd;
 	u32 off;
@@ -2009,15 +1745,8 @@ static const struct bdf_array *bdf_find_array(u32 cmd)
 	return NULL;
 }
 
-/*
- * NV_ESC_CARD_INFO -- the address that is not a control.
- *
- * A plain ioctl whose reply is an ARRAY of nv_ioctl_card_info_t in the
- * INLINE block, each entry carrying both the BDF and the gpuId. NVML reads
- * it, and this was the last place the host address still came through after
- * every gpuId-bearing control had been mediated: measured with bdf_debug,
- * which found nothing, precisely because it only ever looked at controls.
- */
+/* NV_ESC_CARD_INFO returns an inline array of nv_ioctl_card_info_t. Rewrite
+ * each BDF and gpuId; this escape bypasses control-reply mediation. */
 static void bdf_rewrite_card_info(struct call *c)
 {
 	struct nvrm_dev *dev = c->dev;
@@ -2046,38 +1775,18 @@ static void bdf_rewrite_card_info(struct call *c)
 	}
 }
 
-/*
- * NV_ESC_ATTACH_GPUS_TO_FD -- the address that is not a control EITHER.
- *
- * A plain escape whose entire inline block is an array of gpuIds. It reached
- * neither mediation path: bdf_rewrite_request() hangs on d->cmd_off and this
- * escape has no table entry at all, so it does not even enter
- * gather_embedded() ("an escape with no entry is simply forwarded",
- * nvrm-abi/src/table.rs). The guest therefore sent its own mediated id to a
- * host that has never heard of it, and nvidia_dev_get() answered EINVAL
- * (nv.c:2645). Measured 2026-08-15: bdf_mediation=1 -> -1, =0 -> 0.
- *
- * The COUNT comes from the _IOC size, never from a constant. The host
- * derives its own the same way (arg_size / sizeof(NvU32), nv.c:2605); the
- * 32 entries this rig was observed to send are an observation, not a
- * promise.
- *
- * BOTH directions, because the inline block is copied back to the caller
- * (write_back() -> call_out()). Rewriting only the question would hand the
- * application the HOST's id in its own buffer -- exactly what bdf_debug
- * exists to find.
- *
- * A zero slot means "no GPU here"; the host skips it (nv.c:2639) and both
- * translations pass it through untouched, so nothing special is needed.
- */
+/* ATTACH_GPUS_TO_FD carries an inline gpuId array and has no control
+ * descriptor. Derive its count from _IOC_SIZE, as the host does
+ * (nv.c:2605).
+ * Translate both request and reply: write_back returns the same buffer to
+ * userspace. Zero slots mean no GPU and pass through unchanged. */
 static void bdf_rewrite_attach_gpus(struct call *c, bool to_host)
 {
 	struct nvrm_dev *dev = c->dev;
 	u32 off;
 
-	/* UVM carries its command number RAW, without _IOC encoding, so its
-	 * numbers live in the same range as the escapes. Only the control
-	 * node can see this one at all -- NV_CTL_DEVICE_ONLY, nv.c:2608. */
+	/* Restrict to the control node: raw UVM command numbers overlap
+	 * escape numbers (NV_CTL_DEVICE_ONLY, nv.c:2608). */
 	if (c->ctx->dev_tag != NVRM_DEV_CTL ||
 	    c->nr != NVRM_ESC_ATTACH_GPUS_TO_FD || !bdf_on(dev))
 		return;
@@ -2091,11 +1800,9 @@ static void bdf_rewrite_attach_gpus(struct call *c, bool to_host)
 	}
 }
 
-/*
- * The question side: the guest names the card by the address IT can see,
+/* The question side: the guest names the card by the address IT can see,
  * and RM knows only its own. Called with the params buffer fetched, before
- * the request goes out.
- */
+ * the request goes out. */
 static void bdf_rewrite_request(struct call *c, u32 cmd)
 {
 	const struct bdf_scalar *sc;
@@ -2121,9 +1828,8 @@ static void bdf_rewrite_request(struct call *c, u32 cmd)
 	}
 	if (sc)
 		return;
-	/* ATTACH_IDS, DETACH_IDS and P2P_CAPS_MATRIX are questions that carry
-	 * an ARRAY -- the last one TWO, so every row that names the cmd is
-	 * walked, not just the first. */
+	/* Rewrite every matching array row; P2P_CAPS_MATRIX carries two
+	 * arrays. */
 	for (ar = bdf_arrays; ar < bdf_arrays + ARRAY_SIZE(bdf_arrays); ar++) {
 		if (ar->cmd != cmd)
 			continue;
@@ -2138,15 +1844,9 @@ static void bdf_rewrite_request(struct call *c, u32 cmd)
 	}
 }
 
-/*
- * The answer side. Called after the reply has landed in c->aux and before
- * it is copied out to the caller.
- *
- * WARNING: this runs on EVERY control, so the fast path is two short linear
- * scans -- 11 scalar rows and 7 array rows -- and nothing else: no
- * allocation, no copy, no
- * lock. Anything heavier belongs behind the cmd match, not in front of it.
- */
+/* Rewrite replies in c->aux before copy-out. Every control passes here;
+ * keep unrelated commands allocation-free and lock-free, using only the
+ * scalar/array table scans. */
 static void bdf_rewrite_reply(struct call *c, u32 cmd)
 {
 	struct nvrm_dev *dev = c->dev;
@@ -2154,17 +1854,12 @@ static void bdf_rewrite_reply(struct call *c, u32 cmd)
 	const struct bdf_array *ar;
 	u32 i;
 
-	/* Out before anything else when the switch is off. This is the hot
-	 * path -- every control reply passes here -- and "off behaves exactly
-	 * as before" has to be true of the instruction count too, not just of
-	 * the answer. Without this the two table scans ran regardless. */
+	/* Skip all scans on the common disabled path. */
 	if (!bdf_mediation && !bdf_debug)
 		return;
 
-	/* Diagnosis runs BEFORE the table, on every reply. Running it only
-	 * for commands the table misses was a blind spot that cost a round:
-	 * a mediated control can still carry the host address in a SECOND
-	 * field, and that is exactly the case worth finding. */
+	/* Scan before rewriting, including known commands: an additional
+	 * host-ID field may be missing from the table. */
 	if (bdf_debug && dev->bdf_host_id && c->params_len >= 4) {
 		u32 hbus = (dev->bdf_host_id >> 8) & 0xff;
 		u32 off;
@@ -2172,9 +1867,7 @@ static void bdf_rewrite_reply(struct call *c, u32 cmd)
 		for (off = 0; off + 4 <= c->params_len; off += 4) {
 			u32 v = rd32(c->aux, off);
 
-			/* The id as a whole, and -- at bdf_debug 2 --
-			 * the bare bus number, because an address does
-			 * not have to travel as an id. */
+			/* Level 2 also scans the bare bus number. */
 			if (v == dev->bdf_host_id)
 				pr_info_ratelimited(
 					"virtio_nvrm: bdf_debug: control %#x carries host id %#x at +%u (params %zu)\n",
@@ -2185,9 +1878,7 @@ static void bdf_rewrite_reply(struct call *c, u32 cmd)
 					"virtio_nvrm: bdf_debug: control %#x carries host bus %#x at +%u (params %zu)\n",
 					cmd, hbus, off, c->params_len);
 		}
-		/* An address does not have to be a number at all --
-		 * RM hands NVML a printed busId in places. Level 3
-		 * looks for the text. */
+		/* Level 3 scans formatted PCI busId strings. */
 		if (bdf_debug > 2 && c->params_len >= 5) {
 			char want[8];
 			size_t k;
@@ -2204,9 +1895,7 @@ static void bdf_rewrite_reply(struct call *c, u32 cmd)
 		}
 	}
 
-	/* The address as {index, data} pairs, which is how NVML reads it --
-	 * and the reason nvidia-smi kept printing the host's bus long after
-	 * every gpuId had been mediated. */
+	/* Rewrite NVML PCI address fields encoded as (index, data) pairs. */
 	if (cmd == NVRM_CTRL_BUS_GET_INFO_V2 || cmd == NVRM_CTRL_BUS_GET_INFO) {
 		u32 n;
 
@@ -2292,19 +1981,11 @@ static void bdf_rewrite_reply(struct call *c, u32 cmd)
 	}
 }
 
-/*
- * ---- vram_debug ----------------------------------------------------------
- *
- * See vram_debug for the why. Everything here runs on the reply, after the
- * host answered and before the caller sees it, and only reads.
- */
+/* VRAM reply diagnostics. Inspect replies before copy-out without modifying
+ * them. */
 
-/*
- * Where this reply's NV2080_CTRL_FB_INFO list is, and how many entries of
- * it may be read. V2 carries it flat in the params buffer; V1 behind an
- * NvP64, which gather_embedded() brought across as a nested buffer -- found
- * by the pointer's offset, never by position.
- */
+/* Locate the FB_INFO list: inline for V2, or a nested buffer identified by
+ * pointer offset for V1. */
 static u8 *vram_fb_list(struct call *c, u32 cmd, u32 *n)
 {
 	u32 want, fits, i;
@@ -2356,9 +2037,8 @@ static const char *const vram_form_name[] = {
 	[VRAM_HEAP_INFO] = "NVOS32_FUNCTION_INFO",
 };
 
-/* Seen (command, offset, form, process) keys -- a census names each carrier
- * once, not once per frame. When the table is full every hit is printed,
- * rate-limited, which is still correct, only louder. */
+/* Track (command, offset, form, process) once. After the table fills, log
+ * further hits with rate limiting. */
 static struct {
 	u32 cmd, off;
 	u8 form;
@@ -2367,8 +2047,7 @@ static struct {
 static unsigned int vram_seen_n;
 static DEFINE_SPINLOCK(vram_seen_lock);
 
-/* A first sighting is printed whole -- the census is the point, and the
- * table bounds it. Level 2, and a full table, go through the rate limit. */
+/* Log first sightings directly; rate-limit level 2 and overflow. */
 #define vram_debug_say(first, fmt, ...)                          \
 	do {                                                     \
 		if ((first) && READ_ONCE(vram_debug) < 2)        \
@@ -2489,14 +2168,9 @@ static void vram_debug_inline(struct call *c)
 	}
 }
 
-/*
- * The answer side. Called with the reply in c->aux and BEFORE the nested
- * buffers are copied out: V1 keeps its list in one of them.
- *
- * WARNING: every control reply passes here. The fast path is two compares
- * and one load; the list is read only for the two FB_GET_INFO commands,
- * which a client asks a handful of times, not per frame.
- */
+/* Inspect FB_GET_INFO before nested-buffer copy-out; V1 keeps its list
+ * there. Unrelated replies only compare command IDs and load the debug
+ * setting. */
 static void vram_debug_reply(struct call *c, u32 cmd)
 {
 	u32 i, n = 0;
@@ -2520,19 +2194,8 @@ static void vram_debug_reply(struct call *c, u32 cmd)
 		vram_debug_control(c, cmd);
 }
 
-/*
- * Fetch and write-back -- the ONLY two places that know whether the caller
- * is a guest PROCESS or the guest KERNEL.
- *
- * The same interpreter serves both: a process through ioctl(2), and NVKMS
- * through nvidia_get_rm_ops(). Tables, virtqueue, request layout and every
- * pointer rule are identical; only the fetch differs -- copy_from_user for
- * the one, memcpy for the other.
- *
- * A branch, deliberately, and not a second interpreter: a second copy of
- * this marshalling would be a second set of bugs, and the first copy is the
- * one CUDA depends on.
- */
+/* User and kernel callers share the interpreter. Only fetch/write-back
+ * differ: copy_from_user/copy_to_user for processes, memcpy for NVKMS. */
 static int call_in(const struct call *c, void *dst, u64 src, size_t n)
 {
 	if (!n)
@@ -2557,17 +2220,12 @@ static int call_out(const struct call *c, u64 dst, const void *src, size_t n)
 								     0;
 }
 
-/* Resolve XFER: the real number, size and pointer sit in the payload. Must
- * happen BEFORE the size is determined, otherwise the bytes of the wrapper
- * struct travel instead of the payload (that mistake only shows up later, as
- * garbage data).
- *
- * User-only, and the __user pointer says so: the kernel path carries its
- * number and size in the call itself and never reaches an XFER escape. */
+/* Resolve the userspace XFER wrapper before sizing the payload. Kernel ops
+ * already supply their command and size directly. */
 static int resolve_xfer(struct call *c, void __user *arg)
 {
 	const struct nvrm_table_hdr *h = &c->t->hdr;
-	u8 hdrbuf[64];
+	u8 hdrbuf[NVRM_XFER_HEADER_MAX];
 	u32 real_nr, real_size;
 	u64 real_ptr;
 
@@ -2587,8 +2245,7 @@ static int resolve_xfer(struct call *c, void __user *arg)
 	return 0;
 }
 
-/* The embedded pointer and the pointers inside it -- step (3) of
- * nvrm_call_run, hoisted out. */
+/* Gather the embedded params buffer and its nested pointers. */
 static int gather_embedded(struct call *c)
 {
 	const struct nvrm_ioctl_desc *d = c->desc;
@@ -2598,14 +2255,13 @@ static int gather_embedded(struct call *c)
 
 	if (!d || d->emb_ptr_off == NVRM_NONE_U32)
 		return 0;
-	if (d->emb_ptr_off + 8 > c->size)
+	if (!nvrm_range_valid(d->emb_ptr_off, 8, c->size))
 		return -EINVAL;
 
-	/* Blocked controls are not sent at all. Which ones those are stands in
-	 * the table (CF_BLOCK) -- the module reads the number, it does not know
-	 * it. The effective block sits in the HOST; here it only saves the trip
-	 * and makes the failure early and unambiguous. */
-	if (d->cmd_off != NVRM_NONE_U32 && d->cmd_off + 4 <= c->size) {
+	/* Reject table-marked blocked controls early. The host
+	 * independently enforces the block. */
+	if (d->cmd_off != NVRM_NONE_U32 &&
+	    nvrm_range_valid(d->cmd_off, 4, c->size)) {
 		const struct nvrm_ctrl_desc *blk =
 			find_ctrl(c->t, rd32(c->inl, d->cmd_off));
 
@@ -2617,30 +2273,25 @@ static int gather_embedded(struct call *c)
 		}
 	}
 
-	/* The POINTER first, the LENGTH second -- a NULL pointer means
-	 * "parameterless call" and ends the matter before any table is
-	 * consulted. Classes such as NV01_ROOT_CLIENT have no alloc params at
-	 * all and therefore appear in no table; looking up first rejects them
-	 * wrongly with EOPNOTSUPP (measured: hClass 0x0, cuInit did not get
-	 * past its first alloc). */
+	/* Check for NULL before class lookup: parameterless classes may
+	 * have no descriptor row. */
 	c->saved_ptr = rd64(c->inl, d->emb_ptr_off);
 	if (!c->saved_ptr)
 		return 0;
 
 	switch (d->emb_len_kind) {
 	case NVRM_EMB_LEN_FIELD:
-		if (d->emb_len_off + 4 > c->size)
+		if (!nvrm_range_valid(d->emb_len_off, 4, c->size))
 			return -EINVAL;
 		plen = rd32(c->inl, d->emb_len_off);
 		break;
 	case NVRM_EMB_LEN_CLASS:
-		if (d->emb_len_off + 4 > c->size)
+		if (!nvrm_range_valid(d->emb_len_off, 4, c->size))
 			return -EINVAL;
 		cls = find_class(c->t, rd32(c->inl, d->emb_len_off));
 		if (!cls) {
-			/* Unknown hClass: do NOT guess. A wrong length would be
-			 * an out-of-bounds read in the driver's copy_from_user
-			 * on the host side. */
+			/* Reject unknown classes; guessing a params length
+			 * could expose an out-of-bounds host read. */
 			pr_warn_ratelimited(
 				"virtio_nvrm: hClass %#x unknown -- EOPNOTSUPP instead of a guess (%s[%d])\n",
 				rd32(c->inl, d->emb_len_off), current->comm,
@@ -2648,24 +2299,19 @@ static int gather_embedded(struct call *c)
 			return -EOPNOTSUPP;
 		}
 		plen = cls->param_size;
-		/* pRightsRequested is not supported -- it appears in no
-		 * measured run. Non-null here: fail loudly. */
+		/* Reject unsupported non-NULL pRightsRequested. */
 		if (d->rights_off != NVRM_NONE_U32 &&
 		    c->size == d->rights_if_size) {
-			if (d->rights_off + 8 > c->size)
+			if (!nvrm_range_valid(d->rights_off, 8, c->size))
 				return -EINVAL;
 			if (rd64(c->inl, d->rights_off))
 				return -EOPNOTSUPP;
 		}
 		break;
 	case NVRM_EMB_LEN_FIXED:
-		/* The length is a constant that sits IN emb_len_off itself
-		 * (NV_ESC_RM_GET_EVENT_DATA: NVOS41.pEvent -> one NvUnixEvent,
-		 * out-only). Before this arm existed the escape fell into the
-		 * `default` below and the RAW guest pointer travelled to the
-		 * host, where RM's os_memcpy_to_user (osapi.c:531) would have
-		 * written into the daemon's address space -- unreachable only
-		 * because poll never woke anybody. It does now. */
+		/* The constant length is stored in emb_len_off, as for
+		 * NVOS41.pEvent. Marshal that output buffer instead of
+		 * forwarding its guest pointer. */
 		plen = d->emb_len_off;
 		break;
 	default:
@@ -2689,10 +2335,9 @@ static int gather_embedded(struct call *c)
 	c->params_len = plen;
 	c->emb_off = d->emb_ptr_off;
 
-	/* SECOND-level pointers: which field is a pointer, and where its length
-	 * sits, comes from the control table. Without an entry RM would receive
-	 * a guest VA and answer with 0x1e/0x3a. */
-	if (d->cmd_off != NVRM_NONE_U32 && d->cmd_off + 4 <= c->size) {
+	/* Resolve second-level pointers and lengths from the control table. */
+	if (d->cmd_off != NVRM_NONE_U32 &&
+	    nvrm_range_valid(d->cmd_off, 4, c->size)) {
 		const struct nvrm_ctrl_desc *ct =
 			find_ctrl(c->t, rd32(c->inl, d->cmd_off));
 
@@ -2707,25 +2352,27 @@ static int gather_embedded(struct call *c)
 			u8 *bigger;
 
 			if (ct->count > NVRM_MAX_NESTED ||
-			    ct->first + ct->count > c->t->hdr.n_nested)
+			    !nvrm_range_valid(ct->first, ct->count,
+					      c->t->hdr.n_nested))
 				return -EPROTO;
 
-			/* Read everything out of the params buffer FIRST, then
-			 * copy it over -- otherwise a remembered pointer refers
-			 * to the old buffer. */
+			/* Read pointer metadata before reallocating the
+			 * params buffer. */
 			for (i = 0; i < ct->count; i++) {
 				const struct nvrm_nested_row *row =
 					&c->t->nested[ct->first + i];
 				u64 gva;
 				u32 nlen;
 
-				if (row->ptr_off + 8 > c->params_len)
+				if (!nvrm_range_valid(row->ptr_off, 8,
+						      c->params_len))
 					continue;
 				gva = rd64(c->aux, row->ptr_off);
 				if (row->len_kind == NVRM_NLEN_FIXED) {
 					nlen = row->len_off;
 				} else {
-					if (row->len_off + 4 > c->params_len)
+					if (!nvrm_range_valid(row->len_off, 4,
+							      c->params_len))
 						return -EINVAL;
 					if (check_mul_overflow(
 						    rd32(c->aux, row->len_off),
@@ -2775,13 +2422,10 @@ static int gather_embedded(struct call *c)
 
 		if (c->params_len < 8 || cls->fd_off > c->params_len - 8)
 			return -EINVAL;
-		/* The GUARD, and it is not optional for the event classes:
-		 * NV0005_ALLOC_PARAMETERS reuses `data` (@16) as an fd for
-		 * NV01_EVENT_OS_EVENT and as a callback POINTER for the
-		 * kernel-callback classes, and says which by hClass (@8) in
-		 * the same buffer. The outer class does not decide it --
-		 * measured, NVIDIA's Vulkan allocates under 0x0005 with the
-		 * inner class 0x79 where CUDA uses 0x0079 directly. */
+		/* NV0005.data is an FD only when its inner hClass is
+		 * NV01_EVENT_OS_EVENT; kernel-callback classes store a
+		 * pointer there. The outer allocation class alone cannot
+		 * distinguish them. */
 		if (cls->fd_if_off != NVRM_NONE_U32) {
 			if (c->params_len < 4 ||
 			    cls->fd_if_off > c->params_len - 4)
@@ -2817,20 +2461,12 @@ static int gather_embedded(struct call *c)
 	}
 no_alloc_fd:
 
-	/* The same problem one level along: an fd inside a CONTROL's params.
-	 *
-	 * NVIDIA's EGL is the first consumer here to use one --
-	 * NV0000_CTRL_CMD_OS_UNIX_EXPORT_OBJECT_TO_FD (0x3d05) hands RM an
-	 * already-open /dev/nvidiactl fd, and the guest's number means nothing
-	 * on the host (measured: NV_ERR_INVALID_PARAMETER, 0x3b). Which control
-	 * and which offset comes from the TABLE (NVRM_CF_FD), not from a number
-	 * written here.
-	 *
-	 * WARNING: FOUR bytes. These fds are NvS32, while cls->fd_off above
-	 * names an NvP64. Copying eight would take the neighbouring field with
-	 * it -- for 0x3d05 that neighbour is `flags`.
-	 */
-	if (d->cmd_off != NVRM_NONE_U32 && d->cmd_off + 4 <= c->size) {
+	/* Control FD fields use NVRM_CF_FD table offsets. Copy four bytes:
+	 * these are NvS32, unlike class FD fields encoded as NvP64. An
+	 * eight-byte copy would overwrite the adjacent flags in
+	 * EXPORT_OBJECT_TO_FD. */
+	if (d->cmd_off != NVRM_NONE_U32 &&
+	    nvrm_range_valid(d->cmd_off, 4, c->size)) {
 		const struct nvrm_ctrl_desc *ct =
 			find_ctrl(c->t, rd32(c->inl, d->cmd_off));
 
@@ -2855,35 +2491,14 @@ no_alloc_fd:
 			if (val < 0) {
 				c->aux_fd_token = NVRM_NONE_U64;
 			} else if (c->kern && (current->flags & PF_KTHREAD)) {
-				/* WHOSE table the number belongs to is the
-				 * whole question, and `c->kern` alone does
-				 * not answer it.
-				 *
-				 * The fd at ESCAPE level names which session
-				 * a mapping belongs to, and for a kernel
-				 * caller that is its own -- kapi_forward_on()
-				 * answers "it is us" and never reads the
-				 * number. This one is different:
-				 * IMPORT_OBJECT_FROM_FD names the session
-				 * that EXPORTED the object, which is a
-				 * userspace one. "It is us" would be wrong,
-				 * so the number has to be resolved.
-				 *
-				 * And it can be: NVKMS runs the import
-				 * inside the caller's own ioctl, so `current`
-				 * is that process. Measured 2026-08-15, the
-				 * refusal naming its context: "kernel path
-				 * names fd 38 in control 0x3d06 (comm Xorg,
-				 * pid 3049, process)".
-				 *
-				 * A kthread is the case the refusal was
-				 * really built against -- there `current` is
-				 * somebody else entirely -- so that one still
-				 * refuses. nvrm_token_of_fd() is the second
-				 * line: it accepts only our own nodes, so a
-				 * number that means nothing here fails rather
-				 * than resolving to something wrong.
-				 */
+				/* IMPORT_OBJECT_FROM_FD names the exporting
+				 * userspace session even on the kernel
+				 * path. NVKMS executes it in the calling
+				 * process's ioctl context, so resolve its
+				 * FD through current. Reject kthreads,
+				 * whose FD table is unrelated.
+				 * nvrm_token_of_fd also requires one of our
+				 * nodes. */
 				pr_warn_ratelimited(
 					"virtio_nvrm: kthread names fd %d in control %#x (comm %s, pid %d) -- no table to read it against\n",
 					val, rd32(c->inl, d->cmd_off),
@@ -2906,25 +2521,17 @@ no_alloc_fd:
 
 	/* The guest names the card by the address IT can see; RM knows only
 	 * its own. See bdf_mediation. */
-	if (d->cmd_off != NVRM_NONE_U32 && d->cmd_off + 4 <= c->size)
+	if (d->cmd_off != NVRM_NONE_U32 &&
+	    nvrm_range_valid(d->cmd_off, 4, c->size))
 		bdf_rewrite_request(c, rd32(c->inl, d->cmd_off));
 
 	return 0;
 }
 
-/*
- * NV01_MEMORY_SYSTEM_OS_DESCRIPTOR from the kernel, with a dma-buf or an
- * sg_table as the descriptor.
- *
- * The wire keeps the shape the host already knows -- GPA runs -- but this
- * call DOES have a params buffer, unlike the process form where aux carries
- * runs and nothing else. So aux becomes params ++ runs: the host reads the
- * params it needs (limit, attr, type) at the front and the runs behind them.
- * `params_len` says where the boundary is, and the host branch keys off
- * ioctl_nr == NV_ESC_RM_ALLOC, a combination that used to be refused
- * outright -- so an older host answers with a clean error instead of
- * misreading anything.
- */
+/* Kernel OS-descriptor allocation carries params followed by GPA runs in
+ * aux. params_len separates them. The host recognizes this form by
+ * NV_ESC_RM_ALLOC; older hosts reject it instead of treating params as page
+ * runs. */
 static int gather_osdesc_kern(struct call *c)
 {
 	const struct nvrm_table_hdr *h = &c->t->hdr;
@@ -2953,26 +2560,11 @@ static int gather_osdesc_kern(struct call *c)
 		dmabuf = (struct dma_buf *)(uintptr_t)desc;
 		break;
 	case NVRM_OSDESC_OS_SGT_PTR:
-		/* {sgt, gem}. We take the dma_buf route instead of walking a
-		 * foreign sg_table whose lifetime nobody promised us -- the
-		 * exporter is the same object either way.
-		 *
-		 * And this is NOT the path a PRIME import takes.
-		 * nv_drm_gem_prime_import_sg_table receives an sg_table from
-		 * the DRM core and then calls
-		 * getSystemMemoryHandleFromDmaBuf with the DMA_BUF
-		 * (nvidia-drm-gem-dma-buf.c:155) -- type 5, which is built
-		 * above. getSystemMemoryHandleFromSgt (type 6) appears in
-		 * exactly one place, nv_drm_gem_export_dmabuf_memory_ioctl,
-		 * and only on the branch where pMemory is already NULL, i.e.
-		 * where that dma-buf import has ALREADY failed.
-		 *
-		 * So this warning in the log is a SYMPTOM, not a cause. If
-		 * it appears, the question is why the type-5 import above did
-		 * not produce a handle -- most likely nvrm_pin_dmabuf refusing
-		 * pages without a struct page. Reading it as "the import path
-		 * needs sg_table support" sends the next person to build the
-		 * wrong thing. */
+		/* Use the dma_buf exporter; a foreign sg_table has no
+		 * lifetime guarantee here. PRIME import normally uses
+		 * descriptor type 5 (DMA_BUF). Type 6 (SGT) appears only
+		 * after that import failed (nvidia-drm-gem-dma-buf.c:155);
+		 * investigate the earlier failure first. */
 		pr_warn_ratelimited(
 			"virtio_nvrm: OS descriptor type %u (sg_table) is not built; the dma-buf import above failed first -- look there\n",
 			dtype);
@@ -3005,6 +2597,7 @@ static int gather_osdesc_kern(struct call *c)
 		return PTR_ERR(pin);
 	}
 	c->pin = pin;
+	c->pin->object.client = rd32(c->inl, NVRM_NVOS64_HROOT_OFF);
 	c->pmem_orig = desc;
 	c->limit_orig = limit;
 
@@ -3032,15 +2625,8 @@ static int gather_osdesc_kern(struct call *c)
 	return 0;
 }
 
-/*
- * NV01_MEMORY_SYSTEM_OS_DESCRIPTOR (hClass 0x71).
- *
- * This call describes memory that RM PINS instead of copying -- a guest VA is
- * meaningless on the host side (measured: 0x1e INVALID_ADDRESS). So the module
- * resolves the pages here and sends GPA runs; the host reassembles them into a
- * host VA. In the kernel that is a one-liner (page_to_pfn) instead of the
- * userspace detour through pagemap -- and it needs no CAP_SYS_ADMIN.
- */
+/* Resolve OS-descriptor memory to pinned guest pages and send GPA runs.
+ * Guest virtual addresses are not valid host pointers. */
 static int gather_osdesc(struct call *c)
 {
 	const struct nvrm_table_hdr *h = &c->t->hdr;
@@ -3050,35 +2636,23 @@ static int gather_osdesc(struct call *c)
 	u64 limit, dlen;
 	u32 nruns, max_runs;
 
-	/*
-	 * The KERNEL form, and it is a different call than the process one.
-	 *
-	 * A process allocates OS-described memory with NV_ESC_RM_ALLOC_MEMORY
-	 * (NVOS02: the address and the limit sit in the INLINE block, and the
-	 * table marks that escape with NVRM_F_OSDESC). NVKMS instead uses
-	 * NV04_ALLOC (NVOS64) with hClass 0x71 and puts
-	 * NV_OS_DESC_MEMORY_ALLOCATION_PARAMS in the PARAMS buffer -- so the
-	 * flag never matches and the alloc used to travel to the host with a
-	 * guest kernel pointer in it. Measured 2026-08-08 as
-	 *   kernel ALLOC, class 0x71 / osdesc: nr 0x2b has no OSDESC flag
-	 * on an import that then reported success with nothing behind it.
-	 */
+	/* Userspace sends NVOS02 through RM_ALLOC_MEMORY, marked
+	 * NVRM_F_OSDESC. NVKMS sends NVOS64 through RM_ALLOC with class
+	 * 0x71 and an NV_OS_DESC_MEMORY_ALLOCATION_PARAMS buffer; detect
+	 * that form separately. */
 	if (c->kern && d && c->nr == NVRM_KESC_ALLOC &&
 	    NVRM_NVOS64_HCLASS_OFF + 4 <= c->size &&
 	    rd32(c->inl, NVRM_NVOS64_HCLASS_OFF) == h->osdesc_class)
 		return gather_osdesc_kern(c);
 
 	if (!d || !(d->flags & NVRM_F_OSDESC)) {
-		/* Only for an ALLOC. This used to print for every kernel call
-		 * that passed through here -- FREE, CONTROL, MAP_MEMORY -- and
-		 * an "osdesc:" line about a FREE reads like a finding when it
-		 * is a tautology. */
+		/* Emit OS-descriptor diagnostics only for allocation calls. */
 		if (display > 1 && c->kern && c->nr == NVRM_KESC_ALLOC)
 			pr_info("virtio_nvrm: osdesc: alloc nr %#x has no OSDESC flag\n",
 				c->nr);
 		return 0;
 	}
-	if (d->emb_len_off + 4 > c->size)
+	if (!nvrm_range_valid(d->emb_len_off, 4, c->size))
 		return -EINVAL;
 	if (display > 1 && c->kern)
 		pr_info("virtio_nvrm: osdesc: class at +%u is %#x, looking for %#x\n",
@@ -3086,37 +2660,28 @@ static int gather_osdesc(struct call *c)
 			h->osdesc_class);
 	if (rd32(c->inl, d->emb_len_off) != h->osdesc_class)
 		return 0; /* other memory class: forward normally */
-	/* A kernel caller describes KERNEL memory here, and nvrm_pin_range()
-	 * below resolves a USER address with get_user_pages(). Pinning the
-	 * wrong address space would not fail, it would send the host somebody
-	 * else's pages -- so refuse instead, loudly. Not needed to load NVKMS;
-	 * if a later stage wants it, it needs its own page walk (vmalloc_to_page
-	 * / virt_to_page), not this one. */
+	/* Never pass a kernel VA to nvrm_pin_range, which resolves
+	 * userspace addresses. Kernel descriptors require their own
+	 * dma-buf/sg-table path. */
 	if (c->kern) {
 		u32 dtype = NVRM_NONE_U32;
 
 		if (NVRM_OSDESC_TYPE_OFF + 4 <= c->size)
 			dtype = rd32(c->inl, NVRM_OSDESC_TYPE_OFF);
-		/* Name the KIND, because the answer decides the next build:
-		 * type 0 would be a user VA (impossible from here), while PRIME
-		 * import arrives as a dma_buf pointer (5) or an sg_table (6).
-		 * Those two are guest RAM the host already has mapped -- the
-		 * same GpaRun wire the user path uses, only walked out of an
-		 * sg_table instead of pinned out of a user VA. */
+		/* Log the descriptor type: user VA=0, dma-buf=5,
+		 * sg-table=6. */
 		pr_warn_ratelimited(
 			"virtio_nvrm: OS descriptor from the kernel path is not supported (descriptorType %u)\n",
 			dtype);
 		return -EOPNOTSUPP;
 	}
-	/* Every field the pin path reads out of the inline block, and every
-	 * field it later writes back or reads after the call (step 9 of
-	 * nvrm_call_run: status and the created handle) has to lie inside
-	 * the block the caller sent -- the _IOC size of a 0x27 is the
-	 * caller's word. */
-	if (h->osdesc_pmem_off + 8 > c->size ||
-	    h->osdesc_limit_off + 8 > c->size ||
-	    h->osdesc_status_off + 4 > c->size ||
-	    h->osdesc_handle_off + 4 > c->size)
+	/* Validate all OS-descriptor fields, including reply status/handle,
+	 * against the caller-supplied ioctl size. */
+	if (!nvrm_range_valid(NVRM_NVOS02_HROOT_OFF, 4, c->size) ||
+	    !nvrm_range_valid(h->osdesc_pmem_off, 8, c->size) ||
+	    !nvrm_range_valid(h->osdesc_limit_off, 8, c->size) ||
+	    !nvrm_range_valid(h->osdesc_status_off, 4, c->size) ||
+	    !nvrm_range_valid(h->osdesc_handle_off, 4, c->size))
 		return -EINVAL;
 
 	pmem = (unsigned long)rd64(c->inl, h->osdesc_pmem_off);
@@ -3133,10 +2698,11 @@ static int gather_osdesc(struct call *c)
 		return err;
 	}
 	c->pmem_orig = pmem;
+	c->pin->object.client = rd32(c->inl, NVRM_NVOS02_HROOT_OFF);
 	c->limit_orig = limit;
 
-	/* For this call the aux buffer carries the runs and NOTHING else; it
-	 * has no params buffer. */
+	/* The userspace form carries only GPA runs in aux, with no params
+	 * prefix. */
 	max_runs = (u32)(c->pin->npages);
 	if ((size_t)max_runs * sizeof(*runs) > h->max_aux)
 		max_runs = h->max_aux / sizeof(*runs);
@@ -3174,7 +2740,7 @@ static int write_back(struct call *c, const struct nvrm_rsp *rsp,
 		/* 0. vram_debug. Before step 1, because FB_GET_INFO (V1) keeps
 		 *    its list in a nested buffer that step 1 copies out. */
 		if (c->desc->cmd_off != NVRM_NONE_U32 &&
-		    c->desc->cmd_off + 4 <= c->size)
+		    nvrm_range_valid(c->desc->cmd_off, 4, c->size))
 			vram_debug_reply(c, rd32(c->inl, c->desc->cmd_off));
 		/* 1. nested buffers back to their guest addresses */
 		for (i = 0; i < c->n_nested; i++) {
@@ -3182,25 +2748,23 @@ static int write_back(struct call *c, const struct nvrm_rsp *rsp,
 				     c->aux + c->nested[i].aux_off,
 				     c->nested[i].len))
 				return -EFAULT;
-			/* 2. pointer INSIDE the params buffer back to the
-			 *    guest original */
+			/* 2. Restore the nested guest pointer inside
+			 * params. */
 			wr64(c->aux, c->nested[i].ptr_off, c->nested_gva[i]);
 		}
 		/* 3. restore the application's own fd number */
 		if (c->aux_fd_off != NVRM_NONE_U32)
 			memcpy(c->aux + c->aux_fd_off, c->aux_fd_orig,
 			       c->aux_fd_len);
-		/* 3b. the card's address, in the guest's own bus. Before the
-		 *     copy-out, so the caller never sees the host's. */
+		/* 3b. Restore guest BDFs before copy-out. */
 		if (c->desc->cmd_off != NVRM_NONE_U32 &&
-		    c->desc->cmd_off + 4 <= c->size)
+		    nvrm_range_valid(c->desc->cmd_off, 4, c->size))
 			bdf_rewrite_reply(c, rd32(c->inl, c->desc->cmd_off));
-		/* 4. params buffer back -- ONLY params_len bytes, the nested
-		 *    buffers sit behind it */
+		/* 4. Copy params_len bytes; nested buffers follow the
+		 * params block. */
 		if (call_out(c, c->saved_ptr, c->aux, c->params_len))
 			return -EFAULT;
-		/* 5. the pointer in the inline block belongs to the
-		 *    application, not to the host */
+		/* 5. Restore the inline guest pointer. */
 		wr64(c->inl, c->emb_off, c->saved_ptr);
 	}
 
@@ -3210,8 +2774,7 @@ static int write_back(struct call *c, const struct nvrm_rsp *rsp,
 	if (READ_ONCE(vram_debug))
 		vram_debug_inline(c);
 
-	/* Last check, AFTER every rewrite: does the inline block still name
-	 * the host? Whatever answers here is a place the mediation misses. */
+	/* Diagnose host IDs still present after all rewrites. */
 	if (bdf_debug && c->dev->bdf_host_id) {
 		u32 off;
 
@@ -3225,21 +2788,15 @@ static int write_back(struct call *c, const struct nvrm_rsp *rsp,
 			}
 	}
 
-	/* Likewise for the fd field and the OS descriptor address: the
-	 * application must see its own values. */
-	if (c->fd_off != NVRM_NONE_U32 && c->fd_off + 4 <= c->size)
+	/* Restore the caller FD and OS-descriptor address. */
+	if (c->fd_off != NVRM_NONE_U32 &&
+	    nvrm_range_valid(c->fd_off, 4, c->size))
 		memcpy(c->inl + c->fd_off, &c->fd_orig, 4);
-	/* Only on the PROCESS path. There the inline block is NVOS02, the host
-	 * rewrote pMemory (osdesc_pmem_off @24) and limit (@32) to its own host
-	 * VA, and the application must read its own back. The KERNEL path
-	 * (gather_osdesc_kern) carries an NVOS64 inline instead -- @24 is
-	 * pRightsRequested and @32 is paramsSize/flags there -- and its
-	 * descriptor lives in the params buffer, which the host already handed
-	 * back intact (it restores the NVOS64 tail before replying). Restoring
-	 * on that path would write the dma_buf pointer over NVOS64 fields the
-	 * guest never set here: in bounds, and status@40/hObjectNew@8 stay
-	 * correct, but a silent scribble on NVKMS's own IN fields. */
-	if (c->pin && !c->kern) {
+	/* Restore NVOS02 pMemory/limit only for userspace. Kernel
+	 * OS-descriptor calls use NVOS64, where the same offsets hold
+	 * rights and size/flags; the host already restores that form's
+	 * params. */
+	if (c->run_count && !c->kern) {
 		wr64(c->inl, c->t->hdr.osdesc_pmem_off, c->pmem_orig);
 		wr64(c->inl, c->t->hdr.osdesc_limit_off, c->limit_orig);
 	}
@@ -3249,15 +2806,10 @@ static int write_back(struct call *c, const struct nvrm_rsp *rsp,
 	return 0;
 }
 
-/*
- * The VRAM balloon's gate (balloon section). A process's VIDMEM allocation,
- * through either door the backend's ledger charges (vram.rs request_bytes
- * and vidheap_request_bytes), holds it for reading from before its request
- * is queued until its answer is back. balloon_after_alloc holds it for
- * writing while it frees room for NVKMS and asks again, so no process
- * allocation is in flight or queued between the free and the retry to take
- * that room. Uncontended it costs one atomic operation per allocation.
- */
+/* Process VIDMEM allocations hold balloon_gate for reading through
+ * completion. The balloon holds it for writing while freeing chunks and
+ * retrying NVKMS, so a process cannot consume the released quota between
+ * those operations. */
 static DECLARE_RWSEM(balloon_gate);
 
 static bool balloon_gated(const struct call *c)
@@ -3277,14 +2829,8 @@ static bool balloon_gated(const struct call *c)
 	return false;
 }
 
-/*
- * Steps (1) to (9), plus (8b) -- shared by both callers.
- *
- * Everything above this point differs between them: a process reads its
- * command number out of the _IOC encoding, NVKMS passes number and size
- * straight in. From here on nothing does: same tables, same request, same
- * virtqueue. `c->kern` decides only how memory is fetched (call_in/call_out).
- */
+/* Shared marshalling and transport for process ioctls and kernel RM ops.
+ * c->kern selects only how caller memory is accessed. */
 static long nvrm_call_run(struct call *c)
 {
 	struct nvrm_ctx *ctx = c->ctx;
@@ -3292,7 +2838,8 @@ static long nvrm_call_run(struct call *c)
 	struct nvrm_xfer *x = NULL;
 	struct nvrm_req *r;
 	struct nvrm_rsp *rsp;
-	bool gated = false;
+	struct nvrm_object_key freed;
+	bool gated = false, submitted = false;
 	long ret;
 	u32 i;
 
@@ -3320,17 +2867,13 @@ static long nvrm_call_run(struct call *c)
 		gated = true;
 	}
 
-	/* (2) fd field: number -> token, via the identity of the file.
-	 *
-	 * ONLY for a process. A kernel caller has no fd table, and its token
-	 * was already named by kapi_forward() -- resolving the number here as
-	 * well would overwrite that with a lookup against `current`, which for
-	 * a kthread is somebody else's table. Measured as "fd field points at
-	 * foreign fd 0" on a block whose fd byte was never meant to be read. */
+	/* (2) Resolve userspace FD fields by file identity. Kernel callers
+	 * already set their token in kapi_forward; never replace it with a
+	 * lookup against current. */
 	if (!c->kern && c->desc && c->desc->fd_off != NVRM_NONE_U32) {
 		s32 n;
 
-		if (c->desc->fd_off + 4 > c->size) {
+		if (!nvrm_range_valid(c->desc->fd_off, 4, c->size)) {
 			ret = -EINVAL;
 			goto out;
 		}
@@ -3359,8 +2902,7 @@ static long nvrm_call_run(struct call *c)
 	if (ret)
 		goto out;
 
-	/* (5) The gpuIds that no control carries. Last, so that it sees the
-	 *     inline block exactly as it will travel. */
+	/* (5) Rewrite inline gpuIds after all gathering. */
 	bdf_rewrite_attach_gpus(c, true);
 
 	/* (6) Build the request. */
@@ -3395,21 +2937,12 @@ static long nvrm_call_run(struct call *c)
 		memcpy((u8 *)x->req + sizeof(*r) + c->size, c->aux, c->aux_len);
 	x->req_len = sizeof(*r) + c->size + c->aux_len;
 
-	/* (7) There and back. Interruptible for a PROCESS -- a hanging host
-	 *     must not produce an unkillable one, and a SIGKILL ends the wait.
-	 *
-	 *     NOT for the kernel path: NVKMS is called from insmod, rmmod
-	 *     and kernel threads, and NOBODY SIGNALS THOSE. The same wait that
-	 *     protects a process leaves `rmmod nvidia_drm` blocked forever once
-	 *     the host stops answering -- measured, with a dead
-	 *     vhost-user-nvrm: the DRM nodes were already gone and the module
-	 *     sat at refcount 1. So a kernel caller takes the bounded wait
-	 *     instead, the same one the teardown path uses; it gives up after
-	 *     NVRM_TEARDOWN_TIMEOUT and says so. */
-	ret = nvrm_xfer_run(dev, x, !c->kern);
+	/* (7) User requests may be abandoned on fatal signals. Kernel
+	 * callers use NVRM_TEARDOWN_TIMEOUT so module teardown can finish
+	 * when the backend stops answering. */
+	ret = nvrm_xfer_run(dev, &x, !c->kern, &submitted);
 	if (ret) {
-		if (ret == -ERESTARTSYS || ret == -ETIMEDOUT)
-			x = NULL; /* now belongs to the callback */
+		ctx->uncertain |= submitted;
 		goto out;
 	}
 	rsp = x->rsp;
@@ -3419,7 +2952,31 @@ static long nvrm_call_run(struct call *c)
 			"virtio_nvrm: reply claims %u+%u bytes, but only %u arrived\n",
 			rsp->inline_len, rsp->aux_len, x->rsp_len);
 		ret = -EIO;
+		ctx->uncertain = true;
 		goto out;
+	}
+
+	/* Record native ownership before copy_to_user can fail. A malformed
+	 * reply or transport error cannot prove that native allocation failed. */
+	if (c->pin) {
+		u32 handle;
+		enum nvrm_osdesc_result result = nvrm_osdesc_reply(
+			(u8 *)x->rsp + sizeof(*rsp), rsp->inline_len, rsp->ret,
+			c->t->hdr.osdesc_status_off,
+			c->t->hdr.osdesc_handle_off, &handle);
+
+		if (result == NVRM_OSDESC_CREATED) {
+			c->pin->object.handle = handle;
+			spin_lock(&ctx->pin_lock);
+			list_add_tail(&c->pin->node, &ctx->pins);
+			spin_unlock(&ctx->pin_lock);
+			c->pin = NULL;
+		} else if (result == NVRM_OSDESC_REJECTED) {
+			nvrm_unpin(c->pin);
+			c->pin = NULL;
+		} else {
+			ctx->uncertain = true;
+		}
 	}
 
 	/* (8) Write back to the application. */
@@ -3428,45 +2985,26 @@ static long nvrm_call_run(struct call *c)
 		goto out;
 	ret = rsp->ret;
 
-	/* (8b) A forwarded NV_ESC_RM_GET_EVENT_DATA that says "more where that
-	 *      came from" re-arms the poll flag: poll cleared it on the way
-	 *      out (see nvrm_node_poll), and the host queue is not empty yet.
-	 *      NVOS41: pEvent@0, MoreEvents@8, status@12 (nvos.h:1941-1946).
-	 *      c->inl holds the ANSWER here -- write_back copied it in. */
+	/* (8b) Successful NVOS41 with MoreEvents re-arms poll after
+	 * write_back updates c->inl. Status/MoreEvents offsets come from
+	 * nvrm_wire.h. */
 	if (!c->kern && c->nr == NVRM_ESC_RM_GET_EVENT_DATA && ret == 0 &&
 	    c->size >= NVRM_NVOS41_SIZE &&
 	    rd32(c->inl, NVRM_NVOS41_STATUS_OFF) == NVRM_NV_OK &&
 	    rd32(c->inl, NVRM_NVOS41_MOREEVENTS_OFF))
 		atomic_set(&ctx->events_pending, 1);
 
-	/* (9) Accounting: attach the pin to the handle that was created -- and
-	 *     detach it again when that handle is freed. */
-	if (c->pin && ret == 0) {
-		u32 status = rd32(c->inl, c->t->hdr.osdesc_status_off);
-
-		if (status == 0) {
-			c->pin->handle =
-				rd32(c->inl, c->t->hdr.osdesc_handle_off);
-			spin_lock(&ctx->pin_lock);
-			list_add_tail(&c->pin->node, &ctx->pins);
-			spin_unlock(&ctx->pin_lock);
-			c->pin = NULL; /* now belongs to the context */
-		}
-	}
-	if (ret == 0 && c->desc && (c->desc->flags & NVRM_F_FREE) &&
-	    c->desc->handle_off != NVRM_NONE_U32 &&
-	    c->desc->handle_off + 4 <= c->size) {
-		u32 h = rd32(c->inl, c->desc->handle_off);
+	if (!ctx->uncertain && c->desc && (c->desc->flags & NVRM_F_FREE) &&
+	    nvrm_free_reply(c->inl, min_t(u32, c->size, rsp->inline_len), ret,
+			    &freed)) {
 		struct nvrm_pin *p, *tmp;
 
-		/* The lock is dropped around nvrm_unpin() (it sleeps). The
-		 * cached `tmp` stays valid across that gap only because
-		 * ctx->lock -- held for the whole of nvrm_call_run -- is
-		 * what serialises every other mutator of ctx->pins;
-		 * pin_lock alone would not make this loop safe. */
+		/* nvrm_unpin sleeps, so drop pin_lock around it. ctx->lock
+		 * serializes all list mutations and keeps the cached next
+		 * entry valid. */
 		spin_lock(&ctx->pin_lock);
 		list_for_each_entry_safe(p, tmp, &ctx->pins, node) {
-			if (p->handle == h) {
+			if (nvrm_object_freed(&p->object, &freed)) {
 				list_del(&p->node);
 				spin_unlock(&ctx->pin_lock);
 				nvrm_unpin(p);
@@ -3479,8 +3017,13 @@ static long nvrm_call_run(struct call *c)
 out:
 	if (gated)
 		up_read(&balloon_gate);
-	if (c->pin)
-		nvrm_unpin(c->pin);
+	if (c->pin) {
+		if (submitted)
+			nvrm_quarantine(dev, &c->pin->node,
+					&dev->quarantined_pins, c->pin->npages);
+		else
+			nvrm_unpin(c->pin);
+	}
 	nvrm_xfer_free(x);
 	kvfree(c->aux);
 	kvfree(c->inl);
@@ -3496,7 +3039,8 @@ static long nvrm_node_ioctl(struct file *filp, unsigned int cmd,
 	struct call c;
 	long ret;
 
-	if (!ctx || !ctx->dev || !ctx->dev->tbl.blob)
+	if (!ctx || !ctx->dev || !ctx->dev->tbl.blob ||
+	    READ_ONCE(ctx->dev->stopping))
 		return -ENODEV;
 	dev = ctx->dev;
 
@@ -3516,10 +3060,8 @@ static long nvrm_node_ioctl(struct file *filp, unsigned int cmd,
 	c.aux_fd_len = 8;
 	c.addr = (u64)arg;
 
-	/* (0) Determine number and size. UVM carries its number raw, without
-	 *     _IOC encoding -- so the size does not live in the command, it
-	 *     lives in the table. Unknown means EOPNOTSUPP (== ENOTSUP in
-	 *     userspace), not a guess. */
+	/* (0) Decode ioctl number/size. UVM uses raw command numbers and
+	 * table-defined sizes; reject unknown commands. */
 	if (ctx_is_uvm(ctx)) {
 		c.nr = cmd;
 		c.desc = find_ioctl(c.t, ctx->dev_tag, c.nr);
@@ -3546,14 +3088,8 @@ static long nvrm_node_ioctl(struct file *filp, unsigned int cmd,
 	return nvrm_call_run(&c);
 }
 
-/* ------------------------------------------------------------------ *
- * mmap, part 1: through the host-visible window
- *
- * The window is the virtio SHMEM region this device exposes: a range of
- * guest-physical memory the host can place its own RM mappings into. Every
- * mapping a guest process or NVKMS gets hold of reaches the card through it,
- * so the guest hands out the space (win_alloc) and the host fills it.
- * ------------------------------------------------------------------ */
+/* Host-visible window: guest-physical SHMEM slots reserved by win_alloc and
+ * populated with RM mappings by the host. */
 
 struct nvrm_winmap {
 	struct kref ref;
@@ -3573,12 +3109,11 @@ static void winmap_release(struct kref *ref)
 	nvrm_simple(m->dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, m->off, m->len,
 		    NULL, false, m->guest_proc);
 	win_free(m->dev, m->off, m->len);
+	nvrm_dev_put(m->dev);
 	kfree(m);
 }
 
-/* open/close are mandatory here: without them the host mapping would stay
- * behind when the client munmaps or dies -- and the window would fill up.
- * open() also covers the VMA split caused by a partial munmap. */
+/* Track VMA open/close, including splits from partial munmap, so the final close releases the host window mapping. */
 static void nvrm_win_vm_open(struct vm_area_struct *vma)
 {
 	kref_get(&((struct nvrm_winmap *)vma->vm_private_data)->ref);
@@ -3619,16 +3154,12 @@ static int nvrm_mmap_window(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 	m->len = len;
 	m->guest_proc = ctx->proc ? ctx->proc->id : 0;
 
-	/* The host places the mapping at the offset in the window named here
-	 * and reports back the CACHEABILITY -- the host knows the NVOS33
-	 * flags, the guest does not guess. */
+	/* The host maps this window offset and returns the NVOS33 cache type. */
 	ret = nvrm_simple(dev, NVRM_KIND_MAP_PREPARE, ctx->dev_tag, 0,
 			  ctx->token, off, len, &cache, true,
 			  ctx->proc ? ctx->proc->id : 0);
 	if (ret < 0) {
-		/* WHO asked for WHAT. A bare errno cost an hour on 2026-08-16
-		 * (which process, which size?) -- the rule since: every
-		 * refusal names its caller, or it is not a measurement. */
+		/* Log the caller and requested size with mapping failures. */
 		if (ret != -ERESTARTSYS)
 			pr_warn_ratelimited(
 				"virtio_nvrm: MAP_PREPARE failed: %d (%s[%d], %s node, %zu KiB at window+%#lx)\n",
@@ -3637,30 +3168,11 @@ static int nvrm_mmap_window(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 				ctx->dev_tag == NVRM_DEV_GPU ? "gpu" :
 							       "other",
 				(size_t)(len >> 10), (unsigned long)off);
-		/*
-		 * A refusal is not the only way out of that call. On
-		 * -ERESTARTSYS and -ETIMEDOUT the request BELONGS TO THE
-		 * CALLBACK (see nvrm_xfer_run) -- the host may already have
-		 * prepared this window, and we simply stopped listening.
-		 * Dropping the bitmap bit without telling the host then
-		 * leaves a reservation nobody owns: the guest believes the
-		 * offset is free, the host knows it is taken, and because
-		 * win_alloc always hands out the LOWEST free area, every
-		 * later mapping asks for that same offset and is refused.
-		 *
-		 * Measured 2026-08-17 on the desktop guest: one
-		 * interrupted prepare was enough to make every Vulkan client
-		 * fail forever -- vkcube, vkcubepp, vkgears and vkprobe all
-		 * died in device creation, with
-		 *   MAP_PREPARE failed: -16 (... 1024 KiB at window+0xce41000)
-		 * repeating at a FIXED offset while not a single Vulkan
-		 * process was running. It survives every process, so the
-		 * session is done for. Killing a game at the wrong moment is
-		 * enough to trigger it, and it is not Wayland-specific.
-		 *
-		 * So say it out loud. A MAP_RELEASE for a window the host
-		 * never prepared is harmless; a leaked window is not.
-		 */
+		/* An interrupted/timed-out prepare may already have mapped
+		 * the slot. Release it on the host before bitmap reuse, or
+		 * later allocations repeatedly hit the stale reservation
+		 * (measured 2026-08-17). Releasing a never-created mapping
+		 * is harmless. */
 		if (ret == -ERESTARTSYS || ret == -ETIMEDOUT)
 			nvrm_simple(dev, NVRM_KIND_MAP_RELEASE, 0, 0, 0, off,
 				    len, NULL, false,
@@ -3676,10 +3188,7 @@ static int nvrm_mmap_window(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
 	vm_flags_set(vma, VM_IO | VM_DONTEXPAND | VM_DONTDUMP);
-	/* fork does NOT inherit this mapping: behind it sits a host object tied
-	 * to this one session, and a child that kept using the same pages would
-	 * see another session's state. Whoever wants GPU work after a fork
-	 * re-initializes CUDA -- which libcuda does anyway. */
+	/* Do not inherit this session-bound mapping across fork. The child must initialize its own GPU context. */
 	vm_flags_set(vma, VM_DONTCOPY);
 
 	if (io_remap_pfn_range(vma, vma->vm_start,
@@ -3692,16 +3201,16 @@ static int nvrm_mmap_window(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 		return -EAGAIN;
 	}
 
+	kref_get(&dev->ref);
 	vma->vm_private_data = m;
 	vma->vm_ops = &nvrm_win_vm_ops;
 	return 0;
 }
 
-/* ------------------------------------------------------------------ *
- * mmap, part 2: UVM pool backed by self-owned pages
- * ------------------------------------------------------------------ */
+/* mmap, part 2: UVM pool backed by self-owned pages */
 
 struct nvrm_pool {
+	struct list_head quarantine_node;
 	struct kref ref;
 	struct page **pages;
 	unsigned long npages;
@@ -3719,6 +3228,7 @@ static void pool_release(struct kref *ref)
 	stat_pool_pages -= p->npages;
 	kvfree(p->pages);
 	kfree(p);
+	module_put(THIS_MODULE);
 }
 
 static void nvrm_pool_vm_open(struct vm_area_struct *vma)
@@ -3737,19 +3247,11 @@ static const struct vm_operations_struct nvrm_pool_vm_ops = {
 	.close = nvrm_pool_vm_close,
 };
 
-/*
- * UVM uses the mmap offset as an ADDRESS: mmap(0x204a00000, .., uvm_fd,
- * 0x204a00000) is the semaphore pool at GPU VA 0x204a00000.
- *
- * This module puts its OWN pages there (alloc_page + vm_insert_page) and
- * reports their GPAs to the host, which attaches them to the same GPU VA via
- * OS descriptor + EXTERNAL_RANGE. No mmap on the uvm FD -> no address
- * coupling.
- *
- * Owning instead of pinning: the pages belong to this module, they cannot
- * migrate away, and their lifetime visibly hangs off the VMA. That removes
- * any need for a read-modify-write prefault, mlock or NOHUGEPAGE.
- */
+/* UVM's mmap offset names the pool GPU VA. Allocate guest pages, insert
+ * them into the VMA, and send GPA runs for host
+ * OS-descriptor/EXTERNAL_RANGE backing at that VA.
+ * The module owns these pages; no UVM-FD mmap, prefault, mlock or migration
+ * control is needed. Pool references govern their lifetime. */
 static int nvrm_mmap_pool(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 			  u64 gpu_va, size_t len)
 {
@@ -3762,17 +3264,15 @@ static int nvrm_mmap_pool(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 	unsigned long i, npages = len >> PAGE_SHIFT;
 	u32 nruns;
 	int ret;
+	bool submitted = false;
 
 	if (!npages)
 		return -EINVAL;
 	if ((npages << PAGE_SHIFT) != len)
 		return -EINVAL;
 
-	/* Charge the quota BEFORE the first page. Without it a guest process
-	 * that asks for more managed memory than the guest has RAM drains the
-	 * whole machine -- measured: requesting 9216 MiB in a 4 GiB VM summoned
-	 * the OOM killer instead of returning an honest ENOMEM. Whoever asks
-	 * for too much should fail, not the neighbour. */
+	/* Reserve quota before allocating pages. Oversized pool requests
+	 * must fail with ENOMEM without exhausting guest RAM. */
 	ret = nvrm_charge(npages);
 	if (ret)
 		return ret;
@@ -3789,6 +3289,12 @@ static int nvrm_mmap_pool(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 		nvrm_uncharge(npages);
 		return -ENOMEM;
 	}
+	if (!try_module_get(THIS_MODULE)) {
+		kvfree(p->pages);
+		kfree(p);
+		nvrm_uncharge(npages);
+		return -ENODEV;
+	}
 	p->npages = npages;
 	stat_pool_pages += npages;
 
@@ -3796,11 +3302,9 @@ static int nvrm_mmap_pool(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 		     VM_MIXEDMAP | VM_DONTEXPAND | VM_DONTDUMP | VM_DONTCOPY);
 
 	for (i = 0; i < npages; i++) {
-		/* __GFP_RETRY_MAYFAIL: this may fail, but it must NOT summon the
-		 * OOM killer -- that would hit some arbitrary process in the
-		 * guest, not the one that asked for too much. __GFP_NOWARN,
-		 * because the failure is passed up cleanly here and the
-		 * application sees it as ENOMEM. */
+		/* Allow allocation failure without invoking the guest OOM
+		 * killer or printing redundant warnings; return ENOMEM to
+		 * the caller. */
 		p->pages[i] = alloc_page(GFP_USER | __GFP_ZERO |
 					 __GFP_RETRY_MAYFAIL | __GFP_NOWARN);
 		if (!p->pages[i]) {
@@ -3844,12 +3348,9 @@ static int nvrm_mmap_pool(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 	x->req_len = sizeof(*r) + (size_t)nruns * sizeof(*runs);
 	kvfree(runs);
 
-	ret = nvrm_xfer_run(dev, x, true);
-	if (ret) {
-		if (ret == -ERESTARTSYS || ret == -ETIMEDOUT)
-			x = NULL;
+	ret = nvrm_xfer_run(dev, &x, true, &submitted);
+	if (ret)
 		goto err_xfer;
-	}
 	rsp = x->rsp;
 	ret = rsp->ret;
 	if (ret) {
@@ -3866,10 +3367,13 @@ static int nvrm_mmap_pool(struct nvrm_ctx *ctx, struct vm_area_struct *vma,
 err_xfer:
 	nvrm_xfer_free(x);
 err:
-	/* Full teardown BEFORE returning: the kernel discards the half-built
-	 * VMA (returning the references inserted into it); the references held
-	 * by this module are dropped here. */
-	kref_put(&p->ref, pool_release);
+	/* VMA teardown drops only its own page references. Native RM may
+	 * still own submitted backing, including after a failed rollback. */
+	if (submitted)
+		nvrm_quarantine(dev, &p->quarantine_node,
+				&dev->quarantined_pools, p->npages);
+	else
+		kref_put(&p->ref, pool_release);
 	return ret;
 }
 
@@ -3879,7 +3383,8 @@ static int nvrm_node_mmap(struct file *filp, struct vm_area_struct *vma)
 	size_t len = vma->vm_end - vma->vm_start;
 	u64 off = (u64)vma->vm_pgoff << PAGE_SHIFT;
 
-	if (!ctx || !ctx->dev || !ctx->dev->tbl.blob)
+	if (!ctx || !ctx->dev || !ctx->dev->tbl.blob ||
+	    READ_ONCE(ctx->dev->stopping))
 		return -ENODEV;
 	if (!len)
 		return -EINVAL;
@@ -3889,9 +3394,8 @@ static int nvrm_node_mmap(struct file *filp, struct vm_area_struct *vma)
 			return -EOPNOTSUPP;
 		return nvrm_mmap_pool(ctx, vma, off, len);
 	}
-	/* Frontend: the offset is always 0 -- WHICH mapping is meant comes from
-	 * the preceding RM_MAP_MEMORY on the same FD. Anything else is already
-	 * rejected by the real driver. */
+	/* Only offset 0 is valid; the preceding RM_MAP_MEMORY on this file
+	 * identifies the mapping. */
 	if (off)
 		return -EINVAL;
 	return nvrm_mmap_window(ctx, vma, len);
@@ -3907,9 +3411,7 @@ static const struct file_operations nvrm_node_fops = {
 	.poll = nvrm_node_poll,
 };
 
-/* ------------------------------------------------------------------ *
- * Create the nodes (the LAST step) and tear them down (mirrored)
- * ------------------------------------------------------------------ */
+/* Create device nodes last; remove them first during teardown. */
 
 struct chrdev_range {
 	unsigned int major, baseminor, count;
@@ -4031,21 +3533,14 @@ err:
 	return ret;
 }
 
-/* ------------------------------------------------------------------ *
- * probe / remove
- * ------------------------------------------------------------------ */
+/* probe / remove */
 
 /* Defined further down, with the vblank engine it belongs to. */
 static void vblank_engine_init(void);
 
-/*
- * Queue discovery for one or two queues. The transport API changed shape in
- * 6.11 (virtqueue_info[] instead of parallel callback/name arrays); the
- * measured guest kernel is 6.8 and the nix package builds against 6.12
- * (nix/packages/guest-modules.nix says which newer kernels do NOT build
- * yet), so both forms are needed. On failure the transport has already
- * deleted whatever it set up, and the one-queue request is a fresh attempt.
- */
+/* virtio_find_vqs changed to virtqueue_info[] in Linux 6.11. Support both
+ * the Ubuntu 6.8 guest and Nix 6.12 build. A failed discovery already
+ * deletes its queues, so the one-queue fallback starts fresh. */
 static int nvrm_find_vqs(struct nvrm_dev *dev)
 {
 	struct virtio_device *vdev = dev->vdev;
@@ -4087,10 +3582,8 @@ static int nvrm_find_vqs(struct nvrm_dev *dev)
 	return 0;
 }
 
-/* Post the receive buffers on the event queue. AFTER virtio_device_ready
- * (see the probe for why), then one kick. Each buffer is one nvrm_req; the callback
- * re-posts the same buffer, so these NVRM_EVQ_BUFS blocks live until
- * nvrm_evq_drain detaches them. */
+/* Post NVRM_EVQ_BUFS request-sized inbufs after virtio_device_ready, then
+ * kick once. Callbacks reuse these buffers until nvrm_evq_drain. */
 static int nvrm_evq_fill(struct nvrm_dev *dev)
 {
 	unsigned int i;
@@ -4127,6 +3620,45 @@ static void nvrm_evq_drain(struct nvrm_dev *dev)
 		kfree(buf);
 }
 
+static void nvrm_transport_stop(struct nvrm_dev *dev)
+{
+	struct nvrm_xfer *x;
+	unsigned long flags;
+	unsigned long index;
+	struct nvrm_ctx *ctx;
+
+	spin_lock_irqsave(&dev->vq_lock, flags);
+	WRITE_ONCE(dev->stopping, true);
+	spin_unlock_irqrestore(&dev->vq_lock, flags);
+	wake_up_all(&dev->vq_space);
+	virtio_reset_device(dev->vdev);
+	virtio_synchronize_cbs(dev->vdev);
+	cancel_work_sync(&dev->events_work);
+
+	spin_lock_irqsave(&dev->vq_lock, flags);
+	while ((x = virtqueue_detach_unused_buf(dev->vq)) != NULL) {
+		x->transport_error = -ENODEV;
+		WRITE_ONCE(x->done, true);
+		if (x->abandoned)
+			queue_work(dev->release_wq, &x->release_work);
+		else
+			wake_up_all(&x->wq);
+		atomic_dec(&dev->inflight);
+	}
+	spin_unlock_irqrestore(&dev->vq_lock, flags);
+	wake_up_all(&dev->drain);
+	/* The XArray lock also excludes final file release. */
+	xa_lock(&dev->ctx_xa);
+	xa_for_each(&dev->ctx_xa, index, ctx) wake_up_all(&ctx->events_wq);
+	xa_unlock(&dev->ctx_xa);
+	nvrm_evq_drain(dev);
+	dev->vdev->config->del_vqs(dev->vdev);
+	dev->vq = NULL;
+	dev->evq = NULL;
+	destroy_workqueue(dev->release_wq);
+	dev->release_wq = NULL;
+}
+
 static void balloon_start(void);
 
 static int nvrm_probe(struct virtio_device *vdev)
@@ -4136,16 +3668,23 @@ static int nvrm_probe(struct virtio_device *vdev)
 	u64 token = 0;
 	int ret;
 
-	if (nvrm)
+	mutex_lock(&nvrm_device_lock);
+	if (nvrm_bound) {
+		mutex_unlock(&nvrm_device_lock);
 		return -EBUSY;
+	}
+	nvrm_bound = true;
+	mutex_unlock(&nvrm_device_lock);
 
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
-	if (!dev)
-		return -ENOMEM;
+	if (!dev) {
+		ret = -ENOMEM;
+		goto err_bound;
+	}
+	kref_init(&dev->ref);
 	dev->vdev = vdev;
-	/* Before the device can carry a single kapi call: the vblank engine's
-	 * timer exists from here on. A lazy init raced -- see the vblank
-	 * section. */
+	get_device(&vdev->dev);
+	/* Initialize the timer before any kernel RM call can arm it. */
 	vblank_engine_init();
 	spin_lock_init(&dev->vq_lock);
 	spin_lock_init(&dev->evq_lock);
@@ -4153,31 +3692,32 @@ static int nvrm_probe(struct virtio_device *vdev)
 	INIT_WORK(&dev->events_work, nvrm_events_work);
 	mutex_init(&dev->win_lock);
 	mutex_init(&dev->proc_lock);
+	mutex_init(&dev->quarantine_lock);
+	INIT_LIST_HEAD(&dev->quarantined_pins);
+	INIT_LIST_HEAD(&dev->quarantined_pools);
 	INIT_LIST_HEAD(&dev->procs);
-	idr_init(&dev->proc_idr);
 	bdf_init(dev);
 	init_waitqueue_head(&dev->vq_space);
 	init_waitqueue_head(&dev->drain);
 	atomic_set(&dev->seq, 0);
 	atomic_set(&dev->inflight, 0);
 	vdev->priv = dev;
+	dev->release_wq =
+		alloc_workqueue("nvrm-release", WQ_UNBOUND | WQ_MEM_RECLAIM, 0);
+	if (!dev->release_wq) {
+		ret = -ENOMEM;
+		goto err_free;
+	}
 
-	/* Two queues: 0 carries requests and their answers, 1 carries the
-	 * host's KIND_EVENT_FIRED (event section). A device that offers only
-	 * one queue -- an older backend, or a VMM started with
-	 * queue_sizes=[256] -- still works, minus the events: that is the
-	 * state before the channel existed, and it is said out loud. */
+	/* Try request and event queues. One-queue fallback supports older
+	 * backends/VMM configurations without event delivery. */
 	ret = nvrm_find_vqs(dev);
 	if (ret)
 		goto err_free;
-	/* The event inbufs are posted AFTER virtio_device_ready, below -- not
-	 * here. Measured 2026-08-15 (the queue held 64 buffers then; it is
-	 * NVRM_EVQ_BUFS now): posted before it, the buffers were
-	 * in the avail ring at the moment the VMM enabled the vring, and the
-	 * host's queue state took that avail index as its STARTING point
-	 * (next_avail=64 on the very first kick, next_used=0, "guest posted no
-	 * inbuf" for every firing). virtio-net fills its receive rings the
-	 * same way for the same reason. */
+	dev->vq_free = dev->vq->num_free;
+	/* Post event inbufs after virtio_device_ready. Earlier posting made
+	 * the VMM adopt the populated avail index as its starting point,
+	 * skipping every initial buffer (measured 2026-08-15). */
 
 	/* The host-visible window. A non-GPU device gets one for free: the
 	 * generic vhost-user SHMEM patch for Cloud Hypervisor
@@ -4200,7 +3740,6 @@ static int nvrm_probe(struct virtio_device *vdev)
 
 	/* From here on the device may be talked to. */
 	virtio_device_ready(vdev);
-	nvrm = dev;
 	if (dev->evq) {
 		ret = nvrm_evq_fill(dev);
 		if (ret) {
@@ -4227,6 +3766,10 @@ static int nvrm_probe(struct virtio_device *vdev)
 	if (ret)
 		goto err_win;
 
+	mutex_lock(&nvrm_device_lock);
+	nvrm = dev;
+	mutex_unlock(&nvrm_device_lock);
+
 	/* Externally visible registrations as the LAST step: any earlier and
 	 * there would be a node that does not have its tables yet. */
 	if (create_nodes) {
@@ -4242,20 +3785,21 @@ static int nvrm_probe(struct virtio_device *vdev)
 	return 0;
 
 err_tables:
-	kvfree(dev->tbl.blob);
-	memset(&dev->tbl, 0, sizeof(dev->tbl));
-err_win:
+	mutex_lock(&nvrm_device_lock);
 	nvrm = NULL;
-	bitmap_free(dev->win_bitmap);
+	mutex_unlock(&nvrm_device_lock);
+err_win:
 err_vq:
-	virtio_reset_device(vdev);
-	nvrm_evq_drain(dev);
-	vdev->config->del_vqs(vdev);
+	nvrm_transport_stop(dev);
 err_free:
-	xa_destroy(&dev->ctx_xa);
-	mutex_destroy(&dev->win_lock);
-	kfree(dev);
+	if (dev->release_wq)
+		destroy_workqueue(dev->release_wq);
 	vdev->priv = NULL;
+	nvrm_dev_put(dev);
+err_bound:
+	mutex_lock(&nvrm_device_lock);
+	nvrm_bound = false;
+	mutex_unlock(&nvrm_device_lock);
 	return ret;
 }
 
@@ -4267,107 +3811,41 @@ static void nvrm_remove(struct virtio_device *vdev)
 {
 	struct nvrm_dev *dev = vdev->priv;
 
-	/* Mirror image of setup: visibility goes first, transport second. Open
-	 * FDs hold the module refcount via .owner, so nobody can be in the
-	 * middle of a call here -- except abandoned requests, which are waited
-	 * for below. */
-	nvrm_nodes_teardown();
-	/* The balloon's sessions hang off no file either, and its memory is
-	 * given back while the host still listens. */
-	balloon_stop();
-	/* The NVKMS session hangs off no file, so no fd holds it: it has to be
-	 * given back by hand, and while the device still answers. Without this
-	 * its process entry would still be in dev->procs at the WARN_ON below
-	 * -- which is exactly what that check is for. */
-	kapi_session_close();
+	mutex_lock(&nvrm_device_lock);
 	nvrm = NULL;
-
-	wait_event_timeout(dev->drain, atomic_read(&dev->inflight) == 0,
-			   5 * HZ);
-	if (atomic_read(&dev->inflight))
-		pr_warn("virtio_nvrm: %d requests still outstanding\n",
-			atomic_read(&dev->inflight));
-
-	virtio_reset_device(vdev);
-	/* After the reset no vq callback runs any more, so nothing queues the
-	 * work again; what is queued finishes here. Whatever is still in the
-	 * ring finds no slot (kapi_session_close dropped them) and no fd
-	 * (none open, see below) -- counted, not called. */
-	cancel_work_sync(&dev->events_work);
-	nvrm_evq_drain(dev);
-	vdev->config->del_vqs(vdev);
-	kvfree(dev->tbl.blob);
-	bitmap_free(dev->win_bitmap);
-	/* Open FDs hold the module refcount, so no process entry can be left --
-	 * the IDR is torn down explicitly anyway, so that a leak would show up
-	 * instead of staying silent. */
-	WARN_ON(!list_empty(&dev->procs));
-	/* Same argument for the token index: every entry is an open fd. */
-	WARN_ON(!xa_empty(&dev->ctx_xa));
-	xa_destroy(&dev->ctx_xa);
-	idr_destroy(&dev->proc_idr);
-	mutex_destroy(&dev->proc_lock);
-	mutex_destroy(&dev->win_lock);
-	kfree(dev);
+	mutex_unlock(&nvrm_device_lock);
+	nvrm_nodes_teardown();
+	/* Existing kernel sessions may send teardown requests until stop. */
+	balloon_stop();
+	kapi_session_close();
+	nvrm_transport_stop(dev);
 	vdev->priv = NULL;
+	nvrm_dev_put(dev);
+	mutex_lock(&nvrm_device_lock);
+	nvrm_bound = false;
+	mutex_unlock(&nvrm_device_lock);
 	pr_info("virtio_nvrm: removed\n");
 }
 
-/* ------------------------------------------------------------------ *
- * kernel RM API -- the second door, for NVKMS
- *
- * The "kapi door" everything below is named after: not a device node but a
- * function table, the one nvidia-modeset.ko (NVKMS) fetches from nvidia.ko
- * at load time. Same escapes, same NVOS blocks, kernel memory instead of a
- * process's.
- * ------------------------------------------------------------------ */
-/*
- * nvidia-modeset.ko links against exactly ONE symbol of nvidia.ko:
- * nvidia_get_rm_ops (measured -- `nm -u` lists 104 undefined symbols, and
- * the other 103 are the kernel's own). Everything NVKMS asks of RM travels
- * through the op() member of the table that call fills in, as an
- * nvidia_kernel_rmapi_ops_t -- the same NVOS parameter blocks that the
- * /dev/nvidiactl escapes carry.
- *
- * So this is not a second protocol. It is a second CALLER on the one that
- * already runs: same tables, same virtqueue, same host session machinery.
- * The interpreter above serves it unchanged; only call_in()/call_out() know
- * that the memory is the kernel's rather than a process's.
- *
- * WHY IT LIVES HERE and not in a module of its own: a separate module would
- * need its own handle on the virtqueue, which means either exporting the
- * transport (a second public API to keep in step) or opening a second
- * queue (a second truth about who is talking to the host). One module, one
- * queue, one session table -- and the marshalling that CUDA depends on is
- * shared rather than copied.
- */
+/* Kernel RM API for NVKMS: a function table serving the same NVOS requests
+ * as the ioctl path, using kernel caller memory. */
+/* nvidia_get_rm_ops is NVKMS's only imported NVIDIA symbol. Its op table
+ * uses the existing interpreter, virtqueue and session machinery;
+ * call_in/call_out handle kernel memory. */
 
-/* The NVKMS session: one host-side /dev/nvidiactl, held for as long as
- * nvidia-modeset.ko is loaded. Opened lazily -- nvidia_get_rm_ops() may be
- * called before anything has proved the device is alive. */
+/* Lazy NVKMS control-node session. nvidia_get_rm_ops may run before the
+ * virtio device is ready. */
 static struct nvrm_ctx *kapi_ctx;
 static DEFINE_MUTEX(kapi_lock);
 static const struct nvrm_modeset_callbacks *kapi_callbacks;
-/* Our own RM root client -- see kapi_client_ensure() below. Declared here
- * because kapi_session_close() gives it back. */
+/* Private enumeration client, released by kapi_session_close. */
 static u32 kapi_client;
-/* The process identity every NVKMS session shares -- control node and each
- * GPU node alike. */
+/* Shared NVKMS identity for its control and GPU nodes. */
 static struct nvrm_proc *kapi_proc;
 
-/*
- * Per-GPU sessions, opened by open_gpu().
- *
- * NVIDIA's header calls open_gpu "equivalent to opening and closing a
- * /dev/nvidiaN device file from user-space", and that is taken literally
- * here: a session on the GPU node.
- *
- * `index` is the position the GPU had in enumerate_gpus(), which is the
- * order RM reports in GET_PROBED_IDS. For the single GPU this rig has, that
- * is 0 and it is /dev/nvidia0. For several GPUs the mapping from RM's
- * probe order to the guest's node numbering is UNPROVEN -- so an unknown
- * gpu_id fails loudly rather than guessing an index.
- */
+/* open_gpu creates a GPU-node session. index follows GET_PROBED_IDS order.
+ * The probe-order/node-index relationship is validated only for one GPU;
+ * unknown gpuIds are rejected. */
 struct kapi_gpu {
 	u32 gpu_id;
 	u32 index;
@@ -4377,34 +3855,28 @@ struct kapi_gpu {
 static struct kapi_gpu kapi_gpus[NVRM_NV_MAX_GPUS];
 static u32 kapi_gpu_count;
 
-/*
- * A process entry for a caller that is not a process.
- *
- * The host keeps one session per guest_proc id, and NVKMS deserves its own:
- * its RM handles are not the handles of whichever process happened to run
- * insmod. `pid` stays NULL, which is also what keeps nvrm_proc_get() from
- * ever handing this entry to a real process -- that lookup compares against
- * a `struct pid *` it just took, and that is never NULL.
- */
+/* NVKMS has its own host session and handle namespace. pid stays NULL so
+ * nvrm_proc_get cannot match this entry to a userspace process. */
 static struct nvrm_proc *nvrm_proc_kernel(struct nvrm_dev *dev,
 					  const char *comm)
 {
 	struct nvrm_proc *p;
-	int id;
+	int ret;
 
 	p = kzalloc(sizeof(*p), GFP_KERNEL);
 	if (!p)
 		return ERR_PTR(-ENOMEM);
 
 	mutex_lock(&dev->proc_lock);
-	id = idr_alloc(&dev->proc_idr, p, 1, 0, GFP_KERNEL);
-	if (id < 0) {
+	ret = nvrm_proc_alloc_id(&p->id);
+	if (ret) {
 		mutex_unlock(&dev->proc_lock);
 		kfree(p);
-		return ERR_PTR(id);
+		return ERR_PTR(ret);
 	}
+	kref_get(&dev->ref);
+	p->dev = dev;
 	p->pid = NULL;
-	p->id = (u32)id;
 	p->vnr = 0;
 	strscpy(p->comm, comm, sizeof(p->comm));
 	refcount_set(&p->ref, 1);
@@ -4437,13 +3909,8 @@ static struct nvrm_ctx *kapi_ctx_open(struct nvrm_dev *dev, u32 dev_tag,
 	ctx->dev_tag = dev_tag;
 	ctx->gpu_index = index;
 
-	/*
-	 * ONE process identity for every session NVKMS holds -- the control
-	 * node and each GPU node. Not a shortcut: it is the rule this module
-	 * already states for guest processes, that the same process gets one
-	 * entry for all of its nodes because its RM handles live in one
-	 * session.
-	 */
+	/* All NVKMS nodes share one guest_proc identity and RM handle
+	 * namespace. */
 	if (proc) {
 		refcount_inc(&proc->ref);
 		ctx->proc = proc;
@@ -4494,21 +3961,14 @@ err:
 
 static void kapi_ctx_close(struct nvrm_ctx *ctx)
 {
-	struct nvrm_pin *p, *tmp;
+	int ret;
 
 	if (!ctx)
 		return;
-	/* What nvrm_node_release does for a process context, for the same
-	 * reason: a PRIME import (gather_osdesc_kern) hangs its dma-buf
-	 * attachment off the context, and RM's teardown on the host does not
-	 * give a guest-side attachment back. Nothing else runs on this
-	 * context here (kapi_lock is held or the device is being removed). */
-	list_for_each_entry_safe(p, tmp, &ctx->pins, node) {
-		list_del(&p->node);
-		nvrm_unpin(p);
-	}
-	nvrm_simple(ctx->dev, NVRM_KIND_CLOSE, ctx->dev_tag, 0, ctx->token, 0,
-		    0, NULL, false, ctx->proc ? ctx->proc->id : 0);
+	ret = nvrm_simple(ctx->dev, NVRM_KIND_CLOSE, ctx->dev_tag, 0,
+			  ctx->token, 0, 0, NULL, false,
+			  ctx->proc ? ctx->proc->id : 0);
+	nvrm_ctx_release_pins(ctx, ret);
 	stat_ctx_closed++;
 	if (stat_ctx_open)
 		stat_ctx_open--;
@@ -4520,6 +3980,16 @@ static void kapi_ctx_close(struct nvrm_ctx *ctx)
 	kfree(ctx);
 }
 
+static struct nvrm_ctx *kapi_ctx_open_current(u32 dev_tag, u32 index,
+					      struct nvrm_proc *proc)
+{
+	struct nvrm_dev *dev = nvrm_dev_get();
+	struct nvrm_ctx *ctx = kapi_ctx_open(dev, dev_tag, index, proc);
+
+	nvrm_dev_put(dev);
+	return ctx;
+}
+
 /* The control session. Caller holds kapi_lock. */
 static struct nvrm_ctx *kapi_session(void)
 {
@@ -4527,10 +3997,9 @@ static struct nvrm_ctx *kapi_session(void)
 
 	if (kapi_ctx)
 		return kapi_ctx;
-	/* The control node: RM's "any client" door, and the one the in-kernel
-	 * API corresponds to -- rm_kernel_rmapi_op() is bound to no device
-	 * file at all. */
-	ctx = kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0, NULL);
+	/* Kernel RM ops use the control node; the API is not bound to a GPU
+	 * file. */
+	ctx = kapi_ctx_open_current(NVRM_DEV_CTL, 0, NULL);
 	if (IS_ERR(ctx))
 		return ctx;
 	kapi_ctx = ctx;
@@ -4539,14 +4008,8 @@ static struct nvrm_ctx *kapi_session(void)
 	return ctx;
 }
 
-/* ===========================================================================
- * The virtual display: NVA083_GRID_DISPLAYLESS, answered here
- * ===========================================================================
- *
- * Six controls on the object, and NVKMS derives the rest -- it was measured
- * asking only three of them (see the `vdisplay` comment). Nothing here talks
- * to the host: there is no card state behind a display that does not exist.
- */
+/* Local NVA083_GRID_DISPLAYLESS controls. NVKMS derives the virtual
+ * connector from these replies; no host display state is modified. */
 
 /* One head. NVIDIA reports the same for the displayless path
  * (GRID_DISPLAYLESS_NUM_HEADS, objgriddisplayless.c:35) and three controls
@@ -4557,45 +4020,18 @@ static struct nvrm_ctx *kapi_session(void)
  * can run edid-decode over exactly these bytes. See nvrm_edid.c. */
 #include "nvrm_edid.c"
 
-/*
- * The one object this module OWNS rather than forwards.
- *
- * A handle of our own invention lives in the same number space as RM's.
- * NVKMS picks the handle (hObjectNew is an IN field for NV04_ALLOC), so there
- * is no collision to arrange -- but every later call naming it must be caught
- * here, because RM has never heard of it. That is the whole reason this is a
- * single handle and not a table: one virtual display, one object, and a call
- * that names it either is ours or is a bug.
- */
+/* NVKMS chooses the local displayless object's handle. Intercept every
+ * later operation on it because host RM has no corresponding object. Only
+ * one virtual display object is supported. */
 static u32 vdisp_handle;
-/*
- * And the CLIENT it belongs to, because a handle alone does not name an
- * object. RM books objects under (hClient, hObject), and the kernel clients
- * behind this door hand their handles out from the SAME sequence: NVKMS core
- * and nvidia-drm's KAPI client both start at 0x10001 (unix_rm_handle.c:214
- * with clientData 1 on either side), so the number NVKMS picked for its
- * NVA083 is a number nvidia-drm will pick too, for something else entirely.
- *
- * Measured 2026-08-17, and it is the whole Vulkan-under-Wayland failure:
- *   ALLOC client 0xc1d0007f handle 0x1000d class 0x40 -> status 0x0 (host)
- *   FREE  client 0xc1d0007f handle 0x1000d          -> (vdisp, NOT sent)
- * nvidia-drm allocated vidmem at 0x1000d in ITS client, and the free was
- * swallowed here because NVKMS's NVA083 in a DIFFERENT client carried the
- * same number. The host kept the object, the guest's handle generator
- * recycled the number, and the next allocation of it came back
- * NV_ERR_INSERT_DUPLICATE_NAME (0x19) -- which is where every Vulkan client
- * under Wayland died. `vblank_free` had already spelled this out for the
- * NV9010 slots; this object never learned it.
- */
+/* Qualify the local handle by hClient. NVKMS and nvidia-drm allocate
+ * overlapping handle numbers in separate RM clients (unix_rm_handle.c:214).
+ * Matching the handle alone swallowed another client's FREE and caused
+ * duplicate-name failures (2026-08-17). */
 static u32 vdisp_client;
-/*
- * The display object the displayless path issues a handle for and never
- * allocates (nvkms-evo.c:5223). Learned rather than guessed: it is the
- * parent of the one event RM answers with OBJECT_NOT_FOUND, and everything
- * NVKMS addresses to it afterwards meets the same emptiness.
- *
- * Client-qualified for the same reason as vdisp_handle above.
- */
+/* NVKMS issues this display handle without allocating an object
+ * (nvkms-evo.c:5223). Learn it from the missing-parent event and qualify it
+ * by client. */
 static u32 vdisp_phantom;
 static u32 vdisp_phantom_client;
 static DEFINE_MUTEX(vdisp_lock);
@@ -4633,8 +4069,7 @@ static bool vdisp_free(u8 *params)
 	 * alloc time, and a free that misses it because someone toggled the
 	 * parameter would send RM a handle it has never heard of. */
 	mutex_lock(&vdisp_lock);
-	/* BOTH fields -- see vdisp_client. Matching the handle alone swallows
-	 * another client's free, and the object it names leaks on the host. */
+	/* Match client and handle to avoid consuming another client's FREE. */
 	ours = vdisp_handle && handle == vdisp_handle && client == vdisp_client;
 	if (ours) {
 		vdisp_handle = 0;
@@ -4647,13 +4082,8 @@ static bool vdisp_free(u8 *params)
 	return true;
 }
 
-/*
- * The six controls NVA083 defines, answered here. Measured 2026-08-08: the
- * displayless path calls exactly three of them -- GET_NUM_HEADS,
- * GET_MAX_RESOLUTION, GET_EDID; IS_ACTIVE, IS_CONNECTED and GET_MAX_PIXELS
- * exist in the header and nowhere else. They are answered anyway, because a
- * refusal from an object we claim to own is a worse answer than the truth.
- */
+/* Implement all six NVA083 controls. Recorded NVKMS calls use
+ * GET_NUM_HEADS, GET_MAX_RESOLUTION and GET_EDID. */
 static bool vdisp_control(u8 *params)
 {
 	u32 client = rd32(params, NVRM_NVOS54_HCLIENT_OFF);
@@ -4662,28 +4092,21 @@ static bool vdisp_control(u8 *params)
 	u32 size = rd32(params, NVRM_NVOS54_PARAMSSIZE_OFF);
 	void *p = (void *)(uintptr_t)rd64(params, NVRM_NVOS54_PARAMS_OFF);
 	bool ours;
-	/* Snapshots for the diagnostic below, taken under the lock with the
-	 * decision they explain -- reading them again later would report a
-	 * pair that was never the one this call missed. */
+	/* Capture the expected pair under the same lock as the lookup for
+	 * accurate diagnostics. */
 	u32 have_handle, have_client;
 
 	if (!vdisplay)
 		return false;
 	mutex_lock(&vdisp_lock);
-	/* Handle AND client -- same collision as in vdisp_free. Answering a
-	 * foreign client's control on a same-numbered object of its own would
-	 * report a success RM never gave. */
+	/* Match both client and handle; handles alone are not unique. */
 	ours = vdisp_handle && obj == vdisp_handle && client == vdisp_client;
 	have_handle = vdisp_handle;
 	have_client = vdisp_client;
 	mutex_unlock(&vdisp_lock);
 	if (!ours) {
-		/* A call addressed to the display object that was never
-		 * allocated. NVKMS keeps talking to it -- SET_NOTIFICATION for
-		 * the vblank callback is the first -- and RM keeps answering
-		 * OBJECT_NOT_FOUND. Answering here says the same thing the
-		 * displayless path already assumes: there is no raster
-		 * generator, so there is nothing to notify about. */
+		/* Acknowledge controls on the unallocated displayHandle.
+		 * Displayless NVKMS has no raster generator to notify. */
 		mutex_lock(&vdisp_lock);
 		if (vdisp_phantom && obj == vdisp_phantom &&
 		    client == vdisp_phantom_client)
@@ -4697,67 +4120,30 @@ static bool vdisp_control(u8 *params)
 			return true;
 		}
 
-		/*
-		 * Three more calls that are not on our object and still ours
-		 * to answer.
-		 *
-		 * nvAllocCoreChannelEvo blocks GC6 before it touches the
-		 * display (`nvRmSetGc6Allowed`, nvkms-evo.c:5199) and takes
-		 * `goto failed` when that is refused. RM refuses it here:
-		 * measured 2026-08-08 as status 0x1b
-		 * NV_ERR_INSUFFICIENT_PERMISSIONS, and CAP_SYS_ADMIN does NOT
-		 * lift it -- the control is kernel-privileged.
-		 *
-		 * What is being asked for is a refcount that keeps the card out
-		 * of a power state while a display is programmed. This guest
-		 * programs no display and scans nothing out, and the card is
-		 * driving the host's own monitors meanwhile, so GC6 is not a
-		 * state it can reach. Answering NV_OK claims a block we did not
-		 * take; what it costs is bounded by that.
-		 */
+		/* Displayless NVKMS requests GC6 blocking, a
+		 * kernel-privileged control that CAP_SYS_ADMIN cannot grant
+		 * (nvkms-evo.c:5199). Acknowledge locally: this guest
+		 * programs no physical display, while the host owns
+		 * display/power state. No host GC6 reference is acquired. */
 		switch (cmd) {
 		case NVRM_CTRL_GC6_BLOCKER:
 		case NVRM_CTRL_VT_SWITCH:
 		case NVRM_CTRL_VT_GET_FB_INFO:
-			/* All three are kernel-privileged and all three are
-			 * about state this guest does not have: a power block
-			 * for a display it never programs, and the console
-			 * framebuffer of a card it holds no console on. The
-			 * params stay as NVKMS zeroed them, which reads back
-			 * as "no console" -- the truth here. */
+			/* These controls require kernel privilege and
+			 * concern host display/power state. Leave zeroed
+			 * params to report no guest console. */
 			wr32(params, NVRM_NVOS54_STATUS_OFF, NVRM_NV_OK);
 			if (display > 1)
 				pr_info("virtio_nvrm: virtual display: %#x answered OK (nothing to do)\n",
 					cmd);
 			return true;
 		default:
-			/*
-			 * OPEN-QUESTIONS 16'S SIGNATURE, and this is the
-			 * instrument that would name it.
-			 *
-			 * An NVA083 control (0xa0830101..0106) that is NOT on
-			 * our recorded pair can only mean the record and the
-			 * caller have come apart: NVKMS still holds a
-			 * displayless handle whose (client, handle) we no
-			 * longer answer for. This function then returns false,
-			 * the call goes to a host RM that has never heard of
-			 * the object, and RM answers OBJECT_NOT_FOUND.
-			 *
-			 * That is exactly what number 16 looks like from the
-			 * other end: DisplaylessRmGetConnectedDpys
-			 * (nvkms-rm.c:2392) calls GET_NUM_HEADS, and on ANY
-			 * failure logs "Failed detecting connected displays
-			 * for displayless HW" and returns an EMPTY dpy list --
-			 * so the virtual connector reads as disconnected while
-			 * sysfs, which caches the last state, still says
-			 * connected.
-			 *
-			 * `vdisp_handle` is a SINGLE slot on purpose ("one
-			 * virtual display, one object"), and that assumption
-			 * is what this warning tests. It has never been seen
-			 * to fire; if it ever does, number 16 has its cause
-			 * and this line says which pair was expected.
-			 */
+			/* A control outside the recorded (client, handle)
+			 * pair reaches host RM and fails OBJECT_NOT_FOUND.
+			 * This diagnostic checks the single-display-object
+			 * assumption behind OPEN-QUESTIONS 16's
+			 * disconnected-connector symptom; it has not fired
+			 * in recorded runs. */
 			if ((cmd & 0xffff0000u) == 0xa0830000u)
 				pr_warn_ratelimited(
 					"virtio_nvrm: virtual display: NVA083 control %#x on object %#x of client %#x, but our pair is %#x/%#x -- forwarding to a host that does not have this object (OPEN-QUESTIONS 16)\n",
@@ -4767,9 +4153,7 @@ static bool vdisp_control(u8 *params)
 		}
 	}
 
-	/* The params block of a KERNEL caller is a kernel pointer we may
-	 * dereference directly -- unlike the ioctl path, where it belongs to
-	 * a process. A NULL one is a caller bug, not something to guess at. */
+	/* Kernel params are directly addressable; reject a missing buffer. */
 	if (!p || !size) {
 		wr32(params, NVRM_NVOS54_STATUS_OFF, NVRM_NV_ERR_NOT_SUPPORTED);
 		return true;
@@ -4777,26 +4161,17 @@ static bool vdisp_control(u8 *params)
 
 	switch (cmd) {
 	case NVRM_CTRL_VD_GET_NUM_HEADS:
-		/* { NvU32 numHeads; NvU32 maxNumHeads; } -- NVKMS reads the
-		 * SECOND field (nvkms-rm.c:946). One head, which is also what
-		 * NVIDIA reports for the displayless path
-		 * (GRID_DISPLAYLESS_NUM_HEADS, objgriddisplayless.c:35). */
+		/* NVKMS reads maxNumHeads (nvkms-rm.c:946). Report one
+		 * head, matching GRID_DISPLAYLESS_NUM_HEADS. */
 		if (size < 8)
 			goto too_small;
 		wr32(p, 0, NVRM_VDISP_NUM_HEADS);
 		wr32(p, 4, NVRM_VDISP_NUM_HEADS);
 		break;
 	case NVRM_CTRL_VD_GET_MAX_RES:
-		/* { headIndex; maxHResolution; maxVResolution; }
-		 *
-		 * The MAXIMUM, not the mode. See the vdisplay_max_* comment:
-		 * NVKMS turns this into pDevEvo->caps and bounds every surface
-		 * by it, so answering with the offered mode would make that
-		 * mode the ceiling too.
-		 *
-		 * headIndex is an IN field and is validated the way NVIDIA
-		 * validates it (griddisplaylessctrl.c: headIndex >= numHeads
-		 * is NV_ERR_INVALID_ARGUMENT). NVKMS passes 0. */
+		/* GET_MAX_RESOLUTION returns the surface ceiling, not the
+		 * EDID mode. Validate headIndex as NVIDIA does
+		 * (griddisplaylessctrl.c); NVKMS uses head 0. */
 		if (size < 12)
 			goto too_small;
 		if (rd32(p, 0) >= NVRM_VDISP_NUM_HEADS) {
@@ -4810,62 +4185,35 @@ static bool vdisp_control(u8 *params)
 		wr32(p, 8, vdisplay_max_height);
 		break;
 	case NVRM_CTRL_VD_IS_ACTIVE:
-		/* { NvBool isDisplayActive; }
-		 *
-		 * A DECISION, not a reading. At NVIDIA this is a back
-		 * channel: displayActive[] is only ever set by
-		 * griddisplaylessUpdateDisplayActive, from the host, when a
-		 * console attaches -- and it defaults to NV_FALSE. There is no
-		 * such host here, so a faithful "false" would mean "nothing is
-		 * driving this screen", which is the opposite of true for a
-		 * display whose whole purpose is to be driven.
-		 *
-		 * Nothing in NVKMS reads it (grep: no caller in
-		 * nvidia-modeset or nvidia-drm), so this costs nothing today
-		 * and is a claim only if some other client believes it. */
+		/* Report the virtual display active. Native displayActive
+		 * is set by a host console connection; this backend has no
+		 * such channel. No current NVKMS/nvidia-drm caller reads
+		 * this control. */
 		if (size < 1)
 			goto too_small;
 		((u8 *)p)[0] = 1;
 		break;
 	case NVRM_CTRL_VD_IS_CONNECTED:
-		/* { NvU32 isDisplayConnected; } -- numHeads > 0 at NVIDIA
-		 * (griddisplaylessctrl.c), and there is one head. */
+		/* Report connected when numHeads > 0, as
+		 * griddisplaylessctrl.c does. */
 		if (size < 4)
 			goto too_small;
 		wr32(p, 0, NVRM_VDISP_NUM_HEADS > 0);
 		break;
 	case NVRM_CTRL_VD_GET_MAX_PIXELS:
-		/* { NvU64 maxPixels; } -- a bound of its own beside the
-		 * resolution, see the vdisplay_max_pixels comment. */
+		/* maxPixels is an independent surface limit. */
 		if (size < 8)
 			goto too_small;
 		wr64(p, 0, vdisplay_max_pixels);
 		break;
 	case NVRM_CTRL_VD_GET_EDID: {
-		/* { NvP64 pEdidBuffer; NvU32 edidSize; NvU8 connectorType; }
-		 *
-		 * `edidSize` is in/out and it, not the buffer pointer, is what
-		 * decides. NVIDIA's own handler
-		 * (griddisplaylessGetDefaultEDID_IMPL,
-		 * objgriddisplayless.c:296-334) reads:
-		 *
-		 *   size == 0             report the size, write nothing
-		 *   size <  actual        NV_ERR_BUFFER_TOO_SMALL
-		 *   buffer == NULL        NV_ERR_INVALID_ARGUMENT
-		 *   otherwise             copy
-		 *
-		 * and sets the size on EVERY path, including the failing ones.
-		 * Mirrored exactly. Deciding on the pointer instead -- what
-		 * this did before -- means a caller that passes a real buffer
-		 * with a size smaller than the EDID gets the full EDID written
-		 * into it, which is a write past the end of somebody else's
-		 * allocation. NVKMS itself always allocates what we reported
-		 * (nvkms-dpy.c:1245), so it could not trigger that; the next
-		 * caller is not promised to be NVKMS.
-		 *
-		 * connectorType is ignored. NVIDIA keeps a digital and an
-		 * analog blob with the same set of modes
-		 * (objgriddisplayless.c:87), so one EDID answers both. */
+		/* Match griddisplaylessGetDefaultEDID_IMPL
+		 * (objgriddisplayless.c:296-334): size 0 queries length;
+		 * short buffers fail; a NULL buffer with nonzero sufficient
+		 * size fails; otherwise copy. Report the required size on
+		 * every path.
+		 * One EDID serves both connector types, matching NVIDIA's
+		 * digital/analog mode sets. */
 		u64 buf;
 		u32 want;
 
@@ -4920,14 +4268,9 @@ too_small:
 	return true;
 }
 
-/*
- * The entry point, and the only place a REAL answer is edited.
- *
- * `nvRmAllocDisplays` checks NV04_DISPLAY_COMMON first and this card has it,
- * so the displayless branch is unreachable until 0x0073 leaves the list.
- * One out, one in -- numClasses does not change, so the counting call (the
- * one with a NULL buffer) needs no handling at all.
- */
+/* Replace NV04_DISPLAY_COMMON with the displayless class so
+ * nvRmAllocDisplays selects it. Preserve numClasses; NULL-buffer count
+ * queries need no rewrite. */
 static void vdisp_rewrite_classlist(u8 *params)
 {
 	static const u32 cores[] = NVRM_DISP_CLASSES;
@@ -4943,11 +4286,8 @@ static void vdisp_rewrite_classlist(u8 *params)
 	if (rd32(params, NVRM_NVOS54_STATUS_OFF) != NVRM_NV_OK)
 		return;
 
-	/* NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS: { NvU32 numClasses;
-	 * NvP64 classList; } -- the pointer is 8-aligned, so it sits at 8.
-	 * The FIRST of the two calls carries no buffer and only asks for the
-	 * count; it needs nothing from us, because the count it reports is
-	 * an upper bound and the second call reports the real one. */
+	/* GET_CLASSLIST carries numClasses and an 8-aligned pointer. The
+	 * initial NULL-buffer count query needs no rewrite. */
 	n = rd32(p, 0);
 	buf = rd64(p, 8);
 	if (!buf || !n)
@@ -4960,10 +4300,8 @@ static void vdisp_rewrite_classlist(u8 *params)
 	if (have_displayless)
 		return; /* already done, or a card that has it */
 
-	/* Compact in place: every class NVKMS would choose AHEAD of the
-	 * displayless one has to go, or it picks that HAL and then runs with
-	 * displaylessHw set and a real dispClass -- measured as a device
-	 * allocation that fails without printing anything. */
+	/* Remove classes NVKMS prefers over displayless; otherwise it
+	 * selects a physical-display HAL with displaylessHw set. */
 	for (i = 0; i < n; i++) {
 		bool drop = (list[i] == NVRM_CLASS_DISPLAY_COMMON);
 
@@ -4986,45 +4324,14 @@ static void vdisp_rewrite_classlist(u8 *params)
 		n, out, dropped, NVRM_CLASS_DISPLAYLESS);
 }
 
-/*
- * The one event on this path whose PARENT does not exist.
- *
- * NVKMS registers an RG vblank callback against `pDevEvo->displayHandle`
- * (nvkms-rm.c:5338) -- and the displayless path never allocates that object:
- * nvkms-evo.c:5223 skips the alloc under `if (!displaylessHw)` while the
- * handle number is issued regardless. RM therefore answers
- * NV_ERR_OBJECT_NOT_FOUND, and NVKMS turns that into "Failed to register RM
- * callback" and gives up on the device.
- *
- * Measured 2026-08-08: of the five event allocations on this path, four
- * carry a real parent and answer 0x0; exactly this one answers 0x57.
- *
- * What answering NV_OK claims: that a callback is registered which will
- * never be called. On this path that is already true of the thing it would
- * report -- there is no raster generator and no vblank, because nothing is
- * scanned out.
- *
- * And the flip path does not want one. The displayless HAL drives its
- * flips from a POLLING worker, not from an interrupt: DisplaylessFlipWorker
- * (nvkms-displayless.c:304) re-arms an nvkms_alloc_timer every
- * DISPLAYLESS_POLL_INTERVAL_USEC, which is 100 us, for as long as
- * ProcessPendingFlips still has anything queued, and stops arming it when
- * the queue drains. Nothing in that loop waits. So this registration is
- * bookkeeping for an interrupt that cannot arrive AND is not wanted, and
- * the missing host-to-guest event path (nvrm_node_poll, which returns 0 and
- * nothing ever wakes) does not block the displayless path.
- *
- * What that worker DOES need is a CPU mapping: it reads the flip
- * semaphore through pSurfaceEvo->cpuAddress[0]
- * (nvkms-displayless.c:265), and DisplaylessEnqueueFlip refuses the flip
- * outright with "Semaphore surface without CPU mapping!" if it is NULL.
- * That mapping is a flags-0 nvEvoCpuMapSurface, i.e. the kernel-VA branch
- * in kapi_map_memory.
- *
- * Narrow on purpose: only with `vdisplay`, only for a class the HOST wrote
- * (NV01_EVENT_OS_EVENT -- NVKMS itself never asks for that one, it asks for
- * the kernel-callback classes), and only for OBJECT_NOT_FOUND.
- */
+/* Displayless NVKMS registers an RG callback under an unallocated
+ * displayHandle (nvkms-rm.c:5338, nvkms-evo.c:5223). Accept only the
+ * substituted OS-event allocation that fails OBJECT_NOT_FOUND, with
+ * vdisplay enabled.
+ * No raster-generator callback is delivered. DisplaylessFlipWorker polls at
+ * 100 us while flips remain queued (nvkms-displayless.c:304). It still
+ * requires the kernel CPU mapping provided by kapi_map_memory for its
+ * semaphore surface. */
 static void vdisp_event_on_missing_parent(u8 *params)
 {
 	if (!vdisplay)
@@ -5045,41 +4352,15 @@ static void vdisp_event_on_missing_parent(u8 *params)
 		rd32(params, NVRM_NVOS64_HROOT_OFF));
 }
 
-/* ===========================================================================
- * Vblank for the virtual display: NV9010_VBLANK_CALLBACK, answered here
- * ===========================================================================
- *
- * `NV_VBLANK_CALLBACK_ALLOCATION_PARAMETERS` carries `NvP64 pProc` -- "Routine
- * to call at vblank time" (cl9010.h), a FUNCTION POINTER. Forwarding it would
- * hand the host a guest kernel address, which means nothing there; that is why
- * the class is deliberately absent from the tables (OPEN-QUESTIONS nr 7).
- * But on the KERNEL path the caller is NVKMS
- * (nvRmAddVBlankCallback, nvkms-rm.c:5141) and pProc is a live address in
- * nvidia-modeset.ko -- callable from HERE, in the guest. So this module is
- * the raster generator: an hrtimer at the virtual display's refresh rate does
- * what the real RM does from its vblank ISR (_vblankCallback,
- * vblank_callback.c:36):
- *
- *     if (bIsVblankNotifyEnable) pProc(pParm1, pParm2);
- *
- * The calling context matches by construction. RM fires this from interrupt
- * level; NVKMS's pProc (VBlankCallback, nvkms-modeset.c:1922) therefore only
- * re-arms a timer whose allocation is "called from an interrupt bottom half"
- * (kmalloc(GFP_ATOMIC), nvidia-modeset-linux.c:1149). An hrtimer callback is
- * exactly that level.
- *
- * Only the kernel path. A userspace 0x9010 alloc (the ioctl door) still
- * meets the table's EOPNOTSUPP: a process-supplied function pointer is not
- * something a kernel may ever call, and RM itself refuses the class below
- * RS_PRIV_LEVEL_KERNEL for the same reason.
- *
- * pProc is called UNDER vblank_lock. That is what makes FREE a fence, the
- * same guarantee RM gives: once the free returns, the callback cannot be in
- * flight and will not fire again -- NVKMS may release what pParm1 points to.
- * The callee takes only nvkms' own timer spinlock underneath, never this
- * module's locks, so the order vblank_lock -> nvkms_timers.lock is the only
- * one that exists.
- */
+/* Serve NV9010 vblank callbacks only for kernel callers. pProc is a guest
+ * kernel function pointer and must never be forwarded or accepted from
+ * userspace; the ioctl table rejects this class.
+ * The hrtimer invokes enabled callbacks at the effective EDID refresh rate,
+ * matching RM's interrupt-context contract (_vblankCallback,
+ * vblank_callback.c:36).
+ * Invoke under vblank_lock so FREE fences every callback before NVKMS
+ * releases its arguments. Callees must not sleep or reenter this module;
+ * the checked NVKMS callback takes only nvkms_timers.lock. */
 
 /* One head (NVRM_VDISP_NUM_HEADS); the slots are for CLIENTS of that head:
  * NVKMS registers one RG callback per head, vblank-sem-control and the
@@ -5094,45 +4375,19 @@ struct vblank_slot {
 	bool enabled; /* bIsVblankNotifyEnable, NV_TRUE at construct */
 };
 static struct vblank_slot vblank_slots[NVRM_VBLANK_SLOTS];
-/* The vblank callback (pProc) is CALLED under this lock, from the hrtimer.
- * Same contract as event_cb_lock (defined below, at the event engine): the callee must neither sleep nor come
- * back through the kapi door into vblank_alloc/vblank_free (both take this
- * lock); NVKMS's vblank handler queues work. Holding the lock across the
- * call is what makes vblank_free/vblank_drop_all a fence -- after they
- * return no callback is in flight and none will fire into freed
- * nvidia-modeset text. */
+/* Invoke under vblank_lock so free/drop_all fence callbacks. Callees must
+ * not sleep or reenter kapi; NVKMS queues work from its handler. */
 static DEFINE_SPINLOCK(vblank_lock);
 static struct hrtimer vblank_timer;
 static bool vblank_armed; /* under vblank_lock */
-/* Serialises arm/disarm transitions against each other. The 9010 traffic
- * itself is serialised by NVKMS (nvkms_lock), but the device-remove path
- * (kapi_session_close -> vblank_drop_all) is not -- and an unserialised
- * cancel racing an arm leaves a live slot with a dead timer. Process
- * context only; never taken in the tick. */
+/* Serialize timer arm/disarm, including device removal outside NVKMS's
+ * lock. Never acquire this mutex from the hrtimer callback. */
 static DEFINE_MUTEX(vblank_engine_lock);
 
-/* The period of ONE vblank, at the rate the display actually advertises.
- *
- * Not at `vdisplay_vblank_hz`. That is the REQUEST, and the EDID may not
- * be able to express it: the DTD carries the pixel clock in two bytes of
- * 10 kHz. Measured 2026-08-19 against nvrm_edid_effective itself, since
- * the numbers here are the whole point -- 3840x2160 at 120 Hz comes back
- * as 75, 1920x1080 at 240 Hz as 226, 2560x1440 at 240 Hz as 167. Pacing
- * the callbacks off the request while the mode says something else is the
- * exact bug this file used to have in the other direction -- 120 Hz
- * callbacks under a 60 Hz mode, because the EDID builder had 60 hard-coded
- * and never saw this parameter (2026-08-15). `nvrm_edid_effective` is the
- * one place that decides, and both readers ask it.
- *
- * 2560x1440 at 165 Hz used to be the example here, and it is not one any
- * more: the wide-blanking ceiling is 162 Hz, but the narrow-blanking (RB2)
- * fallback in nvrm_edid_effective lifts it to 167 and the request goes
- * through untouched. An example that has stopped being an example is how a
- * reader learns to distrust the rest of the comment.
- *
- * The old guard here was its own third opinion: reject outside 1..240 and
- * silently fall back to 60. A request of 300 then gave a 60 Hz timer and a
- * 254 Hz mode. Clamping in one place cannot produce that. */
+/* Use the effective EDID rate, not the requested rate. Its 16-bit 10 kHz
+ * pixel clock limits 4K120 to 75 Hz, 1080p240 to 226 Hz and 1440p240 to 167
+ * Hz. nvrm_edid_effective applies the shared clamp, including the RB2
+ * fallback. */
 static u32 vblank_hz(void)
 {
 	u32 w, h, hz, hb;
@@ -5225,9 +4480,8 @@ static bool vblank_alloc(u8 *params)
 	if (!vdisplay || hclass != NVRM_CLASS_VBLANK_CALLBACK)
 		return false;
 
-	/* The alloc params of a KERNEL caller are a kernel pointer (NVKMS
-	 * passes its own stack variable, nvkms-rm.c:5152). Layout per
-	 * cl9010.h: pProc@0, LogicalHead@8, pParm1@16, pParm2@24. */
+	/* Kernel allocation params use the cl9010 layout: pProc@0,
+	 * LogicalHead@8, pParm1@16, pParm2@24. */
 	ap = (const u8 *)(uintptr_t)rd64(params, NVRM_NVOS64_PALLOCPARMS_OFF);
 	if (!ap) {
 		wr32(params, NVRM_NVOS64_STATUS_OFF,
@@ -5269,12 +4523,8 @@ static bool vblank_alloc(u8 *params)
 	vblank_engine_update();
 
 	wr32(params, NVRM_NVOS64_STATUS_OFF, NVRM_NV_OK);
-	/* The EFFECTIVE rate, not the requested one: vdisplay_vblank_hz is
-	 * what was asked for, and nvrm_edid_effective may have clamped it to
-	 * what the EDID's fixed-width fields can express (3840x2160 at 120 Hz
-	 * comes back as 75). The timer is paced off the clamped rate, so
-	 * logging the request would name a rate nothing runs at -- in the one
-	 * line an operator reads to find out what the callbacks do. */
+	/* Log the effective EDID rate used by the timer, which may differ
+	 * from the requested rate. */
 	pr_info("virtio_nvrm: vblank: callback %#x (client %#x, head %u) is ours -- serviced at %u Hz (INVENTED)\n",
 		handle, client, head, vblank_hz());
 	return true;
@@ -5297,13 +4547,8 @@ static bool vblank_free(u8 *params)
 		return false;
 	spin_lock_irqsave(&vblank_lock, flags);
 	for (i = 0; i < NVRM_VBLANK_SLOTS; i++) {
-		/* BOTH fields. Handles are per-client numbers, and the two
-		 * kernel clients behind this door hand them out from the SAME
-		 * sequence: NVKMS core and nvidia-drm's KAPI client both
-		 * start at 0x10001 (unix_rm_handle.c:214 with clientData 1 on
-		 * either side). A free matched on the handle alone would
-		 * swallow nvidia-drm freeing its notifier -- the host object
-		 * leaks and NVKMS's callback dies without a word. */
+		/* Match client and handle: NVKMS core and nvidia-drm
+		 * allocate overlapping handle numbers in separate clients. */
 		if (vblank_slots[i].handle == handle &&
 		    vblank_slots[i].client == client) {
 			vblank_slots[i] = (struct vblank_slot){ 0 };
@@ -5332,7 +4577,7 @@ static bool vblank_control(u8 *params)
 	u32 i;
 
 	spin_lock_irqsave(&vblank_lock, flags);
-	/* Handle AND client -- same collision as in vblank_free above. */
+	/* Match both client and handle. */
 	for (i = 0; i < NVRM_VBLANK_SLOTS; i++)
 		if (vblank_slots[i].handle && vblank_slots[i].handle == obj &&
 		    vblank_slots[i].client == client)
@@ -5340,9 +4585,8 @@ static bool vblank_control(u8 *params)
 	if (i < NVRM_VBLANK_SLOTS)
 		ours = true;
 	if (ours && cmd == NVRM_CTRL_SET_VBLANK_NOTIFY && p && size >= 1)
-		/* { NvBool bSetVBlankNotifyEnable; } -- ctrl9010.h. The
-		 * kernel caller's pointer, dereferenced directly like the
-		 * vdisp controls above. */
+		/* Read the kernel caller's bSetVBlankNotifyEnable
+		 * (ctrl9010.h). */
 		vblank_slots[i].enabled = *p != 0;
 	spin_unlock_irqrestore(&vblank_lock, flags);
 
@@ -5379,47 +4623,15 @@ static void vblank_drop_all(void)
 	mutex_unlock(&vblank_engine_lock);
 }
 
-/* ===========================================================================
- * The event return channel: KIND_EVENT_FIRED on queue 1
- * ===========================================================================
- *
- * How RM fires natively (os.c:1493-1553 osNotifyEvent): an NV01_EVENT_OS_EVENT
- * (0x79) becomes nv_post_event + wake_up_interruptible on the fd's wait queue
- * (nv.c:4036-4086), read back with NV_ESC_RM_GET_EVENT_DATA; a kernel
- * callback NV01_EVENT_KERNEL_CALLBACK_EX (0x7e) becomes a direct call
- * `kc->func(kc->arg, NULL, hEvent, Data, Status)` (os.c:1533-1539). The host
- * substitutes BOTH kernel-callback classes with 0x79 on its side (session.rs
- * (1a')), because a guest kernel address means nothing over there -- and
- * before this section, that was the end of it: 26 callbacks registered
- * in a GNOME session, none delivered, vkprobe DEVICE_LOST at frame 5.
- *
- * Now the host drains its side and sends one KIND_EVENT_FIRED per firing on
- * queue 1. The Req is the carrier; the fields are reused as documented in
- * nvrm-wire (KIND_EVENT_FIRED):
- *   ioctl_nr          the class the GUEST asked for (0x79 / 0x7e / 0x78)
- *   target_token      the fd to wake (0x79) or the fd the alloc rode on
- *   guest_proc        owner session of target_token
- *   inline_len        Data,   aux_len Status  (both 0/NV_OK on this path)
- *   fd_field_off      hClient (NVOS64.hRoot of the alloc)
- *   embedded_ptr_off  hEvent  (NVOS64.hObjectNew of the alloc)
- *   nested_count      notifyIndex as the guest sent it (NV0005 @12)
- *   addr              the 8 bytes the guest put in NV0005.data @16 BEFORE
- *                     the host overwrote them: for 0x7e the pointer to the
- *                     NVOS10_EVENT_KERNEL_CALLBACK_EX in guest kernel memory
- *
- * The 0x7e side is the vblank engine again (above): a slot table filled on
- * the kernel ALLOC path, a FREE that is a fence, and the guest pointer called
- * from a context RM would also call it from -- only that the trigger is the
- * host, not a timer.
- *
- * 0x78 (NV01_EVENT_KERNEL_CALLBACK) is NOT served: natively it calls
- * `callBackToMiniport(NV_GET_NV_STATE(pGpu))` with a HOST-side nv_state
- * (os.c:1517-1524) -- nothing in this guest can stand in for that. Dropped
- * and counted; NVKMS asks for the _EX form.
- */
+/* Queue-1 KIND_EVENT_FIRED delivery. The host substitutes OS events for
+ * guest kernel callbacks and returns the original class and identity (wire
+ * layout: nvrm-wire).
+ * 0x79 wakes the owning file; 0x7e invokes its registered guest callback.
+ * FREE fences calls through event_cb_lock. Class 0x78 is dropped: its
+ * native callBackToMiniport requires host nv_state and has no guest
+ * equivalent. */
 
-/* Which Req field means what -- kept as macros so that a reader of the work
- * item sees the roles, not the carrier's field names. */
+/* Name event fields by their role; KIND_EVENT_FIRED reuses the Req layout. */
 #define ev_class(r) ((r)->ioctl_nr)
 #define ev_hclient(r) ((r)->fd_field_off)
 #define ev_hevent(r) ((r)->embedded_ptr_off)
@@ -5428,10 +4640,9 @@ static void vblank_drop_all(void)
 #define ev_notify(r) ((r)->nested_count)
 #define ev_kc(r) ((r)->addr)
 
-/* backend log: 26 kernel-callback events registered in one GNOME session
- * (nvidia-drm fences, NVKMS hotplug/completion per head). 64 is headroom, not
- * a measurement -- when it runs out the alloc still succeeds on the host,
- * and the log says which registration will never fire. */
+/* Measured GNOME uses 26 callback registrations; reserve 64 slots.
+ * Exhaustion leaves the host allocation live without a guest callback, and
+ * is logged. */
 #define NVRM_EVENT_CB_SLOTS 64u
 struct event_cb_slot {
 	u32 client; /* NVOS64.hRoot */
@@ -5442,29 +4653,17 @@ struct event_cb_slot {
 	u64 kc; /* NVOS10_EVENT_KERNEL_CALLBACK_EX*, guest kernel VA */
 };
 static struct event_cb_slot event_cb_slots[NVRM_EVENT_CB_SLOTS];
-/* Callback is invoked UNDER this lock (fence semantics, see event_cb_free).
- * Taken with irqsave from process context only -- the work item and the
- * kapi door -- never from the vq callback.
- *
- * The contract that comes with calling under a spinlock: a callback invoked
- * from event_fire_callback/semsurf_fire must not call back into this
- * module's kapi door synchronously (kapi_op -> semsurf_before_control or
- * event_cb_* would take this very lock and deadlock), and must not sleep.
- * NVIDIA's own RM invokes these callbacks inside its locks too, and every
- * NVKMS/nvidia-drm handler checked only queues work or takes its own
- * spinlock (see the comment at the call in event_fire_callback). The lock
- * is kept because it IS the fence: after event_cb_free/event_cb_drop_all
- * return, no callback is in flight and none will fire. */
+/* Invoke callbacks under event_cb_lock; FREE/drop_all fence all calls.
+ * Acquire with irqsave from workqueue/kapi context, never the virtqueue
+ * callback.
+ * Callbacks must neither sleep nor synchronously reenter kapi, which takes
+ * this lock. Checked NVKMS/nvidia-drm handlers only queue work or take
+ * their own spinlocks. */
 static DEFINE_SPINLOCK(event_cb_lock);
 
-/* Kernel ALLOC, BEFORE it is sent: what the host is about to overwrite.
- * NV0005 params of a KERNEL caller are a kernel pointer (nvRmRegisterCallback
- * passes its own struct, nvkms-rm.c:1721-1746). Layout: hParentClient@0,
- * hSrcResource@4, hClass@8, notifyIndex@12, data@16 (cl0005.h:40-46) --
- * offsets from nvrm_wire.h. READ only. The host rewrites hClass@8 and
- * data@16 and both come back rewritten (session.rs (1a'), write-back);
- * vdisp_event_on_missing_parent keys on exactly that and must keep seeing
- * the host's version. */
+/* Capture kernel NV0005 params before submission. The host rewrites hClass
+ * and data; keep those reply changes for vdisp_event_on_missing_parent.
+ * Read offsets from nvrm_wire.h (cl0005.h:40-46). */
 struct event_cb_pending {
 	bool armed;
 	u32 client;
@@ -5490,10 +4689,8 @@ static void event_cb_before_alloc(const u8 *params,
 	pend->armed = pend->kc != 0;
 }
 
-/* Kernel ALLOC, AFTER the answer: the host said yes, so the object exists
- * over there and will fire. Take a slot, keyed (client, handle) -- both, for
- * the reason vblank_free spells out: NVKMS core and nvidia-drm's client hand
- * out handles from the same sequence. */
+/* After successful kernel ALLOC, register by (client, handle). Handles can
+ * overlap across NVKMS/nvidia-drm clients. */
 static void event_cb_after_alloc(const u8 *params,
 				 const struct event_cb_pending *pend, long ret)
 {
@@ -5538,13 +4735,9 @@ static void event_cb_after_alloc(const u8 *params,
 			(unsigned long long)pend->kc, i);
 }
 
-/* Kernel FREE, BEFORE it is sent (NVOS00: hRoot@0, hObjectOld@8). The fence:
- * NVKMS frees the NVOS10 block right after the free returns
- * (nvKmsKapiFreeChannelEvent), and RM's own guarantee is that no callback
- * is in flight once the free is done -- the slot goes under the same lock
- * the callback runs under. Freeing the CLIENT itself takes every slot of
- * that client with it (RM does the same, rm_client_free_os_events). Not
- * "ours" in the vblank sense: the free still goes to the host. */
+/* Fence callbacks before forwarding FREE: NVKMS releases their blocks as
+ * soon as it returns. Freeing a client removes all its slots. The host must
+ * still receive the FREE. */
 static void event_cb_free(const u8 *params)
 {
 	u32 client = rd32(params, 0);
@@ -5582,64 +4775,24 @@ static void event_cb_drop_all(void)
 	spin_unlock_irqrestore(&event_cb_lock, flags);
 }
 
-/* ---- semaphore-surface waiters ------------------------------------------
- *
- * The second door for kernel callbacks, and it is not an event object.
- * nvidia-drm's fences (DRM_IOCTL_NVIDIA_SEMSURF_FENCE_CREATE, the sync_files
- * every GBM compositor waits on) are signalled by NVKMS registering a waiter
- * on the semaphore surface: control 0xda0003 with a POINTER to an
- * NVOS10_EVENT_KERNEL_CALLBACK_EX in `notificationHandle`
- * (nvkms-kapi-sync.c:432). Natively RM calls that pointer when the
- * semaphore reaches the value.
- *
- * Through this module the control reaches host RM from a USERSPACE client,
- * and for those RM reads the handle as an OS-event id
- * (osUserHandleToKernelPtr, os.c:1741-1767) -- a guest kernel VA is no such
- * id, the registration fails, and nvidia-drm's comment says what happens
- * next: "the fence timeout will be relied upon" -- except the timeout timer
- * is only armed AFTER a successful registration (nvidia-drm-fence.c:1059-
- * 1076). Measured 2026-08-16: weston frozen in eglSwapBuffers, seven
- * sync_files pending, poll(timeout=-1) forever.
- *
- * So the host backend substitutes an OS event of its own (session.rs, the
- * semsurf section) and forwards the firing as KIND_EVENT_FIRED with
- * hEvent = 0 -- no event object exists, which is exactly the marker -- and
- * the callback pointer in `addr`. This side keeps the (client, proc, kc)
- * slot and makes the call, one-shot, like RM would have.
- *
- * The slot is filled BEFORE the control goes out, not after the reply:
- * the semaphore can reach the value the moment RM registers the waiter, and
- * the firing then overtakes the reply on queue 1. A slot filled too late is
- * a dropped fire and a fence that never signals -- the bug this section
- * exists to fix, rebuilt one layer down. The unfired slot is taken back in
- * semsurf_after_control when RM said no.
- */
+/* Semaphore-surface waiters carry a guest NVOS10 callback pointer. The host
+ * substitutes an OS event and returns KIND_EVENT_FIRED with hEvent=0 and
+ * the original pointer in addr.
+ * Register the (client, proc, kc) slot before submitting: queue-1 firing
+ * may overtake the reply. Remove it on failed registration. Invocations are
+ * one-shot. Native RM's user-handle interpretation cannot use a guest
+ * pointer (os.c:1741-1767). */
 #define NVRM_SEMSURF_SLOTS 64u
 struct semsurf_slot {
 	bool used;
 	u32 client; /* NVOS54.hClient of the registration */
 	u32 proc; /* the NVKMS session's process id */
 	u64 kc; /* NVOS10_EVENT_KERNEL_CALLBACK_EX*, guest kernel VA */
-	/*
-	 * `func`/`arg` are read ONCE here, at arm time, and never again.
-	 *
-	 * They used to be read at FIRE time, out of the block `kc` points
-	 * at -- and that block belongs to NVKMS, which frees it as soon as it
-	 * believes the callback is done with. In a split stack it can believe
-	 * that while our firing is still in flight (host fired list ->
-	 * virtqueue 1 -> ev_ring -> workqueue), and then the read is a read of
-	 * freed memory. Measured 2026-08-18 with the frame limiter on, which
-	 * widens that window from microseconds to milliseconds: a slab BUG()
-	 * in __slab_free, reached through nvrm_events_work ->
-	 * SemaphoreSurfaceKapiCallback -> __nv_drm_semsurf_ctx_callback ->
-	 * nv_drm_free, and the guest hung behind it (OPEN-QUESTIONS 38).
-	 *
-	 * Caching removes the READ from the danger list. It does NOT
-	 * remove the CALL: `arg` may still name an object NVKMS has freed,
-	 * and only a teardown signal could close that half -- a signal this
-	 * path does not yet carry, which is why the limiter that widens the
-	 * window stays opt-in (OPEN-QUESTIONS 38).
-	 */
+	/* Cache func/arg at arm time; NVKMS may free the callback block
+	 * before a delayed firing arrives. This avoids rereading freed
+	 * memory, but arg itself can still be stale without teardown
+	 * acknowledgement. The limiter remains opt-in because it widens
+	 * this race (OPEN-QUESTIONS 38). */
 	u64 func;
 	u64 arg;
 };
@@ -5669,8 +4822,8 @@ struct semsurf_pending {
 	u64 kc;
 };
 
-/* Kernel CONTROL, BEFORE it is sent. `params` is the NVOS54 block in guest
- * kernel memory; its `params` pointer likewise (the kapi path). */
+/* Kernel CONTROL before submission; both NVOS54 and its params pointer
+ * refer to guest kernel memory. */
 static void semsurf_before_control(const u8 *params,
 				   struct semsurf_pending *pend)
 {
@@ -5691,9 +4844,8 @@ static void semsurf_before_control(const u8 *params,
 	kc = rd64(pp, cmd == NVRM_CTRL_SEMSURF_REG_WAITER ?
 			      NVRM_SEMSURF_REG_HANDLE_OFF :
 			      NVRM_SEMSURF_UNREG_HANDLE_OFF);
-	/* 0 = no notification asked; a value that fits in 32 bits is a user
-	 * client's OS-event id, which passes through and works natively --
-	 * only a kernel VA is ours to serve. */
+	/* Zero requests no notification; 32-bit values are native OS-event
+	 * IDs. Only kernel pointers need translation. */
 	if (kc <= 0xffffffffull)
 		return;
 	pend->client = rd32(params, NVRM_NVOS54_HCLIENT_OFF);
@@ -5734,7 +4886,7 @@ static void semsurf_before_control(const u8 *params,
 			pend->client, (unsigned long long)kc, i);
 }
 
-/* Kernel CONTROL, AFTER the answer. */
+/* Kernel CONTROL after its reply. */
 static void semsurf_after_control(const u8 *params,
 				  const struct semsurf_pending *pend, long ret)
 {
@@ -5747,36 +4899,19 @@ static void semsurf_after_control(const u8 *params,
 
 	spin_lock_irqsave(&event_cb_lock, flags);
 	if (pend->armed && !ok) {
-		/* NV_OK is the only "a fire is coming (or came)". Everything
-		 * else -- ALREADY_SIGNALLED included, which RM answers when
-		 * the value was reached WITHOUT registering a notification
-		 * (ctrl00da.h:189-196) -- means the slot would wait forever. */
+		/* Keep slots only for NV_OK. ALREADY_SIGNALLED means the
+		 * semaphore was reached without registering a callback
+		 * (ctrl00da.h:189-196). */
 		semsurf_slot_del(pend->client, pend->kc);
 	} else if (pend->unreg) {
-		/* Cancelled: NVKMS frees the NVOS10 block right after
-		 * (nvkms-kapi-sync.c:497-501 via nvidia-drm), so the slot must
-		 * not outlive this reply.
-		 *
-		 * On EVERY verdict, not only NV_OK -- and that is a
-		 * correction. The old rule kept the slot when RM answered
-		 * anything else, on the reasoning that the waiter must then
-		 * have fired already and the fire path would take the slot.
-		 * Native that holds, because RM runs the callback inside its
-		 * own locks before it answers. Here it does not: our firing
-		 * may still be in flight (host fired list -> virtqueue 1 ->
-		 * ev_ring -> workqueue) while nvidia-drm, told "too late to
-		 * cancel", walks on and frees the object `arg` names. The late
-		 * fire then calls into freed memory -- measured as a slab
-		 * BUG() in __slab_free (OPEN-QUESTIONS 38).
-		 *
-		 * Dropping the fire instead costs a fence signal, and that is
-		 * the cheaper failure by a wide margin: nvidia-drm's own
-		 * timeout path checks the LIVE semaphore value first
-		 * (nvidia-drm-fence.c:820-827) and signals a fence whose value
-		 * has landed as COMPLETED, not as timed out. So the worst case
-		 * is a late fence, not a lost one -- against a guest-kernel
-		 * use-after-free on the other side.
-		 */
+		/* Remove the slot on every cancellation result: NVKMS frees
+		 * its callback block immediately
+		 * (nvkms-kapi-sync.c:497-501), even if a firing is still in
+		 * transit. Keeping it risks use-after-free (OPEN-QUESTIONS
+		 * 38).
+		 * A dropped late firing delays the fence; nvidia-drm's
+		 * timeout path checks the live semaphore and completes it
+		 * if reached (nvidia-drm-fence.c:820-827). */
 		if (!ok)
 			stat_semsurf_late_unreg++;
 		semsurf_slot_del(pend->client, pend->kc);
@@ -5799,16 +4934,14 @@ static void semsurf_fire(const struct nvrm_req *r)
 		if (!sl->used || sl->kc != ev_kc(r) ||
 		    sl->client != ev_hclient(r) || sl->proc != r->guest_proc)
 			continue;
-		/* One-shot, and the slot goes BEFORE the call: the callback
-		 * frees the NVOS10 block (SemaphoreSurfaceKapiCallback,
-		 * nvkms-kapi-sync.c:374-380), so a second matching fire must
-		 * find nothing. Called UNDER the lock like event_fire_callback
-		 * -- RM invokes these within its own locks too, and the
-		 * semsurf chain (nvidia-drm's ctx callback) only queues work. */
+		/* Remove the one-shot slot before calling:
+		 * SemaphoreSurfaceKapiCallback frees its block
+		 * (nvkms-kapi-sync.c:374-380). Invoke under event_cb_lock;
+		 * callees may only queue work or take their own spinlocks. */
 		sl->used = false;
 		if (stat_semsurf_waiters)
 			stat_semsurf_waiters--;
-		/* From the slot, NOT from *kc: see the struct comment. */
+		/* Use the cached callback, never reread *kc. */
 		func = sl->func;
 		arg = sl->arg;
 		if (func)
@@ -5857,8 +4990,7 @@ static void event_fire_callback(const struct nvrm_req *r)
 		return;
 	}
 
-	/* hEvent 0: a semsurf waiter, which has no event object -- its slot
-	 * is keyed by the callback pointer, not by a handle. */
+	/* hEvent=0 identifies a semaphore waiter keyed by callback pointer. */
 	if (ev_hevent(r) == 0) {
 		semsurf_fire(r);
 		return;
@@ -5872,11 +5004,9 @@ static void event_fire_callback(const struct nvrm_req *r)
 		if (!sl->handle || sl->handle != ev_hevent(r) ||
 		    sl->client != ev_hclient(r) || sl->proc != r->guest_proc)
 			continue;
-		/* Cross-check: the 8 bytes the host saved BEFORE overwriting
-		 * NV0005.data must be the pointer this slot was filled from. A
-		 * mismatch means the handle was reused between two
-		 * registrations this module did not see in order -- calling
-		 * the old pointer would be a jump into freed memory. */
+		/* Require the returned callback pointer to match the slot.
+		 * Handle reuse may otherwise deliver a stale pointer to
+		 * freed memory. */
 		if (sl->kc != ev_kc(r)) {
 			spin_unlock_irqrestore(&event_cb_lock, flags);
 			stat_events_dropped++;
@@ -5888,17 +5018,11 @@ static void event_fire_callback(const struct nvrm_req *r)
 				(unsigned long long)sl->kc);
 			return;
 		}
-		/* Denylist. These NVKMS handlers dereference their second
-		 * argument (pEventDataVoid: nvkms-rm.c:1696-1720, 1774-1785),
-		 * which RM fills natively through osEventNotificationWithInfo
-		 * (os.c:1634-1637). On the substituted path there IS no data
-		 * -- the OS-event post carries info32=0 and NV_ESC_RM_GET_
-		 * EVENT_DATA hands back no payload (osapi.c:504-535) -- so
-		 * arg2 would be NULL and the handler would fault. The
-		 * host RM does fire DP_IRQ: the RTX 2070's display belongs
-		 * to the host desktop. NV0005_NOTIFY_INDEX_INDEX is 15:0
-		 * (cl0005.h:58); RM strips the flags the same way
-		 * (event_notification.c:849). */
+		/* Reject notifiers whose handlers dereference event
+		 * payload: substituted OS events carry no payload, so arg2
+		 * is NULL (nvkms-rm.c:1696-1720,1774-1785;
+		 * osapi.c:504-535). Host DP_IRQ events can occur. Mask
+		 * notifyIndex to bits 15:0 as RM does. */
 		switch (sl->notify_index & NVRM_NOTIFY_INDEX_MASK) {
 		case NVRM_NOTIFIER_DP_IRQ:
 		case NVRM_NOTIFIER_LPWR_DIFR_PREFETCH:
@@ -5910,17 +5034,12 @@ static void event_fire_callback(const struct nvrm_req *r)
 		default:
 			break;
 		}
-		/* NVOS10_EVENT_KERNEL_CALLBACK_EX { func@0; void *arg@8 }
-		 * (nvos.h:409-416), guest kernel memory owned by NVKMS -- read
-		 * like call_in does on the kern path. Called UNDER the lock,
-		 * exactly like vblank_tick: RM itself invokes these "within
-		 * resman's locks" (nvkms-rm.c:4134-4137), and no NVKMS
-		 * callback calls back into the kapi synchronously (that would
-		 * be sleeping under a spinlock): ChannelEventHandler goes to
-		 * cb->proc (nvidia-drm fence, its own spinlock); NonStall,
-		 * Completion and Hotplug allocate a timer
-		 * (nvkms_alloc_timer_with_ref_ptr, GFP_ATOMIC). Signature =
-		 * Callback5ArgVoidReturn (nvos.h:398), call form os.c:1538. */
+		/* Read NVOS10_EVENT_KERNEL_CALLBACK_EX from guest kernel
+		 * memory and call under event_cb_lock using
+		 * Callback5ArgVoidReturn (nvos.h:398-416; os.c:1538).
+		 * Checked NVKMS handlers queue timers with GFP_ATOMIC or
+		 * take their own fence spinlock; they must not sleep or
+		 * reenter kapi. */
 		func = rd64((const u8 *)(uintptr_t)sl->kc,
 			    NVRM_NVOS10_CB_EX_FUNC_OFF);
 		arg = rd64((const u8 *)(uintptr_t)sl->kc,
@@ -5942,9 +5061,8 @@ static void event_fire_callback(const struct nvrm_req *r)
 		ev_hclient(r), ev_hevent(r), r->guest_proc);
 }
 
-/* One firing of an OS event: make the fd readable. Process context. The
- * XArray lock is what makes the ctx pointer safe to touch: nvrm_node_release
- * erases under the same lock BEFORE it frees. */
+/* Wake a userspace file under the XArray lock, which also protects context
+ * removal. */
 static void event_fire_wakeup(struct nvrm_dev *dev, const struct nvrm_req *r)
 {
 	struct nvrm_ctx *ctx = NULL;
@@ -5961,8 +5079,7 @@ static void event_fire_wakeup(struct nvrm_dev *dev, const struct nvrm_req *r)
 		xa_unlock(&dev->ctx_xa);
 	}
 	if (!ctx) {
-		/* The fd behind the token is gone (closed between firing and
-		 * delivery) -- a wake with nobody to wake. */
+		/* The file closed before this firing was delivered. */
 		stat_events_dropped++;
 		stat_events_drop_noslot++;
 	}
@@ -6015,9 +5132,10 @@ static void kapi_session_close(void)
 	mutex_lock(&kapi_lock);
 	ctx = kapi_ctx;
 	kapi_ctx = NULL;
-	mutex_unlock(&kapi_lock);
-	if (!ctx)
+	if (!ctx) {
+		mutex_unlock(&kapi_lock);
 		return;
+	}
 
 	/* GPU sessions first: they sit on top of the control one and share its
 	 * process entry. */
@@ -6035,19 +5153,12 @@ static void kapi_session_close(void)
 	 * object. */
 	kapi_client = 0;
 	kapi_ctx_close(ctx);
+	mutex_unlock(&kapi_lock);
 }
 
-/*
- * One op, forwarded.
- *
- * `nr` and `size` come from nvrm_wire.h, which gets them from the vendor
- * headers through bindgen -- there is no _IOC encoding on this path to read
- * a size out of, and a size typed in by hand is the one that goes stale.
- *
- * `fd_tok` names WHICH session the fd field of this escape refers to.
- * NVRM_NONE_U64 means "this session", which is right for every escape but
- * one -- see kapi_map_memory, where each mapping needs a node of its own.
- */
+/* Forward an op using generated nr/size; kernel calls have no _IOC size
+ * encoding. fd_tok selects the mapping node, or NVRM_NONE_U64 for this
+ * context's own token. */
 static long kapi_forward_on(struct nvrm_ctx *target, u32 nr, void *params,
 			    u32 size, u64 fd_tok)
 {
@@ -6079,11 +5190,9 @@ static long kapi_forward_on(struct nvrm_ctx *target, u32 nr, void *params,
 	c.fd_proc = NVRM_NONE_U32;
 	c.aux_fd_off = NVRM_NONE_U32;
 	c.aux_fd_token = NVRM_NONE_U64;
-	/* The kernel path is the REASON this field exists -- NVKMS imports an
-	 * object from an fd that belongs to the calling userspace process, not
-	 * to this session. Forgetting it here would leave the memset's 0, which
-	 * is a live session id, and the host would answer the same EBADF as
-	 * before the change. */
+	/* An auxiliary FD can belong to another userspace session.
+	 * Initialize its owner sentinel explicitly; zero is a live session
+	 * ID. */
 	c.aux_fd_proc = NVRM_NONE_U32;
 	c.aux_fd_len = 8;
 	c.kern = true;
@@ -6096,24 +5205,12 @@ static long kapi_forward_on(struct nvrm_ctx *target, u32 nr, void *params,
 		ret = -EMSGSIZE;
 		goto out;
 	}
-	/* An fd field names WHICH SESSION a mapping belongs to -- the ioctl path
-	 * turns the number into a token via the identity of the open file
-	 * (nvrm_token_of_fd). A kernel caller has no fd table, but it does have
-	 * exactly one session, so the answer is not "resolve the number" but
-	 * "it is us": the token is taken from this context directly and the
-	 * number is never read.
-	 *
-	 * That distinction is the whole safety argument. Resolving a number
-	 * against `current` from a kthread would be the silent mix-up the
-	 * refusal below was built against; naming our own session cannot be
-	 * wrong, because there is no other one.
-	 *
-	 * Measured: NV_ESC_RM_MAP_MEMORY (0x4e) is the first escape on this path
-	 * that carries one, and without this it fails with -EOPNOTSUPP while
-	 * nvidia-drm reports "Failed to import semaphore surface".
-	 */
+	/* Escape-level FD fields use this kernel context's token, or the
+	 * explicit mapping-node token. Do not resolve an integer through
+	 * current: a kthread has no relevant user FD table. Control-level
+	 * imported FDs are handled separately in gather_embedded. */
 	if (c.desc && c.desc->fd_off != NVRM_NONE_U32) {
-		if (c.desc->fd_off + 4 <= c.size) {
+		if (nvrm_range_valid(c.desc->fd_off, 4, c.size)) {
 			c.fd_off = c.desc->fd_off;
 			memcpy(&c.fd_orig, (u8 *)params + c.desc->fd_off, 4);
 			c.fd_token = fd_tok != NVRM_NONE_U64 ? fd_tok :
@@ -6141,17 +5238,12 @@ static long kapi_forward(u32 nr, void *params, u32 size)
 	return kapi_forward_on(NULL, nr, params, size, NVRM_NONE_U64);
 }
 
-/* ---- the members of nvidia_modeset_rm_ops_t: seven function pointers,
- *      plus the version string and the system_info word ---- */
+/* nvidia_modeset_rm_ops_t contains seven functions, version_string and
+ * system_info. */
 
-/*
- * alloc_stack/free_stack: on the host these hand out an alternate stack for
- * RM's deep call chains. There is no RM in this kernel to give a stack to --
- * the work happens on the other side of the virtqueue. NVIDIA's own header
- * settles what to do here: "on architectures where an alternate stack is not
- * used, alloc_stack() will set sp=NULL even when it returns 0 (success).
- * I.e., check the return value, not the sp value."
- */
+/* No alternate RM stack is needed: execution runs on the host. NVIDIA's API
+ * permits alloc_stack success with sp=NULL on architectures without
+ * alternate stacks. */
 static int kapi_alloc_stack(void **sp)
 {
 	*sp = NULL;
@@ -6162,18 +5254,9 @@ static void kapi_free_stack(void *sp)
 {
 }
 
-/*
- * A root client of our own.
- *
- * enumerate_gpus has to ASK RM, and asking needs a client. NVKMS has one --
- * it allocated it through us at load -- but reading its handle out of
- * traffic we are only forwarding would make this module's own state depend
- * on somebody else's. So: our own NV01_ROOT, allocated once, freed with the
- * session.
- *
- * hObjectNew goes in as NV01_NULL_OBJECT and RM assigns it, exactly as
- * nvKmsModuleLoad() does it (nvkms.c:6371).
- */
+/* Use an independent root client for GPU enumeration instead of borrowing
+ * NVKMS's handle. hObjectNew=NV01_NULL_OBJECT requests an RM-assigned
+ * handle (nvkms.c:6371); session teardown frees it. */
 static int kapi_client_ensure(void)
 {
 	u8 p[NVRM_KSIZE_ALLOC];
@@ -6235,34 +5318,14 @@ static int kapi_control(u32 cmd, void *params, u32 size)
 	return 0;
 }
 
-/*
- * enumerate_gpus -- the list nvidia-drm builds its DRM devices from.
- *
- * Every value here comes from RM. A fabricated gpu_id would be worse than
- * reporting none: NVKMS compares it against ids RM hands it later, and the
- * disagreement would surface far from the lie.
- *
- * `os_device_ptr` is the one field RM cannot answer, because it is not a
- * property of the GPU but of how THIS kernel reaches it. nvidia-drm passes
- * it to drm_dev_alloc() as the parent device (nvidia-drm-drv.c:2025). On the
- * host that is the PCI device; in the guest there is no PCI device for the
- * card, and inventing one would be the same mistake in a different field.
- * What genuinely mediates the GPU here is the virtio device -- so that is
- * what the DRM node hangs off. bus_is_pci then stays false, which only
- * gates drm_device.pdev (nvidia-drm-drv.c:2066), a field 6.8 no longer has.
- *
- * With `display` on it is the PCI PARENT instead, and the reason is DMA,
- * not naming. A PRIME import maps the exporter's scatter list FOR THE
- * IMPORTING DEVICE (drm_gem_map_dma_buf -> dma_map_sgtable), and a
- * struct virtio_device has no dma_mask and no dma ops -- only its PCI parent
- * does. Measured 2026-08-08 as
- *   WARNING at kernel/dma/mapping.c:194 __dma_map_sg_attrs
- *   virtgpu_gem_map_dma_buf <- nv_drm_gem_prime_import
- * on an import that then reported success with nothing behind it.
- */
-static u32 kapi_enumerate_gpus(struct nvrm_gpu_info *gpu_info)
+/* Enumerate GPUs from RM. os_device_ptr names the guest device that
+ * mediates access; it is not supplied by host RM.
+ * For display, use the virtio PCI parent so PRIME dma-buf imports have
+ * dma_mask and DMA ops. struct virtio_device lacks them; using it caused
+ * dma_map_sgtable warnings (2026-08-08). */
+static u32 kapi_enumerate_gpus_on(struct nvrm_dev *dev,
+				  struct nvrm_gpu_info *gpu_info)
 {
-	struct nvrm_dev *dev = nvrm;
 	u8 *probed;
 	u32 count = 0;
 	u32 i;
@@ -6272,8 +5335,7 @@ static u32 kapi_enumerate_gpus(struct nvrm_gpu_info *gpu_info)
 	if (kapi_client_ensure())
 		return 0;
 
-	/* 384 bytes of three parallel arrays -- too big for the stack, and it
-	 * has to be a single allocation because RM writes all of it. */
+	/* Keep RM's three parallel arrays in one 384-byte heap allocation. */
 	probed = kvzalloc(NVRM_SIZE_PROBED_IDS, GFP_KERNEL);
 	if (!probed)
 		return 0;
@@ -6301,12 +5363,9 @@ static u32 kapi_enumerate_gpus(struct nvrm_gpu_info *gpu_info)
 		}
 
 		memset(&gpu_info[count], 0, sizeof(gpu_info[count]));
-		/* NOT mediated again here: kapi_forward() builds a struct call
-		 * and goes through nvrm_call_run(), so this id has ALREADY been
-		 * through bdf_rewrite_reply() -- and the GET_PCI_INFO request
-		 * below has its guest id turned back into the host's by
-		 * bdf_rewrite_request(). Mediating twice was measured as the
-		 * false "second GPU" above. */
+		/* kapi_forward already rewrote this reply. GET_PCI_INFO
+		 * below converts the guest ID back on submission; do not
+		 * mediate either ID twice. */
 		gpu_info[count].gpu_id = id;
 		gpu_info[count].pci_info.domain =
 			rd32(pci, NVRM_PCI_INFO_DOMAIN_OFF);
@@ -6351,13 +5410,20 @@ static u32 kapi_enumerate_gpus(struct nvrm_gpu_info *gpu_info)
 	return count;
 }
 
-/*
- * open_gpu/close_gpu: raise and lower a reference on one GPU.
+static u32 kapi_enumerate_gpus(struct nvrm_gpu_info *gpu_info)
+{
+	struct nvrm_dev *dev = nvrm_dev_get();
+	u32 ret = kapi_enumerate_gpus_on(dev, gpu_info);
+
+	nvrm_dev_put(dev);
+	return ret;
+}
+
+/* open_gpu/close_gpu: raise and lower a reference on one GPU.
  *
  * `reset_aware` is ignored. On the host it tells RM the caller survives a
  * GPU reset; there is no reset path across this virtqueue, so honouring it
- * would be a promise this module cannot keep.
- */
+ * would be a promise this module cannot keep. */
 static struct kapi_gpu *kapi_gpu_find(u32 gpu_id)
 {
 	u32 i;
@@ -6387,7 +5453,7 @@ static int kapi_open_gpu(u32 gpu_id, void *sp, u8 reset_aware)
 		g->refs++;
 		goto out;
 	}
-	ctx = kapi_ctx_open(nvrm, NVRM_DEV_GPU, g->index, NULL);
+	ctx = kapi_ctx_open_current(NVRM_DEV_GPU, g->index, NULL);
 	if (IS_ERR(ctx)) {
 		ret = PTR_ERR(ctx);
 		pr_warn("virtio_nvrm: open_gpu(%#x): node %u would not open: %d\n",
@@ -6416,8 +5482,9 @@ static void kapi_close_gpu(u32 gpu_id, void *sp, u8 reset_aware)
 	mutex_unlock(&kapi_lock);
 }
 
-/* set_callbacks: store them, with NVIDIA's own one-in-one-out rule
- * (nv-modeset-interface.c:45). Nothing calls them -- see nvrm_kapi.h. */
+/* Store callbacks with NVIDIA's single-owner rule
+ * (nv-modeset-interface.c:45). They currently have no caller; see
+ * nvrm_kapi.h. */
 static int kapi_set_callbacks(const struct nvrm_modeset_callbacks *cb)
 {
 	if ((kapi_callbacks && cb) || (!kapi_callbacks && !cb))
@@ -6426,53 +5493,14 @@ static int kapi_set_callbacks(const struct nvrm_modeset_callbacks *cb)
 	return 0;
 }
 
-/*
- * NV04_MAP_MEMORY / NV04_UNMAP_MEMORY on the KERNEL path.
- *
- * A process maps in two steps: ioctl(RM_MAP_MEMORY) registers the mapping
- * with the host session, then mmap() on the same fd asks MAP_PREPARE to place
- * it at a chosen offset in the host-visible window. NVKMS has neither an fd
- * nor an mmap -- it calls op() once and reads an address out of the block.
- *
- * So this does both halves in one go. WHICH address it writes back depends
- * on NVOS33_FLAGS_MEM_SPACE, bit 14 of the flags word, and that bit is a
- * complete answer -- not a heuristic:
- *
- *   _USER   (1): the caller will hand the address to ioremap_wc, so it wants
- *                a GUEST-PHYSICAL one. `dev->win_base + off` is exactly
- *                right, because ioremap_wc of a window page reaches the host
- *                mapping behind it.
- *   _CLIENT (0): the caller DEREFERENCES the address itself. It needs a
- *                kernel VA, so this module ioremaps the window pages and
- *                hands out the result.
- *
- * The whole open-gpu-kernel-modules tree sets bit 14 in exactly one place,
- * and it is a switch on the caller's intent (nvkms-kapi.c:2158-2173):
- * NVKMS_KAPI_MAPPING_TYPE_USER sets it, _KERNEL leaves flags at 0. Who takes
- * which branch is unambiguous:
- *
- *   _USER    nvidia-drm-gem-nvkms-memory.c:212 -> ioremap_wc at :227
- *   _KERNEL  nvidia-drm-fence.c:270  (the flip semaphore surface),
- *            read back as *(pLinearAddress + n) at :185
- *   _KERNEL  nvidia-drm-crtc.c:456
- *   flags 0  nvkms-lut.c:171 -> nvkms-rm.c:3674, the 16896-byte colour
- *            lookup table, written as dst[dword] = ...
- *   flags 0  nvkms-surface.c:83 nvEvoCpuMapSurface, which is where a NISO
- *            surface gets the cpuAddress the displayless flip worker polls
- *            (nvkms-displayless.c:265). Without it NVKMS refuses the flip
- *            outright: "Semaphore surface without CPU mapping!"
- *
- * An earlier version of this comment claimed the opposite -- that NVKMS
- * asks with _MEM_SPACE_USER even from the kernel -- and generalised it from
- * nvkms-kapi.c to every caller. It generalised from the one branch of that
- * switch which is NOT the common case. The cost was the refusal below, and
- * with it the whole displayless path.
- *
- * This is the op whose earlier STUB caused a kernel WARNING: it left the
- * block untouched, nvidia-drm read the zeroed status as NV_OK and called
- * ioremap_wc on an uninitialised address. Every failure path below therefore
- * writes a status, and the caller never sees an address it did not get.
- */
+/* Kernel MAP_MEMORY performs both RM_MAP_MEMORY and MAP_PREPARE because
+ * NVKMS expects an address from one op.
+ * NVOS33 MEM_SPACE selects the returned address: USER receives the SHMEM
+ * guest-physical address for its own ioremap; CLIENT receives a kernel VA
+ * from our ioremap (nvkms-kapi.c:2158-2173). CLIENT is used by semaphore,
+ * LUT and displayless flip surfaces.
+ * Every failure must set status: op returns void, and a zero status would
+ * make callers use an invalid address. */
 struct kapi_map {
 	struct list_head list;
 	/* What was handed out, and therefore what UNMAP_MEMORY names again:
@@ -6483,31 +5511,16 @@ struct kapi_map {
 	/* Non-NULL exactly when this module ioremapped the window pages. The
 	 * mapping owns it and iounmaps it in kapi_unmap_memory. */
 	void __iomem *kva;
-	/* What RM answered on the HOST, before this module replaced it.
-	 *
-	 * RM identifies a mapping by the address it handed out, so
-	 * UNMAP_MEMORY has to name that one and not ours. The process path
-	 * gets this for free -- it forwards RM's answer to the process
-	 * untouched, and libcuda gives the same number back. The kernel path
-	 * overwrites the field, so it has to remember what it overwrote or
-	 * every kernel mapping leaks one on the host. */
+	/* Save RM's original host address for UNMAP_MEMORY. The kernel
+	 * caller receives a guest address instead, so it cannot supply the
+	 * host mapping identity later. */
 	u64 host_linear;
 	u64 off;
 	size_t len; /* window bytes reserved: page-rounded */
-	/* The node this mapping lives on, and it is ITS OWN.
-	 *
-	 * RM keeps at most ONE mmap context per open file, for the whole
-	 * life of that file: nv_add_mapping_context_to_file answers a second
-	 * one with NV_ERR_STATE_IN_USE (nv-usermap.c:104-120), and nothing
-	 * ever clears the entry -- nvidia_mmap only reads it, and the list is
-	 * emptied at close (nv.c:1079). A process does not notice because
-	 * libcuda opens a fresh /dev/nvidia* for every mapping; the kernel
-	 * path has no fd of its own and used to hand RM the session's, so the
-	 * FIRST kernel mapping worked and the SECOND was refused. Measured
-	 * 2026-08-08: NVKMS mapped at X start, then nvidia-drm's fence
-	 * context got status 0x63 and reported "Failed to import semaphore
-	 * surface".
-	 */
+	/* Each mapping owns a fresh node: RM permits one mmap context per
+	 * open file and removes it only on close (nv-usermap.c:104-120,
+	 * nv.c:1079). Reusing a session's node fails the second mapping
+	 * with NV_ERR_STATE_IN_USE. */
 	struct nvrm_ctx *ctx;
 };
 static LIST_HEAD(kapi_map_list);
@@ -6531,18 +5544,9 @@ static int kapi_session_ids(u32 *dev_tag, u64 *token, u32 *proc_id)
 	return ret;
 }
 
-/* A node of this mapping's own. See the `ctx` field of struct kapi_map for
- * why one per mapping and not one per session.
- *
- * A GPU node, not the control node, and registered against the session's
- * control fd -- the first of the three traps map_doorbell already records
- * for the process path (crates/nvrm-client/src/mem.rs): what gets mapped
- * hangs off the SUBDEVICE, and RM answers a control fd with
- * NV_ERR_INVALID_ARGUMENT. Measured 2026-08-08 as
- *   kernel op 0x21 -> status 0x1f
- * on NVKMS's usermode page, followed by
- *   nvidia-modeset: ERROR: GPU:0: Unable to allocate push buffer controls.
- */
+/* Open a dedicated GPU node and register it against the session's control
+ * FD. Subdevice mappings require a GPU node; the sysmem fallback in
+ * kapi_map_memory handles control-node mappings. */
 static void kapi_map_ctx_close(struct nvrm_ctx *ctx);
 
 static struct nvrm_ctx *kapi_map_ctx_open(bool ctl)
@@ -6560,15 +5564,14 @@ static struct nvrm_ctx *kapi_map_ctx_open(bool ctl)
 		return sess;
 	}
 	sess_token = sess->token;
-	ctx = ctl ? kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0, NULL) :
-		    kapi_ctx_open(nvrm, NVRM_DEV_GPU, index, NULL);
+	ctx = ctl ? kapi_ctx_open_current(NVRM_DEV_CTL, 0, NULL) :
+		    kapi_ctx_open_current(NVRM_DEV_GPU, index, NULL);
 	mutex_unlock(&kapi_lock);
 	if (IS_ERR(ctx))
 		return ctx;
 
-	/* Bind it to the client's control node. The fd NUMBER in the block is
-	 * never read -- the token beside it is what names the control session,
-	 * exactly as for the fd field of a mapping. */
+	/* Bind to the control node using its token. The numeric FD field is
+	 * unused. */
 	memset(reg, 0, sizeof(reg));
 	ret = kapi_forward_on(ctx, NVRM_KESC_REGISTER_FD, reg,
 			      NVRM_KSIZE_REGISTER_FD, sess_token);
@@ -6594,9 +5597,8 @@ static void kapi_map_ctx_close(struct nvrm_ctx *ctx)
 	mutex_unlock(&kapi_lock);
 }
 
-static long kapi_map_memory(u8 *params)
+static long kapi_map_memory_on(struct nvrm_dev *dev, u8 *params)
 {
-	struct nvrm_dev *dev = nvrm;
 	struct nvrm_ctx *mctx;
 	struct kapi_map *km;
 	u32 proc_id, flags;
@@ -6623,66 +5625,24 @@ static long kapi_map_memory(u8 *params)
 	flags = rd32(params, NVRM_NVOS33_FLAGS_OFF);
 	want_kva = !(flags & NVRM_NVOS33_FLAGS_MEM_SPACE_USER);
 
-	/*
-	 * And the bit does not travel. RM lets only KERNEL-privilege
-	 * clients ask for _MEM_SPACE_USER at all:
-	 *
-	 *   if (privLevel < RS_PRIV_LEVEL_KERNEL) {
-	 *       if (MEM_SPACE == USER) status = NV_ERR_INVALID_FLAGS;
-	 *       bKernel = NV_FALSE;
-	 *   }                       -- rmapiValidateKernelMapping, mapping_cpu.c:862
-	 *
-	 * In a native driver NVKMS IS the kernel and passes that test. Here
-	 * the escape is issued by vhost-user-nvrm, a userspace process, whose
-	 * RM client has user privilege -- so the same call comes back 0x29
-	 * NV_ERR_INVALID_FLAGS. Measured 2026-08-13 on the 1920x1080x4 fbdev
-	 * framebuffer: "Failed to map NvKmsKapiMemory", then "fbdev: Failed to
-	 * setup generic emulation (ret=-12)".
-	 *
-	 * Nothing is lost by clearing it. Read that branch again: for a
-	 * user-privilege client bKernel is NV_FALSE either way, so the host
-	 * makes a USER mapping whichever value it sends -- which is exactly
-	 * what the bit was asking for. The distinction the bit carries is
-	 * about what the GUEST hands back to its caller, and that decision has
-	 * already been taken, one line up, from the caller's own block.
-	 */
+	/* Preserve MEM_SPACE_USER only for the guest address decision.
+	 * Clear it before forwarding: rmapiValidateKernelMapping rejects it
+	 * for user-privilege clients, including the backend
+	 * (mapping_cpu.c:862). RM creates a userspace mapping for that
+	 * client either way. */
 	if (!want_kva)
 		wr32(params, NVRM_NVOS33_FLAGS_OFF,
 		     flags & ~NVRM_NVOS33_FLAGS_MEM_SPACE_USER);
 
-	/*
-	 * 0. + 1. The node this mapping lives on, and the mapping itself.
-	 *
-	 * WHICH kind of node depends on where the memory is, and only RM
-	 * knows. RmCreateMmapContextLocked (osapi.c) decides: if the address
-	 * is not in the device's BARs it treats the mapping as SYSTEM memory
-	 * and associates it with the CONTROL device
-	 * (`pNv = nv_get_ctl_state()`), otherwise with the GPU. That choice
-	 * then has to match the fd handed alongside, because
-	 * nv_add_mapping_context_to_file opens it as
-	 * `nv_get_file_private(fd, NV_IS_CTL_DEVICE(nv), ...)` and answers a
-	 * mismatch with NULL -> NV_ERR_INVALID_ARGUMENT (nv-usermap.c:47-49).
-	 *
-	 * The guest cannot tell in advance: the class of the allocation is not
-	 * enough (an OS descriptor is sysmem too) and handles are reused. So
-	 * ASK, and let the refusal say which one it wanted. Measured
-	 * 2026-08-13: the NVKMS KAPI notifier surface
-	 * (nvkms-kapi-notifiers.c:104, NV01_MEMORY_SYSTEM mapped on the
-	 * subdevice) is the first mapping on this path that is sysmem, and it
-	 * failed with exactly 0x1f while every vidmem mapping before it
-	 * succeeded on a GPU node.
-	 *
-	 * Retrying is safe, and the escape says so itself: when
-	 * rm_create_mmap_context fails, escape.c:600-616 calls
-	 * Nv04UnmapMemoryWithSecInfo on the mapping it had just made. There is
-	 * no half-mapping left behind to trip over.
-	 *
-	 * The escape takes nv_ioctl_nvos33_parameters_with_fd -- the NVOS33
-	 * block plus the fd of the node the mapping belongs to -- while op()
-	 * hands over the bare NVOS33. So the block is widened here and narrowed
-	 * again below. The number in the fd field is never read; what counts is
-	 * the TOKEN named beside it, and that is this mapping's own node.
-	 */
+	/* Choose the mapping FD by RM's response: BAR-backed memory needs a
+	 * GPU node; system memory needs the control node
+	 * (RmCreateMmapContextLocked). Allocation class alone cannot
+	 * determine this.
+	 * Retry on NV_ERR_INVALID_ARGUMENT. RM rolls back a failed
+	 * mmap-context creation (escape.c:600-616), so no partial mapping
+	 * remains.
+	 * Widen bare NVOS33 to its escape form with an FD field. The
+	 * numeric FD is unused; fd_tok identifies this mapping's node. */
 	{
 		u8 saved[NVRM_KSIZE_MAP_MEMORY];
 		bool ctl = false;
@@ -6742,21 +5702,9 @@ static long kapi_map_memory(u8 *params)
 		wr32(params, NVRM_NVOS33_STATUS_OFF, NVRM_NV_ERR_NOT_SUPPORTED);
 		return 0;
 	}
-	/*
-	 * The window works in whole pages; a mapping need not. Rounding the
-	 * RESERVATION up is safe either way -- the extra bytes are ours and
-	 * nobody is told about them.
-	 *
-	 * Rounding was tried on 2026-08-08 and the guest oopsed:
-	 *
-	 *   BUG: unable to handle page fault for address: 00003fff80024000
-	 *   RIP: nvHsAllocDevice+0x1b6 [nvidia_modeset]
-	 *
-	 * That was not the rounding. It was handing a _CLIENT caller the
-	 * guest-physical address and watching it dereference it. The 16896-byte
-	 * colour lookup table is exactly such a caller, and it now takes the
-	 * ioremap branch below.
-	 */
+	/* Reserve whole SHMEM pages even for smaller RM mappings. The
+	 * caller keeps its original length; address translation below still
+	 * follows MEM_SPACE. */
 	win_len = ALIGN(len, PAGE_SIZE);
 	if (win_len < len) { /* only reachable on a bogus huge length */
 		pr_warn("virtio_nvrm: kernel MAP_MEMORY with unusable length %llu\n",
@@ -6809,21 +5757,10 @@ static long kapi_map_memory(u8 *params)
 	km->ctx = mctx;
 	km->host_linear = rd64(params, NVRM_NVOS33_LINEAR_OFF);
 
-	/* 3. The address the caller reads.
-	 *
-	 * ioremap and NOT memremap: the window is a virtio shared memory
-	 * region -- host memory behind a BAR, not guest RAM -- and
-	 * memremap(MEMREMAP_WB) wants a page-backed range.
-	 *
-	 * And the cacheability is the one the HOST just reported in
-	 * `cache`, not a guess. The process path decides the same way
-	 * (nvrm_node_mmap: 2 -> pgprot_noncached, otherwise cached), and the
-	 * two halves must not disagree: x86 keeps one memory type per
-	 * physical page, so a window page mapped uncached for a process and
-	 * write-combining for the kernel is a PAT conflict, not a preference.
-	 * The kapi path always opens a GPU node, so this is uncached today --
-	 * writing it out anyway means the day cache_for() learns to tell a
-	 * register from a framebuffer, this end already follows. */
+	/* Use ioremap for the SHMEM BAR; it is not page-backed guest RAM
+	 * for memremap. Follow the host's reported cache type, matching the
+	 * userspace mapping. Different memory types for one physical page
+	 * create x86 PAT conflicts. */
 	if (want_kva) {
 		km->kva = (cache == 2) ?
 				  ioremap(dev->win_base + (u64)off, km->len) :
@@ -6857,9 +5794,17 @@ static long kapi_map_memory(u8 *params)
 	return 0;
 }
 
-static long kapi_unmap_memory(u8 *params)
+static long kapi_map_memory(u8 *params)
 {
-	struct nvrm_dev *dev = nvrm;
+	struct nvrm_dev *dev = nvrm_dev_get();
+	long ret = kapi_map_memory_on(dev, params);
+
+	nvrm_dev_put(dev);
+	return ret;
+}
+
+static long kapi_unmap_memory_on(struct nvrm_dev *dev, u8 *params)
+{
 	struct kapi_map *km, *tmp, *found = NULL;
 	u32 dev_tag, proc_id;
 	u64 token, linear;
@@ -6912,6 +5857,15 @@ static long kapi_unmap_memory(u8 *params)
 	return ret;
 }
 
+static long kapi_unmap_memory(u8 *params)
+{
+	struct nvrm_dev *dev = nvrm_dev_get();
+	long ret = kapi_unmap_memory_on(dev, params);
+
+	nvrm_dev_put(dev);
+	return ret;
+}
+
 /* Every window slot the kernel path still holds, given back. Called from the
  * session teardown, because NVKMS does not always unmap what it mapped. */
 static void kapi_maps_drop(void)
@@ -6924,11 +5878,8 @@ static void kapi_maps_drop(void)
 
 	have_ids = kapi_session_ids(&dev_tag, &token, &proc_id) == 0;
 
-	/* Taken off the list under its lock, given up outside it: closing a
-	 * mapping's node needs kapi_lock, and taking that one INSIDE
-	 * kapi_map_lock would be the only place in this module where the two
-	 * nest -- an order nothing else establishes and every future caller
-	 * would have to know about. */
+	/* Remove under kapi_map_lock, then close outside it. Closing needs
+	 * kapi_lock; avoid nesting those locks. */
 	mutex_lock(&kapi_map_lock);
 	list_splice_init(&kapi_map_list, &doomed);
 	mutex_unlock(&kapi_map_lock);
@@ -6939,43 +5890,24 @@ static void kapi_maps_drop(void)
 		 * it there is no host mapping behind those window pages. */
 		if (km->kva)
 			iounmap(km->kva);
-		if (nvrm && have_ids)
-			nvrm_simple(nvrm, NVRM_KIND_MAP_RELEASE, 0, 0, 0,
-				    km->off, km->len, NULL, false, proc_id);
-		if (nvrm)
-			win_free(nvrm, km->off, km->len);
+		if (have_ids)
+			nvrm_simple(km->ctx->dev, NVRM_KIND_MAP_RELEASE, 0, 0,
+				    0, km->off, km->len, NULL, false, proc_id);
+		win_free(km->ctx->dev, km->off, km->len);
 		kapi_map_ctx_close(km->ctx);
 		kfree(km);
 	}
 }
 
-/* ===========================================================================
- * The VRAM balloon
- * ===========================================================================
- *
- * See display_reserve_mib for the why. Three parts: the balloon (sessions,
- * client, device and chunks of its own, filled by a work item), the give-way
- * inside kapi_op's ALLOC, and the gate (balloon_gate, beside nvrm_call_run)
- * that keeps a process from taking the room between the free and the retry.
- *
- * WHY GIVING BACK MAKES ROOM, and when it would not. In Leandro the refusal
- * comes from the backend's LEDGER, which counts asked bytes against the VM's
- * cap (vram.rs charge), not from RM placement: the card had GiBs free at
- * every refusal measured. A freed chunk of S bytes therefore lets a request
- * of S bytes through, and the ledger has released it before the FREE's
- * answer comes back (session.rs execute: free_object before the reply,
- * nvrm.rs process_queue: one request at a time). A chunk also carries the
- * SCANOUT attributes, so on the card it leaves a contiguous hole the refused
- * buffer fits (the host's PMA places by CONTIGUOUS, not by ISO,
- * video_mem.c:190-345). If the CARD itself were full -- more guest FB
- * promised than it has, or the host desktop growing into it -- RM would
- * refuse with the same status, another VM or the host could take the hole
- * before the retry, or no contiguous hole might be left at all. The guest
- * cannot fix that; the retry then fails like the first try, and says so.
- *
- * Never FIXED_ADDRESS into the freed hole (video_mem.c:236-243 would allow
- * it): the guest would pick host addresses.
- */
+/* The VRAM balloon owns separate sessions and chunks. balloon_gate prevents
+ * process allocations from consuming quota between freeing a chunk and
+ * retrying NVKMS.
+ * The backend ledger releases bytes before replying to FREE. SCANOUT chunks
+ * also leave contiguous VRAM holes, but physical-card pressure or
+ * allocations by other VMs/host may still make the retry fail. No cross-VM
+ * reservation is implied.
+ * Never use FIXED_ADDRESS for the retry: that would let the guest select
+ * host physical VRAM addresses. */
 
 /* Plain arithmetic, shared with test/vramcheck.c. */
 #include "nvrm_vram.c"
@@ -6989,8 +5921,8 @@ static void kapi_maps_drop(void)
 static void balloon_worker(struct work_struct *work);
 static DECLARE_DELAYED_WORK(balloon_work, balloon_worker);
 
-/* Everything in `balloon`. Taken before kapi_lock -- every call below goes
- * through kapi_forward_on -- and never inside it. */
+/* Protect balloon state. Acquire before kapi_lock; never acquire from
+ * inside kapi_lock. */
 static DEFINE_MUTEX(balloon_lock);
 
 static struct {
@@ -7085,18 +6017,11 @@ static long balloon_alloc(u8 *p)
 	return ret ? ret : rd32(p, NVRM_NVOS64_STATUS_OFF);
 }
 
-/*
- * The balloon's sessions, client and device. Caller holds balloon_lock.
- *
- * Its OWN identity, not NVKMS's: the backend keeps one set of books per
- * guest process, and in NVKMS's the balloon would read as display memory
- * and share its handle space. A GPU node beside the control node, because RM
- * lets a user client allocate a device only while the calling process holds
- * that GPU open (device.c:141-149, nv_is_gpu_accessible) -- the backend is
- * that process, and at probe it may hold none. NVKMS does the same through
- * open_gpu. No subdevice: memory hangs off the device, as NVKMS's scanout
- * buffers do (nvkms-kapi.c:890).
- */
+/* Initialize balloon sessions/client/device under balloon_lock. Its
+ * separate guest_proc avoids sharing NVKMS's handles and accounting.
+ * Keep a GPU node open: RM requires it when a userspace client allocates a
+ * device (device.c:141-149). Memory is allocated under that device; no
+ * subdevice is needed. */
 static long balloon_open(void)
 {
 	u8 p[NVRM_KSIZE_ALLOC], dp[NVRM_DEVICE_ALLOC_SIZE];
@@ -7106,7 +6031,12 @@ static long balloon_open(void)
 	if (balloon.device)
 		return 0;
 	if (!balloon.proc) {
-		balloon.proc = nvrm_proc_kernel(nvrm, "nvrm-balloon");
+		struct nvrm_dev *dev = nvrm_dev_get();
+
+		if (!dev)
+			return -ENODEV;
+		balloon.proc = nvrm_proc_kernel(dev, "nvrm-balloon");
+		nvrm_dev_put(dev);
 		if (IS_ERR(balloon.proc)) {
 			ret = PTR_ERR(balloon.proc);
 			balloon.proc = NULL;
@@ -7116,12 +6046,12 @@ static long balloon_open(void)
 	if (!balloon.ctl || !balloon.gpu) {
 		mutex_lock(&kapi_lock);
 		ctx = balloon.ctl ? balloon.ctl :
-				    kapi_ctx_open(nvrm, NVRM_DEV_CTL, 0,
-						  balloon.proc);
+				    kapi_ctx_open_current(NVRM_DEV_CTL, 0,
+							  balloon.proc);
 		if (!IS_ERR(ctx)) {
 			balloon.ctl = ctx;
-			ctx = kapi_ctx_open(nvrm, NVRM_DEV_GPU, 0,
-					    balloon.proc);
+			ctx = kapi_ctx_open_current(NVRM_DEV_GPU, 0,
+						    balloon.proc);
 			if (!IS_ERR(ctx))
 				balloon.gpu = ctx;
 		}
@@ -7155,9 +6085,8 @@ static long balloon_open(void)
 	return ret;
 }
 
-/* Everything back: the client -- RM frees the device and every chunk with
- * it, and the backend releases their charges (vram.rs free_object) -- then
- * the sessions and the identity. Caller holds balloon_lock. */
+/* Under balloon_lock, free the client and its charged children, then close
+ * sessions and release the process identity. */
 static void balloon_close(void)
 {
 	u8 p[NVRM_KSIZE_FREE];
@@ -7179,8 +6108,8 @@ static void balloon_close(void)
 	mutex_unlock(&kapi_lock);
 	balloon.gpu = NULL;
 	balloon.ctl = NULL;
-	if (balloon.proc && nvrm)
-		nvrm_proc_put(nvrm, balloon.proc);
+	if (balloon.proc)
+		nvrm_proc_put(balloon.proc->dev, balloon.proc);
 	balloon.proc = NULL;
 }
 
@@ -7261,12 +6190,10 @@ static u64 balloon_deflate(u64 want)
 	return freed;
 }
 
-/*
- * Fill to the target, from probe, from a write to display_reserve_mib, when
+/* Fill to the target, from probe, from a write to display_reserve_mib, when
  * a buffer the balloon made room for is freed, and on the backoff while it
  * stays below. One chunk at a time and never around a refusal: what the
- * ledger will not give now, it may give on the next round.
- */
+ * ledger will not give now, it may give on the next round. */
 static void balloon_worker(struct work_struct *work)
 {
 	struct nvrm_balloon_shape shape;
@@ -7275,7 +6202,7 @@ static void balloon_worker(struct work_struct *work)
 	u32 i, n;
 
 	mutex_lock(&balloon_lock);
-	if (!nvrm)
+	if (READ_ONCE(balloon_gone))
 		goto out;
 	target = balloon_target(&scanout);
 	nvrm_balloon_shape(target, scanout, &shape);
@@ -7353,13 +6280,11 @@ static void balloon_before_alloc(u8 *params, struct balloon_ask *ask)
 	ask->alloc = alloc;
 }
 
-/*
- * NVKMS was answered. If a display buffer was refused for want of room,
+/* NVKMS was answered. If a display buffer was refused for want of room,
  * give room back and ask again, in the same call, until it is granted or the
  * balloon is empty: Xwayland does not recover from a first failure, so this
  * one has to succeed. The retry is asked with the params exactly as NVKMS
- * wrote them, in case the refusal wrote over any.
- */
+ * wrote them, in case the refusal wrote over any. */
 static long balloon_after_alloc(u8 *params, struct balloon_ask *ask, long ret)
 {
 	u64 want, gave = 0, got, held, target;
@@ -7473,14 +6398,8 @@ static void balloon_stop(void)
 	mutex_unlock(&balloon_lock);
 }
 
-/*
- * Where `status` sits in the parameter block of a kernel-path op, or
- * NVRM_KSTAT_NONE when this module does not know the block.
- *
- * Two callers want the same answer for opposite reasons: the refusal has to
- * WRITE a status there, and the trace wants to READ the one RM wrote. Having
- * the table twice is how the two would drift apart.
- */
+/* Generated status offset per kernel op, or NVRM_KSTAT_NONE. Refusal
+ * handling and tracing share this lookup so they agree on each NVOS layout. */
 #define NVRM_KSTAT_NONE ((u32)~0u)
 
 static u32 kapi_status_off(u32 op)
@@ -7511,22 +6430,9 @@ static u32 kapi_status_off(u32 op)
 	return NVRM_KSTAT_NONE;
 }
 
-/*
- * The object ledger: one line per kernel-path ALLOC and FREE, naming the
- * pair the host books an object under -- (client, handle) -- plus the class
- * and WHO answered the call.
- *
- * Why it exists: an ALLOC that comes back NV_ERR_INSERT_DUPLICATE_NAME
- * (0x19) says the host already has an object at that (client, handle), while
- * the guest's own handle generator considered the number free. Only a log
- * that shows BOTH sides of every book entry can say which of the two lost
- * the entry -- and the "who" field is the whole point of it: a FREE this
- * module answers itself never reaches the host, and that is precisely how
- * the two books would drift apart.
- *
- * Behind `display > 1` like every other kernel-path trace, so a normal run
- * pays nothing for it.
- */
+/* Trace kernel ALLOC/FREE by (client, handle), class and responder. Locally
+ * answered calls never reach host RM, so this identifies divergent object
+ * accounting. Enabled only with display > 1. */
 static void kapi_ledger(const char *verb, const u8 *params, u32 handle_off,
 			u32 hclass, u32 status_off, const char *who)
 {
@@ -7538,11 +6444,9 @@ static void kapi_ledger(const char *verb, const u8 *params, u32 handle_off,
 		who);
 }
 
-/*
- * Write NV_ERR_NOT_SUPPORTED into the parameter block of an op this module
+/* Write NV_ERR_NOT_SUPPORTED into the parameter block of an op this module
  * does not implement, so that the caller sees a refusal rather than the
- * zeroes it arrived with.
- */
+ * zeroes it arrived with. */
 static void kapi_op_refuse(u8 *ops, u32 op)
 {
 	u32 off = kapi_status_off(op);
@@ -7555,12 +6459,8 @@ static void kapi_op_refuse(u8 *ops, u32 op)
 		return;
 	}
 
-	/*
-	 * NV04_VID_HEAP_CONTROL carries a POINTER to its parameter block, not
-	 * the block, so its status is not at a fixed offset from the op --
-	 * and any op outside the union is one this module does not know at
-	 * all. Both can only be logged, loudly.
-	 */
+	/* VID_HEAP_CONTROL carries a params pointer, so status has no fixed
+	 * union offset. Unknown ops and that form can only be logged here. */
 	pr_warn("virtio_nvrm: kernel RM op %#x is not implemented AND cannot be refused in place\n",
 		op);
 }
@@ -7574,8 +6474,8 @@ static void kapi_op(void *sp, void *ops_cmd)
 
 	switch (op) {
 	case NVRM_KOP_FREE:
-		/* Ours, if it is the virtual display's object -- RM has never
-		 * heard of that handle. */
+		/* Handle the local displayless object; it has no host RM
+		 * object. */
 		if (vdisp_free(params)) {
 			kapi_ledger("FREE ", params, 8, 0, 12,
 				    "vdisp, NOT sent");
@@ -7586,8 +6486,7 @@ static void kapi_op(void *sp, void *ops_cmd)
 				    "vblank, NOT sent");
 			return;
 		}
-		/* Not ours -- but if it is an event slot, the slot goes BEFORE
-		 * the host hears of the free (event section: the fence). */
+		/* Fence any callback slot before forwarding FREE. */
 		event_cb_free(params);
 		ret = kapi_forward(NVRM_KESC_FREE, params, NVRM_KSIZE_FREE);
 		if (!ret)
@@ -7607,9 +6506,8 @@ static void kapi_op(void *sp, void *ops_cmd)
 			return;
 		if (vblank_control(params))
 			return;
-		/* Semsurf waiters carry a kernel callback pointer that the
-		 * host substitutes -- the slot goes in BEFORE the call, or a
-		 * fire that overtakes the reply is lost (semsurf section). */
+		/* Arm semaphore callback slots before submission; event
+		 * delivery may precede the reply. */
 		{
 			struct semsurf_pending spend;
 
@@ -7636,22 +6534,17 @@ static void kapi_op(void *sp, void *ops_cmd)
 				    NVRM_NVOS64_STATUS_OFF, "vdisp, NOT sent");
 			return;
 		}
-		/* NV9010: a guest kernel function pointer. Serviced from the
-		 * virtual display's own raster clock -- see the vblank
-		 * section. Nothing about it reaches the host either. */
+		/* Serve NV9010 guest kernel callbacks locally from the
+		 * vblank timer. */
 		if (vblank_alloc(params)) {
 			kapi_ledger("ALLOC", params, NVRM_NVOS64_HOBJECTNEW_OFF,
 				    rd32(params, NVRM_NVOS64_HCLASS_OFF),
 				    NVRM_NVOS64_STATUS_OFF, "vblank, NOT sent");
 			return;
 		}
-		/* NV01_EVENT_KERNEL_CALLBACK_EX: the host will substitute
-		 * NV01_EVENT_OS_EVENT and overwrite the callback pointer, so
-		 * what THIS side needs (client, notifyIndex, the pointer) is
-		 * read BEFORE the call and the slot is filled AFTER the host
-		 * said yes -- event section. A display buffer refused for want
-		 * of room gets room from the VRAM balloon and a second try in
-		 * this same call -- balloon section. */
+		/* Capture callback identity before the host substitutes an
+		 * OS event; register the slot after successful allocation.
+		 * Display-buffer OOM may release balloon chunks and retry. */
 		{
 			struct event_cb_pending pend;
 			struct balloon_ask bask;
@@ -7681,25 +6574,10 @@ static void kapi_op(void *sp, void *ops_cmd)
 		break;
 	case NVRM_KOP_MAP_MEMORY_DMA:
 	case NVRM_KOP_UNMAP_MEMORY_DMA:
-		/* The GPU-side mapping, and the only one on this path that
-		 * needs no translation at all.
-		 *
-		 * What comes back in dmaOffset is a GPU VIRTUAL address in
-		 * the page tables of the hDma object. Those page tables belong
-		 * to the one real card, which host and guest share, and the
-		 * address is consumed by the GPU rather than by either CPU --
-		 * so unlike NV04_MAP_MEMORY there is no window, no ioremap and
-		 * nothing to remember. Straight through.
-		 *
-		 * NVKMS asks for it for the push buffer (nvkms-push.c:84) and
-		 * the head surface (nvkms-headsurface.c:175). Measured
-		 * 2026-08-13: without it, "Failed to allocate NvKmsKapiDevice"
-		 * and no /dev/dri/card1 -- the wall directly behind the colour
-		 * lookup table.
-		 *
-		 * Behind `display` like DUP_OBJECT: the compute path never asks
-		 * for it, so with the switch off this module answers exactly as
-		 * it did before the display work. */
+		/* GPU DMA mappings need no CPU/window translation:
+		 * dmaOffset is a GPU VA in the hDma page tables. Forward
+		 * unchanged for NVKMS push buffers and head surfaces.
+		 * Enabled only with display. */
 		if (!display)
 			goto unimplemented;
 		if (op == NVRM_KOP_MAP_MEMORY_DMA)
@@ -7710,16 +6588,9 @@ static void kapi_op(void *sp, void *ops_cmd)
 					   NVRM_KSIZE_UNMAP_MEMORY_DMA);
 		break;
 	case NVRM_KOP_DUP_OBJECT:
-		/* nvidia-drm duplicates the semaphore surface into its own
-		 * client here. Refusing it leaves the NVIDIA GPU screen
-		 * half-built: measured as
-		 *   nv_drm_semsurf_fence_ctx_create_ioctl: Failed to import
-		 *   semaphore surface
-		 * right after the X server had already logged NVIDIA(G0).
-		 *
-		 * Behind `display`: nothing on the compute path asks for it,
-		 * and with the switch off this module answers exactly as it did
-		 * before the display work. */
+		/* Duplicate the semaphore surface into nvidia-drm's client.
+		 * Required for display fence setup; enabled only with
+		 * display. */
 		if (!display)
 			goto unimplemented;
 		ret = kapi_forward(NVRM_KESC_DUP_OBJECT, params,
@@ -7727,38 +6598,15 @@ static void kapi_op(void *sp, void *ops_cmd)
 		break;
 	default:
 unimplemented:
-		/*
-		 * Context DMA, vid heap, share and ADD_VBLANK_CALLBACK are
-		 * unbuilt; map/unmap land here only with display=0, which
-		 * refuses them. Saying so in the log is not enough.
-		 *
-		 * op() returns VOID. Leaving the parameter block untouched
-		 * means the caller reads back whatever IT put there, and a
-		 * zeroed status field reads as NV_OK. Measured on 2026-08-07:
-		 * nvidia-drm asked for NV04_MAP_MEMORY, took the untouched
-		 * block for a success, and handed the uninitialised address to
-		 * ioremap_wc -- a kernel WARNING out of
-		 * nv_drm_dumb_create/__nv_drm_gem_nvkms_map, from a call this
-		 * module had merely declined to make.
-		 *
-		 * So an unimplemented op STATES its refusal. The offsets come
-		 * from nvrm_wire.h, generated per op, because `status` sits at
-		 * a different place in every NVOS block.
-		 */
+		/* Unimplemented ops must write an error status: op returns
+		 * void and untouched zeroed fields look successful. Use
+		 * generated per-op status offsets; callers must never map
+		 * an uninitialized address. */
 		kapi_op_refuse(ops, op);
 		return;
 	}
-	/*
-	 * RM's own verdict, for EVERY op this module forwards.
-	 *
-	 * The transport answer (`ret`) and RM's answer are two different
-	 * things, and only the second one says whether the call did anything.
-	 * A chain that ends in a driver error with `ret 0` all the way down
-	 * used to be invisible here: measured 2026-08-08, where an import
-	 * reported success with nothing behind it, and again where
-	 * nv_drm_semsurf_fence_ctx_create_ioctl failed after four ops of
-	 * which not one had said a word.
-	 */
+	/* Trace RM status separately from the transport result: ret=0 only
+	 * confirms ioctl transport, not RM success. */
 	if (display > 1) {
 		u32 off = kapi_status_off(op);
 
@@ -7774,17 +6622,9 @@ unimplemented:
 			"virtio_nvrm: kernel RM op %#x failed: %ld\n", op, ret);
 }
 
-/*
- * The one symbol nvidia-modeset.ko needs.
- *
- * The version check is NVIDIA's, kept as NVIDIA wrote it: NVKMS puts its own
- * NV_VERSION_STRING in before the call and expects a mismatch to come back
- * as the OTHER side's string plus an error. Ours comes from DRIVER_VERSION
- * by way of nvrm_wire.h -- the same number the host driver, the vendor tree
- * and every gate in this repo are pinned to.
- *
- * The u32 return is NV_STATUS (an NvU32, nvstatus.h:33).
- */
+/* Export NVKMS's RM entry point. Preserve NVIDIA's version-check contract:
+ * on mismatch, return our generated DRIVER_VERSION string and an NV_STATUS
+ * error. */
 u32 nvidia_get_rm_ops(struct nvrm_modeset_rm_ops *rm_ops)
 {
 	const struct nvrm_modeset_rm_ops local = {
@@ -7836,16 +6676,9 @@ module_virtio_driver(nvrm_driver);
 
 MODULE_DEVICE_TABLE(virtio, nvrm_ids);
 MODULE_LICENSE("GPL");
-/* dma_buf_attach and its siblings live in the DMA_BUF symbol namespace. A
- * module that uses them without saying so does not fail at compile time --
- * modpost refuses at link time, and the message reads like a missing
- * dependency rather than a missing declaration.
- *
- * The macro started demanding a STRING in 6.13 ("module: Convert
- * symbol namespace to string literal"); passing the bare token there
- * fails with "expected ',' or ';' before 'DMA_BUF'", pointed at
- * moduleparam.h rather than at this line. Measured 2026-08-18 against
- * 6.18.44; the Ubuntu guests run 6.8 and take the first branch. */
+/* Import the DMA_BUF symbol namespace for dma_buf_attach and related APIs.
+ * MODULE_IMPORT_NS requires a string literal from Linux 6.13 onward; older
+ * guest kernels require the bare token. */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 13, 0)
 MODULE_IMPORT_NS(DMA_BUF);
 #else

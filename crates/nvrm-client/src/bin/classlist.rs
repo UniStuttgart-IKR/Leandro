@@ -1,30 +1,14 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! What the GPU says it can do, asked directly.
+//! Query GPU classes with NV0080_CTRL_CMD_GPU_GET_CLASSLIST (ctrl0080gpu.h).
 //!
-//! `NV0080_CTRL_CMD_GPU_GET_CLASSLIST` (0x800201, `ctrl0080gpu.h:70`) is a
-//! small control with an outsized role: it is how **NVKMS (nvidia-modeset.ko)
-//! picks its display HAL** (hardware abstraction layer: `nvkms-hal.c:130-190`
-//! walks a table of display classes and takes the first one this list
-//! reports, with `NVA083_GRID_DISPLAYLESS` last), and it is where the
-//! guest's NVENC (the hardware video encoder) used to stop, until the
-//! nested-pointer annotation for it landed in `xlate.rs`.
-//!
-//! It is also the shape that breaks naive forwarding: the params struct
-//! carries a **second-level embedded pointer** (`classList`), so it is
-//! called twice -- once with `classList = NULL` to learn `numClasses`, then
-//! again with a buffer. The first call needs no translation and the second
-//! does, which is exactly why a guest without the annotation saw the first
-//! succeed and the second return `NV_ERR_INVALID_ADDRESS`.
-//!
-//! Runs on the host and, once the guest carries it, in the guest -- the
-//! same binary, so the two answers are comparable without a second
-//! implementation to disagree with the first.
+//! The count query uses a null classList; the fill query supplies a nested
+//! buffer. This checks the forwarding path NVKMS and NVENC use.
 //!
 //! ```text
-//! classlist            # every class, grouped
-//! classlist --raw      # one hex class per line, for diffing host vs guest
+//! classlist          # grouped classes and NVKMS display-HAL selection
+//! classlist --raw    # one hex class per line for host/guest comparison
 //! ```
 
 use nvrm_abi::{sys, NvDevice};
@@ -48,18 +32,8 @@ const _: () = {
     assert!(core::mem::offset_of!(GetClassListParams, class_list) == 8);
 };
 
-/// The display classes NVKMS looks for, **in the order it looks**
-/// (`nvkms-hal.c:145-172`). Whichever appears FIRST decides the HAL, so the
-/// ordering is the interesting part, not mere membership.
-///
-/// WARNING: these are the display CORE CHANNEL classes, `NV<prefix>7D`.
-/// `nvkms-hal.c` writes them through the `ENTRY_NVD(C5, C5, ...)` macro,
-/// whose first argument is only the *prefix*; the class is
-/// `NVC57D_CORE_CHANNEL_DMA` (`clc57d.h:32`). Reading the prefix as the
-/// class gives `0xc5b7`, which is a real class -- it is Turing's NVENC --
-/// so the mistake produces a plausible, wrong answer rather than an error.
-/// It cost one run of this probe reporting "no display class at all" on a
-/// card that was driving a desktop at the time.
+/// Display core-channel classes in NVKMS selection order (nvkms-hal.c).
+/// ENTRY_NVD takes a prefix: C5 denotes NVC57D, not the NVENC class C5B7.
 const DISPLAY_CLASSES: &[(u32, &str)] = &[
     (0xcc7d, "NVCC7D core channel (Blackwell CC)"),
     (0xcb7d, "NVCB7D core channel (Blackwell CB)"),
@@ -84,9 +58,7 @@ const NOTABLE: &[(u32, &str)] = &[
 ];
 
 fn main() {
-    // The version lockstep applies to the HOST; in the guest
-    // /proc/driver/nvidia/version does not exist and a hard check would
-    // panic there. Same trap as smipids.rs and mmapping.rs.
+    // Check the local driver when available; the backend checks the guest ABI.
     match nvrm_sys::running_driver_version() {
         Ok(v) if v == nvrm_sys::DRIVER_VERSION => {}
         Ok(v) => {
@@ -106,19 +78,19 @@ fn main() {
     let mut rm = RmClient::open_without_version_check().expect("NV01_ROOT_CLIENT");
     let root = rm.root();
 
-    // The per-GPU node has to be OPEN or NV01_DEVICE_0 fails with
-    // NV_ERR_INSUFFICIENT_PERMISSIONS. Held, never used.
+    // RM device allocation requires the GPU node to remain open.
     let _gpu = NvDevice::open_gpu(0).expect("/dev/nvidia0");
 
     let device = rm.next_handle();
     let mut dp = sys::NV0080_ALLOC_PARAMETERS::default();
     dp.deviceId = 0;
-    rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp))
-        .expect("NV01_DEVICE_0");
+    // SAFETY: NV0080_ALLOC_PARAMETERS matches NV01_DEVICE_0; no embedded buffers.
+    unsafe { rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp)) }.expect("NV01_DEVICE_0");
 
-    // ---- call 1: classList = NULL, just to learn the count --------------
+    // call 1: classList = NULL, just to learn the count
     let mut p = GetClassListParams::default();
-    if let Err(e) = rm.control(device, CMD_GPU_GET_CLASSLIST, &mut p) {
+    // SAFETY: GetClassListParams matches the command; the count pass uses a null list.
+    if let Err(e) = unsafe { rm.control(device, CMD_GPU_GET_CLASSLIST, &mut p) } {
         eprintln!("classlist: GET_CLASSLIST (count pass): {e}");
         std::process::exit(1);
     }
@@ -131,16 +103,15 @@ fn main() {
         std::process::exit(1);
     }
 
-    // ---- call 2: with a real buffer -------------------------------------
-    // THIS is the call that needs the nested-pointer annotation. In a guest
-    // without one it returns NV_ERR_INVALID_ADDRESS (0x1e).
+    // Fill the nested class-list buffer after querying its capacity.
     let mut classes = vec![0u32; n];
     let mut q = GetClassListParams {
         num_classes: n as u32,
         _pad: 0,
         class_list: classes.as_mut_ptr() as usize as u64,
     };
-    if let Err(e) = rm.control(device, CMD_GPU_GET_CLASSLIST, &mut q) {
+    // SAFETY: GetClassListParams matches the command; classes holds num_classes writable entries.
+    if let Err(e) = unsafe { rm.control(device, CMD_GPU_GET_CLASSLIST, &mut q) } {
         eprintln!("classlist: GET_CLASSLIST (fill pass): {e}");
         eprintln!(
             "  If this is a guest and the count pass above succeeded, this is the\n\

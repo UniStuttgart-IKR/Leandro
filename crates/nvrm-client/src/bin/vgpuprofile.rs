@@ -1,38 +1,17 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! What would NVIDIA's vGPU carve this card into, if we followed its own
-//! arithmetic?
+//! Derive vGPU-style VRAM profiles from the GPU's VMMU segment size and RAM size.
 //!
-//! This is the READING half of the vGPU-shaped VRAM profile
-//! (docs/OPEN-QUESTIONS.md number 69). It asks the card the two numbers
-//! that arithmetic needs and then prints the catalogue that follows from
-//! them. Nothing here is a table anybody typed: the segment size comes out
-//! of the card, the total comes out of the card, and the profile sizes are
-//! derived.
+//! Uses non-privileged GET_VMMU_SEGMENT_SIZE and FB_GET_INFO_V2 controls.
+//! `--select` emits shell assignments consumed by VM launch scripts.
+//! See docs/OPEN-QUESTIONS.md, item 69.
 //!
-//! Two controls, both non-privileged:
-//!
-//!   * `NV2080_CTRL_CMD_GPU_GET_VMMU_SEGMENT_SIZE` (0x2080017e,
-//!     ctrl2080gpu.h:3135). The VMMU is the second-level address translation
-//!     unit that gives a vGPU its own view of framebuffer; its SEGMENT is
-//!     the granule a guest framebuffer is cut in. `flags = 0x10448` in
-//!     `g_subdevice_nvoc.c` = GSP_PLUGIN_FOR_VGPU_GSP | CACHEABLE |
-//!     ROUTE_TO_PHYSICAL | NON_PRIVILEGED -- so an ordinary client may ask,
-//!     and the answer comes from the GSP.
-//!   * `NV2080_CTRL_CMD_FB_GET_INFO_V2` (0x20801303) for TOTAL_RAM_SIZE and
-//!     HEAP_SIZE, which is what `Ram.fbTotalMemSizeMb` is in the vGPU
-//!     arithmetic.
-//!
-//!   cargo run --release -p nvrm-client --bin vgpuprofile
-//!   vgpuprofile --select 2Q      one type, as shell key=value pairs
-//!   vgpuprofile --select 130M    one size, priced by the same rule
-//!
-//! `--select` is what makes this the MANAGER's half of the split. vGPU's
-//! host RM owns the catalogue and hands a per-VM plugin its slice; here
-//! the backend serves no catalogue, so the script that starts a VM
-//! resolves the type name or size through this tool and passes the
-//! numbers on. Same division of labour, different reason for it.
+//! ```text
+//! vgpuprofile                 # profile catalogue
+//! vgpuprofile --select 2Q     # named profile
+//! vgpuprofile --select 130M   # size using the same allocation rule
+//! ```
 
 use nvrm_abi::{mediate, vgpu};
 use nvrm_abi::{sys, NvDevice};
@@ -60,9 +39,12 @@ impl Default for NameParams {
     }
 }
 
-/// One profile as shell `key=value` lines. The unit is in every name,
-/// because a bare number in an env var is how a MiB becomes a MB two
-/// scripts later.
+const _: () = {
+    assert!(size_of::<NameParams>() == 68);
+    assert!(std::mem::offset_of!(NameParams, ascii) == 4);
+};
+
+/// Profile properties as shell assignments with explicit units.
 fn select_block(cat: &vgpu::Catalogue, p: &vgpu::Profile) -> String {
     [
         format!("vgpu_type={}", p.name),
@@ -91,8 +73,7 @@ fn main() {
             std::process::exit(2);
         }
     };
-    // Under --select the two lines above are noise on stdout, which a
-    // shell is about to eval. Everything informational goes to stderr.
+    // Reserve stdout for shell assignments when selecting one profile.
     let quiet = select.is_some();
     macro_rules! say {
         ($($a:tt)*) => { if quiet { eprintln!($($a)*) } else { println!($($a)*) } };
@@ -100,25 +81,26 @@ fn main() {
 
     let mut rm = RmClient::new().expect("NV01_ROOT_CLIENT");
     let root = rm.root();
-    // The per-GPU node must be open or the card is not attached to this
-    // client and NV01_DEVICE_0 fails with INSUFFICIENT_PERMISSIONS.
+    // RM device allocation requires the GPU node to remain open.
     let _gpu = NvDevice::open_gpu(0).expect("/dev/nvidia0");
 
     let device = rm.next_handle();
     let mut dp = sys::NV0080_ALLOC_PARAMETERS::default();
     dp.deviceId = 0;
-    rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp))
-        .expect("NV01_DEVICE_0");
+    // SAFETY: NV0080_ALLOC_PARAMETERS matches NV01_DEVICE_0; no embedded buffers.
+    unsafe { rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp)) }.expect("NV01_DEVICE_0");
 
     let subdevice = rm.next_handle();
     let mut sp = sys::NV2080_ALLOC_PARAMETERS::default();
     sp.subDeviceId = 0;
-    rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp))
+    // SAFETY: NV2080_ALLOC_PARAMETERS matches NV20_SUBDEVICE_0; no embedded buffers.
+    unsafe { rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp)) }
         .expect("NV20_SUBDEVICE_0");
 
-    // ---- the card's VMMU segment size ----------------------------------
+    // the card's VMMU segment size
     let mut seg = sys::NV2080_CTRL_GPU_GET_VMMU_SEGMENT_SIZE_PARAMS::default();
-    let segment = match rm.control(subdevice, CMD_GPU_GET_VMMU_SEGMENT_SIZE, &mut seg) {
+    // SAFETY: The generated parameter type matches this command and has no nested pointers.
+    let segment = match unsafe { rm.control(subdevice, CMD_GPU_GET_VMMU_SEGMENT_SIZE, &mut seg) } {
         Ok(()) => {
             say!(
                 "vmmu segment size: {} bytes = {} MiB (asked the card)",
@@ -128,9 +110,7 @@ fn main() {
             seg.vmmuSegmentSize
         }
         Err(e) => {
-            // Zero is RM's own way of saying "no VMMU here" (gpu.c:940:
-            // NOT_SUPPORTED leaves the field at zero). Report it and stop
-            // rather than substituting a number from another card.
+            // Unsupported VMMU queries leave size zero (gpu.c); no profile can be derived.
             eprintln!("vgpuprofile: vmmu segment size UNAVAILABLE -- {e}");
             eprintln!("  RM leaves this at zero when the chip has no VMMU (gpu.c:940).");
             eprintln!("  Without it there is no vGPU-shaped quantisation to derive.");
@@ -138,14 +118,14 @@ fn main() {
         }
     };
 
-    // ---- and the total it partitions -----------------------------------
+    // and the total it partitions
     let mut fb = sys::NV2080_CTRL_FB_GET_INFO_V2_PARAMS::default();
     fb.fbInfoListSize = 3;
     fb.fbInfoList[0].index = vgpu::FB_INFO_INDEX_TOTAL_RAM_SIZE;
     fb.fbInfoList[1].index = vgpu::FB_INFO_INDEX_HEAP_SIZE;
     fb.fbInfoList[2].index = mediate::FB_INFO_INDEX_HEAP_FREE;
-    rm.control(subdevice, mediate::CMD_FB_GET_INFO_V2, &mut fb)
-        .expect("FB_GET_INFO_V2");
+    // SAFETY: The generated parameter type matches this command and has no nested pointers.
+    unsafe { rm.control(subdevice, mediate::CMD_FB_GET_INFO_V2, &mut fb) }.expect("FB_GET_INFO_V2");
     let total_kb = fb.fbInfoList[0].data as u64;
     let heap_kb = fb.fbInfoList[1].data as u64;
     let free_kb = fb.fbInfoList[2].data as u64;
@@ -156,13 +136,7 @@ fn main() {
         free_kb / 1024
     );
 
-    // THE HOST IS A TENANT TOO, and vGPU never has to think about it: a
-    // card running vGPU profiles runs nothing else, while this one is
-    // driving the machine's own desktop. Whatever is in use right now is
-    // not available to guests, and a catalogue derived from the whole heap
-    // would hand out memory that is already spoken for. Measured at this
-    // instant rather than assumed, and overridable for a host that will be
-    // idle later (or busier).
+    // Reserve currently used host memory unless the operator supplies a value.
     let in_use_kb = heap_kb.saturating_sub(free_kb);
     let host_reserve = match std::env::var("LEA_VGPU_HOST_RESERVE_MIB") {
         Ok(v) if !v.trim().is_empty() => {
@@ -189,9 +163,10 @@ fn main() {
     };
     let usable = (heap_kb * 1024).saturating_sub(host_reserve);
 
-    // ---- and the board's own name --------------------------------------
+    // and the board's own name
     let mut np = NameParams::default();
-    rm.control(subdevice, mediate::CMD_GPU_GET_NAME_STRING, &mut np)
+    // SAFETY: NameParams matches the ASCII command layout and owns the output buffer.
+    unsafe { rm.control(subdevice, mediate::CMD_GPU_GET_NAME_STRING, &mut np) }
         .expect("GPU_GET_NAME_STRING");
     let name = np
         .ascii
@@ -201,10 +176,7 @@ fn main() {
         .collect::<String>();
     say!("board: {name:?}");
 
-    // ---- what vGPU's arithmetic makes of that --------------------------
-    // The per-VM overhead this project measured (number 68), overridable
-    // so a different workload's measurement can be tried against the same
-    // card without editing anything.
+    // Default overhead is the measured per-VM cost; allow workload-specific overrides.
     let overhead = std::env::var("LEA_VGPU_OVERHEAD_MIB")
         .ok()
         .and_then(|v| v.trim().parse::<u64>().ok())
@@ -234,8 +206,6 @@ fn main() {
 mod tests {
     use super::*;
 
-    /// What a manager evals for a type and for the size that type picks
-    /// is the same, except for the label.
     #[test]
     fn a_type_and_its_size_print_the_same_numbers() {
         let cat = vgpu::Catalogue::derive("RTX2070", 8192 << 20, 6871 << 20, 256 << 20, 256 << 20);

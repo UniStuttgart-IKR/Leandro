@@ -1,21 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! The two answers that make the guest's card a vGPU rather than a smaller
-//! RTX 2070 (docs/OPEN-QUESTIONS.md number 69).
+//! Guest-visible GPU identity and encoder-capacity reporting.
 //!
-//! `vram.rs` mediates SIZES. These two mediate what the card IS: whether
-//! it is virtualised at all, and what share of the encoder it carries.
-//! Both are flat parameter buffers rewritten on the way back, the same
-//! shape as the FB sizes and the process list, and both are in
-//! `nvrm_abi::mediate`'s manifest so that a guest run compared against a
-//! native one masks them instead of reporting them as defects.
-//!
-//! THE ENCODER SHARE FOLLOWS THE GUEST FRAMEBUFFER under every cap, because
-//! a share is a size and two VMs told the same size must be told the same
-//! share. THE UUID is every VM's own, capped or not. The MODE is the
-//! vGPU-shaped policy's alone: saying "vGPU" is a claim about the guest
-//! driver, not about a size (see [`mediate_mode`]).
+//! UUID translation is bidirectional. Encoder capacity is reported, not
+//! enforced. Virtualization-mode reporting is opt-in because VGX mode
+//! prevented CUDA initialization with the tested guest userspace.
 
 use nvrm_abi::mediate;
 
@@ -23,28 +13,8 @@ pub use nvrm_abi::mediate::{
     CMD_GPU_GET_ENCODER_CAPACITY, CMD_GPU_GET_GID_INFO, CMD_GPU_GET_VIRTUALIZATION_MODE,
 };
 
-/// Answer `NV0080_CTRL_CMD_GPU_GET_VIRTUALIZATION_MODE` the way a vGPU
-/// guest's RM answers it.
-///
-/// WHAT THIS CHANGES, and it is worth being precise, because the field is
-/// read by everything. Measured (matrix/catalog-610.57.04.json): 34 calls
-/// from 20 library classes -- every CUDA probe, all four EGL platforms, GL,
-/// GLES, NVDEC, NVENC, NVML, OpenCL and all three Vulkan probes -- and the
-/// guest gets the host's `NONE` today. `VGX` (2) is what a vGPU GUEST
-/// reports; `HOST` (3) is what the machine running the plugin reports, so
-/// `VGX` is the only honest value on this side of the boundary.
-///
-/// `isGridBuild` is set with it. The two are one statement: a mode that
-/// says VGX beside a boolean that says "not a GRID build" is a card
-/// contradicting itself, which is the same rule the FB sizes follow.
-///
-/// WHAT IT DOES NOT CHANGE: nothing inside the guest's kernel driver.
-/// `IS_VIRTUAL(pGpu)` there is set by how the driver came up, not by this
-/// answer, and no RPC channel to a vGPU plugin exists or is claimed. This
-/// rewrites what a client is TOLD, which is exactly as far as this
-/// boundary reaches.
-///
-/// Returns the mode written, or `None` if the buffer is not this structure.
+/// Report VGX mode and isGridBuild without changing driver initialization.
+/// Returns None if the reply is too short.
 pub fn rewrite_virtualization_mode(aux: &mut [u8]) -> Option<u32> {
     if aux.len() < mediate::VIRTMODE_LEN {
         return None;
@@ -56,26 +26,8 @@ pub fn rewrite_virtualization_mode(aux: &mut [u8]) -> Option<u32> {
     Some(mediate::VIRTUALIZATION_MODE_VGX)
 }
 
-/// Answer `NV2080_CTRL_CMD_GPU_GET_ENCODER_CAPACITY` with the profile's
-/// share instead of the whole card's.
-///
-/// A bare-metal card answers `NV_ENC_CAPACITY_MAX_VALUE` = 100
-/// (subdevice_ctrl_gpu_kernel.c:1000); a vGPU guest gets its type's
-/// `encoderCapacity` over RPC from the host (rpc.c:10349). The percentage
-/// here comes from the catalogue, which divides it the way it divides the
-/// framebuffer.
-///
-/// `queryType` @0 -- H264, HEVC or AV1 -- is the QUESTION and is left
-/// alone: the same share applies to whichever codec was asked about, and
-/// rewriting the question would hide a client asking for a codec this card
-/// does not have.
-///
-/// WARNING, and it is a measurement nobody has taken yet: whether the
-/// guest's NVENC actually LIMITS itself to what it is told here is not
-/// established. vGPU enforces the share in the host plugin, and this
-/// boundary has no such enforcement -- it reports. Until a run shows
-/// otherwise, this is a number the guest is told, not a limit it is held
-/// to.
+/// Report the profile's encoder percentage without changing queryType.
+/// This reports capacity; it does not enforce an encoder quota.
 pub fn rewrite_encoder_capacity(aux: &mut [u8], percent: u32) -> Option<u32> {
     if aux.len() < mediate::ENCCAP_LEN || percent == 0 || percent > 100 {
         return None;
@@ -85,36 +37,10 @@ pub fn rewrite_encoder_capacity(aux: &mut [u8], percent: u32) -> Option<u32> {
     Some(percent)
 }
 
-// ===========================================================================
-// The VM's own identity
-// ===========================================================================
-// MEASURED 2026-08-21, four guests of one fleet, all four asked at once:
-//
-//   vm0: GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d, Leandro RTX 2070, 8192 MiB
-//   vm1: GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d, ...
-//   vm2: GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d, ...
-//   vm3: GPU-41f54c36-8418-25f3-8ab0-801d98eddb4d, ...
-//
-// One UUID for four machines, and it is the HOST card's. `nvidia-smi
-// --query-gpu=uuid` is what a scheduler keys a GPU on -- Kubernetes'
-// device plugin, Slurm's generic resources, `docker --gpus` -- so today
-// four of these VMs are one GPU as far as any of them can tell. It is the
-// same class of leak as the host PID table (vram.rs) and the host BDF
-// (the guest module's bdf_mediation), one namespace further out.
-//
-// A vGPU guest does not have this problem: its UUID is the mdev device's,
-// not the board's, and two vGPUs on one card differ. Here every VM gets one
-// of its own, whatever its policy -- and the host's goes back in wherever
-// the guest hands its own to the driver (`Card`).
+// VM identity and UUID translation.
 
-/// WHICH of these answers this backend gives, `LEA_VGPU_MEDIATE`.
-///
-/// A comma list of `mode`, `uuid` and `enc`; the default is
-/// `uuid,enc` and NOT `mode`, and that default is a measurement rather
-/// than a preference -- see [`mediate_mode`].
-///
-/// Read once: these are checked per answered control, and `std::env::var`
-/// takes a lock and scans `environ`.
+/// Cache LEA_VGPU_MEDIATE: mode,uuid,enc or all/none.
+/// Default: uuid and enc enabled; mode disabled.
 fn switches() -> &'static (bool, bool, bool) {
     static SW: std::sync::OnceLock<(bool, bool, bool)> = std::sync::OnceLock::new();
     SW.get_or_init(|| {
@@ -134,43 +60,14 @@ fn switches() -> &'static (bool, bool, bool) {
     })
 }
 
-/// Is the VIRTUALIZATION MODE answer on? **Off by default, and this is the
-/// most expensive thing measured on this branch.**
-///
-/// Measured 2026-08-21, four guests under `RTX2070-2Q` with the mode
-/// answered as `VGX` and `isGridBuild` set: `nvidia-smi` was entirely
-/// happy -- it printed `Leandro RTX2070-2Q`, 1280 MiB, `Virtualization
-/// Mode: VGPU` -- and **libcuda would not start at all**:
-/// `vrampress: cuInit 100`, which is `CUDA_ERROR_NO_DEVICE`. Every guest, every row of the
-/// benchmark that had it on. The card is visible, named, sized, and has no
-/// CUDA device on it.
-///
-/// The reading, and it is the lesson of this whole branch: a vGPU guest's
-/// userspace reaches the GPU through a path that exists BECAUSE the guest
-/// driver is a vGPU guest driver -- an RPC channel to a plugin in the
-/// host. Telling an ordinary driver's userspace that it is on a vGPU makes
-/// it look for that path, and there is none here. **Saying it is a vGPU
-/// and being one are different things, and libcuda knows the difference
-/// even though nvidia-smi does not.**
-///
-/// So it is opt-in, for a rig that wants to see it, and off wherever CUDA
-/// matters.
+/// Whether to report VGX mode. Disabled by default: the measured guest
+/// returned CUDA_ERROR_NO_DEVICE when this override was enabled.
 pub fn mediate_mode() -> bool {
     switches().0
 }
 
-/// Is this VM's own UUID answered, and the card's put back where the guest
-/// hands it to the driver? On by default.
-///
-/// Measured 2026-08-21 with the answer alone and nothing put back:
-/// `nvidia-smi` printed the VM's UUID and libcuda stopped at `cuInit 3`
-/// (NOT_INITIALIZED). The trace of that same libcuda
-/// (docs/measurements/vram-69b/libcuda/mode-off.jsonl:148-150, 307-313)
-/// shows why: it reads the UUID through GID_INFO and hands exactly those 16
-/// bytes to `UVM_REGISTER_GPU` and `UVM_PAGEABLE_MEM_ACCESS_ON_GPU`, and the
-/// host's UVM knows no GPU by the VM's UUID. [`Card::to_host`] is that half.
-/// Until a guest has run CUDA with both halves, `LEA_VGPU_MEDIATE=enc`
-/// turns this off.
+/// Enable guest UUID reporting and reverse translation on driver requests.
+/// Both directions are required: UVM rejects the synthetic UUID.
 pub fn mediate_uuid() -> bool {
     switches().1
 }
@@ -181,12 +78,7 @@ pub fn mediate_enc() -> bool {
     switches().2
 }
 
-/// The VM's name inside a socket path: the directory AND the socket's
-/// stem, so both layouts that start backends name a VM uniquely --
-/// `vm/<name>/nvrm.sock` (rig.sh) and `<run_dir>/nvrm/<device-id>.sock`
-/// (a manager that keeps every socket in one directory, where the directory
-/// alone gave every VM the same UUID). Stable across a backend restart,
-/// because the path is.
+/// Stable identity seed: parent directory basename and socket stem.
 pub fn name_from_socket(socket: &str) -> String {
     let p = std::path::Path::new(socket);
     let part = |o: Option<&std::ffi::OsStr>| {
@@ -200,10 +92,7 @@ pub fn name_from_socket(socket: &str) -> String {
     )
 }
 
-/// The card this backend serves, asked once at start-up
-/// ([`crate::host_pool::card`]): its UUID and this VM's, in both spellings
-/// RM uses, and `TOTAL_RAM_SIZE` in bytes, which is what an encoder share
-/// is a share of.
+/// Physical and guest UUIDs plus physical VRAM bytes, queried at startup.
 #[derive(Debug)]
 pub struct Card {
     pub host: [u8; 16],
@@ -238,10 +127,8 @@ impl Card {
     }
 }
 
-/// Every occurrence of `from` at a 4-byte boundary -- where every UUID field
-/// of RM's and UVM's parameter blocks sits -- becomes `to`. Found by value
-/// rather than by offset, because the UUID travels in a dozen UVM blocks
-/// and three controls; 128 bits of it do not occur by accident.
+/// Replace matching values at 4-byte boundaries. This scans by value,
+/// not ABI field offsets; callers must limit it to UUID-bearing buffers.
 fn swap(buf: &mut [u8], from: &[u8], to: &[u8]) {
     let mut o = 0;
     while o + from.len() <= buf.len() {
@@ -282,13 +169,7 @@ pub fn card() -> Option<&'static Card> {
     CARD.get()
 }
 
-/// FNV-1a, 64 bit, over the bytes given.
-///
-/// NOT a cryptographic hash and it does not need to be: what is wanted is
-/// a value that is STABLE for a VM across restarts and DIFFERENT between
-/// VMs on one card. A UUID's job here is to be a key, not a secret, and a
-/// SHA-1 would mean a dependency for a property nothing rests on. The
-/// constants are FNV's own (offset basis and prime).
+/// Non-cryptographic FNV-1a hash used for stable VM identity.
 fn fnv1a(seed: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in seed {
@@ -298,16 +179,8 @@ fn fnv1a(seed: &[u8]) -> u64 {
     h
 }
 
-/// Sixteen bytes derived from the VM's name, shaped as a version-4 UUID.
-///
-/// EVERY byte comes from the name and NONE from the host's own UUID. The
-/// host's would have been the easier mix -- keep the card's prefix, change
-/// the tail -- and it would have handed the guest a piece of the host's
-/// identity to reconstruct. The card is already named in the product
-/// string; it does not need to be in the UUID as well.
-///
-/// The version and variant nibbles are set because a reader (and NVML's
-/// own formatting) expects a UUID and not sixteen arbitrary bytes.
+/// Derive a stable identifier from the VM name, with UUID version/variant bits.
+/// Contains no host UUID bytes; it is neither random nor an isolation token.
 pub fn vm_uuid(name: &str) -> [u8; 16] {
     let a = fnv1a(name.as_bytes());
     // A second, differently seeded pass for the other half: FNV over the

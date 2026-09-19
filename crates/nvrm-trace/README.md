@@ -1,53 +1,47 @@
 <!-- SPDX-License-Identifier: MIT -->
-# `nvrm-trace` — an `LD_PRELOAD` tracer that changes nothing
+# nvrm-trace
 
-Observes the ioctl surface without touching it. It interposes
-`open`/`openat`/`close`/`dup*`/`ioctl`/`mmap`/`mmap64`/`read`/`poll` and
-logs every call on `/dev/nvidia*`, plus every fd registered as an event
-channel via `NV_ESC_ALLOC_OS_EVENT`. Nothing is rewritten: every call
-reaches the real libc symbol with unmodified arguments.
+- `LD_PRELOAD` observer for NVIDIA device calls, event FDs and selected DRM traffic.
+- Interposes open, close, dup, ioctl, mmap, read and poll functions while forwarding
+  their arguments to libc. Tracing adds overhead; it is not the production data path.
+- Native/guest comparison evidence is recorded in
+  [OPEN-QUESTIONS](../../docs/OPEN-QUESTIONS.md).
 
-This is a **measuring instrument, not a data path.** The production path
-(`virtio_nvrm.ko` plus `vhost-user-nvrm`) runs without it. It exists so a
-run can be compared against a native one call for call — which is how most
-of the findings in [`../../docs/OPEN-QUESTIONS.md`](../../docs/OPEN-QUESTIONS.md) were
-obtained.
+## Source map
 
-| File | What it is |
+| File | Responsibility |
 |---|---|
-| `src/lib.rs` | the interposed symbols, the `dlsym(RTLD_NEXT)` resolution, and the safety rules of the interposed path (no `std::io`, no unwinding panic, constructor-time symbol resolution) |
-| `src/fdtable.rs` | which fd refers to which NVIDIA device node — and why the table takes a `Mutex`, never an `RwLock` (CUDA forks) |
-| `src/log.rs` | logging through raw `write(2)`, the line formats, and the rule that DRM ioctls are never decoded past `nr`/`size`/`ret` |
+| `src/lib.rs` | Interposed symbols and `RTLD_NEXT` resolution |
+| `src/fdtable.rs` | Device/FD tracking, including fork-related locking constraints |
+| `src/log.rs` | Raw-write logging, record fields and output formats |
 
-The rules those files enforce are constraints, not style; each one is
-stated on the code it constrains, with what it cost to learn.
+- Avoid `std::io` on interposed paths: it can re-enter the hooks.
+- Preserve constructor-time symbol resolution and C ABI panic constraints.
+- DRM calls are logged without interpreting their payloads as RM structures.
+- Logging preserves the libc call's `errno`, including failed trace writes.
+- The FD table uses atomics; full hooks allocate and are not async-signal-safe.
+- Payload decoding assumes readable caller buffers and a matching build/driver ABI.
+  Invalid pointers or an ABI mismatch can fault in the tracer.
 
 ## Use
 
-    LEA_TRACE_FILE=out.tsv LD_PRELOAD=/path/to/libnvrm_trace.so <program>
+```sh
+cargo build --release -p nvrm-trace
+LEA_TRACE_FILE=out.tsv LD_PRELOAD=/path/to/libnvrm_trace.so <program>
+```
 
-The build product is `target/release/libnvrm_trace.so`; the scripts find
-it through `LEA_TRACE_LIB` (`scripts/lib/config.sh`), and
-`probe/run/trace.sh` is the end-to-end harness around it.
-
-## Output
-
-**Two formats, one record.** Every line is built once as a list of named
-fields and rendered by both renderers, so the two cannot carry different
-information. `LEA_TRACE_FORMAT` picks which are written — `tsv`, `jsonl`,
-or `both`, the default — and the JSONL goes beside the TSV, with the
-`.tsv` suffix replaced (`out.tsv` → `out.jsonl`).
-
-    open      ctl 9                        {"t":"open","dev":"ctl","fd":9}
-    ioctl     ctl 0xd6 - 8 - 0 - 9         {"t":"ioctl","dev":"ctl",...,"fd":9}
-
-The record kinds are listed at the top of `src/log.rs`. Nothing parses
-either format directly: `lea_trace_stream` (`scripts/lib/common.sh`, awk,
-because it also runs inside the guest) and `probe/python/traceread.py` are
-the two readers, and `traceread.py --check` is the gate that asserts a
-run's JSONL carries exactly the records its TSV does.
-
-Why JSONL at all, since TSV counts and greps fine: the answer dumps for
-allocations and UVM are per-command, variable-length payloads, and a
-positional format with a fixed 32-byte tail cannot carry one without being
-parsed by position *and* by convention.
+- Build output: `target/release/libnvrm_trace.so`.
+- Harness: `probe/run/trace.sh`; scripts can select the library with `LEA_TRACE_LIB`.
+- `LEA_TRACE_FORMAT` accepts `tsv`, `jsonl` or `both` (default).
+- Without `LEA_TRACE_FILE`, only TSV is written to stderr.
+- `LEA_TRACE_DUMP` limits bytes per payload dump (default 65536); 0 disables dumps.
+- Output is appended. Use a fresh file or truncate it before each run.
+- Both renderers consume the same named fields. JSONL replaces a `.tsv` suffix
+  with `.jsonl`, or appends `.jsonl` otherwise.
+- Record definitions are in `src/log.rs`. Readers are `lea_trace_stream` in
+  `scripts/lib/common.sh` and `probe/python/traceread.py`.
+- `traceread.py --check` compares the TSV and JSONL records of a run.
+- At normal exit, stderr reports failed/short writes and FD registrations outside
+  the 65536-slot table if either count is nonzero. Forked children inherit counters;
+  `_exit` and fatal termination skip this diagnostic. Other interception gaps are
+  not counted, so zero counters do not prove a complete trace.

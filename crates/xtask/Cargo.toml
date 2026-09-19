@@ -15,11 +15,8 @@ bindgen.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
-# The manifests are read out of bindgen's own output, with a real parser
-# rather than a regex: the numbers in a layout test are the numbers the crate
-# compiles against, and a shape this does not recognise has to be an error
-# rather than a silently empty result.
-syn = { version = "2", features = ["full", "parsing", "printing"] }
+# Parse bindgen layouts and workspace binding uses.
+syn = { version = "2", features = ["full", "parsing", "printing", "visit"] }
 quote = "1"
 proc-macro2 = "1"
 prettyplease = "0.2"

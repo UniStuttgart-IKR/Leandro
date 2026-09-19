@@ -1,24 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! Serialize the descriptor tables for the guest module.
+//! Serialize `xlate` descriptors into the `nvrm-wire::tables` stream.
 //!
-//! Terms, once: RM is NVIDIA's Resource Manager, the kernel driver behind
-//! /dev/nvidiactl and /dev/nvidiaN, and its ioctls are called escapes;
-//! UVM is its unified-memory driver (/dev/nvidia-uvm); hClass is an RM
-//! object class number.
-//!
-//! `xlate.rs` is and remains the source of truth; here it is only poured
-//! into the stream that `nvrm-wire::tables` describes. The module is the
-//! interpreter of that stream and carries **no** NVIDIA constant of its own.
-//!
-//! Where possible the table is **queried rather than transcribed**: the UVM
-//! sizes and the class list come out of a scan over
-//! `uvm_param_size`/`alloc_param_size`/`fd_field_offset`, not out of a
-//! second list that could go stale. Where a rule cannot be queried (which
-//! escape carries an embedded pointer), it is spelled out here -- and
-//! **checked** against `xlate::embedded_ptr` (`verify_against_xlate`), so
-//! that a divergence falls over loudly instead of going quietly wrong.
+//! Query sizes and FD fields from `xlate`. Rules requiring a sample payload
+//! are represented here and checked by `verify_against_xlate` before writing.
+//! The guest interprets the stream without its own NVIDIA layout constants.
 
 use nvrm_wire::tables as t;
 use nvrm_wire::DevTag;
@@ -78,16 +65,9 @@ fn desc(dev: DevTag, nr: u32) -> t::IoctlDesc {
     }
 }
 
-/// The highest UVM command value the scan covers. UVM numbers its commands
-/// from 1 upwards (the dense range reaches 81 today, `uvm_ioctl.h`), and
-/// 2047 is the highest number the header uses at all -- the outlier
-/// `UVM_IOCTL_BASE(2047)`, which `uvm_param_size` does not implement. The
-/// scan reaches it anyway: an unimplemented command contributes no row
-/// (the `None` arm skips it), so covering it costs one more pass over a
-/// match at build time and buys the guarantee that the day it DOES get a
-/// size, the tables get the descriptor instead of silently dropping it.
-/// Outside the scan, knowingly: the two 0x3000_000x values from
-/// `uvm_linux_ioctl.h`, added separately.
+/// Scan ordinary UVM commands through UVM_IOCTL_BASE (2047, uvm_ioctl.h).
+/// Unknown commands emit no row. The two 0x3000_000x Linux commands are
+/// added separately.
 const UVM_SCAN_MAX: u32 = 2047;
 const UVM_SPECIAL: [u32; 2] = [xlate::uvm::INITIALIZE, xlate::uvm::DEINITIALIZE];
 
@@ -99,10 +79,8 @@ const CLASS_SCAN_MAX: u32 = 0xffff;
 /// sit inside the `_IOC` nr).
 const FRONTEND_SCAN_MAX: u32 = 0xff;
 
-/// The four descriptor lists before serialization -- the writer's view.
-/// `build::<sys::DefaultAbi>()` pours them into the stream; `expect_dump()` writes them as
-/// text, against which the C interpreter
-/// (`guest-module/virtio_nvrm/test/tabcheck.c`) diffs its own reading.
+/// Descriptor lists before serialization. `expect_dump` prints this view;
+/// `guest-module/virtio_nvrm/test/tabcheck.c` independently decodes the stream.
 struct Parts {
     ioctls: Vec<t::IoctlDesc>,
     classes: Vec<t::ClassDesc>,
@@ -138,7 +116,7 @@ fn collect<A: RmAbi>() -> Parts {
         };
         let nrs = (0..=UVM_SCAN_MAX).chain(UVM_SPECIAL);
         for nr in nrs {
-            let Some(size) = xlate::uvm_param_size(nr) else {
+            let Some(size) = xlate::uvm_param_size_for::<A>(nr) else {
                 continue;
             };
             let mut d = desc(dev_tag, nr);
@@ -151,8 +129,8 @@ fn collect<A: RmAbi>() -> Parts {
     }
 
     // ---- Frontend: fd fields queried from xlate --------------------------
-    // The size sits in the _IOC encoding, so `size` stays at SIZE_FROM_IOC
-    // here. An escape with no entry is simply forwarded.
+    // Frontend sizes come from _IOC. Include reviewed flat envelopes as well
+    // as translation exceptions; the host refuses unlisted request envelopes.
     for dev_tag in [DevTag::Ctl, DevTag::Gpu] {
         let xdev = if dev_tag == DevTag::Ctl {
             Dev::Ctl
@@ -162,7 +140,7 @@ fn collect<A: RmAbi>() -> Parts {
         for nr in 0..=FRONTEND_SCAN_MAX {
             let fd_off = xlate::fd_field_offset(xdev, nr, 0);
             let special = frontend_special(nr);
-            if fd_off.is_none() && special.is_none() {
+            if xlate::frontend_size(nr).is_none() && special.is_none() {
                 continue;
             }
             let mut d = desc(dev_tag, nr);
@@ -242,7 +220,7 @@ fn collect<A: RmAbi>() -> Parts {
     }
 
     // Blocked controls with no second-level pointers appear in no table
-    // otherwise -- without an entry the module would never see the block.
+    // otherwise; without an entry the module would never see the block.
     for &cmd in xlate::blocked_ctrls() {
         if ctrls.iter().any(|c| c.cmd == cmd) {
             continue; // already has a row, the flag was set above
@@ -257,7 +235,7 @@ fn collect<A: RmAbi>() -> Parts {
     }
 
     // Controls that carry an fd but no second-level pointer have no row from
-    // either loop above -- and without a row the module never learns the
+    // either loop above; and without a row the module never learns the
     // offset. Same shape as the blocked ones directly above.
     for &cmd in xlate::ctrl_fd_cmds() {
         let off = xlate::ctrl_fd_offset(cmd).unwrap_or_else(|| {
@@ -285,8 +263,7 @@ fn collect<A: RmAbi>() -> Parts {
     }
 }
 
-/// The 24 header words in wire order (nvrm_wire.h) -- the ONE place that
-/// knows the order; `build::<sys::DefaultAbi>()` and `expect_dump()` share it.
+/// The 24 header words in wire order (nvrm_wire.h).
 fn header_words(p: &Parts, total_len: u32, checksum: u32) -> [u32; 24] {
     [
         t::TABLE_MAGIC,
@@ -359,13 +336,9 @@ fn serialize(p: &Parts) -> (Vec<u8>, u32) {
     (bytes, checksum)
 }
 
-/// The writer's view as text -- line for line the format
-/// `guest-module/virtio_nvrm/test/tabcheck.c` prints when READING the
-/// stream. Deliberately formatted from the source
-/// structures, not from the serialized bytes: the diff of the two outputs
-/// checks exactly the stretch in between (serialization in Rust, parse +
-/// struct layout + find_* in C). All raw decimal -- formatting logic would
-/// be surface for divergence.
+/// Print source descriptors in the decimal format used by C tabcheck.
+/// Comparing this output with the decoded stream checks Rust serialization,
+/// C layout, parsing and lookup together.
 pub fn expect_dump<A: RmAbi>() -> String {
     use std::fmt::Write;
 
@@ -426,18 +399,11 @@ pub fn expect_dump<A: RmAbi>() -> String {
     out
 }
 
-// ---------------------------------------------------------------------------
-// The rules that cannot be queried
-// ---------------------------------------------------------------------------
-// `embedded_ptr` needs a filled-in payload to answer -- as a function it is
-// not enumerable. The structure of its decision therefore stands here,
-// field by field, with the same evidence as there. It is checked in
-// verify_against_xlate(): once a number no longer agrees with xlate, the
-// HOST falls over while building the table -- not the guest, at some point
-// mid-run.
+// Embedded-pointer rules need sample payloads, so they are listed here.
+// `verify_against_xlate` checks agreement before constructing the stream.
 
 /// NVOS54 (`NV_ESC_RM_CONTROL`): cmd u32 @8, params P64 @16, paramsSize u32
-/// @24 -- self-describing (xlate::embedded_ptr).
+/// @24; self-describing (xlate::embedded_ptr).
 const NVOS54_CMD_OFF: u32 = 8;
 const NVOS54_PARAMS_OFF: u32 = 16;
 const NVOS54_PARAMSSIZE_OFF: u32 = 24;
@@ -463,22 +429,17 @@ const NVOS02_STATUS_OFF: u32 = 40;
 /// `NV01_MEMORY_SYSTEM_OS_DESCRIPTOR`.
 const OSDESC_CLASS: u32 = 0x71;
 
-// Every constant above is a hand-transcribed offset into a struct bindgen
-// already knows. These guards tie the two together at COMPILE time: change
-// a number here and the crate no longer builds, instead of the guest module
-// reading the wrong word of a parameter block at run time. The values
-// themselves stay literals on purpose -- a constant defined as
-// `offset_of!(..)` would agree with the struct by construction and check
-// nothing.
+// Compare independently transcribed offsets with bindgen at compile time.
+// Keep literals here so the assertions detect a changed layout.
 const _: () = {
     use core::mem::{offset_of, size_of};
 
-    // NVOS54 -- RM_CONTROL (nvos.h).
+    // NVOS54; RM_CONTROL (nvos.h).
     assert!(NVOS54_CMD_OFF as usize == offset_of!(sys::NVOS54_PARAMETERS, cmd));
     assert!(NVOS54_PARAMS_OFF as usize == offset_of!(sys::NVOS54_PARAMETERS, params));
     assert!(NVOS54_PARAMSSIZE_OFF as usize == offset_of!(sys::NVOS54_PARAMETERS, paramsSize));
 
-    // NVOS64 -- the 48-byte form of RM_ALLOC. `NVOS64_LEN` is what tells
+    // NVOS64; the 48-byte form of RM_ALLOC. `NVOS64_LEN` is what tells
     // the module which of the two forms it has in front of it, so it must
     // be the size of the struct and not merely "48".
     assert!(NVOS64_HCLASS_OFF as usize == offset_of!(sys::NVOS64_PARAMETERS, hClass));
@@ -486,10 +447,10 @@ const _: () = {
     assert!(NVOS64_RIGHTS_OFF as usize == offset_of!(sys::NVOS64_PARAMETERS, pRightsRequested));
     assert!(NVOS64_LEN as usize == size_of::<sys::NVOS64_PARAMETERS>());
 
-    // NVOS00 -- RM_FREE.
+    // NVOS00; RM_FREE.
     assert!(NVOS00_HOBJECTOLD_OFF as usize == offset_of!(sys::NVOS00_PARAMETERS, hObjectOld));
 
-    // NVOS02 -- RM_ALLOC_MEMORY, the OS-descriptor path. These five ride in
+    // NVOS02; RM_ALLOC_MEMORY, the OS-descriptor path. These five ride in
     // the descriptor-table header (see `header_words`), and the guest
     // module writes the pinned pages' address and limit at exactly these
     // offsets.
@@ -545,7 +506,7 @@ fn frontend_special(nr: u32) -> Option<Special> {
         },
         x if x == sys::NV_ESC_RM_ALLOC_MEMORY => Special {
             // No embedded pointer: NVOS02.pMemory points at memory RM
-            // PINS rather than copies. Hence F_OSDESC -- the module
+            // PINS rather than copies. Hence F_OSDESC; the module
             // resolves the pages into GPA runs instead of sending a guest
             // VA.
             emb_len_off: NVOS02_HCLASS_OFF,
@@ -569,9 +530,8 @@ fn frontend_special(nr: u32) -> Option<Special> {
     })
 }
 
-/// Counter-check: the same decision `xlate::embedded_ptr` makes, recomputed
-/// from the numbers in `frontend_special`. Runs while the table is built --
-/// that is, at every host start.
+/// Compare frontend descriptors with xlate using representative payloads.
+/// Run during table construction to reject inconsistent translation rules.
 fn verify_against_xlate<A: RmAbi>() {
     // (1) RM_CONTROL: params @16, length from the field @24.
     let mut buf = [0u8; 32];
@@ -614,7 +574,7 @@ fn verify_against_xlate<A: RmAbi>() {
         ),
     }
 
-    // (3) pRightsRequested != 0 must fail loudly -- the table tells the
+    // (3) pRightsRequested != 0 must fail loudly; the table tells the
     //     module the same thing via rights_off/rights_if_size.
     buf[24..32].copy_from_slice(&1u64.to_le_bytes());
     let got = unsafe { xlate::embedded_ptr::<A>(Dev::Ctl, sys::NV_ESC_RM_ALLOC, buf.as_ptr(), 48) };
@@ -655,7 +615,7 @@ fn verify_against_xlate<A: RmAbi>() {
 mod tests {
     use super::*;
 
-    /// Test-side decoder of the stream -- deliberately independent of the
+    /// Test-side decoder of the stream; deliberately independent of the
     /// builder code above (reads raw LE bytes, the way the C module does).
     struct Decoded {
         hdr: Vec<u32>,
@@ -734,7 +694,7 @@ mod tests {
     }
 
     /// The five UVM and five frontend fd fields must all be in the stream
-    /// -- otherwise the module fails to translate an fd and the host gets a
+    ///; otherwise the module fails to translate an fd and the host gets a
     /// guest-local number.
     #[test]
     fn fd_fields_survive_serialisation() {
@@ -755,7 +715,7 @@ mod tests {
     }
 
     /// Every blocked control is in the stream and carries CF_BLOCK. Drop the
-    /// entry and the module sends the command out again -- and the block
+    /// entry and the module sends the command out again; and the block
     /// would rest on the host alone instead of on both sides.
     #[test]
     fn blocked_ctrls_are_in_the_stream() {
@@ -785,16 +745,9 @@ mod tests {
         }
     }
 
-    /// The three length rules, as the module has to see them in the stream:
-    /// (1) RM_CONTROL is self-describing (paramsSize @24),
-    /// (2) RM_ALLOC takes the length from the hClass table (hClass @12),
-    /// (3) UVM has no _IOC size -- every row MUST carry a fixed length, or
-    ///     the host would guess and the driver's copy_from_user would read
-    ///     past the end.
-    /// Between (2) and (3) sits NVOS41's constant-length variant of (1):
-    /// the length is a constant riding in the length field itself
-    /// (EMB_LEN_FIXED).
-    /// All offsets: nvos.h, evidenced at the NVOS* constants above.
+    /// Length rules: paramsSize for RM_CONTROL, class size for RM_ALLOC,
+    /// fixed sizeof(NvUnixEvent) for NVOS41, and fixed per-command UVM sizes.
+    /// Offsets come from nvos.h and the checked constants above.
     #[test]
     fn the_three_length_rules() {
         let d = decode(&build::<sys::DefaultAbi>());
@@ -816,12 +769,7 @@ mod tests {
         assert_eq!(al[D_RIGHTS], 24);
         assert_eq!(al[D_RIGHTS_IF], 48);
 
-        // (2b) NVOS41: pEvent P64 @0, and the length is a CONSTANT that
-        //      rides in the length field itself. This variant was the
-        //      last case this test learned to state, and it is the one whose
-        //      value cannot be read out of the guest's own buffer -- if it
-        //      drifts from sizeof(NvUnixEvent) the module copies the wrong
-        //      number of bytes back and nothing else here would notice.
+        // NVOS41: pEvent @0; EMB_LEN_FIXED carries sizeof(NvUnixEvent).
         let ev = find(&d, DevTag::Ctl, sys::NV_ESC_RM_GET_EVENT_DATA);
         assert_eq!(ev[D_EMB_PTR], 0);
         assert_eq!(ev[D_EMB_KIND], t::EMB_LEN_FIXED);
@@ -845,7 +793,7 @@ mod tests {
                 );
                 assert_eq!(
                     Some(r[D_SIZE]),
-                    xlate::uvm_param_size(r[D_NR]),
+                    xlate::uvm_param_size_for::<sys::DefaultAbi>(r[D_NR]),
                     "UVM nr {:#x}: size in the stream != xlate",
                     r[D_NR]
                 );
@@ -853,7 +801,7 @@ mod tests {
         }
         let known = (0..=UVM_SCAN_MAX)
             .chain(UVM_SPECIAL)
-            .filter(|&nr| xlate::uvm_param_size(nr).is_some())
+            .filter(|&nr| xlate::uvm_param_size_for::<sys::DefaultAbi>(nr).is_some())
             .count();
         assert_eq!(uvm_rows, known * 2, "one row each for uvm and uvm-tools");
     }
@@ -945,7 +893,7 @@ mod tests {
             assert_eq!(flags, want, "{hclass:#x} flags");
         }
         // Both states must actually occur, otherwise the assertion above is
-        // vacuous -- a scan that marked everything the same way would pass.
+        // vacuous; a scan that marked everything the same way would pass.
         assert!(
             d.classes.iter().any(|c| c[3] & t::KF_UNVERIFIED != 0),
             "no unverified classes"
@@ -967,13 +915,7 @@ mod tests {
         assert_eq!(xlate::alloc_fd_field(0x0079), Some(16));
     }
 
-    /// No command carries more second-level pointers than `MAX_NESTED`.
-    ///
-    /// This is the invariant an index access in `session.rs` hangs off
-    /// -- an index into a fixed-size array (`req.nested[i]`, `MAX_NESTED = 4`)
-    /// -- and because it holds, that barrier is unreachable today. If it
-    /// breaks, the barrier has to bite; which is why it is checked HERE and
-    /// not assumed there.
+    /// Every nested descriptor list must fit the wire MAX_NESTED array.
     #[test]
     fn nested_ptrs_stay_within_max_nested() {
         for &cmd in xlate::nested_cmds() {
@@ -991,10 +933,7 @@ mod tests {
         );
     }
 
-    /// Every control entry points INTO the nested table -- the C
-    /// interpreter relies on that once it has checked the header. And every
-    /// command from xlate::nested_cmds() is in the stream with exactly its
-    /// second-level pointers.
+    /// Nested table ranges must be valid and match xlate::nested_cmds().
     #[test]
     fn ctrl_rows_are_in_bounds_and_complete() {
         let d = decode(&build::<sys::DefaultAbi>());
@@ -1034,20 +973,9 @@ mod tests {
         }
     }
 
-    /// No two rows in the stream share a key.
-    ///
-    /// The C interpreter in the guest module looks a row up with a linear
-    /// scan that returns the FIRST match (`find_ioctl` by (dev, nr),
-    /// `find_class` by hclass, `find_ctrl` by cmd). A duplicate row would
-    /// therefore not be a loud error but a silent shadow: the second row --
-    /// possibly the one with the fd offset or the size -- would never be
-    /// reached, and the call it describes would be forwarded untranslated.
-    ///
-    /// The ioctl table is the one where a collision is plausible: the UVM
-    /// scan and the frontend scan write into the same list, and UVM 39
-    /// (PAGEABLE_MEM_ACCESS) collides with frontend 0x27
-    /// (NV_ESC_RM_ALLOC_MEMORY) on the nr alone -- only the device tag
-    /// keeps them apart.
+    /// The C lookup returns the first matching key; duplicate rows shadow
+    /// later descriptors. Ioctl keys include the device because RM and UVM
+    /// reuse numbers, such as frontend 0x27 and UVM PAGEABLE_MEM_ACCESS (39).
     #[test]
     fn no_two_rows_in_the_stream_share_a_key() {
         use std::collections::BTreeSet;
@@ -1086,15 +1014,7 @@ mod tests {
         assert!(keys.contains(&(DevTag::Ctl as u32, sys::NV_ESC_RM_ALLOC_MEMORY)));
     }
 
-    /// The three hand-maintained command lists in `xlate` contain each
-    /// command at most once.
-    ///
-    /// They are written by hand beside the match arms they enumerate, and
-    /// `collect()` walks them in order: a duplicate in `nested_cmds()` would
-    /// push the same control TWICE into the ctrl table (the test above then
-    /// catches the shadowed row, but not what caused it), and a duplicate in
-    /// `blocked_ctrls()`/`ctrl_fd_cmds()` hides a copy-paste slip that will
-    /// bite the next time a real command is added next to it.
+    /// Control enumeration lists must contain no duplicates.
     #[test]
     fn the_xlate_command_lists_have_no_duplicates() {
         use std::collections::BTreeSet;

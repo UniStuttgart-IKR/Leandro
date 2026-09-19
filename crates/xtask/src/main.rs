@@ -1,18 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! Repository automation that needs the workspace's own toolchain.
-//!
-//! One task today:
+//! Generate and verify the versioned NVIDIA ABI bindings.
 //!
 //! ```text
 //! cargo xtask abi [--check] [--report PATH]
 //! ```
-//!
-//! which reads `crates/nvrm-sys/abi.toml`, runs bindgen once per driver
-//! version against that version's vendored headers, writes a layout manifest
-//! per version, and classifies every bound struct and constant between every
-//! pair of versions.
 
 mod abi;
 

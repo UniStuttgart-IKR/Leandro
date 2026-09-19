@@ -28,18 +28,11 @@ struct nvrm_nodes_gpa_run {
 };
 
 /**
- * VA2GPA: resolve `va`..`va+len` and pin the pages.
- *
- * Replaces reading /proc/self/pagemap from userspace. Two advantages over the
- * userspace route: it needs no CAP_SYS_ADMIN (pagemap shows PFNs only to
- * root), and `pin_user_pages(FOLL_LONGTERM)` really holds the pages down --
- * mlock does not protect against migration/compaction, pinning does. The
- * pages stay pinned until this FD is closed (that is, until the CUDA process
- * ends) -- exactly the lifetime of the host arena, the contiguous
- * host-side buffer the backend assembles from these runs.
- *
- * `runs_len` is OUT. If `runs_max` is not enough, -ENOSPC comes back and
- * `runs_len` carries the required count; nothing is pinned.
+ * VA2GPA pins the caller's page-aligned range and returns physical runs.
+ * No CAP_SYS_ADMIN is required. FOLL_LONGTERM pins prevent migration; the
+ * pages remain pinned until the file's final reference is released.
+ * If runs_max is insufficient, return -ENOSPC with the required runs_len
+ * and retain no pins.
  */
 struct nvrm_nodes_gpa_req {
 	__u64 va; /* IN,  page-aligned */

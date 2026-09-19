@@ -1,19 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de> */
 /* SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR */
-/*
- * nvrm_vram.c -- how much VRAM the guest's display path needs, measured,
- * and the arithmetic of the balloon that holds it (display_reserve_mib).
- *
- * ONE translation unit for two worlds, pulled in via #include, exactly as
- * nvrm_edid.c is:
- *   - virtio_nvrm.c (kernel module): sizes and cuts the balloon, tells a
- *     display allocation from any other, picks what gives way.
- *   - test/vramcheck.c (userspace): the same functions against the measured
- *     sizes and requests. test.sh check runs it.
- *
- * Hence ONLY integer arithmetic on buffers in here. Whoever reads module
- * parameters, takes locks, talks to the host or prints is the includer.
+/* Display reserve sizing and balloon arithmetic.
+ * Included by virtio_nvrm.c and test/vramcheck.c; no allocation or locking.
  */
 
 #ifdef __KERNEL__
@@ -73,34 +62,18 @@ static u64 nvrm_scanout_bytes(u32 w, u32 h)
 	return (pitch * rows + 0xffff) & ~(u64)0xffff;
 }
 
-/*
- * How many of those the display path needs above idle, and the cursor
- * beside them.
+/* Reserve five scanout buffers plus four 256x256x4 cursor buffers.
+ * Measured 2026-09-17 on .23: GNOME 46, Wayland, simple KMS, one head,
+ * 2816 MiB guest FB. Peak display allocations above idle:
  *
- * Measured on .23 on 2026-09-17 (GNOME 46 on Wayland, mutter in simple KMS
- * mode, one head, 2816 MiB guest FB), with every VIDMEM allocation and free
- * of the guest traced: the display side -- nvidia-modeset (the kernel NVKMS
- * path, which carries Xwayland's and the cursor's gbm_bos), Xwayland and
- * gnome-shell -- above its idle sum, highest point per transition, in
- * scanout buffers S of that size:
+ *   size        X11 fullscreen   Wayland fullscreen   cursor   Moonlight
+ *   1920x1080       34.0 MiB          25.4 MiB        +0.6       +0.4
+ *   2560x1440       38.6 MiB          39.7 MiB        +0.5       +0.3
+ *   3840x2160      148.9 MiB          88.1 MiB        +1.3       +1.4
  *
- *                     X11 fullscreen   Wayland fullscreen   cursor   Moonlight
- *   1920x1080  S  8.4    34.0 MiB 4.04 S   25.4 MiB 3.01 S   +0.6     +0.4
- *   2560x1440  S 15.0    38.6 MiB 2.57 S   39.7 MiB 2.65 S   +0.5     +0.3
- *   3840x2160  S 31.9   148.9 MiB 4.67 S   88.1 MiB 2.76 S   +1.3     +1.4
- *
- * The X11 case is the one that froze: Xwayland's window buffers for a
- * fullscreen window are three S through NVKMS, SCANOUT once mutter offers
- * direct scanout, plus one more while a window of the old size is still
- * out, plus gnome-shell's own transition copies. A Wayland client allocates
- * its swapchain itself; what grows is gnome-shell's fullscreen transition
- * (a colour and a depth buffer of S). mutter's own swapchain (four S in
- * gnome-shell, NVOS32) is allocated at session start and was never seen to
- * grow. Five S is the highest peak (4.67 S) in whole buffers. The cursor is
- * pitch linear, 256x256x4, and mutter's cursor manager holds up to four
- * (meta-kms-cursor-manager.c): 1 MiB.
- *
- *   1920x1080  44 MiB    2560x1440  76 MiB    3840x2160  161 MiB
+ * The largest peak is 4.67 scanouts, rounded up to five. Mutter holds up
+ * to four cursors (meta-kms-cursor-manager.c). Rounded reserves are 44,
+ * 76 and 161 MiB.
  */
 #define NVRM_RESERVE_SCANOUTS 5
 #define NVRM_RESERVE_CURSOR_BYTES (4u * 256 * 256 * 4)

@@ -1,39 +1,18 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! Attach guest pages to a GPU VA without an mmap on the host's uvm FD.
+//! Map guest RAM into contiguous host arenas for NVIDIA Resource Manager (RM).
 //!
-//! Terms, once: RM is NVIDIA's Resource Manager, the kernel driver behind
-//! /dev/nvidiactl and /dev/nvidiaN; UVM is its unified-memory driver
-//! (/dev/nvidia-uvm); an OS descriptor is an
-//! NV01_MEMORY_SYSTEM_OS_DESCRIPTOR, memory RM pins rather than copies;
-//! NVOS02 is the parameter block of RM_ALLOC_MEMORY (nvos.h); DRF is
-//! NVIDIA's `hi:lo` bitfield notation, which `OSDESC_FLAGS` below is
-//! written in.
-//!
-//! Two users, one core primitive:
-//!  A) The semaphore pool. The guest places writable guest pages at
-//!     `addr == GPU VA` and names their GPA runs. The host assembles them
-//!     into one contiguous host VA (guest RAM is a file, because the VM
-//!     runs with `--memory shared=on`), registers that VA with RM as
-//!     NV01_MEMORY_SYSTEM_OS_DESCRIPTOR, and attaches it with
-//!     UVM_CREATE_EXTERNAL_RANGE + UVM_MAP_EXTERNAL_ALLOCATION at GPU VA
-//!     `addr`.
-//!  B) Every forwarded 0x71 alloc (RM_ALLOC_MEMORY) of the guest. Same
-//!     arena, but the host VA goes into `NVOS02.pMemory`; the session runs
-//!     that alloc anyway, and would otherwise pass RM a guest-side VA,
-//!     which means nothing in the host address space.
-//!
-//! `crates/nvrm-client/src/bin/e1-extmap.rs` demonstrates the chain on its
-//! own: it carries at freely chosen GPU VAs. The same chain stands here,
-//! only with guest pages instead of a memfd, and with a private backing
-//! client that UVM duplicates into the guest's registered VASpace (the
-//! GPU's virtual-address-space object) via the
-//! DUP grant (grant_dup_same_user).
+//! Semaphore pools register an arena as an OS descriptor and attach it at the
+//! guest's GPU VA through UVM. Forwarded RM_ALLOC_MEMORY calls use the arena's
+//! host VA as NVOS02.pMemory. Both paths require file-backed guest RAM
+//! (`--memory shared=on`) and retain the arena while RM uses its pages.
 
 use anyhow::{bail, Context, Result};
-use std::collections::HashMap;
-use std::os::fd::AsRawFd;
+use std::collections::{HashMap, HashSet};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 
 use nvrm_abi::{share, sys, NvDevice};
 
@@ -41,11 +20,148 @@ use crate::guest_words::{GuestAddr, GuestLen};
 
 type Mem = vm_memory::GuestMemoryAtomic<vm_memory::GuestMemoryMmap<()>>;
 
-/// uvm_ioctl.h -- raw numbers (UVM_IOCTL_BASE(i) == i on Linux). GPU and
-/// VASpace are registered by the guest itself (forwarded); only the two
-/// external commands are needed here.
+/// Linux UVM command numbers (UVM_IOCTL_BASE(i) == i).
+/// The guest has already registered its GPU and VASpace.
 const UVM_MAP_EXTERNAL_ALLOCATION: u64 = 33;
 const UVM_CREATE_EXTERNAL_RANGE: u64 = 73;
+
+/// VM-wide admission budget for registered guest-page arenas, including
+/// failed cleanup and forwarded allocations whose remaining aliases are unknown.
+pub struct PinBudget {
+    limit: u64,
+    used: AtomicU64,
+    retained_bytes: AtomicU64,
+    retained: Mutex<Vec<Arena>>,
+    quarantine: Mutex<Vec<PoolMap>>,
+    private_clients: Mutex<HashSet<u32>>,
+}
+
+impl PinBudget {
+    pub fn new(limit: u64) -> Result<Arc<Self>> {
+        if limit == 0 {
+            bail!("aggregate pin budget must be nonzero");
+        }
+        Ok(Arc::new(Self {
+            limit,
+            used: AtomicU64::new(0),
+            retained_bytes: AtomicU64::new(0),
+            retained: Mutex::new(Vec::new()),
+            quarantine: Mutex::new(Vec::new()),
+            private_clients: Mutex::new(HashSet::new()),
+        }))
+    }
+
+    /// Provisional default: 1 GiB per VM. Invalid overrides fail startup.
+    pub fn from_env() -> Result<Arc<Self>> {
+        let limit = match std::env::var("LEA_MAX_PIN_TOTAL_MIB") {
+            Ok(raw) => parse_pin_bytes(&raw)
+                .context("LEA_MAX_PIN_TOTAL_MIB must be a positive MiB count that fits u64")?,
+            Err(std::env::VarError::NotPresent) => 1024 << 20,
+            Err(error) => return Err(error).context("LEA_MAX_PIN_TOTAL_MIB"),
+        };
+        Self::new(limit)
+    }
+
+    pub fn used_bytes(&self) -> u64 {
+        self.used.load(Ordering::Relaxed)
+    }
+
+    pub fn retained_bytes(&self) -> u64 {
+        self.retained_bytes.load(Ordering::Relaxed)
+    }
+
+    pub fn quarantined_bytes(&self) -> u64 {
+        self.quarantine
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|pool| pool.quarantined_charge)
+            .sum()
+    }
+
+    fn reserve(self: &Arc<Self>, bytes: u64) -> Result<PinLease> {
+        if bytes == 0 {
+            bail!("cannot reserve an empty arena");
+        }
+        self.used
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+                used.checked_add(bytes).filter(|sum| *sum <= self.limit)
+            })
+            .map_err(|used| {
+                anyhow::anyhow!(
+                    "guest-page registration budget exceeded: {used}/{} bytes, \
+                 {} retained after source free, requested {bytes} (LEA_MAX_PIN_TOTAL_MIB)",
+                    self.limit,
+                    self.retained_bytes()
+                )
+            })?;
+        Ok(PinLease {
+            budget: self.clone(),
+            bytes,
+        })
+    }
+
+    fn retain(&self, mut arena: Arena) {
+        let bytes = arena.detach_charge();
+        if bytes != 0 && self.retained_bytes.fetch_add(bytes, Ordering::Relaxed) == 0 {
+            eprintln!(
+                "vhost-user-nvrm: retaining forwarded guest-page registrations: \
+                source RM_FREE does not prove duplicate or exported references are gone"
+            );
+        }
+        self.retained.lock().unwrap().push(arena);
+    }
+
+    fn quarantine(&self, mut pool: PoolMap) {
+        pool.quarantined_charge = pool.arena.as_mut().unwrap().detach_charge();
+        self.quarantine.lock().unwrap().push(pool);
+    }
+
+    pub(crate) fn private_client(self: &Arc<Self>, root: u32) -> PrivateClient {
+        self.private_clients.lock().unwrap().insert(root);
+        PrivateClient {
+            root,
+            budget: Arc::downgrade(self),
+        }
+    }
+
+    /// Retry owners transferred from closed sessions before admitting more memory.
+    pub fn retry_cleanup(&self) {
+        self.quarantine.lock().unwrap().retain_mut(|pool| {
+            if pool.cleanup().is_err() {
+                return true;
+            }
+            self.used
+                .fetch_sub(pool.quarantined_charge, Ordering::Relaxed);
+            pool.quarantined_charge = 0;
+            false
+        });
+    }
+}
+
+struct PinLease {
+    budget: Arc<PinBudget>,
+    bytes: u64,
+}
+
+pub(crate) struct PrivateClient {
+    root: u32,
+    budget: Weak<PinBudget>,
+}
+
+impl Drop for PrivateClient {
+    fn drop(&mut self) {
+        if let Some(budget) = self.budget.upgrade() {
+            budget.private_clients.lock().unwrap().remove(&self.root);
+        }
+    }
+}
+
+impl Drop for PinLease {
+    fn drop(&mut self) {
+        self.budget.used.fetch_sub(self.bytes, Ordering::Relaxed);
+    }
+}
 
 /// nvos.h:192-279, DRF hi:lo as a shift: PHYSICALITY 7:4 (NONCONTIGUOUS=1),
 /// LOCATION 11:8 (PCI=0), COHERENCY 15:12 (CACHED=1), MAPPING 31:30
@@ -53,35 +169,56 @@ const UVM_CREATE_EXTERNAL_RANGE: u64 = 73;
 #[allow(clippy::identity_op)] // (0 << 8) documents the DRF field LOCATION=PCI
 const OSDESC_FLAGS: u32 = (1 << 4) | (0 << 8) | (1 << 12) | (1 << 30);
 
-/// Pin limit per arena, for both users above: LEA_MAX_PIN_MIB, default 256.
-/// Read once on first use; nonsense (0, unparsable) falls back to the
-/// default loudly, because a silent limit of 0 would mean "every
-/// allocation fails".
+fn parse_pin_bytes(raw: &str) -> Option<u64> {
+    raw.trim()
+        .parse::<u64>()
+        .ok()?
+        .checked_mul(1 << 20)
+        .filter(|bytes| *bytes != 0)
+}
+
+fn host_page_size() -> Result<u64> {
+    let bytes = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if bytes <= 0 {
+        bail!("cannot determine host page size");
+    }
+    Ok(bytes as u64)
+}
+
+fn registration_bytes(bytes: u64) -> Result<u64> {
+    if bytes == 0 {
+        bail!("cannot reserve an empty arena");
+    }
+    let page = host_page_size()?;
+    let rounded = bytes
+        .checked_add(page - 1)
+        .context("page-rounded arena length overflows")?;
+    Ok(rounded / page * page)
+}
+
+/// Per-arena pin limit, read once. Invalid LEA_MAX_PIN_MIB values use 256 MiB.
 fn max_pin_bytes() -> u64 {
     use std::sync::OnceLock;
     static LIMIT: OnceLock<u64> = OnceLock::new();
     *LIMIT.get_or_init(|| {
         let default_mib = 256u64;
-        let mib = match std::env::var("LEA_MAX_PIN_MIB") {
-            Err(_) => default_mib,
-            Ok(s) => match s.trim().parse::<u64>() {
-                Ok(v) if v > 0 => v,
-                _ => {
+        match std::env::var("LEA_MAX_PIN_MIB") {
+            Err(_) => default_mib << 20,
+            Ok(s) => match parse_pin_bytes(&s) {
+                Some(bytes) => bytes,
+                None => {
                     eprintln!(
                         "vhost-user-nvrm: LEA_MAX_PIN_MIB={s:?} unusable, \
                          using default {default_mib} MiB"
                     );
-                    default_mib
+                    default_mib << 20
                 }
             },
-        };
-        mib << 20
+        }
     })
 }
 
-/// One (GPA, length) run, as the guest derives it from /proc/self/pagemap.
-/// Both fields are guest words -- hence [`GuestAddr`]/[`GuestLen`], whose
-/// arithmetic exists only checked (see `guest_words.rs`).
+/// One guest-physical range, derived from the guest's /proc/self/pagemap.
 #[derive(Copy, Clone, Debug)]
 pub struct GpaRun {
     pub gpa: GuestAddr,
@@ -92,10 +229,7 @@ impl GpaRun {
     pub const WIRE: usize = 16;
 
     pub fn decode(aux: &[u8], count: usize) -> Option<Vec<GpaRun>> {
-        // checked_mul, not `count * WIRE`: today `count` comes from a u32
-        // (`Req.gpa_run_count`) and cannot overflow on 64 bit -- but the
-        // length check must not depend on who calls it. On overflow it
-        // would answer "fits" and the loop would run past the aux buffer.
+        // Reject overflow before indexing the guest's auxiliary buffer.
         let need = count.checked_mul(Self::WIRE)?;
         if aux.len() < need {
             return None;
@@ -119,6 +253,7 @@ impl GpaRun {
 pub struct Arena {
     base: *mut u8,
     len: usize,
+    lease: Option<PinLease>,
 }
 
 // SAFETY: the arena is a pure address-space reservation of this process;
@@ -132,20 +267,14 @@ impl Arena {
     /// overall length (the host does not blindly trust the sum of the runs).
     pub fn build(mem: &Mem, runs: &[GpaRun], total: GuestLen) -> Result<Arena> {
         use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryRegion};
-        // WARNING: every value here comes from the guest -- hence
-        // GuestLen/GuestAddr, whose arithmetic exists only checked. The sum
-        // check is the guarantee that the runs fit into the arena.
-        //
-        // Unchecked, two crafted runs pass both checks -- 2 MiB and
-        // (0x1000 - 2 MiB) mod 2^64 sum to exactly `total`, and the second
-        // run's `gpa + len` wraps small enough to look in-region. The
-        // `MAP_FIXED` below then writes 2 MiB over a 4 KiB reservation, into
-        // unrelated host address space, and `Drop` only takes the first page
-        // back. Hence checked arithmetic throughout. Reachable from the
-        // guest via `UvmPoolBack` (`map_len` and the runs are all guest
-        // words) and via the forwarded 0x71 alloc.
+        // Guest lengths must fit without wrapping: MAP_FIXED outside this
+        // reservation would overwrite unrelated host mappings.
         let mut sum = GuestLen::new(0);
+        let page_size = host_page_size()?;
         for r in runs {
+            if r.len.is_zero() || r.gpa.get() % page_size != 0 || r.len.get() % page_size != 0 {
+                bail!("guest page runs must be nonempty and host-page aligned");
+            }
             sum = sum
                 .plus(r.len)
                 .ok_or_else(|| anyhow::anyhow!("sum of run lengths overflows"))?;
@@ -153,11 +282,7 @@ impl Arena {
         if sum != total {
             bail!("runs sum to {sum}, expected {total}");
         }
-        // The upper bound is a plausibility barrier against a lying guest,
-        // not a technical one: 768 MiB arenas carry fine (pagemap, run
-        // encoding, RM pinning). The host pins real RAM per allocation, so
-        // some limit stays -- but it is selectable per deployment:
-        // LEA_MAX_PIN_MIB (default 256).
+        // Limit each allocation's pinned host RAM.
         if total.is_zero() || total.get() > max_pin_bytes() {
             bail!(
                 "arena length {total} over the pin limit {} MiB (LEA_MAX_PIN_MIB)",
@@ -165,7 +290,8 @@ impl Arena {
             );
         }
 
-        let len = total.get() as usize;
+        let len =
+            usize::try_from(total.get()).context("arena length exceeds host address space")?;
         // Reserve the address space in one piece.
         let base = unsafe {
             libc::mmap(
@@ -183,6 +309,7 @@ impl Arena {
         let arena = Arena {
             base: base as *mut u8,
             len,
+            lease: None,
         };
 
         let guard = mem.memory();
@@ -196,8 +323,7 @@ impl Arena {
                 "guest RAM without a file -- is the VM running with --memory shared=on?",
             )?;
             let region_base = GuestAddr::new(region.start_addr().0);
-            // Computed checked: a `gpa + len` that wraps would otherwise be
-            // "below the region end" and the run would count as inside it.
+            // A wrapping end must not pass the region bounds check.
             let run_end = r
                 .gpa
                 .end(r.len)
@@ -208,20 +334,8 @@ impl Arena {
             if run_end > region_end {
                 bail!("run {:#x}+{:#x} exceeds the region", r.gpa, r.len);
             }
-            // Check the target offset explicitly instead of deriving it from
-            // `sum == total`: otherwise the MAP_FIXED below writes past the
-            // end of the reservation into unrelated host address space, and
-            // Drop only takes `len` back.
-            //
-            // WARNING: honesty note on test coverage: as long as the checked
-            // sum above stands, `off + r.len <= total` holds by construction
-            // -- so this bound is unreachable, and it is the only line of
-            // this block for which NO failing test exists (demonstrated:
-            // remove it alone and everything stays green; remove both and
-            // the test dies with SIGSEGV). It stays regardless: it holds the
-            // moment `total` comes from a source other than the sum of the
-            // runs -- and that is exactly what a further restructuring could
-            // do.
+            // Check the MAP_FIXED destination locally, even though the
+            // checked sum above already guarantees this bound.
             let end_in_arena = off.checked_add(r.len.get()).filter(|e| *e <= total.get());
             if end_in_arena.is_none() {
                 bail!(
@@ -229,14 +343,15 @@ impl Arena {
                     r.len
                 );
             }
-            // `gpa - region_base` is never negative after find_region -- the
-            // subtraction stays checked anyway, because it computes with a
-            // guest word.
             let in_region = r
                 .gpa
                 .offset_from(region_base)
                 .ok_or_else(|| anyhow::anyhow!("GPA {:#x} before the region", r.gpa))?;
-            let file_off = fo.start() + in_region;
+            let file_off = fo
+                .start()
+                .checked_add(in_region)
+                .and_then(|offset| libc::off_t::try_from(offset).ok())
+                .context("guest RAM file offset exceeds mmap range")?;
             let dst = unsafe { arena.base.add(off as usize) };
             let p = unsafe {
                 libc::mmap(
@@ -245,7 +360,7 @@ impl Arena {
                     libc::PROT_READ | libc::PROT_WRITE,
                     libc::MAP_SHARED | libc::MAP_FIXED,
                     fo.file().as_raw_fd(),
-                    file_off as i64,
+                    file_off,
                 )
             };
             if p == libc::MAP_FAILED {
@@ -259,6 +374,14 @@ impl Arena {
 
     pub fn base(&self) -> *mut u8 {
         self.base
+    }
+
+    fn detach_charge(&mut self) -> u64 {
+        self.lease.take().map_or(0, |mut lease| {
+            let bytes = lease.bytes;
+            lease.bytes = 0;
+            bytes
+        })
     }
 }
 
@@ -302,17 +425,17 @@ impl Backing {
             root,
             device: 0,
             uuid: Default::default(),
-            next_handle: root + 1,
+            next_handle: root.checked_add(1).context("backing RM handle overflow")?,
         };
 
         // Device + subdevice, to fetch the GPU UUID.
-        let device = b.handle();
+        let device = b.handle()?;
         let mut dp = sys::NV0080_ALLOC_PARAMETERS::default();
         dp.deviceId = 0;
         b.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp))?;
         b.device = device;
 
-        let subdevice = b.handle();
+        let subdevice = b.handle()?;
         let mut sp = sys::NV2080_ALLOC_PARAMETERS::default();
         sp.subDeviceId = 0;
         b.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp))?;
@@ -329,10 +452,10 @@ impl Backing {
         Ok(b)
     }
 
-    fn handle(&mut self) -> u32 {
+    fn handle(&mut self) -> Result<u32> {
         let h = self.next_handle;
-        self.next_handle += 1;
-        h
+        self.next_handle = h.checked_add(1).context("backing RM handles exhausted")?;
+        Ok(h)
     }
 
     fn alloc<P>(&self, parent: u32, handle: u32, class: u32, params: Option<&mut P>) -> Result<()> {
@@ -359,9 +482,9 @@ impl Backing {
         Ok(())
     }
 
-    /// OS descriptor onto a host VA, plus the DUP grant for UVM.
+    /// Allocate the source object; its owner must be recorded before granting DUP.
     fn os_descriptor(&mut self, host_va: *mut u8, len: u64) -> Result<u32> {
-        let osdesc = self.handle();
+        let osdesc = self.handle()?;
         let mut wfd = nvrm_abi::nvgpu::Nvos02WithFd::default();
         wfd.params.hRoot = self.root;
         wfd.params.hObjectParent = self.device;
@@ -377,14 +500,27 @@ impl Backing {
         };
         nvrm_abi::check_status(sys::NV_ESC_RM_ALLOC_MEMORY, wfd.params.status as u32)?;
 
-        // UVM later duplicates this object into its kernel client. Without
-        // the grant, MAP_EXTERNAL fails with 0x1b
-        // (INSUFFICIENT_PERMISSIONS).
-        let (r, s) = unsafe { share::grant_dup_same_user(self.ctl.as_raw_fd(), self.root, osdesc) };
+        Ok(osdesc)
+    }
+
+    fn grant(&self, osdesc: u32) -> Result<()> {
+        // Allow UVM duplication from this backend PID only.
+        let (r, s) =
+            unsafe { share::grant_dup_same_process(self.ctl.as_raw_fd(), self.root, osdesc) };
         if r != 0 || s != 0 {
             bail!("DUP grant for OS descriptor {osdesc:#x}: ret {r} status {s:#x}");
         }
-        Ok(osdesc)
+        Ok(())
+    }
+
+    fn free(&self, osdesc: u32) -> Result<()> {
+        let mut params = sys::NVOS00_PARAMETERS::default();
+        params.hRoot = self.root;
+        params.hObjectParent = self.device;
+        params.hObjectOld = osdesc;
+        unsafe { self.ctl.ioctl_raw(sys::NV_ESC_RM_FREE, &mut params)? };
+        nvrm_abi::check_status(sys::NV_ESC_RM_FREE, params.status as u32)?;
+        Ok(())
     }
 }
 
@@ -400,85 +536,264 @@ pub fn card() -> Result<([u8; 16], u64)> {
     Ok((b.uuid.uuid, fb.fbInfoList[0].data as u64 * 1024))
 }
 
-/// An active external mapping of a pool -- held so that the arena and the
-/// OS descriptor stay alive as long as the guest uses the pool.
-/// `addr`/`len`/`osdesc` are what a re-map path would need (re-attaching
-/// after a REGISTER_GPU_VASPACE); today the entry only keeps the arena
-/// alive.
-#[allow(dead_code)]
-struct PoolMap {
-    addr: GuestAddr,
-    len: GuestLen,
-    osdesc: u32,
-    arena: Arena,
+/// Operations whose ordering determines the lifetime of a registered arena.
+trait PoolDriver: Send + Sync {
+    fn allocate(&self, arena: &Arena, len: GuestLen) -> Result<u32>;
+    fn grant(&self, handle: u32) -> Result<()>;
+    fn create_range(&self, fd: RawFd, addr: GuestAddr, len: GuestLen) -> Result<()>;
+    fn map(&self, fd: RawFd, addr: GuestAddr, len: GuestLen, handle: u32) -> Result<()>;
+    fn free_range(&self, fd: RawFd, addr: GuestAddr, len: GuestLen) -> Result<()>;
+    fn free_object(&self, handle: u32) -> Result<()>;
 }
 
-/// Everything a session needs to attach guest pages to GPU VAs. Hooked
-/// into `Session`.
-#[derive(Default)]
+struct RealPoolDriver {
+    backing: Mutex<Backing>,
+    free_range: fn(RawFd, GuestAddr, GuestLen) -> Result<()>,
+    _private_client: PrivateClient,
+}
+
+impl PoolDriver for RealPoolDriver {
+    fn allocate(&self, arena: &Arena, len: GuestLen) -> Result<u32> {
+        self.backing
+            .lock()
+            .unwrap()
+            .os_descriptor(arena.base(), len.get())
+    }
+
+    fn grant(&self, handle: u32) -> Result<()> {
+        self.backing.lock().unwrap().grant(handle)
+    }
+
+    fn create_range(&self, fd: RawFd, addr: GuestAddr, len: GuestLen) -> Result<()> {
+        let mut params = sys::UVM_CREATE_EXTERNAL_RANGE_PARAMS {
+            base: addr.get(),
+            length: len.get(),
+            ..Default::default()
+        };
+        uvm_call(
+            fd,
+            UVM_CREATE_EXTERNAL_RANGE,
+            &mut params,
+            CREATE_RANGE_STATUS_OFF,
+        )
+        .context("CREATE_EXTERNAL_RANGE")
+    }
+
+    fn map(&self, fd: RawFd, addr: GuestAddr, len: GuestLen, handle: u32) -> Result<()> {
+        let backing = self.backing.lock().unwrap();
+        let mut params: Box<sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS> =
+            unsafe { Box::new(std::mem::zeroed()) };
+        params.base = addr.get();
+        params.length = len.get();
+        params.perGpuAttributes[0].gpuUuid = backing.uuid;
+        params.perGpuAttributes[0].gpuMappingType = sys::UvmGpuMappingTypeReadWriteAtomic as u32;
+        params.perGpuAttributes[0].gpuCachingType = sys::UvmGpuCachingTypeDefault as u32;
+        params.gpuAttributesCount = 1;
+        params.rmCtrlFd = backing.ctl.as_raw_fd();
+        params.hClient = backing.root;
+        params.hMemory = handle;
+        uvm_call(
+            fd,
+            UVM_MAP_EXTERNAL_ALLOCATION,
+            params.as_mut(),
+            MAP_EXTERNAL_STATUS_OFF,
+        )
+        .context("MAP_EXTERNAL_ALLOCATION")
+    }
+
+    fn free_range(&self, fd: RawFd, addr: GuestAddr, len: GuestLen) -> Result<()> {
+        (self.free_range)(fd, addr, len)
+    }
+
+    fn free_object(&self, handle: u32) -> Result<()> {
+        self.backing.lock().unwrap().free(handle)
+    }
+}
+
+fn free_params<A: nvrm_sys::RmAbi>(addr: GuestAddr, len: GuestLen) -> A::UvmFreeParams {
+    let mut params: A::UvmFreeParams = unsafe { std::mem::zeroed() };
+    // SAFETY: RmAbi supplies offsets for this exact generated parameter type.
+    let bytes = unsafe {
+        std::slice::from_raw_parts_mut(
+            &mut params as *mut A::UvmFreeParams as *mut u8,
+            std::mem::size_of::<A::UvmFreeParams>(),
+        )
+    };
+    let offset = A::UVM_FREE_PARAMS_OFF_base;
+    bytes[offset..offset + 8].copy_from_slice(&addr.get().to_le_bytes());
+    let offset = A::UVM_FREE_PARAMS_OFF_length;
+    // R580 carries a length; newer layouts use an out-of-bounds sentinel.
+    if offset + 8 <= bytes.len() {
+        bytes[offset..offset + 8].copy_from_slice(&len.get().to_le_bytes());
+    }
+    params
+}
+
+fn free_range<A: nvrm_sys::RmAbi>(fd: RawFd, addr: GuestAddr, len: GuestLen) -> Result<()> {
+    uvm_call(
+        fd,
+        nvrm_abi::xlate::uvm::FREE as u64,
+        &mut free_params::<A>(addr, len),
+        A::UVM_FREE_PARAMS_OFF_rmStatus,
+    )
+    .context("UVM_FREE")
+}
+
+/// A transaction owns each resource as soon as its allocating call succeeds.
+struct PoolMap {
+    token: u64,
+    addr: GuestAddr,
+    len: GuestLen,
+    arena: Option<Arena>,
+    uvm_fd: Option<OwnedFd>,
+    driver: Arc<dyn PoolDriver>,
+    osdesc: Option<u32>,
+    range_live: bool,
+    active: bool,
+    quarantined_charge: u64,
+}
+
+impl PoolMap {
+    fn cleanup(&mut self) -> Result<()> {
+        self.active = false;
+        // UVM_FREE releases its duplicate reference before the source RM_FREE.
+        if self.range_live {
+            self.driver.free_range(
+                self.uvm_fd.as_ref().unwrap().as_raw_fd(),
+                self.addr,
+                self.len,
+            )?;
+            self.range_live = false;
+        }
+        if let Some(handle) = self.osdesc {
+            self.driver.free_object(handle)?;
+            self.osdesc = None;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for PoolMap {
+    fn drop(&mut self) {
+        if let Err(error) = self.cleanup() {
+            eprintln!("vhost-user-nvrm: final pool cleanup failed at {:#x}: {error:#};                 retaining arena, UVM fd and backing client until process exit", self.addr);
+            // Exceptional fallback: releasing these owners would invalidate live DMA.
+            std::mem::forget((self.arena.take(), self.uvm_fd.take(), self.driver.clone()));
+        }
+    }
+}
+
+/// Guest-page registrations for one session; the admission budget is VM-wide.
 pub struct PoolState {
-    backing: Option<Backing>,
-    /// Semaphore pools, one per base VA.
+    driver: Option<Arc<dyn PoolDriver>>,
+    budget: Arc<PinBudget>,
     pools: Vec<PoolMap>,
-    /// Arenas of forwarded 0x71 allocs, one per created hMemory handle --
-    /// held until the RM_FREE.
-    osdesc_arenas: HashMap<u32, Arena>,
+    osdesc_arenas: HashMap<(u32, u32), Arena>,
+}
+
+impl Default for PoolState {
+    fn default() -> Self {
+        Self::with_budget(PinBudget::new(1024 << 20).unwrap())
+    }
 }
 
 impl PoolState {
-    fn backing(&mut self) -> Result<&mut Backing> {
-        if self.backing.is_none() {
-            self.backing = Some(Backing::new().context("create backing client")?);
+    pub fn with_budget(budget: Arc<PinBudget>) -> Self {
+        Self {
+            driver: None,
+            budget,
+            pools: Vec::new(),
+            osdesc_arenas: HashMap::new(),
         }
-        Ok(self.backing.as_mut().unwrap())
     }
 
-    /// Build an arena for a forwarded 0x71 alloc and return the host VA that
-    /// belongs in NVOS02.pMemory. The arena is only kept after a successful
-    /// alloc, via [`PoolState::keep_osdesc_arena`].
+    fn driver<A: nvrm_sys::RmAbi>(&mut self) -> Result<Arc<dyn PoolDriver>> {
+        if self.driver.is_none() {
+            let backing = Backing::new().context("create backing client")?;
+            let private_client = self.budget.private_client(backing.root);
+            self.driver = Some(Arc::new(RealPoolDriver {
+                backing: Mutex::new(backing),
+                free_range: free_range::<A>,
+                _private_client: private_client,
+            }));
+        }
+        Ok(self.driver.as_ref().unwrap().clone())
+    }
+
+    /// Reject guest DUP and UVM imports from these backend-only RM clients.
+    /// Their source objects must have no references beyond our tracked mapping.
+    pub fn is_private_client(&self, root: u32) -> bool {
+        self.budget.private_clients.lock().unwrap().contains(&root)
+    }
+
+    fn arena(&self, mem: &Mem, runs: &[GpaRun], total: GuestLen) -> Result<Arena> {
+        self.budget.retry_cleanup();
+        let lease = self.budget.reserve(registration_bytes(total.get())?)?;
+        let mut arena = Arena::build(mem, runs, total)?;
+        arena.lease = Some(lease);
+        Ok(arena)
+    }
+
+    /// The request plan owns this reservation until RM allocation succeeds.
     pub fn arena_for_osdesc(
         &self,
         mem: &Mem,
         runs: &[GpaRun],
         total: GuestLen,
     ) -> Result<(Arena, u64)> {
-        let arena = Arena::build(mem, runs, total)?;
+        let arena = self.arena(mem, runs, total)?;
         let va = arena.base() as u64;
         Ok((arena, va))
     }
 
-    pub fn keep_osdesc_arena(&mut self, hmemory: u32, arena: Arena) {
-        self.osdesc_arenas.insert(hmemory, arena);
+    pub fn keep_osdesc_arena(&mut self, root: u32, hmemory: u32, arena: Arena) {
+        if let Some(previous) = self.osdesc_arenas.insert((root, hmemory), arena) {
+            self.budget.retain(previous);
+        }
     }
 
-    /// Write a u32 to a guest VA, provided it lies inside one of the
-    /// registered pools (the arena aliases exactly those guest pages). For
-    /// the managed-compat path: the MIGRATE semaphore lies in the semaphore
-    /// pool (measured: 0x204a03ff8). `false` if the VA is in no pool -- the
-    /// caller then reports loudly.
-    ///
-    /// WARNING: `va` is a guest word (the `semaphoreAddress` from
-    /// UVM_MIGRATE) -- hence [`GuestAddr`], and the range check computes
-    /// only checked: with an unchecked `va + 4`, `va = u64::MAX - 3` passed
-    /// the check (the sum wraps to 0), and the write offset `va - p.addr`
-    /// became an arbitrary, guest-chosen distance from the arena base -- a
-    /// directed writer into unrelated host memory.
-    pub fn write_guest_u32(&self, va: GuestAddr, val: u32) -> bool {
+    /// Source handles may have surviving DUP or export references.
+    pub fn drop_osdesc_arena(&mut self, root: u32, hmemory: u32) {
+        if let Some(arena) = self.osdesc_arenas.remove(&(root, hmemory)) {
+            self.budget.retain(arena);
+        }
+    }
+
+    pub fn drop_osdesc_client(&mut self, root: u32) {
+        let keys: Vec<_> = self
+            .osdesc_arenas
+            .keys()
+            .copied()
+            .filter(|(client, _)| *client == root)
+            .collect();
+        for (_, handle) in keys {
+            self.drop_osdesc_arena(root, handle);
+        }
+    }
+
+    /// Signal a semaphore only in the request's UVM address space.
+    pub fn write_guest_u32_for(&self, token: u64, va: GuestAddr, val: u32) -> bool {
         let Some(end) = va.end(GuestLen::new(4)) else {
             return false;
         };
-        for p in &self.pools {
-            let Some(pool_end) = p.addr.end(p.len) else {
+        for pool in &self.pools {
+            if !pool.active || pool.token != token {
+                continue;
+            }
+            let Some(pool_end) = pool.addr.end(pool.len) else {
                 continue;
             };
-            if va >= p.addr && end <= pool_end {
-                let Some(off) = va.offset_from(p.addr) else {
-                    continue;
-                };
-                // SAFETY: the arena is at least p.len big and lives as long
-                // as the pool is registered; off+4 <= len has been checked.
+            if va >= pool.addr && end <= pool_end {
+                let off = va.offset_from(pool.addr).unwrap();
+                if off % std::mem::align_of::<u32>() as u64 != 0 {
+                    return false;
+                }
+                // SAFETY: mmap aligns the base; off is aligned and off+4 <= len.
                 unsafe {
-                    std::ptr::write_volatile(p.arena.base().add(off as usize) as *mut u32, val);
+                    std::ptr::write_volatile(
+                        pool.arena.as_ref().unwrap().base().add(off as usize) as *mut u32,
+                        val,
+                    );
                 }
                 return true;
             }
@@ -486,105 +801,133 @@ impl PoolState {
         false
     }
 
-    pub fn drop_osdesc_arena(&mut self, hmemory: u32) {
-        self.osdesc_arenas.remove(&hmemory);
-    }
-
-    /// Back the semaphore pool with guest pages and attach it at GPU VA
-    /// `addr`. `uvm_fd` is this session's host uvm FD (the guest's GPU and
-    /// VASpace are already registered on it).
-    pub fn back_pool(
+    /// Reject overlapping registrations before touching UVM: its map operation
+    /// unmaps an existing mapping before validating the replacement.
+    pub fn back_pool_for<A: nvrm_sys::RmAbi>(
         &mut self,
         mem: &Mem,
-        uvm_fd: i32,
+        token: u64,
+        uvm_fd: RawFd,
         addr: GuestAddr,
         len: GuestLen,
         runs: &[GpaRun],
     ) -> Result<()> {
-        let arena = Arena::build(mem, runs, len).context("pool arena")?;
-        let backing = self.backing()?;
-        let uuid = backing.uuid;
-        let root = backing.root;
-        let ctl_fd = backing.ctl.as_raw_fd();
-        let osdesc = backing
-            .os_descriptor(arena.base(), len.get())
-            .context("OS descriptor for pool")?;
-
-        // CREATE_EXTERNAL_RANGE(addr, len) on the guest's uvm FD.
-        let mut cr: sys::UVM_CREATE_EXTERNAL_RANGE_PARAMS = unsafe { std::mem::zeroed() };
-        cr.base = addr.get();
-        cr.length = len.get();
-        uvm_call(
-            uvm_fd,
-            UVM_CREATE_EXTERNAL_RANGE,
-            &mut cr,
-            CREATE_RANGE_STATUS_OFF,
-        )
-        .context("CREATE_EXTERNAL_RANGE")?;
-
-        // MAP_EXTERNAL_ALLOCATION(addr, len, osdesc).
-        let mut mp: Box<sys::UVM_MAP_EXTERNAL_ALLOCATION_PARAMS> =
-            unsafe { Box::new(std::mem::zeroed()) };
-        mp.base = addr.get();
-        mp.length = len.get();
-        mp.offset = 0;
-        mp.perGpuAttributes[0].gpuUuid = uuid;
-        mp.perGpuAttributes[0].gpuMappingType = sys::UvmGpuMappingTypeReadWriteAtomic as u32;
-        mp.perGpuAttributes[0].gpuCachingType = sys::UvmGpuCachingTypeDefault as u32;
-        mp.gpuAttributesCount = 1;
-        mp.rmCtrlFd = ctl_fd;
-        mp.hClient = root;
-        mp.hMemory = osdesc;
-        uvm_call(
-            uvm_fd,
-            UVM_MAP_EXTERNAL_ALLOCATION,
-            mp.as_mut(),
-            MAP_EXTERNAL_STATUS_OFF,
-        )
-        .context("MAP_EXTERNAL_ALLOCATION")?;
-
-        // An older entry for the same GPU VA is dropped here -- otherwise it
-        // would win the search in `write_guest_u32` forever, and its arena
-        // would leak for as long as the session lives.
-        //
-        // Why the same GPU VA recurs at all: libcuda places the semaphore
-        // pool of EVERY process at the same address (measured: 0x204a00000).
-        // As long as one session served a whole VM, that made the host write
-        // the MIGRATE semaphore of the SECOND process into the dead arena of
-        // the first, and that process spun forever in a userspace wait loop
-        // -- managedprobe stage 2 green on the first run, hanging on every
-        // later one.
-        //
-        // Sessions are keyed per guest process now (docs/OPEN-QUESTIONS.md
-        // nr 4): every process gets its own `PoolState`, the VA collision
-        // is structurally gone, and this line only fires when a process
-        // re-registers its own pool. It still matters for the one case that
-        // shares a session: a guest that sends `guest_proc == 0` for all of
-        // its processes. There the last registration wins, and the losing
-        // process gets a loud "not in any pool" on its semaphore write
-        // instead of a silent write into the wrong arena.
-        //
-        // GPU-side the processes do NOT collide: each opens its own uvm FD,
-        // so the host holds a separate va_space per process.
-        self.pools.retain(|p| p.addr != addr);
-        self.pools.push(PoolMap {
+        let end = addr.end(len).context("pool address range overflows")?;
+        if len.is_zero() || addr.get() % 4096 != 0 || len.get() % 4096 != 0 {
+            bail!("pool address and length must describe whole 4 KiB pages");
+        }
+        self.retry_cleanup();
+        if self.pools.iter().any(|pool| {
+            pool.token == token && addr < pool.addr.end(pool.len).unwrap() && pool.addr < end
+        }) {
+            bail!("pool overlaps a registered or cleanup-pending range");
+        }
+        let arena = self.arena(mem, runs, len).context("pool arena")?;
+        // Keep the same open file description alive during cleanup retries.
+        let fd = unsafe { libc::fcntl(uvm_fd, libc::F_DUPFD_CLOEXEC, 0) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error()).context("duplicate pool UVM fd");
+        }
+        // SAFETY: fcntl returned a new descriptor owned by this call.
+        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        let driver = self.driver::<A>()?;
+        let mut pool = PoolMap {
+            token,
             addr,
             len,
-            osdesc,
-            arena,
+            arena: Some(arena),
+            uvm_fd: Some(fd),
+            driver,
+            osdesc: None,
+            range_live: false,
+            active: false,
+            quarantined_charge: 0,
+        };
+        let setup = (|| {
+            let handle = pool.driver.allocate(pool.arena.as_ref().unwrap(), len)?;
+            pool.osdesc = Some(handle);
+            pool.driver.grant(handle)?;
+            let fd = pool.uvm_fd.as_ref().unwrap().as_raw_fd();
+            pool.driver.create_range(fd, addr, len)?;
+            pool.range_live = true;
+            pool.driver.map(fd, addr, len, handle)?;
+            pool.active = true;
+            Ok(())
+        })();
+        match setup {
+            Ok(()) => {
+                self.pools.push(pool);
+                Ok(())
+            }
+            Err(error) => {
+                if let Err(cleanup) = pool.cleanup() {
+                    eprintln!("vhost-user-nvrm: pool rollback retained at {addr:#x}: {cleanup:#}");
+                    self.pools.push(pool);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn retry_cleanup(&mut self) {
+        self.budget.retry_cleanup();
+        self.pools
+            .retain_mut(|pool| pool.active || pool.cleanup().is_err());
+    }
+
+    /// Call only after the guest's UVM_FREE returned both transport success and NV_OK.
+    pub fn release_uvm_range(&mut self, token: u64, addr: GuestAddr) -> Result<()> {
+        for pool in &mut self.pools {
+            if pool.token == token && pool.addr == addr {
+                pool.range_live = false;
+                pool.active = false;
+            }
+        }
+        self.cleanup_matching(token, Some(addr))
+    }
+
+    /// Call before closing the mirrored UVM token. Failed owners stay retryable.
+    pub fn close_uvm(&mut self, token: u64) -> Result<()> {
+        self.cleanup_matching(token, None)
+    }
+
+    fn cleanup_matching(&mut self, token: u64, addr: Option<GuestAddr>) -> Result<()> {
+        let mut failure = None;
+        self.pools.retain_mut(|pool| {
+            if pool.token != token || addr.is_some_and(|addr| pool.addr != addr) {
+                return true;
+            }
+            match pool.cleanup() {
+                Ok(()) => false,
+                Err(error) => {
+                    failure = Some(error);
+                    true
+                }
+            }
         });
-        Ok(())
+        failure.map_or(Ok(()), Err)
     }
 }
 
-/// Where `rmStatus` sits in the two UVM parameter blocks this file sends.
-///
-/// From the bindgen structs, not from "the last word": until 2026-08-18
-/// `uvm_call` read `size_of::<T>() - 4`, and for
-/// `UVM_CREATE_EXTERNAL_RANGE_PARAMS` (24 bytes, `rmStatus @16`, four bytes
-/// of tail padding) that is the padding -- always zero, so a refused
-/// CREATE_EXTERNAL_RANGE was never noticed here and only the following
-/// MAP_EXTERNAL_ALLOCATION failed, blaming the wrong call.
+impl Drop for PoolState {
+    fn drop(&mut self) {
+        for mut pool in std::mem::take(&mut self.pools) {
+            if let Err(error) = pool.cleanup() {
+                eprintln!(
+                    "vhost-user-nvrm: quarantining pool {:#x} after session close: {error:#}",
+                    pool.addr
+                );
+                self.budget.quarantine(pool);
+            }
+        }
+        for (_, arena) in self.osdesc_arenas.drain() {
+            self.budget.retain(arena);
+        }
+    }
+}
+
+/// Read the declared rmStatus field. CREATE_EXTERNAL_RANGE has tail padding,
+/// so the final word of the struct is not its status.
 const CREATE_RANGE_STATUS_OFF: usize =
     std::mem::offset_of!(sys::UVM_CREATE_EXTERNAL_RANGE_PARAMS, rmStatus);
 const MAP_EXTERNAL_STATUS_OFF: usize =
@@ -602,9 +945,7 @@ const _: () = {
     assert!(MAP_EXTERNAL_STATUS_OFF == 9260);
 };
 
-/// Run a UVM ioctl on a raw FD and check the `rmStatus` at `status_off`
-/// (an `offset_of!` of the struct behind `p`, never a guess -- see the two
-/// constants above).
+/// Run a UVM ioctl and check rmStatus at the struct's declared field offset.
 fn uvm_call<T>(fd: i32, cmd: u64, p: &mut T, status_off: usize) -> Result<()> {
     debug_assert!(status_off + 4 <= std::mem::size_of::<T>());
     let r = unsafe { libc::ioctl(fd, cmd as libc::Ioctl, p as *mut T as *mut libc::c_void) };
@@ -659,12 +1000,7 @@ mod tests {
 
     const MEMFD_NAME: &str = "leandro-arena-test";
 
-    /// This process's mappings that sit on the test memfd, as (start, end).
-    /// Only those are of interest: a leftover MAP_FIXED cover is
-    /// memfd-backed by construction, whereas ordinary heap growth
-    /// (anonymous) would otherwise add noise -- in the debug profile,
-    /// formatting the error message alone costs a fresh 12 KiB anonymous
-    /// mapping.
+    /// Test-memfd mappings only, excluding unrelated anonymous heap growth.
     fn maps() -> Vec<(u64, u64)> {
         std::fs::read_to_string("/proc/self/maps")
             .unwrap()
@@ -680,16 +1016,13 @@ mod tests {
             .collect()
     }
 
-    /// `/proc/self/maps` is process-wide -- while a leak measurement runs,
-    /// no other test may map anything, or its arenas get counted too. Hence
-    /// EVERY test in this module takes this lock.
+    /// Serialize mmap tests because /proc/self/maps is process-wide.
     fn exclusive() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// GpaRun from raw numbers -- the tests deliberately prepare wrapping
-    /// values too, hence the direct route through the constructors.
+    /// Construct raw test ranges, including deliberately overflowing values.
     fn run(gpa: u64, len: u64) -> GpaRun {
         GpaRun {
             gpa: GuestAddr::new(gpa),
@@ -738,8 +1071,7 @@ mod tests {
         }
     }
 
-    /// The arena really does alias the named guest pages -- in run order,
-    /// not in GPA order.
+    /// Aliases follow run order, which may differ from GPA order.
     #[test]
     fn arena_aliases_the_named_guest_pages() {
         let _x = exclusive();
@@ -775,11 +1107,8 @@ mod tests {
             "length 0"
         );
 
-        // The region must be LARGER than the pin limit, otherwise the region
-        // check would already refuse and the test would prove nothing about
-        // the limit (only this way does it go red when the limit is removed).
-        // The memfd is sparsely populated -- the 512 MiB cost nothing as long
-        // as nobody writes into them.
+        // Use sparse RAM larger than the pin cap to isolate that check
+        // from region bounds validation.
         let mem = guest_mem_at(REGION_BASE, 512 << 20);
         let huge = (256 << 20) + 0x1000; // default pin limit + 1 page
         let runs = [run(REGION_BASE, huge)];
@@ -787,7 +1116,7 @@ mod tests {
             Arena::build(&mem, &runs, glen(huge)).is_err(),
             "over the pin limit"
         );
-        // Exactly at the limit it must carry -- the boundary sits where it should.
+        // The pin cap itself is inclusive.
         let ok_len = 256 << 20;
         let runs = [run(REGION_BASE, ok_len)];
         assert!(
@@ -821,19 +1150,9 @@ mod tests {
         );
     }
 
-    /// WARNING: the case this is all about: two runs whose sum **wraps**.
-    ///
-    /// Run 1 carries 2 MiB, run 2 carries `(0x1000 - 2 MiB) mod 2^64`. The
-    /// wrapping sum is exactly `total = 0x1000`, so it passes the length
-    /// check; run 2 additionally passes the region check, because its
-    /// `gpa + len` wraps too and becomes small in the process. Computed
-    /// unchecked, run 1 then lays a MAP_FIXED of 2 MiB over an arena that
-    /// reserves only 0x1000 -- 2 MiB of guest memory land in unrelated host
-    /// address space, and `Drop` takes only the first page back.
-    ///
-    /// The test fails in the **release** profile if the arithmetic is
-    /// unchecked (in the debug profile Rust panics on its own first -- also
-    /// not an acceptable outcome, but a different one).
+    /// A wrapped run sum must not let MAP_FIXED exceed its reservation.
+    /// Runs of 2 MiB and (0x1000 - 2 MiB) mod 2^64 would falsely fit 4 KiB.
+    /// Keep release coverage: debug overflow panics can hide a missing check.
     #[test]
     fn rejects_wrapping_sum_without_leaking_address_space() {
         let _x = exclusive();
@@ -887,20 +1206,394 @@ mod tests {
 
     // ---- write_guest_u32 --------------------------------------------------
 
-    /// A PoolState with one registered pool, without a GPU: `osdesc` is
-    /// bookkeeping only here, the arena is the only thing touched.
+    #[derive(Default)]
+    struct FakeDriver {
+        calls: Mutex<Vec<&'static str>>,
+        failures: Mutex<Vec<&'static str>>,
+        _private_client: Option<PrivateClient>,
+    }
+
+    impl FakeDriver {
+        fn call(&self, name: &'static str) -> Result<()> {
+            self.calls.lock().unwrap().push(name);
+            let mut failures = self.failures.lock().unwrap();
+            if let Some(index) = failures.iter().position(|failure| *failure == name) {
+                failures.remove(index);
+                bail!("injected {name} failure");
+            }
+            Ok(())
+        }
+
+        fn fail(&self, names: &[&'static str]) {
+            self.failures.lock().unwrap().extend_from_slice(names);
+        }
+
+        fn calls(&self) -> Vec<&'static str> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    impl PoolDriver for FakeDriver {
+        fn allocate(&self, _: &Arena, _: GuestLen) -> Result<u32> {
+            self.call("allocate")?;
+            Ok(7)
+        }
+        fn grant(&self, _: u32) -> Result<()> {
+            self.call("grant")
+        }
+        fn create_range(&self, _: RawFd, _: GuestAddr, _: GuestLen) -> Result<()> {
+            self.call("create")
+        }
+        fn map(&self, _: RawFd, _: GuestAddr, _: GuestLen, _: u32) -> Result<()> {
+            self.call("map")
+        }
+        fn free_range(&self, _: RawFd, _: GuestAddr, _: GuestLen) -> Result<()> {
+            self.call("free_range")
+        }
+        fn free_object(&self, _: u32) -> Result<()> {
+            self.call("free_object")
+        }
+    }
+
+    /// A pool backed by test RAM, without an RM client or GPU mapping.
     fn pool_state_with(mem: &Mem, addr: u64, gpa: u64, len: u64) -> PoolState {
         let arena = Arena::build(mem, &[run(gpa, len)], glen(len)).unwrap();
-        PoolState {
-            backing: None,
-            pools: vec![PoolMap {
-                addr: GuestAddr::new(addr),
-                len: GuestLen::new(len),
-                osdesc: 0,
-                arena,
-            }],
-            osdesc_arenas: HashMap::new(),
+        let mut state = PoolState::default();
+        state.pools.push(PoolMap {
+            token: 1,
+            addr: GuestAddr::new(addr),
+            len: GuestLen::new(len),
+            arena: Some(arena),
+            uvm_fd: None,
+            driver: Arc::new(FakeDriver::default()),
+            osdesc: None,
+            range_live: false,
+            active: true,
+            quarantined_charge: 0,
+        });
+        state
+    }
+
+    fn fake_pool(budget: Arc<PinBudget>) -> (PoolState, Arc<FakeDriver>, File) {
+        let driver = Arc::new(FakeDriver::default());
+        let mut state = PoolState::with_budget(budget);
+        state.driver = Some(driver.clone());
+        (state, driver, File::open("/dev/null").unwrap())
+    }
+
+    fn register(
+        state: &mut PoolState,
+        mem: &Mem,
+        fd: &File,
+        token: u64,
+        va: u64,
+        gpa: u64,
+    ) -> Result<()> {
+        state.back_pool_for::<sys::DefaultAbi>(
+            mem,
+            token,
+            fd.as_raw_fd(),
+            GuestAddr::new(va),
+            glen(0x1000),
+            &[run(gpa, 0x1000)],
+        )
+    }
+
+    #[test]
+    fn setup_failure_releases_only_resources_it_acquired() {
+        let _x = exclusive();
+        let mem = guest_mem();
+        for (failed, expected) in [
+            ("allocate", vec!["allocate"]),
+            ("grant", vec!["allocate", "grant", "free_object"]),
+            ("create", vec!["allocate", "grant", "create", "free_object"]),
+            (
+                "map",
+                vec![
+                    "allocate",
+                    "grant",
+                    "create",
+                    "map",
+                    "free_range",
+                    "free_object",
+                ],
+            ),
+        ] {
+            let budget = PinBudget::new(0x1000).unwrap();
+            let (mut state, driver, fd) = fake_pool(budget.clone());
+            driver.fail(&[failed]);
+            let leaked = leaked_bytes(|| {
+                assert!(register(&mut state, &mem, &fd, 1, 0x2000, REGION_BASE).is_err());
+            });
+            assert_eq!(driver.calls(), expected, "{failed}");
+            assert_eq!(leaked, 0, "{failed}");
+            assert_eq!(budget.used_bytes(), 0, "{failed}");
+            assert!(state.pools.is_empty(), "{failed}");
         }
+    }
+
+    #[test]
+    fn failed_uvm_rollback_keeps_the_arena_fd_and_charge_until_retry() {
+        let _x = exclusive();
+        let mem = guest_mem();
+        let budget = PinBudget::new(0x1000).unwrap();
+        let (mut state, driver, fd) = fake_pool(budget.clone());
+        driver.fail(&["map", "free_range"]);
+        assert!(register(&mut state, &mem, &fd, 1, 0x2000, REGION_BASE).is_err());
+        let held_fd = state.pools[0].uvm_fd.as_ref().unwrap().as_raw_fd();
+        drop(fd);
+        assert!(unsafe { libc::fcntl(held_fd, libc::F_GETFD) } >= 0);
+        assert_eq!(budget.used_bytes(), 0x1000);
+        assert!(state.pools[0].range_live);
+        assert!(!state.write_guest_u32_for(1, GuestAddr::new(0x2000), 5));
+        assert!(!driver.calls().contains(&"free_object"));
+        state.retry_cleanup();
+        assert_eq!(budget.used_bytes(), 0);
+        assert!(state.pools.is_empty());
+        assert_eq!(&driver.calls()[5..], &["free_range", "free_object"]);
+    }
+
+    #[test]
+    fn failed_rm_free_does_not_repeat_successful_uvm_free() {
+        let _x = exclusive();
+        let mem = guest_mem();
+        let budget = PinBudget::new(0x1000).unwrap();
+        let (mut state, driver, fd) = fake_pool(budget.clone());
+        register(&mut state, &mem, &fd, 1, 0x2000, REGION_BASE).unwrap();
+        driver.fail(&["free_object"]);
+        assert!(state.close_uvm(1).is_err());
+        assert_eq!(budget.used_bytes(), 0x1000);
+        assert!(!state.pools[0].range_live);
+        state.close_uvm(1).unwrap();
+        assert_eq!(budget.used_bytes(), 0);
+        assert_eq!(
+            &driver.calls()[4..],
+            &["free_range", "free_object", "free_object"]
+        );
+    }
+
+    #[test]
+    fn session_cleanup_failure_moves_to_the_shared_retryable_quarantine() {
+        let _x = exclusive();
+        let mem = guest_mem();
+        let budget = PinBudget::new(0x1000).unwrap();
+        let (mut state, driver, fd) = fake_pool(budget.clone());
+        register(&mut state, &mem, &fd, 1, 0x2000, REGION_BASE).unwrap();
+        driver.fail(&["free_range", "free_range"]);
+        drop(state);
+        assert_eq!(budget.used_bytes(), 0x1000);
+        assert_eq!(budget.quarantined_bytes(), 0x1000);
+        budget.retry_cleanup();
+        assert_eq!(budget.quarantined_bytes(), 0x1000);
+        assert!(budget.reserve(0x1000).is_err());
+        budget.retry_cleanup();
+        assert_eq!(budget.used_bytes(), 0);
+        assert_eq!(budget.quarantined_bytes(), 0);
+        assert_eq!(
+            &driver.calls()[4..],
+            &["free_range", "free_range", "free_range", "free_object"]
+        );
+    }
+
+    #[test]
+    fn private_client_guard_survives_session_close_and_failed_cleanup() {
+        let _x = exclusive();
+        let mem = guest_mem();
+        let budget = PinBudget::new(0x1000).unwrap();
+        let observer = PoolState::with_budget(budget.clone());
+        let driver = Arc::new(FakeDriver {
+            _private_client: Some(budget.private_client(42)),
+            ..Default::default()
+        });
+        let mut state = PoolState::with_budget(budget.clone());
+        state.driver = Some(driver.clone());
+        let fd = File::open("/dev/null").unwrap();
+        register(&mut state, &mem, &fd, 1, 0x2000, REGION_BASE).unwrap();
+        driver.fail(&["free_range", "free_range"]);
+        drop(driver);
+        assert!(observer.is_private_client(42));
+        assert!(!observer.is_private_client(43));
+        drop(state);
+        assert!(observer.is_private_client(42));
+        budget.retry_cleanup();
+        assert!(observer.is_private_client(42));
+        budget.retry_cleanup();
+        assert!(!observer.is_private_client(42));
+        assert_eq!(budget.used_bytes(), 0);
+    }
+
+    #[test]
+    fn registration_charge_rounds_to_host_pages_without_overflow() {
+        let page = host_page_size().unwrap();
+        for (bytes, expected) in [
+            (1, page),
+            (page - 1, page),
+            (page, page),
+            (page + 1, page * 2),
+        ] {
+            assert_eq!(registration_bytes(bytes).unwrap(), expected);
+        }
+        assert!(registration_bytes(0).is_err());
+        assert!(registration_bytes(u64::MAX).is_err());
+        let largest = u64::MAX - u64::MAX % page;
+        assert_eq!(registration_bytes(largest).unwrap(), largest);
+    }
+
+    #[test]
+    fn overlapping_pools_are_rejected_before_driver_calls() {
+        let _x = exclusive();
+        let mem = guest_mem();
+        let budget = PinBudget::new(0x3000).unwrap();
+        let (mut state, driver, fd) = fake_pool(budget.clone());
+        state
+            .back_pool_for::<sys::DefaultAbi>(
+                &mem,
+                1,
+                fd.as_raw_fd(),
+                GuestAddr::new(0x2000),
+                glen(0x2000),
+                &[run(REGION_BASE, 0x2000)],
+            )
+            .unwrap();
+        let calls = driver.calls();
+        for va in [0x2000, 0x3000] {
+            assert!(register(&mut state, &mem, &fd, 1, va, REGION_BASE).is_err());
+            assert_eq!(driver.calls(), calls);
+            assert_eq!(budget.used_bytes(), 0x2000);
+        }
+        assert!(state.write_guest_u32_for(1, GuestAddr::new(0x2000), 7));
+    }
+
+    #[test]
+    fn equal_vas_on_distinct_uvm_tokens_keep_independent_owners() {
+        let _x = exclusive();
+        let mem = guest_mem();
+        let budget = PinBudget::new(0x2000).unwrap();
+        let (mut state, driver, fd) = fake_pool(budget.clone());
+        register(&mut state, &mem, &fd, 1, 0x2000, REGION_BASE).unwrap();
+        register(&mut state, &mem, &fd, 2, 0x2000, REGION_BASE + 0x1000).unwrap();
+        assert!(state.write_guest_u32_for(1, GuestAddr::new(0x2000), 11));
+        assert!(state.write_guest_u32_for(2, GuestAddr::new(0x2000), 22));
+        assert!(!state.write_guest_u32_for(3, GuestAddr::new(0x2000), 33));
+        use vm_memory::{Bytes, GuestAddressSpace};
+        assert_eq!(
+            mem.memory()
+                .read_obj::<u32>(GuestAddress(REGION_BASE))
+                .unwrap(),
+            11
+        );
+        assert_eq!(
+            mem.memory()
+                .read_obj::<u32>(GuestAddress(REGION_BASE + 0x1000))
+                .unwrap(),
+            22
+        );
+        state.release_uvm_range(1, GuestAddr::new(0x2000)).unwrap();
+        assert_eq!(budget.used_bytes(), 0x1000);
+        assert_eq!(&driver.calls()[8..], &["free_object"]);
+        assert!(!state.write_guest_u32_for(1, GuestAddr::new(0x2000), 44));
+        assert!(state.write_guest_u32_for(2, GuestAddr::new(0x2000), 55));
+    }
+
+    #[test]
+    fn forwarded_source_free_retains_its_shared_budget_reservation() {
+        let _x = exclusive();
+        let mem = guest_mem();
+        let budget = PinBudget::new(0x1000).unwrap();
+        let mut first = PoolState::with_budget(budget.clone());
+        let second = PoolState::with_budget(budget.clone());
+        let (arena, _) = first
+            .arena_for_osdesc(&mem, &[run(REGION_BASE, 0x1000)], glen(0x1000))
+            .unwrap();
+        first.keep_osdesc_arena(1, 10, arena);
+        first.drop_osdesc_arena(1, 10);
+        drop(first);
+        assert_eq!(budget.used_bytes(), 0x1000);
+        assert_eq!(budget.retained_bytes(), 0x1000);
+        assert!(second
+            .arena_for_osdesc(&mem, &[run(REGION_BASE, 0x1000)], glen(0x1000))
+            .is_err());
+    }
+
+    #[test]
+    fn arena_build_failure_refunds_the_shared_reservation() {
+        let _x = exclusive();
+        let mem = guest_mem();
+        let budget = PinBudget::new(0x1000).unwrap();
+        let state = PoolState::with_budget(budget.clone());
+        for (gpa, len) in [
+            (REGION_BASE + 1, 0x1000),
+            (REGION_BASE, 1),
+            (REGION_BASE, 0),
+        ] {
+            assert!(state
+                .arena_for_osdesc(&mem, &[run(gpa, len)], glen(len))
+                .is_err());
+            assert_eq!(budget.used_bytes(), 0);
+        }
+    }
+
+    #[test]
+    fn shared_budget_reservations_are_atomic_and_checked() {
+        let budget = PinBudget::new(0x1000).unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let budget = budget.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    let lease = budget.reserve(0x1000);
+                    barrier.wait();
+                    lease.is_ok()
+                })
+            })
+            .collect();
+        assert_eq!(
+            workers
+                .into_iter()
+                .map(|worker| usize::from(worker.join().unwrap()))
+                .sum::<usize>(),
+            1
+        );
+        assert_eq!(budget.used_bytes(), 0);
+        let largest = PinBudget::new(u64::MAX).unwrap();
+        let _lease = largest.reserve(u64::MAX).unwrap();
+        assert!(largest.reserve(1).is_err());
+        assert!(largest.reserve(0).is_err());
+        assert_eq!(largest.used_bytes(), u64::MAX);
+    }
+
+    #[test]
+    fn uvm_free_uses_the_selected_driver_layout() {
+        fn check<A: nvrm_sys::RmAbi>() {
+            let params = free_params::<A>(GuestAddr::new(0x1000), glen(0x2000));
+            let bytes = unsafe {
+                std::slice::from_raw_parts(
+                    &params as *const A::UvmFreeParams as *const u8,
+                    std::mem::size_of::<A::UvmFreeParams>(),
+                )
+            };
+            assert_eq!(bytes.len(), A::UVM_FREE_PARAMS_SIZE as usize);
+            assert_eq!(
+                &bytes[A::UVM_FREE_PARAMS_OFF_base..][..8],
+                &0x1000u64.to_le_bytes()
+            );
+            assert_eq!(&bytes[A::UVM_FREE_PARAMS_OFF_rmStatus..][..4], &[0; 4]);
+            if A::UVM_FREE_PARAMS_OFF_length + 8 <= bytes.len() {
+                assert_eq!(
+                    &bytes[A::UVM_FREE_PARAMS_OFF_length..][..8],
+                    &0x2000u64.to_le_bytes()
+                );
+            }
+        }
+        #[cfg(feature = "v580")]
+        check::<nvrm_sys::V580>();
+        #[cfg(feature = "v595")]
+        check::<nvrm_sys::V595>();
+        #[cfg(feature = "v610")]
+        check::<nvrm_sys::V610>();
+        #[cfg(feature = "v615")]
+        check::<nvrm_sys::V615>();
     }
 
     #[test]
@@ -911,39 +1604,86 @@ mod tests {
         let ps = pool_state_with(&mem, addr, REGION_BASE, len);
 
         assert!(
-            ps.write_guest_u32(GuestAddr::new(addr), 0xdead_beef),
+            ps.write_guest_u32_for(1, GuestAddr::new(addr), 0xdead_beef),
             "start of the pool"
         );
         assert!(
-            ps.write_guest_u32(GuestAddr::new(addr + len - 4), 1),
+            ps.write_guest_u32_for(1, GuestAddr::new(addr + len - 4), 1),
             "last complete word"
         );
         // SAFETY: the arena lives in the PoolState and is len big.
         unsafe {
-            assert_eq!(*(ps.pools[0].arena.base() as *const u32), 0xdead_beef);
+            assert_eq!(
+                *(ps.pools[0].arena.as_ref().unwrap().base() as *const u32),
+                0xdead_beef
+            );
         }
 
         assert!(
-            !ps.write_guest_u32(GuestAddr::new(addr - 4), 1),
+            !ps.write_guest_u32_for(1, GuestAddr::new(addr - 4), 1),
             "before the pool"
         );
         assert!(
-            !ps.write_guest_u32(GuestAddr::new(addr + len - 3), 1),
+            !ps.write_guest_u32_for(1, GuestAddr::new(addr + len - 3), 1),
             "extends past the end"
         );
         assert!(
-            !ps.write_guest_u32(GuestAddr::new(addr + len), 1),
+            !ps.write_guest_u32_for(1, GuestAddr::new(addr + len), 1),
             "behind the pool"
         );
     }
 
-    /// WARNING: `va` arrives as the `semaphoreAddress` from UVM_MIGRATE, so
-    /// it comes from the guest. Computed unchecked, `va + 4` wraps to 0 at
-    /// `u64::MAX - 3`, the check `va + 4 <= p.addr + p.len` then counts as
-    /// satisfied, and the write offset `va - p.addr` becomes a guest-chosen
-    /// distance from the arena base. The test fails in the release profile
-    /// if the check computes unchecked -- usually as a SIGSEGV, not as an
-    /// assertion.
+    #[test]
+    fn write_guest_u32_rejects_unaligned_offsets() {
+        let _x = exclusive();
+        let mem = guest_mem();
+        let addr = 0x2000_0000;
+        let ps = pool_state_with(&mem, addr, REGION_BASE, 0x2000);
+        for offset in [1, 2, 3, 5, 0x1ffb] {
+            assert!(!ps.write_guest_u32_for(1, GuestAddr::new(addr + offset), 0xdead_beef));
+        }
+        // SAFETY: the pool owns an initialized, readable mapping of 0x2000 bytes.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(ps.pools[0].arena.as_ref().unwrap().base(), 0x2000)
+        };
+        assert!(bytes.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn osdesc_arenas_are_scoped_to_the_rm_client() {
+        let _x = exclusive();
+        let mem = guest_mem();
+        let arena = || Arena::build(&mem, &[run(REGION_BASE, 0x1000)], glen(0x1000)).unwrap();
+        let mut ps = PoolState::default();
+        ps.keep_osdesc_arena(1, 10, arena());
+        ps.keep_osdesc_arena(2, 10, arena());
+        ps.keep_osdesc_arena(2, 11, arena());
+        assert_eq!(ps.osdesc_arenas.len(), 3);
+
+        ps.drop_osdesc_arena(1, 10);
+        assert!(!ps.osdesc_arenas.contains_key(&(1, 10)));
+        assert!(ps.osdesc_arenas.contains_key(&(2, 10)));
+        assert!(ps.osdesc_arenas.contains_key(&(2, 11)));
+
+        ps.keep_osdesc_arena(1, 10, arena());
+        ps.drop_osdesc_client(2);
+        assert_eq!(ps.osdesc_arenas.len(), 1);
+        assert!(ps.osdesc_arenas.contains_key(&(1, 10)));
+    }
+
+    #[test]
+    fn pin_limit_rejects_values_that_do_not_fit_in_bytes() {
+        assert_eq!(parse_pin_bytes(" 256 "), Some(256 << 20));
+        assert_eq!(
+            parse_pin_bytes(&(u64::MAX >> 20).to_string()),
+            Some(u64::MAX & !((1 << 20) - 1))
+        );
+        for raw in ["0", "-1", "abc", "17592186044416", "18446744073709551615"] {
+            assert_eq!(parse_pin_bytes(raw), None, "{raw}");
+        }
+    }
+
+    /// A wrapping semaphore end must not bypass pool bounds validation.
     #[test]
     fn write_guest_u32_rejects_wrapping_addresses() {
         let _x = exclusive();
@@ -951,7 +1691,7 @@ mod tests {
         let ps = pool_state_with(&mem, 0x2000_0000, REGION_BASE, 0x2000);
         for va in [u64::MAX, u64::MAX - 3, u64::MAX - 4] {
             assert!(
-                !ps.write_guest_u32(GuestAddr::new(va), 0x4141_4141),
+                !ps.write_guest_u32_for(1, GuestAddr::new(va), 0x4141_4141),
                 "va {va:#x} accepted"
             );
         }
@@ -976,7 +1716,7 @@ mod tests {
             "one byte too short"
         );
         assert_eq!(GpaRun::decode(&[], 0).unwrap().len(), 0);
-        // An aux buffer may be longer than the runs -- the rest is not read.
+        // Trailing auxiliary bytes are not decoded as runs.
         aux.push(0xff);
         assert_eq!(GpaRun::decode(&aux, 1).unwrap().len(), 1);
     }
@@ -1000,13 +1740,8 @@ mod tests {
         }
     }
 
-    /// `GpaRun::WIRE` is the wire size of one run, and the guest module
-    /// packs the aux buffer to exactly this stride: two little-endian u64,
-    /// no padding, no header.
-    ///
-    /// It is the multiplier in every bounds check `decode` makes, so it is
-    /// not a free-floating number: were it smaller than the real stride,
-    /// the length check would pass for a buffer that is too short.
+    /// Wire stride is two little-endian u64 values without padding.
+    /// decode uses this same stride for both bounds checks and indexing.
     #[test]
     fn gpa_run_wire_is_two_little_endian_u64() {
         assert_eq!(GpaRun::WIRE, 16);
@@ -1023,14 +1758,8 @@ mod tests {
         assert_eq!((r[1].gpa.get(), r[1].len.get()), (3, 4));
     }
 
-    /// `OSDESC_FLAGS` is written as four raw shifts, and RM's
-    /// `RmAllocOsDescriptor` (escape.c:206-225) refuses anything else. This
-    /// pins those shifts to the DRF field definitions in `nvrm-abi`, which
-    /// are themselves guarded against nvos.h -- so the hand-typed word here
-    /// cannot drift away from the header it was copied from.
-    ///
-    /// Not a `const _` guard only because it reads better as a test next to
-    /// the other flag arithmetic; the composition is `const fn` throughout.
+    /// Match OSDESC_FLAGS to the DRF definitions required by RmAllocOsDescriptor
+    /// (escape.c:206-225), using the independently checked nvrm-abi fields.
     #[test]
     fn osdesc_flags_is_the_drf_composition_rm_demands() {
         use nvrm_abi::nvgpu::nvos02_flags;

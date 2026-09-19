@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! vhost-user-input - host daemon serving virtio-input over a socket.
-//!
-//! The second backend of the display rig, beside vhost-user-nvrm. Why it
-//! has to exist at all -- neither cloud-hypervisor nor crosvm supplies
-//! this end -- is the crate header's story (`lib.rs`).
+//! Command-line entry point for the virtio-input backend.
 
 use anyhow::Result;
 
@@ -16,8 +12,7 @@ fn usage() -> ! {
         "vhost-user-input --socket <path> (--evdev <dev> | --fifo <path>) [--name <name>]\n\
          \n\
          --evdev:  forward a host input device verbatim (/dev/input/eventN)\n\
-         --fifo:   read `type code value` lines; created if absent. Scriptable,\n\
-                   which is what lets a gate press a key without a human.\n\
+         --fifo:   read `type code value` lines; created if absent.\n\
          \n\
          Example -- press and release KEY_A in the guest:\n\
            printf '1 30 1\\n0 0 0\\n1 30 0\\n0 0 0\\n' > vm/input.fifo"
@@ -47,9 +42,7 @@ fn main() -> Result<()> {
     let (Some(socket), Some(source)) = (socket, source) else {
         usage()
     };
-    // A leftover socket from a killed run would make bind fail with
-    // EADDRINUSE, which reads like "another backend is running" and usually
-    // is not. Same handling as vhost-user-nvrm.
+    // Remove the socket left by a previous run.
     let _ = std::fs::remove_file(&socket);
     serve(&socket, &source, &name)
 }

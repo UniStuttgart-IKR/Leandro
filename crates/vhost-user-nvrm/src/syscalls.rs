@@ -1,41 +1,21 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! The seam between deciding and doing (docs/OPEN-QUESTIONS.md nr 5).
+//! Driver call interface used by Session validation tests.
 //!
-//! RM below is NVIDIA's Resource Manager, the kernel driver behind
-//! /dev/nvidiactl and /dev/nvidiaN, whose ioctls are called escapes.
-//!
-//! `on_ioctl` runs fourteen checks against a possibly lying guest and then
-//! performs exactly THREE syscalls. Those three sit here behind an
-//! interface -- not because they are complicated, but because they were the
-//! only reason the fourteen checks used to need a GPU to be tested at all.
-//!
-//! Explicitly NOT here: any decision. Whoever is looking for a rule will
-//! find it in `session.rs`. This file only carries the transition into the
-//! kernel -- and, in tests, the record of what WOULD have crossed over.
+//! RealSyscalls forwards to NVIDIA RM; FakeSyscalls records calls and
+//! injects replies. Validation and translation remain in session.rs.
 
 use std::os::fd::RawFd;
 
-/// What a session does to the outside world. Three calls, no more.
-///
-/// `Send + Sync`, because `Session` already is: the virtio-nvrm device
-/// holds it behind an RwLock and passes it between the vhost-user backend
-/// threads.
+/// Driver calls injectable in validation tests. Shared across backend threads.
 pub trait NvSyscalls: Send + Sync {
-    /// The real ioctl on a device FD. `buf` is the inline struct; the
-    /// driver writes back in place. `len` is how many bytes at `buf` the
-    /// caller has actually initialized -- the driver does not need it (it
-    /// takes the size from the _IOC encoding or from the UVM command), but
-    /// an implementation that READS the buffer does: for a UVM command the
-    /// encoding carries no size at all, and there is no other way to tell
-    /// where the caller's data ends.
+    /// Execute an ioctl; len is the initialized buffer length used by test readers.
     ///
     /// # Safety
-    /// `request` must match `buf` (the size in the _IOC encoding, or the
-    /// struct the UVM command expects). A mismatch is a silent memory error
-    /// inside the driver, not an EINVAL. `buf` must be readable for `len`
-    /// bytes.
+    /// request must match the buffer layout and driver ABI. buf and every
+    /// embedded pointer must refer to live buffers with the access and lengths
+    /// required by the command. The driver may write the reply in place.
     unsafe fn ioctl(&self, fd: RawFd, request: libc::c_ulong, buf: *mut u8, len: usize) -> i32;
 
     /// `NV0000_CTRL_CMD_SET_SUB_PROCESS_ID` on a fresh RM client. Returns
@@ -43,8 +23,8 @@ pub trait NvSyscalls: Send + Sync {
     /// status).
     fn set_sub_process_id(&self, fd: RawFd, hclient: u32, sub_id: u32, name: &str) -> (i32, u32);
 
-    /// DUP grant for the same user (`grant_dup_same_user`).
-    fn grant_dup_same_user(&self, fd: RawFd, hclient: u32, hobject: u32) -> (i32, u32);
+    /// DUP grant scoped to the backend process (`grant_dup_same_process`).
+    fn grant_dup_same_process(&self, fd: RawFd, hclient: u32, hobject: u32) -> (i32, u32);
 }
 
 /// The production path: sends the three calls to the real driver.
@@ -61,28 +41,20 @@ impl NvSyscalls for RealSyscalls {
         unsafe { nvrm_abi::share::set_sub_process_id(fd, hclient, sub_id, name) }
     }
 
-    fn grant_dup_same_user(&self, fd: RawFd, hclient: u32, hobject: u32) -> (i32, u32) {
-        unsafe { nvrm_abi::share::grant_dup_same_user(fd, hclient, hobject) }
+    fn grant_dup_same_process(&self, fd: RawFd, hclient: u32, hobject: u32) -> (i32, u32) {
+        unsafe { nvrm_abi::share::grant_dup_same_process(fd, hclient, hobject) }
     }
 }
 
-/// A ledger instead of a driver: records what a call WOULD have been.
-///
-/// This makes the guest-lies cases testable in both directions: that a
-/// message was refused, AND that no ioctl happened while refusing it. A
-/// test that only checks the error response cannot tell "a check fired"
-/// from "the driver said no".
+/// Record calls and inject replies so refusal tests can assert no ioctl ran.
 #[cfg(test)]
 #[derive(Default)]
 pub struct FakeSyscalls {
     pub calls: std::sync::Mutex<Vec<FakeCall>>,
     /// What `ioctl` should return (default 0 = success).
     pub ioctl_ret: i32,
-    /// Per-call overrides, consumed front to back: `(return value, errno)`.
-    /// While the queue has entries they win over `ioctl_ret`; the errno is
-    /// stored into the thread's `errno` slot on every queued call, whether
-    /// or not the call "fails" -- that is how a test reproduces a later
-    /// syscall clobbering the errno of an earlier one.
+    /// Queued (return value, errno) overrides, consumed before ioctl_ret.
+    /// Every queued call sets errno, including successful calls.
     pub ioctl_rets: std::sync::Mutex<std::collections::VecDeque<(i32, i32)>>,
     /// Bytes that `ioctl` writes back into `buf` (offset, value) -- so a
     /// test can fake an RM status or a created handle.
@@ -146,25 +118,16 @@ impl<T: NvSyscalls + ?Sized> NvSyscalls for std::sync::Arc<T> {
     fn set_sub_process_id(&self, fd: RawFd, hclient: u32, sub_id: u32, name: &str) -> (i32, u32) {
         (**self).set_sub_process_id(fd, hclient, sub_id, name)
     }
-    fn grant_dup_same_user(&self, fd: RawFd, hclient: u32, hobject: u32) -> (i32, u32) {
-        (**self).grant_dup_same_user(fd, hclient, hobject)
+    fn grant_dup_same_process(&self, fd: RawFd, hclient: u32, hobject: u32) -> (i32, u32) {
+        (**self).grant_dup_same_process(fd, hclient, hobject)
     }
 }
 
 #[cfg(test)]
 impl NvSyscalls for FakeSyscalls {
     unsafe fn ioctl(&self, fd: RawFd, request: libc::c_ulong, buf: *mut u8, len: usize) -> i32 {
-        // What the ledger records is what the caller HAS, never more.
-        //
-        // A UVM command is a RAW number, so `ioc_size` reads a size out of
-        // bits that carry none: for a small number (UVM_MM_INITIALIZE, 0x4b)
-        // it yields 0 and this used to substitute a flat 256; for
-        // UVM_INITIALIZE (0x3000_0001) it yields 12288 and that was used as
-        // is. Both read far past a 16-byte UVM payload into the
-        // uninitialized tail of the session's scratch Vec -- undefined
-        // behaviour that stayed inside the allocation only because the Vec
-        // is built with capacity 16384, and bytes a test could assert on
-        // without ever having been written.
+        // UVM request numbers do not encode a size. Never read beyond len,
+        // the initialized buffer length supplied by the caller.
         let ioc = nvrm_abi::ioc_size(request as u32) as usize;
         let n = if ioc == 0 { len } else { ioc.min(len) };
         let inline = std::slice::from_raw_parts(buf, n).to_vec();
@@ -195,7 +158,7 @@ impl NvSyscalls for FakeSyscalls {
         (0, 0)
     }
 
-    fn grant_dup_same_user(&self, fd: RawFd, hclient: u32, hobject: u32) -> (i32, u32) {
+    fn grant_dup_same_process(&self, fd: RawFd, hclient: u32, hobject: u32) -> (i32, u32) {
         self.calls.lock().unwrap().push(FakeCall::GrantDup {
             fd,
             hclient,

@@ -42,7 +42,7 @@ compile() {
 
 tables() {
     local name
-    for name in tabcheck tabreject vramcheck; do
+    for name in tabcheck tabreject vramcheck identitycheck; do
         compile "$name" "guest-module/virtio_nvrm/test/$name.c"
     done
     cargo run --locked --quiet --bin nvrm-genhdr -- --dump-tables "$out/stream.bin"
@@ -51,6 +51,7 @@ tables() {
     diff -u "$out/expected.txt" "$out/actual.txt"
     "$out/tabreject" "$out/stream.bin"
     "$out/vramcheck"
+    "$out/identitycheck"
 }
 
 edid() {
@@ -60,7 +61,7 @@ edid() {
     }
     compile edidcheck guest-module/virtio_nvrm/test/edidcheck.c
     compile edidclamp guest-module/virtio_nvrm/test/edidclamp.c
-    compile edid-verify probe/c/edid-verify.c
+    compile edid-verify tests/tools/edid-verify.c
     "$out/edidclamp"
     local size width height
     for size in 800x600 1280x720 1920x1080 2560x1440 2560x1600 3840x2160; do
@@ -76,11 +77,11 @@ edid() {
 }
 
 host_tools() {
-    compile edid-verify probe/c/edid-verify.c
-    compile vdisp-frame probe/c/vdisp-frame.c
-    awk 'NF && $1 !~ /^#/' probe/data/vdisp-frame.ref > "$out/frame-expected.txt"
+    compile edid-verify tests/tools/edid-verify.c
+    compile vdisp-frame tests/tools/vdisp-frame.c
+    awk 'NF && $1 !~ /^#/' tests/tools/data/vdisp-frame.ref > "$out/frame-expected.txt"
     if [[ ! -s $out/frame-expected.txt ]]; then
-        echo "No frame hashes found in probe/data/vdisp-frame.ref." >&2
+        echo "No frame hashes found in tests/tools/data/vdisp-frame.ref." >&2
         return 1
     fi
     local size _hash

@@ -1,35 +1,36 @@
 <!-- SPDX-License-Identifier: MIT -->
-# `nvrm-wire` — the protocol between guest module and host daemon
+# nvrm-wire
 
-The schema both ends agree on: a fixed 160-byte request header (`Req`)
-and a 32-byte reply header (`Rsp`) plus payload, little-endian,
-`MAX_PAYLOAD = 16384` (= `NV_ABSOLUTE_MAX_IOCTL_SIZE`). `no_std`-capable,
-because the guest side of the same definitions is compiled into a kernel
-module. Routing is by host-issued token, never by guest fd number; the
-crate docs (`src/lib.rs`) carry that argument and the one-carrier history
-(virtio-nvrm only, since 2026-08-04).
+- Wire schema shared by the host backend and generated guest C header.
+- Little-endian encoding; `Req` is 160 bytes, `Rsp` is 32 bytes. Byte views use native
+  representation and require little-endian hosts and guests.
+- `MAX_PAYLOAD` is 16384 bytes. The crate supports `no_std`.
+- Host-issued tokens identify open devices; guest FD numbers are local to the guest.
+- Tokens are scoped to guest-process sessions. Explicit FD-owner fields support
+  cross-process imports within one VM; guest process IDs are untrusted metadata.
 
-| File | What it is |
+## Source map
+
+| File | Responsibility |
 |---|---|
-| `src/lib.rs` | `Req`/`Rsp`, `Kind`, `PROTO_VERSION`, the payload rules |
-| `src/tables.rs` | the descriptor-table format the guest module interprets |
+| `src/lib.rs` | Requests, replies, message kinds and protocol version |
+| `src/tables.rs` | Descriptor-table records and bounds |
 
-## `PROTO_VERSION`
+## Compatibility
 
-Currently **6**. The rule that decides a bump is not "did the layout
-change" but **"did the meaning of a request the host already accepts
-change"** — a moved offset is caught by a size check, a changed meaning is
-not. Both bumps so far (4 → 5, 5 → 6) added a word into an existing
-padding hole and left `Req` at 160 bytes; they were bumped anyway, for
-that reason. Purely additive `Kind`s do not bump.
+- `PROTO_VERSION` is **6**.
+- Bump it when the meaning of an accepted request changes, even when struct sizes
+  stay unchanged. Versions 5 and 6 used existing padding for new routing fields.
+- Additive message kinds have historically kept the version; review unknown-kind
+  handling and feature negotiation before applying that rule to a new message.
+- Descriptor headers carry lengths, counts and a checksum. Validate them before
+  interpreting records.
+- Generate the C schema; do not edit its declarations by hand:
 
-The C side of these structs is **generated**, never written:
-`cargo run --bin nvrm-genhdr -- guest-module/virtio_nvrm/nvrm_wire.h`.
-Every offset there carries a `_Static_assert`, so the module cannot be
-built against a stale layout.
+```sh
+cargo run --bin nvrm-genhdr -- guest-module/virtio_nvrm/nvrm_wire.h
+cargo run --bin nvrm-genhdr -- --check
+```
 
-## The descriptor-table stream
-
-`tables.rs` describes what the guest module receives: all `u32`,
-little-endian, naturally aligned, with lengths and counts in the header so
-the interpreter can bounds-check **before** every access rather than after.
+- C static assertions check compiled struct layouts. The generator check detects
+  a checked-in header that no longer matches the Rust definitions.

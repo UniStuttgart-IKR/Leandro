@@ -1,22 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! What `nvidia-smi` asks for its process list, asked directly.
-//!
-//! `NV2080_CTRL_CMD_GPU_GET_PIDS` (0x2080018d) followed by
-//! `NV2080_CTRL_CMD_GPU_GET_PID_INFO` (0x2080018e) per PID -- that is the
-//! pair `nvidia-smi` issues (measured under the LD_PRELOAD tracer: 3x
-//! GET_PIDS with paramsSize 0xee4, 2x GET_PID_INFO with 0x3848). The
-//! tracer counts the calls but does not decode the parameter buffers, and
-//! what this round needs is the CONTENT: how many PIDs come back, whose
-//! they are, and what video-memory number RM attaches to each.
-//!
-//! Runs natively on the host and, once the guest carries it, in the guest
-//! -- the same binary, so the two answers are comparable without a second
-//! implementation to disagree with the first.
+//! Query GPU process IDs and their memory usage with GET_PIDS/GET_PID_INFO.
+//! Run the same binary on host and guest to compare the forwarded results.
 //!
 //! ```text
-//! smipids [class-hex]   # default NV20_SUBDEVICE_0 = every PID on the card
+//! smipids [class-hex] # default NV20_SUBDEVICE_0 includes every GPU PID
 //! ```
 
 use nvrm_abi::{sys, NvDevice};
@@ -35,11 +24,8 @@ const PID_INFO_MAX: usize = 200;
 /// `NV2080_CTRL_GPU_PID_INFO_INDEX_VIDEO_MEMORY_USAGE` (ctrl2080gpu.h:3570).
 const PID_INFO_INDEX_VIDEO_MEMORY_USAGE: u32 = 0;
 
-/// `NV2080_CTRL_GPU_GET_PIDS_ID_TYPE_CLASS` (ctrl2080gpu.h:3519).
-///
-/// WARNING: the sibling value `_VGPU_GUEST` (1) is not a shortcut to guest
-/// PIDs -- it refers to the `KernelHostVgpuDeviceApi` object on the HOST
-/// (subdevice_ctrl_gpu_kernel.c:2333).
+/// CLASS identity. VGPU_GUEST instead refers to a host KernelHostVgpuDeviceApi
+/// object (subdevice_ctrl_gpu_kernel.c), not this project's guest process IDs.
 const ID_TYPE_CLASS: u32 = 0;
 
 /// `NV2080_CTRL_GPU_GET_PIDS_PARAMS` (ctrl2080gpu.h:3508), 3812 bytes:
@@ -109,9 +95,7 @@ impl Default for GetPidInfoParams {
     }
 }
 
-// The sizes are the point of this probe, so they are asserted rather than
-// trusted: a transcribed offset that has gone stale would produce plausible
-// numbers out of the wrong bytes.
+// Match the vendor layouts, including implicit alignment.
 const _: () = {
     assert!(core::mem::size_of::<GetPidsParams>() == 3812);
     assert!(core::mem::size_of::<PidInfo>() == 72);
@@ -128,13 +112,7 @@ fn comm_of(pid: u32) -> String {
 }
 
 fn main() {
-    // WARNING: the version lockstep applies to the HOST. In the GUEST
-    // `/proc/driver/nvidia/version` does not exist -- the guest module
-    // provides only `params` -- and `assert_driver_version()` would panic
-    // there. The same trap is documented at mmapping.rs, where it cost 242
-    // failed measurements. This probe has to run on BOTH sides to be worth
-    // anything, so: check WHEN the file is there, otherwise say so and
-    // carry on.
+    // Check the local driver when available; the backend checks the guest ABI.
     match nvrm_sys::running_driver_version() {
         Ok(v) if v == nvrm_sys::DRIVER_VERSION => {}
         Ok(v) => {
@@ -153,31 +131,24 @@ fn main() {
     let mut rm = RmClient::open_without_version_check().expect("NV01_ROOT_CLIENT");
     let root = rm.root();
 
-    // The per-GPU node has to be OPEN, otherwise the card is not attached
-    // to this client and NV01_DEVICE_0 fails with
-    // NV_ERR_INSUFFICIENT_PERMISSIONS -- the same trap fbclients.rs
-    // documents. The FD is only held, never used.
+    // RM device allocation requires the GPU node to remain open.
     let _gpu = NvDevice::open_gpu(0).expect("/dev/nvidia0");
 
     let device = rm.next_handle();
     let mut dp = sys::NV0080_ALLOC_PARAMETERS::default();
     dp.deviceId = 0;
-    rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp))
-        .expect("NV01_DEVICE_0");
+    // SAFETY: NV0080_ALLOC_PARAMETERS matches NV01_DEVICE_0; no embedded buffers.
+    unsafe { rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp)) }.expect("NV01_DEVICE_0");
 
     let subdevice = rm.next_handle();
     let mut sp = sys::NV2080_ALLOC_PARAMETERS::default();
     sp.subDeviceId = 0;
-    rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp))
+    // SAFETY: NV2080_ALLOC_PARAMETERS matches NV20_SUBDEVICE_0; no embedded buffers.
+    unsafe { rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp)) }
         .expect("NV20_SUBDEVICE_0");
 
-    // ---- GET_PIDS -------------------------------------------------------
-    //
-    // `id` is a CLASS number, not an index. The header is explicit
-    // (ctrl2080gpu.h:3515-3518): with NV20_SUBDEVICE_0 the query returns
-    // PIDs with OR without a GPU context; with any other class only those
-    // with one. Passing 0 asks for class 0 and yields an empty table --
-    // measured, and it looks exactly like "nothing is running".
+    // NV20_SUBDEVICE_0 includes PIDs without a GPU context. Other class values
+    // select only processes with that class (ctrl2080gpu.h).
     let class: u32 = std::env::args()
         .nth(1)
         .map(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).expect("class as hex"))
@@ -187,7 +158,8 @@ fn main() {
         id: class,
         ..Default::default()
     };
-    if let Err(e) = rm.control(subdevice, CMD_GPU_GET_PIDS, &mut p) {
+    // SAFETY: GetPidsParams matches the command and owns its complete inline output array.
+    if let Err(e) = unsafe { rm.control(subdevice, CMD_GPU_GET_PIDS, &mut p) } {
         eprintln!("smipids: GET_PIDS: {e}");
         std::process::exit(1);
     }
@@ -201,7 +173,7 @@ fn main() {
         return;
     }
 
-    // ---- GET_PID_INFO, one entry per PID --------------------------------
+    // GET_PID_INFO, one entry per PID
     let mut q = GetPidInfoParams {
         count: n.min(PID_INFO_MAX) as u32,
         ..Default::default()
@@ -210,8 +182,13 @@ fn main() {
         q.list[i].pid = *pid;
         q.list[i].index = PID_INFO_INDEX_VIDEO_MEMORY_USAGE;
     }
-    if let Err(e) = rm.control(subdevice, CMD_GPU_GET_PID_INFO, &mut q) {
+    // SAFETY: GetPidInfoParams matches the command; count fits the inline list.
+    if let Err(e) = unsafe { rm.control(subdevice, CMD_GPU_GET_PID_INFO, &mut q) } {
         eprintln!("smipids: GET_PID_INFO: {e}");
+        std::process::exit(1);
+    }
+    if q.count as usize > q.list.len() {
+        eprintln!("smipids: GET_PID_INFO returned invalid count {}", q.count);
         std::process::exit(1);
     }
     println!("\nsmipids: GET_PID_INFO count={}", q.count);

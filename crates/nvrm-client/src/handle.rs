@@ -1,18 +1,10 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! Handle allocation.
-//!
-//! Handles are caller-specified, so a program that allocates objects of
-//! its own beside handles it did not choose needs a range of its own -
-//! otherwise a `libcuda` handle eventually collides with one of ours, and
-//! the result is a very hard-to-find bug.
-//!
-//! Convention here: high bit set = allocated here, never by `libcuda`.
+//! Monotonic handles in the high-bit range, scoped to one RM client.
+//! Callers sharing a client must reserve this range for this allocator.
 
-/// Everything with this bit was handed out by [`HandleAllocator`], never
-/// chosen by the program whose handles we ride beside (the name is a
-/// leftover: no daemon uses this crate any more).
+/// Marks the range reserved for this allocator.
 pub const DAEMON_HANDLE_BIT: u32 = 0x8000_0000;
 
 pub struct HandleAllocator {
@@ -25,16 +17,58 @@ impl HandleAllocator {
         Self { root, next: 1 }
     }
 
-    /// Next handle from the reserved range. (`take`, not `next`: this is no
-    /// iterator -- handles never run out and are never given back.)
+    /// Allocate a handle, skipping the client's root handle.
+    ///
+    /// # Panics
+    /// Panics when the reserved range is exhausted. Handles are never reused.
     pub fn take(&mut self) -> u32 {
-        let h = DAEMON_HANDLE_BIT | (self.root & 0x00ff_0000) | self.next;
-        self.next += 1;
-        h
+        loop {
+            assert!(self.next < DAEMON_HANDLE_BIT, "RM handle range exhausted");
+            let h = DAEMON_HANDLE_BIT | self.next;
+            self.next += 1;
+            if h != self.root {
+                return h;
+            }
+        }
     }
 
-    /// Did this handle come from the guest?
+    /// Whether a handle is outside the allocator's reserved range.
     pub fn is_guest(h: u32) -> bool {
         h & DAEMON_HANDLE_BIT == 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handles_do_not_repeat_when_counter_reaches_root_bits() {
+        let mut allocator = HandleAllocator::new(0x0001_0000);
+        let handles: std::collections::HashSet<_> = (0..65_537).map(|_| allocator.take()).collect();
+        assert_eq!(handles.len(), 65_537);
+        assert!(handles.iter().all(|&h| !HandleAllocator::is_guest(h)));
+    }
+
+    #[test]
+    fn root_handle_is_not_allocated_again() {
+        let mut allocator = HandleAllocator::new(DAEMON_HANDLE_BIT | 2);
+        assert_eq!(allocator.take(), DAEMON_HANDLE_BIT | 1);
+        assert_eq!(allocator.take(), DAEMON_HANDLE_BIT | 3);
+    }
+
+    #[test]
+    fn exhaustion_never_wraps_or_reuses_handles() {
+        let mut allocator = HandleAllocator {
+            root: 0,
+            next: DAEMON_HANDLE_BIT - 1,
+        };
+        assert_eq!(allocator.take(), u32::MAX);
+        for _ in 0..2 {
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| allocator.take()))
+                    .is_err()
+            );
+        }
     }
 }

@@ -1,24 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de> */
 /* SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR */
-/*
- * nvrm_edid.c -- the EDID this module invents for the virtual display.
- *
- * ONE translation unit for two worlds, pulled in via #include, exactly as
- * nvrm_tables.c is:
- *   - virtio_nvrm.c (kernel module): what NVA083_CTRL_CMD_VIRTUAL_DISPLAY_-
- *     GET_DEFAULT_EDID hands back.
- *   - test/edidcheck.c (userspace): dumps the same bytes so `edid-decode`
- *     can read them.
- *
- * Why it sits in its own file: an EDID is parsed by everything downstream --
- * NVKMS, X, the desktop -- and a broken one fails quietly, as a mode that is
- * simply not offered. This one had never been read by anything when it was
- * written, and two of its bytes were wrong. A parser that already knows the
- * spec is a better reviewer than another pair of eyes.
- *
- * Hence ONLY this in here: memset, memcpy and integer arithmetic. Whoever
- * prints or allocates is the includer.
+/* Virtual-display EDID generation shared by virtio_nvrm.c and userspace tests.
+ * Keep this file independent of allocation, device access and diagnostics.
  */
 
 #ifdef __KERNEL__
@@ -39,17 +23,9 @@ typedef uint64_t u64;
 
 #define NVRM_EDID_LEN 128
 
-/* A CVT-reduced-blanking-ish timing for the requested size AND RATE. The
- * pixel clock is what NVKMS reads back as maxPixelClockKHz on this path
- * (nvkms-dpy.c:815), so it has to be at least the mode's own clock.
- *
- * The rate is a parameter because it used to be the constant 60 while
- * `vdisplay_vblank_hz` -- a SEPARATE module parameter -- drove the hrtimer
- * that delivers the vblank callbacks. Setting that to 120 gave a guest
- * whose display advertised 60 Hz and whose vblanks arrived at 120: the
- * compositor pacing itself off the mode would have been wrong by a factor
- * of two, and nothing in the path could have said so. One rate now feeds
- * both, so the two cannot disagree. */
+/* CVT reduced-blanking timing. One effective refresh rate feeds both the
+ * advertised EDID and the vblank timer. NVKMS also reads its pixel clock
+ * as maxPixelClockKHz (nvkms-dpy.c:815). */
 struct nvrm_vtiming {
 	u32 hactive, hblank, hsync_off, hsync_w;
 	u32 vactive, vblank, vsync_off, vsync_w;
@@ -72,13 +48,7 @@ struct nvrm_vtiming {
  * being clamped to 161. */
 #define NVRM_HBLANK_RB2 80u
 
-/* The DTD stores hactive/hblank and vactive/vblank in TWELVE bits each
- * (eight, plus four in a shared upper nibble), so 4095 is the largest
- * value that survives the trip. 7680 does not: 7680x4320 at 1 Hz
- * decoded as a 33 Hz display, because the width came back truncated and
- * every derived figure followed it. Far past NVIDIA's own displayless
- * limit (2560x1600) and therefore never reachable in practice -- which is
- * exactly why it must not be the thing that decides. */
+/* DTD active/blanking fields have 12 bits. Bound totals before encoding. */
 #define NVRM_DTD_MAX_ACTIVE 4095u
 
 /* The rate ceiling for one choice of horizontal blanking. */
@@ -101,23 +71,9 @@ static u32 nvrm_hz_ceiling(u32 w, u32 h, u32 hblank)
 	return by_clock < 1 ? 1 : (u32)by_clock;
 }
 
-/*
- * The size and rate this EDID can actually EXPRESS, which is not always the
- * one that was asked for.
- *
- * Not a theoretical bound -- the fields are small and they wrap in
- * silence. The DTD carries the pixel clock in TWO bytes of 10 kHz, so
- * 655.35 MHz is the ceiling, and 2560x1440 at 165 Hz needs 667 MHz: the
- * block then decoded as a 2 Hz display, with no error anywhere. That is
- * inside NVIDIA's own displayless limit (2560x1600), so it is an ordinary
- * setting, not an exotic one. The range-limits horizontal maximum is a
- * single byte of kHz and saturates at 255, which 1920x1080 at 240 Hz
- * (270 kHz) walks past the same way.
- *
- * Clamping rather than refusing: a guest that asks for more than the wire
- * format holds still gets a working display, at the fastest rate that is
- * honest. The caller logs it, and the vblank timer takes the SAME number,
- * so the mode and the callbacks cannot drift apart.
+/* Clamp size and refresh to DTD and range-limit field widths.
+ * DTD pixel clocks stop at 655.35 MHz; horizontal frequency stops at
+ * 255 kHz. The caller uses the returned rate for both EDID and vblanks.
  */
 static void nvrm_edid_effective(u32 w, u32 h, u32 hz, u32 *ew, u32 *eh,
 				u32 *ehz, u32 *ehblank)

@@ -1,40 +1,38 @@
 <!-- SPDX-License-Identifier: MIT -->
-# `nvrm-abi` — the ioctl level
+# nvrm-abi
 
-What has to be known per `(device, ioctl_nr)` to carry an RM call across
-a process boundary: payload size, which fields hold file descriptors,
-which hold embedded pointers — plus the `_IOC` encoding, call wrappers
-and curated struct definitions underneath. The crate docs (`src/lib.rs`)
-carry the full statement of scope; session and object lifetime live in
-[`nvrm-client`](../nvrm-client).
+- Describes RM/UVM ioctl payloads: sizes, embedded pointers, FD fields and encoding.
+- Provides device wrappers and curated types checked against generated bindings.
+- RM object ownership lives in [nvrm-client](../nvrm-client/README.md).
 
-| File | What it is |
+## Source map
+
+| File | Responsibility |
 |---|---|
-| `src/lib.rs` | `_IOC` encoding (hand-written: bindgen emits nothing for function-like macros), call wrappers, device FDs |
-| `src/xlate.rs` | the knowledge table: per-call payload size, fd fields, embedded pointers. **The source of truth.** |
-| `src/nvgpu.rs` | ABI definitions, cross-checked against gVisor's `pkg/abi/nvgpu` |
-| `src/table.rs` | serialises `xlate`'s knowledge into the descriptor stream the guest module interprets |
-| `src/xfer.rs` | `NV_ESC_IOCTL_XFER_CMD` — the case that breaks "the size is in the ioctl number" |
-| `src/share.rs` | cross-process `DUP_OBJECT` grants — why they must exist is that file's header |
-| `src/bin/nvrm-genhdr.rs` | generates the guest module's C header from the Rust structs |
+| `src/lib.rs` | Ioctl encoding, wrappers and device FDs |
+| `src/xlate.rs` | Per-call translation rules |
+| `src/nvgpu.rs` | Curated ABI types and layout assertions |
+| `src/table.rs` | Descriptor stream built from translation rules |
+| `src/xfer.rs` | `NV_ESC_IOCTL_XFER_CMD` wrapping |
+| `src/share.rs` | RM object-sharing grants |
+| `src/mediate.rs` | Shared offsets/constants for rewritten controls |
+| `src/vgpu.rs` | Card-derived profile calculations |
+| `src/bin/nvrm-genhdr.rs` | Guest C header and table generator |
 
-## The design rule worth knowing before you edit
+## Editing rules
 
-**The guest module contains no NVIDIA constant.** Not an escape number, not
-a struct size, not a field offset. The host serialises a descriptor table
-out of `xlate.rs` at startup and the module is its *interpreter*. That is
-why `xlate.rs` is the source of truth and why `table.rs` **queries** it
-across its whole key space instead of keeping a second list that could go
-stale. What cannot be enumerated is recomputed against
-`xlate::embedded_ptr` on every host start (`verify_against_xlate`).
+- Change translation knowledge in `xlate.rs`; `table.rs` queries it instead of
+  maintaining a second list. Startup verification checks agreement.
+- The guest interprets descriptor tables, but also has NVIDIA-specific UVM,
+  display and DRM paths. Their generated constants still need version review.
+- Keep ABI size, alignment and field-offset assertions when changing curated types.
+- Regenerate the guest header after changing wire definitions or exported constants.
 
-## Gate
+```sh
+cargo run --bin nvrm-genhdr -- guest-module/virtio_nvrm/nvrm_wire.h
+cargo run --bin nvrm-genhdr -- --check
+scripts/test.sh check
+```
 
-`cargo run --bin nvrm-genhdr -- --check` says whether the checked-in C
-header still matches. `scripts/test.sh check` asks that first, then runs the
-module's own C interpreter over the real stream and diffs reading against
-writing field by field.
-
-`assert_layout!` (in `nvgpu.rs`) asserts size, alignment **and every field
-offset** against the bindgen output, so a field that moves between driver
-versions is a compile error naming the field, not a silent misread.
+- The software check exercises the C table interpreter against Rust-generated data.
+- Version policy and generator inputs: [driver versions](../../docs/abi-versions.md).

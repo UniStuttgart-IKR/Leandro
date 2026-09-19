@@ -1,25 +1,20 @@
 <!-- SPDX-License-Identifier: MIT -->
-# `vhost-user-input` — virtio-input as an external backend
+# vhost-user-input
 
-cloud-hypervisor has no virtio-input of its own, but
-`--generic-vhost-user` does know `b"input" => VIRTIO_ID_INPUT` — so the
-device can live behind a socket like every other one here. Why nothing
-off the shelf could supply that end (upstream crosvm's standalone
-devices stop short of input; crosvm is not part of this tree), what the
-two queues carry, and the two-source design are all in the crate docs,
-`src/lib.rs` — this README is the map, not a second copy.
+- External virtio-input backend for cloud-hypervisor's generic vhost-user device.
+- Offers an evdev source for a host device and a FIFO source for scripted input.
+- Source parsing and reads: `src/source.rs`; virtio queues and config: `src/lib.rs`.
+- `src/lib.rs` implements config space, event/status queues and sources.
+- `src/main.rs` parses arguments and starts the daemon.
 
-| File | What it is |
-|---|---|
-| `src/lib.rs` | the device: config space, `eventq`/`statusq`, the evdev and fifo sources |
-| `src/main.rs` | argument handling and the vhost-user daemon loop |
+## Run
 
-## Running
+```sh
+vhost-user-input --socket <path> [--name <label>] --evdev <device>
+vhost-user-input --socket <path> [--name <label>] --fifo <path>
+```
 
-    vhost-user-input --socket <path> [--name <label>] --evdev <device>
-    vhost-user-input --socket <path> [--name <label>] --fifo <path>
-
-`--evdev` forwards a real host input device verbatim; `--fifo` reads
-`type code value` lines. `--fifo` is scriptable, so a test can press a
-key without a human and without synthesising input into somebody's live
-desktop session — which is what lets a gate prove anything here.
+- `--evdev` forwards events from the selected host device.
+- `--fifo` reads `type code value` lines, allowing automated input tests without
+  sending events to the host desktop.
+- The crate-level documentation describes queue handling and source behavior.

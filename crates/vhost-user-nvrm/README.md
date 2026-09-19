@@ -1,45 +1,66 @@
 <!-- SPDX-License-Identifier: MIT -->
-# `vhost-user-nvrm` — the host daemon
+# vhost-user-nvrm
 
-The far end of the guest kernel module. A **pure forwarder and translator**:
-it takes RM ioctls out of a virtqueue, makes them valid in host terms, and
-runs them on the real driver. It holds no RM client of its own — the guest
-allocates its own `ROOT_CLIENT` through the forwarded `RM_ALLOC`, and every
-call runs on exactly the open file description the guest used
-(`src/mirror.rs` says why nothing else works). Exactly one transport:
-virtio-nvrm (`--nvrm <socket>`), guest driver `virtio_nvrm.ko`.
+- Host backend for `virtio_nvrm.ko`, serving one VM per backend process.
+- Validates and translates guest RM/UVM requests before invoking the host driver.
+- Guest-process sessions own mirrored device FDs, mappings and resource tracking.
+  An ioctl must retain the appropriate open file description because RM associates
+  client state with it.
+- Pool backing also creates private host RM clients. The backend is therefore more
+  than a transparent forwarder: it owns resources and rewrites selected controls.
 
-Each module carries its own reasoning in its header — this README is the
-map, not a second copy:
+## Source map
 
-| File | What it is |
+| File | Responsibility |
 |---|---|
-| `src/main.rs` | the daemon: argument handling, signal reporting, startup |
-| `src/nvrm.rs` | the virtio-nvrm device side — the counterpart to `virtio_nvrm.ko`; the host-visible window and its sizing history |
-| `src/session.rs` | one guest session: `prepare()`/`execute()` over every forwarded call, checked against a possibly lying guest |
-| `src/syscalls.rs` | the seam between **deciding** and **doing**: the only three syscalls, behind a trait — what makes the guest-lies tests possible |
-| `src/mirror.rs` | `token → real device fd`; the OFD argument |
-| `src/host_pool.rs` | attach guest pages to a GPU VA without an mmap on the host's uvm fd; the pin limit (`LEA_MAX_PIN_MIB`) |
-| `src/vram.rs` | the per-VM VRAM ledger and cap, and the controls rewritten on the way back |
-| `src/waiters.rs` | semaphore-surface waiter poller: one thread, `poll(2)`, deliberately not epoll — the registration race is why |
-| `src/guest_words.rs` | guest-supplied numbers as their own types — arithmetic exists only checked |
-| `fuzz/` | `cargo-fuzz` target over `handle_msg`, corpus committed; the replay runs in every `cargo test` |
+| `src/main.rs` | Arguments and startup |
+| `src/nvrm.rs` | Virtqueues, shared-memory window, sessions and event delivery |
+| `src/session.rs` | Request validation, translation, execution and lifecycle bookkeeping |
+| `src/request_shape.rs` | Pure host-ABI envelope, pointer-span and FD-metadata validation |
+| `src/client_policy.rs` | Private pool-client guards for reviewed RM/UVM fields |
+| `src/syscalls.rs` | Injectable RM operations for tests |
+| `src/mirror.rs` | Host FD ownership behind guest tokens |
+| `src/host_pool.rs` | Arena/pool owners, aggregate pin budget, cleanup retries and private clients |
+| `src/vram.rs` | Shared VM ledger, memory policies and control-result rewriting |
+| `src/waiters.rs` | Owned poll snapshots, acknowledged cancellation and generation-checked completions |
+| `src/guest_words.rs` | Checked guest address/length helpers |
+| `src/grid.rs` | Cached host card properties |
+| `fuzz/` | Message-handler fuzz target and replay corpus |
 
-## What the guest sees of its card
+## Resource and reporting limits
 
-`vram.rs` rewrites five controls on the return path (the table with
-command numbers and conditions is in its header): the process list and
-per-process memory always become this VM's own view — measured, the
-host's table had already crossed the boundary before this existed — the
-two `FB_GET_INFO` doors report the capped card under a cap, and the GPU
-name always reads `Leandro <model>` (the `-2G` profile suffix joins it
-under a cap; `LEA_GPU_NAME_RAW=1` keeps the driver's string).
+- `LEA_MAX_PIN_MIB` limits one host arena (default 256 MiB).
+- `LEA_MAX_PIN_TOTAL_MIB` limits page-rounded registrations across all VM sessions
+  (provisional default 1024 MiB). Pending, active, retained and quarantined arenas count.
+- The aggregate budget counts registrations, not unique physical pages. Forwarded
+  OS descriptors stay charged after source free because native aliases may survive;
+  repeated allocation/free workloads can exhaust it.
+- Private pool cleanup releases UVM, then RM, then the arena/charge. Failures retain
+  the complete owner for retry; exceptional final failure retains it until backend exit.
+- RM memory handles are scoped to a client. Session labels and FD tokens identify
+  different resources and must not substitute for that namespace.
+- Guest process queries are rewritten from this VM's ledger. Configured VRAM
+  policies also rewrite reported capacity and selected card-name fields.
+- The ledger counts explicit guest allocations, excluding RM's internal GPU
+  overhead and managed-memory guest RAM. A reserved profile is an allowance,
+  not a guarantee of total physical occupancy.
+- `LEA_GPU_NAME_RAW=1` retains the driver's card name.
+- Known request layouts are validated before resource acquisition. The host refuses
+  32 additional untranslated controls, seven capability-FD classes, serialized RM
+  layouts, unknown frontend envelopes and UVM tools. See [the policy](../../docs/SECURITY.md#refused-operations).
+- Private-client guards and PID-scoped grants do not establish ownership of every
+  guest-supplied native source handle. [Security limits](../../docs/SECURITY.md) also
+  cover backing aliases, guest-page reuse and unsupported live device unbind.
 
-## Running
+## Run and test
 
-    vhost-user-nvrm --nvrm /path/to/socket
+```sh
+vhost-user-nvrm --nvrm /path/to/socket
+cargo test -p vhost-user-nvrm --lib
+```
 
-It must not be killed under a running guest. A guest then waits forever
-on a host that is gone, and the first visible symptom appears somewhere
-else entirely. `scripts/lib/common.sh` has the pidfile discipline that
-keeps gates from doing this to each other.
+- Stop the guest before its backend; an active guest depends on backend replies.
+- Software tests use fake RM calls and mapped test RAM. GPU behavior still needs
+  the hardware gates.
+- Suggested reading order: `guest_words`, `mirror`, `request_shape`, `client_policy`,
+  `vram`, `host_pool`, `waiters`, then `session` and `nvrm`.

@@ -1,20 +1,13 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! ioctl level: number encoding, call wrappers, device FDs.
+//! NVIDIA RM ioctl encoding, device FDs and shared ABI definitions.
 //!
-//! This crate is the ABI layer that every user of the NVIDIA RM interface
-//! in this workspace shares. RM is NVIDIA's Resource Manager -- the kernel
-//! driver behind `/dev/nvidiactl` and `/dev/nvidiaN`; its ioctls are called
-//! escapes (`NV_ESC_*`) and their parameter blocks are the `NVOS*` structs
-//! from `nvos.h`. Here: how an ioctl number is built and issued (Linux
-//! `_IOC` encoding), the struct layouts and constants of the driver ABI
-//! (`nvgpu`), the XFER_CMD indirection (`xfer`), what has to be known per
-//! (device, ioctl nr) to carry a call across a process or VM boundary
-//! (`xlate` -- the single source of truth), the descriptor tables handed
-//! to the guest module (`table`) and cross-process DUP grants (`share`).
-//! Session and object lifetime logic lives in `nvrm-client`; the raw
-//! bindgen output in `nvrm-sys`, re-exported as [`sys`].
+//! `nvgpu` supplies layouts and bitfields; `xfer` unwraps large requests;
+//! `xlate` describes forwarding layouts; `table` serializes them for the guest.
+//! `mediate` records rewritten fields, `vgpu` defines profiles, and `share`
+//! scopes RM object duplication. Raw bindings are re-exported as [`sys`].
+//! Session and object ownership live in `nvrm-client`.
 
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::Path;
@@ -29,9 +22,7 @@ pub mod xlate;
 
 pub use nvrm_sys as sys;
 
-// ---------------------------------------------------------------------------
 // _IOC encoding
-// ---------------------------------------------------------------------------
 // Written out by hand: the Linux macros live in asm-generic/ioctl.h, and
 // bindgen emits nothing for function-like macros.
 
@@ -63,9 +54,8 @@ pub const fn iowr<T>(nr: u32) -> u32 {
     )
 }
 
-/// Like `iowr`, but with a runtime size instead of a type. When forwarding
-/// a frontend ioctl, the host only has the byte length, not the type.
-/// Do NOT use for UVM - UVM requests are raw numbers with no _IOC encoding.
+/// Encode a frontend ioctl with a runtime byte size.
+/// UVM uses raw request numbers and must not use this encoder.
 #[inline]
 pub const fn iowr_raw(nr: u32, size: u32) -> u32 {
     ioc(IOC_READ | IOC_WRITE, sys::NV_IOCTL_MAGIC as u32, nr, size)
@@ -90,9 +80,7 @@ pub const fn is_nv_cmd(cmd: u32) -> bool {
     ioc_type(cmd) == sys::NV_IOCTL_MAGIC as u32
 }
 
-// ---------------------------------------------------------------------------
 // Doorbell
-// ---------------------------------------------------------------------------
 // From swref/published/turing/tu102/dev_vm.h and class/clc361.h.
 // Not via bindgen: dev_vm.h consists almost entirely of DRF macros.
 pub mod doorbell {
@@ -105,9 +93,7 @@ pub mod doorbell {
     pub const BAR0_VIRTUAL_FUNCTION_DOORBELL: u32 = 0x30090;
 }
 
-// ---------------------------------------------------------------------------
 // Errors
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -117,8 +103,7 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
-    /// The ioctl itself returned 0, but RM reports a status. This is the
-    /// more common failure and the one that is easily overlooked.
+    /// The ioctl succeeded, but its RM status reports failure.
     #[error("RM status {status:#x} ({}) on ioctl {nr:#x}",
             status_name(*status).unwrap_or("unknown"))]
     Rm { nr: u32, status: u32 },
@@ -132,14 +117,10 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-// ---------------------------------------------------------------------------
 // Device FD
-// ---------------------------------------------------------------------------
 
-/// An open FD on `/dev/nvidiactl` or `/dev/nvidia<N>`.
-///
-/// Important: exactly *one* mmap context per FD is allowed. Anything that
-/// wants to map opens a new FD. See `NvDevice::open_for_mapping`.
+/// An open NVIDIA device FD. Each mapping context needs a fresh FD;
+/// see [`NvDevice::open_for_mapping`].
 #[derive(Debug)]
 pub struct NvDevice {
     fd: OwnedFd,
@@ -155,8 +136,7 @@ impl NvDevice {
                 source: std::io::Error::other(e),
             }
         })?;
-        // O_CLOEXEC on purpose: a process that survives fork/exec must not
-        // hand a half-built RM state down to the exec'd image.
+        // Do not inherit RM state across exec.
         let raw = unsafe { libc::open(cpath.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
         if raw < 0 {
             return Err(Error::Open {
@@ -178,26 +158,17 @@ impl NvDevice {
         Self::open(format!("/dev/nvidia{index}"))
     }
 
-    /// Fresh FD on the same device, registered against `ctl` - good for
-    /// exactly one mmap context.
-    ///
-    /// The `register_fd` is not optional: a freshly opened
-    /// `/dev/nvidia<N>` FD is associated with no client as far as the
-    /// driver is concerned, and NV_ESC_RM_MAP_MEMORY on it does nothing.
-    /// NV_ESC_REGISTER_FD establishes the link to the ctl FD the RM client
-    /// lives on. libcuda does this after *every* open of a per-GPU node.
-    ///
-    /// (Unverified against the vendor tree in this exact wording; the
-    /// registration is harmless either way and is what libcuda does.)
+    /// Open a fresh mapping FD and register it against `ctl`.
+    /// This follows libcuda's per-GPU open/REGISTER_FD sequence; the new FD has
+    /// its own mmap context.
     pub fn open_for_mapping(&self, ctl: &NvDevice) -> Result<Self> {
         let fd = Self::open(&self.path)?;
         fd.register_fd(ctl)?;
         Ok(fd)
     }
 
-    /// `NV_ESC_REGISTER_FD` -- binds this FD to a client's ctl FD.
-    ///
-    /// No RM status field: the driver reports errors here as errno.
+    /// Bind this FD to a client's ctl FD with `NV_ESC_REGISTER_FD`.
+    /// Errors are reported through errno; the request has no RM status field.
     pub fn register_fd(&self, ctl: &NvDevice) -> Result<()> {
         let mut p = nvgpu::IoctlRegisterFd {
             ctl_fd: ctl.as_raw_fd(),
@@ -209,12 +180,13 @@ impl NvDevice {
         &self.path
     }
 
-    /// Raw call: the driver overwrites `arg` in place.
+    /// Issue a frontend ioctl and let the driver update `arg`.
     ///
     /// # Safety
-    /// `T` must have the same layout as the struct the driver expects for
-    /// `nr`. The size is encoded in the ioctl number; a mismatch is a
-    /// silent memory error, not an EINVAL.
+    /// `T` must match `nr` and the driver ABI, with a size encodable by `_IOC`.
+    /// Its input bytes must be initialized and its output representations valid.
+    /// Every embedded pointer must satisfy the command's lifetime, bounds and
+    /// access requirements until the ioctl returns.
     pub unsafe fn ioctl_raw<T>(&self, nr: u32, arg: &mut T) -> Result<()> {
         let cmd = iowr::<T>(nr);
         let r = libc::ioctl(
@@ -231,8 +203,7 @@ impl NvDevice {
         Ok(())
     }
 
-    /// Hands over ownership of the raw FD. For the host daemon, which puts
-    /// the FD into its mirror and no longer needs the NvDevice wrapper.
+    /// Transfer FD ownership to the caller.
     pub fn into_owned_fd(self) -> OwnedFd {
         self.fd
     }
@@ -244,12 +215,8 @@ impl AsRawFd for NvDevice {
     }
 }
 
-/// The symbolic name of an RM status code, for log lines and error text.
-///
-/// Only the codes this workspace names elsewhere are spelled out; anything
-/// else is `None` and callers print the number. The values come from the
-/// bindings (`nvstatuscodes.h`); the guards in `nvgpu.rs` cross-check the
-/// hand-written mirror.
+/// Name a known RM status for diagnostics; unknown values return `None`.
+/// Values come from `nvstatuscodes.h` and the checked `nvgpu` mirror.
 pub fn status_name(status: u32) -> Option<&'static str> {
     use nvgpu::status as s;
     Some(match status {
@@ -287,11 +254,7 @@ pub fn check_status(nr: u32, status: u32) -> Result<()> {
 mod ioc_tests {
     use super::*;
 
-    /// The `_IOC` encoding packs direction, type, nr and size into one
-    /// 32-bit word, and this file rebuilds the Linux macros by hand
-    /// (bindgen emits nothing for function-like macros). Everything the
-    /// host does with a forwarded ioctl starts by taking that word apart
-    /// again, so building and decoding must be exact inverses.
+    /// Encoding and decoding must preserve direction, type, number and size.
     #[test]
     fn iowr_raw_round_trips_through_the_decoders() {
         for &nr in &[0u32, 1, 0x27, 0x2a, 0x2b, 0xc9, 0xff] {
@@ -315,11 +278,8 @@ mod ioc_tests {
         }
     }
 
-    /// The size field is 14 bits wide, so 16383 is the largest size an
-    /// ioctl number can carry. This is the whole reason
-    /// `NV_ESC_IOCTL_XFER_CMD` exists (see `xfer.rs`): one byte more and
-    /// the size overflows into the direction bits, silently producing a
-    /// different ioctl number rather than an error.
+    /// `_IOC` has a 14-bit size field. Larger sizes overflow into direction
+    /// bits and require XFER_CMD.
     #[test]
     fn the_size_field_stops_at_fourteen_bits() {
         assert_eq!(crate::xfer::IOC_SIZE_LIMIT, 16383);
@@ -331,10 +291,8 @@ mod ioc_tests {
         assert_eq!(ioc_size(overflowed), 0, "the low 14 bits of 16384 are zero");
     }
 
-    /// `is_nv_cmd` decides whether an intercepted ioctl belongs to the
-    /// NVIDIA frontend at all. It must key on the TYPE byte only: an ioctl
-    /// of another subsystem can carry the same nr and size, and forwarding
-    /// one of those to RM would be a call into the wrong driver.
+    /// Only the type byte distinguishes NVIDIA frontend ioctls from another
+    /// subsystem using the same number and size.
     #[test]
     fn is_nv_cmd_recognises_the_type_byte_and_nothing_else() {
         assert_eq!(
@@ -363,10 +321,7 @@ mod ioc_tests {
         assert!(!is_nv_cmd(0));
     }
 
-    /// `iowr::<T>` is the typed form: the size comes from the type, and
-    /// that size is what the driver's `copy_from_user` uses. A mismatch
-    /// between the type and the number is a silent memory error, not an
-    /// EINVAL -- hence the pairing is pinned here.
+    /// The encoded size must match the parameter type.
     #[test]
     fn iowr_takes_its_size_from_the_type() {
         assert_eq!(

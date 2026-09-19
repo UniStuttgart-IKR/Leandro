@@ -1,163 +1,110 @@
 <!-- SPDX-License-Identifier: MIT -->
-# The display path
+# Display path
 
-The compute path carries CUDA. This half carries **pixels**: a guest with
-a virtual display, a desktop composited on the GPU, and a game streamed
-out over the network.
+- `virtio_nvrm.ko` exposes NVIDIA's displayless class and generates an EDID.
+- Guest `nvidia-modeset.ko` and `nvidia-drm.ko` use its kernel RM interface.
+- Local hrtimer callbacks supply vblank timing. Guest kernel callback addresses
+  never travel to the host.
+- A second virtqueue carries RM events back to the guest for fence wakeups.
+- See [ARCHITECTURE.md](ARCHITECTURE.md) for the transport and
+  [SHOWCASE.md](SHOWCASE.md) for setup.
 
-It is the younger and thinner half of the project. The compute path has
-gates behind it; this one has one long session and two gates:
-`scripts/test.sh display` (twelve stages, the whole desktop path) and
-`scripts/test.sh vdisplay` (six stages, module to read-back frame, no X).
-Read the limits at the bottom before relying on it.
-
-## What it is
-
-The guest gets a **virtual display**: `virtio_nvrm.ko` answers the display
-class NVIDIA's own vGPU path uses, invents an EDID for it (the monitor
-identification block a real screen would supply), and generates the
-raster clock — the per-frame vblank tick — itself with an hrtimer at
-`vdisplay_vblank_hz` (default 60). NVIDIA's `nvidia-drm` and `nvidia-modeset` then load in the
-guest unmodified and see a connected monitor.
-
-A vblank callback is a **guest kernel function pointer**, so it is never
-forwarded — the host would receive an address that means nothing there.
-The module services `NV9010_VBLANK_CALLBACK` locally instead. That is why
-the module is the raster generator rather than a relay
-(see [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) number 7).
-
-A second virtqueue carries RM's (the NVIDIA Resource Manager's) event
-firings from host to guest, so a
-fence wait is **woken** rather than polled. Without it every wait fell
-back to a 10 ms timer, which is what made compositing unusable.
-
-## Running it
+## Start an X11 desktop
 
 ```sh
+cd ../Leandro-Test
 ./scripts/showcase.sh up --name desktop --index 5 --session gnome --with-steam
+./scripts/showcase.sh pair --name desktop
 moonlight stream 192.168.100.15 Desktop --resolution 1920x1080 --fps 60 --bitrate 40000
 ```
 
-`up --session` brings the host network up if a reboot took it, starts the
-backends and the guest, loads `virtio_nvrm.ko` **before** any NVKMS
-module (nvidia-modeset.ko and its DRM front), stages the guest's NVIDIA userspace, brings up the display path,
-writes the guest's session state, starts GNOME through gdm3 with Sunshine
-beside it, and reads the vblank counter back as its last act.
+- Requires a desktop image with GNOME, Xorg and Sunshine.
+- Provisioning loads `virtio_nvrm` before the NVIDIA display modules.
+- `--session openbox` starts a minimal desktop; `--display` starts only the rig X server.
+- `--keep-vm` reuses the guest. Use `--fresh` when changing its base image or driver.
+- Sunshine defaults to `LEA_SUN_CAPTURE=auto` and `LEA_SUN_ENCODER=nvenc`.
+  Inspect its reported capture method and encoder.
+- NvFBC produced black streams on the measured GeForce setup. The scripts
+  configure capture explicitly; use `x11` for the Xorg desktop.
 
-- Sunshine is told what to capture before it starts, and that is a ban, not
-  a preference: left alone it picks **NvFBC**, NVIDIA's own frame capture,
-  which is restricted on GeForce -- it initialises, logs "Couldn't release
-  NvFBC context", encodes with NVENC and sends **black** frames. Measured
-  2026-08-19: 789373 non-black pixels on the guest's X root while the stream
-  showed nothing. `LEA_SUN_CAPTURE` defaults to `auto`, which asks the guest
-  which session it runs -- a Wayland socket gives `portal`, anything else
-  `x11`, and the desktop this tree brings up is X11 by construction
-  (`WaylandEnable=false`). `LEA_SUN_ENCODER` defaults to `nvenc`; both are
-  read back out of Sunshine's own log after the start, so "capture=x11,
-  h264_nvenc" is printed rather than assumed. A card with no NVENC says so
-  in that line.
-- `showcase.sh pair [--name NAME] [--pin NNNN]` pairs this host's Moonlight
-  with the guest's Sunshine and needs no browser: `moonlight pair --pin` and
-  a POST to Sunshine's `/api/pin` have to overlap, which is what the web UI
-  does for a human. It is idempotent (`moonlight list` answers only for a
-  paired host) and repairs the one failure it can: a Sunshine with no web
-  login answers every API call with a 307 to its `/welcome` page, so the
-  login is written and Sunshine restarted once. Measured 2026-08-19 on the
-  desktop guest: 307, then paired on the second attempt.
-- `--session openbox` for the bare rig without a desktop environment.
-- `--display` alone for the rig X on `:7` and nothing on it (the gate's shape).
-- `--keep-vm` to recycle the guest when only the module changed.
+## Wayland
 
-The gate is `scripts/test.sh display`, twelve stages.
+- Pass `--wayland` with `--session gnome` to select a Wayland desktop.
+- Automatic capture selects `portal` when it detects the Wayland socket.
+  Unpatched Sunshine may need an interactive portal permission grant.
+- KMS capture has also been exercised. For that configuration, set
+  `LEA_SUN_CAPTURE=kms` when starting the desktop. OPEN-QUESTIONS 17 records
+  changing, nonzero frames through mmap, GL and CUDA readers with
+  `glmark2-wayland`; its idle control remained static.
+- The historical Xwayland failures in OPEN-QUESTIONS 22-C, 23, 32, 33, 35 and
+  44 were closed after a 2026-08-21 GNOME Wayland/KMS run: 19m25s without the
+  recorded crashes or EGLImage failures. That run did **not** confirm moving
+  game frames. See [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md), item 35 and its
+  follow-up measurement, for the evidence and limits.
 
-## Module parameters
+## Parameters
 
 | Parameter | Meaning |
 |---|---|
-| `display` | serve the kernel-path RM operations a display needs (mapping, PRIME import); `vdisplay` needs it |
-| `vdisplay` | enable the virtual display |
-| `vdisplay_width`, `vdisplay_height` | its geometry |
-| `vdisplay_vblank_hz` | the raster rate, default 60 |
-| `vdisplay_max_width`, `_max_height`, `_max_pixels` | the ceiling NVKMS is told it may allocate — a separate thing from the EDID's mode |
-| `stat_vblank_fired` | vblank counter, the reader for "is the clock running" |
-| `stat_events_*` | event channel accounting, including four drop reasons |
+| `display` | Enable kernel RM display operations |
+| `vdisplay` | Enable the virtual display |
+| `vdisplay_width`, `vdisplay_height` | Requested geometry; defaults 1920x1080 |
+| `vdisplay_vblank_hz` | Requested refresh; default 60 Hz |
+| `vdisplay_max_width`, `vdisplay_max_height`, `vdisplay_max_pixels` | NVKMS allocation ceilings; defaults 2560, 1600, 4096000 |
+| `display_reserve_mib` | Display balloon: automatic `-1`, disabled `0`, or fixed MiB |
+| `stat_vblank_fired`, `stat_events_*` | Timing and event-channel counters |
 
-The EDID is generated by `nvrm_edid.c` and checked against `edid-decode`
-in `scripts/test.sh check` — the check that found three real defects in a
-block nothing had ever parsed (the list is in the `edid` step's own
-comment in `scripts/test.sh`, next to what it checks).
+- `nvrm_edid.c` clamps requested timings to EDID field widths. EDID and vblank
+  pacing use the same effective refresh.
+- `nvrm_vram.c` sizes an automatic display reserve from scanout buffers and
+  cursor space. Its measured sizing inputs are recorded beside the formula.
+- The display balloon is distinct from the host's per-VM VRAM limit/profile.
+- Arithmetic checks at large sizes or rates do not establish end-to-end support.
 
-## What is measured
+## Validation
 
-On an RTX 2070 with the desktop guest:
+```sh
+# From Leandro:
+./scripts/check.sh
+cd ../Leandro-Test
+./lea acceptance vdisplay display
+```
 
-- **CS2 plays a deathmatch at 55–60 FPS**, capped by the virtual display's
-  60 Hz rather than by the GPU. Uncapped it takes 4.8 GB of the card
-  ([`llm.md`](llm.md)). GNOME
-  composites on the GPU.
-- The event back-channel took `fencetime` from 10.10 ms to **0.12 ms** and
-  Sunshine's frame time from 62 ms to **6 ms**.
-- Under a game and a live stream together, 43 000 events per second were
-  delivered with no ring-full drops.
-- Two guests of different kinds share one card: one playing CS2 on the
-  virtual display, one running PyTorch. Both stayed correct, and the
-  display path did not move from 60.1 FPS.
-- Raytracing initialises: `vkCreateDevice` with
-  `VK_KHR_acceleration_structure` is green, in CS2's exact shape.
+- Core `scripts/check.sh`: GPU-free C/Rust tests, generated ABI checks and EDID conformance.
+- Test `lea acceptance`: full relocated hardware gates; `lea gate` is a narrower smoke check.
+- `vdisplay`: virtual monitor setup and frame readback without X.
+- `display`: desktop, presentation, event latency, capture and streaming.
+- Canonical EDID/frame tools and the reference frame stay in core `tests/tools/`; Test builds or packages them from there.
+- Run hardware gates sequentially on an available rig. See [TESTING.md](TESTING.md).
+- On 2026-09-19, the relocated Leandro-Test runner passed virtual-display and desktop gates against the refactored core.
 
-## Readers, for anyone re-measuring
-
-| Tool | Question it answers |
+| Reader | Evidence |
 |---|---|
-| `scripts/guest/fencetime.c` | wait latency; target is under 1 ms |
-| `scripts/guest/vkprobe.c` | `--present N`, `--rt`, `--queues`, `--all-ext` |
-| `scripts/guest/fbprobe.c` | does the framebuffer actually carry content |
-| `stat_events_*`, `stat_vblank_fired` | the back-channel's own books |
-| `crates/nvrm-trace` | RM traces with answer payloads, host and guest |
+| Test `scripts/guest/fencetime.c` | Fence wait latency; gate target below 1 ms |
+| Test `scripts/guest/vkprobe.c` | Presentation, raytracing and queue/extension checks |
+| Test `scripts/guest/fbprobe.c` | Framebuffer content and changes |
+| `stat_events_*`, `stat_vblank_fired` | Event delivery and timing |
+| `crates/nvrm-trace` | RM requests and replies |
 
-A client's own FPS counter is **not** one of these. It counts swaps, not
-frames that reached a screen; see [`llm.md`](llm.md).
+- A client's FPS counter measures swaps; it does not prove displayed or received frames.
+- RTX 2070 measurements include CS2 at 55–60 FPS, fence latency falling from
+  10.10 to 0.12 ms, and a desktop sharing the card with PyTorch. These are
+  workload-specific results, not performance guarantees; see [llm.md](llm.md).
+- Two-game measurements: [sottr-4q](measurements/sottr-4q/README.md).
 
-## What does not work
+## Limits
 
-Stated plainly, because this half is new:
-
-- **The capture path is still an X11 software grab** — Xorg at 24 % and
-  Sunshine at 53 % CPU at 60 fps. The zero-copy capture that would fix it
-  is sketched in [`FUTURE.md`](FUTURE.md).
-- **Three concurrent swapchains present at 60 FPS; a fourth failed** at
-  `vkCreateSwapchainKHR` when attempted beside a loading CS2.
-- **1440p and rates above 60 Hz are untried** (the clamp arithmetic is
-  verified to 8K/240 by `test/edidclamp.c`, real modes are not) — see
-  [`FUTURE.md`](FUTURE.md).
-- **Xwayland is where the open defects are.** GLX clients segfault, and
-  EGLImage import fails under the compositor's own Xwayland instance but
-  not under a self-started one. On real Xorg none of it reproduces. See
-  numbers 22, 23, 32, 33 and 35 in
-  [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md); number 29 (resolved) is what
-  pinned the crash to *whose* Xwayland instance it is.
-- **The frame limiter is opt-in** (`LEA_FRL_HZ`), because it once
-  triggered a double free in the guest (number 38). With the
-  late-unregister race fixed it holds 30/60/120 Hz targets (numbers 40
-  and 41); opt-in it stays.
-- **Connector detect breaks** after a compositor exits abnormally; a
-  module reload recovers it (number 16).
-
-## Why the display engine is not virtualised
-
-Worth stating because it is the road not taken. NVKMS's real display
-engine (the EVO path) is refused rather than missing: asking it for its
-head configuration returns `NV_ERR_INSUFFICIENT_PERMISSIONS`. That makes
-it a **privilege** question rather than a capability one, and forcing the
-displayless HAL is what this project does instead, and since 2026-08-21 that
-is a decision rather than a default: number 25 is closed on it. Carrying
-`CAP_SYS_ADMIN` was measured to make the outcome *worse* (past the head mask,
-then dead on `GET_PCLK_LIMIT`, and the render node gone), and virtualising the
-display engine has no measurement behind it. What remains is the ceiling the
-chosen route carries: 2560x1600 and 4096000 pixels.
-
-Rendering itself is not what this carries. `virtio-gpu` with Venus or
-virgl paravirtualises graphics APIs and does that job well; it does not
-carry CUDA, and NVIDIA's proprietary stack does not sit behind it. This
-project carries the driver interface, and pixels are what came out of
-that once the event channel existed.
+- X11 capture adds CPU overhead. Historical 60 FPS measurements recorded Xorg
+  at 24% and Sunshine at 53%; see [FUTURE.md](FUTURE.md) for capture work.
+- Concurrent swapchain capacity depends on the workload; a fourth creation
+  failed beside a loading CS2 in the original display measurements.
+- The frame limiter remains opt-in (`LEA_FRL_HZ`). Its late-unregister race
+  and later 30/60/120 Hz measurements are documented in OPEN-QUESTIONS 38–41.
+- The displayless path is intentional. The physical display engine rejected
+  head configuration with `NV_ERR_INSUFFICIENT_PERMISSIONS`; granting
+  `CAP_SYS_ADMIN` did not produce a working alternative (OPEN-QUESTIONS 25).
+- Connector detection after an abnormal compositor exit remains an open
+  issue (OPEN-QUESTIONS 16). Reloading the display modules recovered the
+  measured cases; stop GPU clients before doing so.
+- Stop GPU clients before driver/device teardown. Live hot-unplug is unsupported.
+- Successful display tests do not establish isolation against hostile guests.

@@ -1,49 +1,14 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! One guest port, opened through cloud-hypervisor's HYBRID vsock socket --
-//! an `ssh -o ProxyCommand` helper, and nothing else.
+//! SSH ProxyCommand for Cloud Hypervisor's hybrid vsock Unix socket.
 //!
 //! ```text
-//! vsockconnect <unix-socket> <guest-port>     # stdin/stdout become the stream
+//! vsockconnect <unix-socket> <guest-port>
 //! ```
 //!
-//! WHY THIS EXISTS AT ALL, rather than a line of `socat`. cloud-hypervisor's
-//! `--vsock cid=N,socket=PATH` does NOT put an `AF_VSOCK` socket on the host.
-//! It puts a UNIX socket there speaking the *hybrid* protocol Firecracker
-//! defined: the host connects to that unix socket and asks, in text, for a
-//! guest port. `socat`'s `VSOCK-CONNECT` address speaks real `AF_VSOCK` to a
-//! real host kernel vsock device and is therefore the wrong tool -- it is not
-//! that it is awkward here, it does not fit at all.
-//!
-//! THE PROTOCOL, host -> guest:
-//!
-//! ```text
-//!   connect(unix socket)
-//!   write  "CONNECT <port>\n"
-//!   read   ONE LINE:  "OK <hostport>\n"  = success, anything else = failure
-//!   from here the stream is raw and bidirectional
-//! ```
-//!
-//! Measured 2026-08-19 against cloud-hypervisor v53.0.0, a NixOS guest on
-//! CID 43: the handshake line is `OK 1073741824\n` and the very next bytes
-//! are `SSH-2.0-OpenSSH_10.4\r\n`.
-//!
-//! THE BUG THIS FILE IS SHAPED AROUND. The reply line and the first payload
-//! bytes arrive in ONE read. A `read(&mut [0u8; 64])` therefore takes the
-//! `OK ...\n` *and* the beginning of the SSH banner, and the banner bytes are
-//! then gone -- ssh reports a protocol error, which reads like a broken
-//! transport and is a lost afternoon. There are two honest fixes: read one
-//! byte at a time until `\n`, or buffer and push the remainder back. This
-//! takes the second, because a byte-at-a-time read is a syscall per byte on
-//! the one path every SSH session opens with; `read_until` over a `BufReader`
-//! does the same job in one read and hands the surplus back through
-//! `into_inner`/`buffer`. The unit tests below feed exactly that shape --
-//! reply and payload in a single write -- and assert not one byte is lost.
-//!
-//! Ships in `LEA_BIN_DIR` beside `mmapping` and `smipids`, so `build.sh
-//! cargo`, the nix package and the store install all carry it without a
-//! second rule anywhere.
+//! Sends `CONNECT <port>\n`, reads `OK <hostport>\n`, then relays stdin/stdout.
+//! The buffered handshake preserves payload bytes received with the reply.
 
 use std::env;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -53,30 +18,15 @@ use std::process::ExitCode;
 use std::thread;
 use std::time::Duration;
 
-/// How long to wait for the `OK ...` line before giving up.
-///
-/// WHY THERE IS A TIMEOUT AT ALL. `connect(2)` to a listening AF_UNIX socket
-/// succeeds whether or not anyone ever calls `accept`, so a cloud-hypervisor
-/// that is alive but wedged leaves a socket that connects and then says
-/// nothing. Without a deadline the read blocks forever -- and nothing above
-/// recovers: ssh's `ConnectTimeout` applies to its OWN connect, never to a
-/// ProxyCommand (which is already "connected", being a pipe pair), and
-/// `lea_wait_ssh`'s per-attempt loop and its pidfile-liveness escape both sit
-/// AFTER the call that is blocked. One hung VM would hang the rig, and on a
-/// batch node it would hang until the allocation expired.
-///
-/// 30 s rather than something tight: this is the cold-start path, where the
-/// guest's sshd socket unit may genuinely not have been reached yet, and a
-/// deadline that fires during a normal boot would be worse than none.
+/// Bound the proxy handshake; SSH ConnectTimeout does not cover ProxyCommand.
+/// Allow 30 seconds for a guest still starting its vsock listener.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+const HANDSHAKE_MAX_BYTES: usize = 64;
 
-/// Reads the one reply line into `line`. Bytes read together with the
-/// reply line but belonging to the peer's payload stay in the
-/// `BufReader`; the caller drains them with `buffer()` before handing the
-/// socket on. Dropping them is the bug in the module comment.
+/// Read the reply while preserving buffered payload for the relay.
 fn handshake<R: BufRead>(r: &mut R, line: &mut Vec<u8>) -> io::Result<()> {
     line.clear();
-    let n = r.read_until(b'\n', line)?;
+    let n = r.take(HANDSHAKE_MAX_BYTES as u64).read_until(b'\n', line)?;
     if n == 0 {
         return Err(io::Error::new(
             io::ErrorKind::UnexpectedEof,
@@ -84,6 +34,12 @@ fn handshake<R: BufRead>(r: &mut R, line: &mut Vec<u8>) -> io::Result<()> {
         ));
     }
     if !line.ends_with(b"\n") {
+        if n == HANDSHAKE_MAX_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "vsock: CONNECT reply exceeds 64 bytes",
+            ));
+        }
         return Err(io::Error::new(
             io::ErrorKind::UnexpectedEof,
             "vsock: the socket closed mid-line while answering CONNECT",
@@ -98,14 +54,23 @@ fn handshake<R: BufRead>(r: &mut R, line: &mut Vec<u8>) -> io::Result<()> {
              Nothing is listening on that guest port (is sshd's vsock socket up?)."
         )));
     }
+    let port = &line[3..line.len() - 1];
+    if port.is_empty()
+        || !port.iter().all(u8::is_ascii_digit)
+        || std::str::from_utf8(port)
+            .ok()
+            .and_then(|p| p.parse::<u32>().ok())
+            .is_none()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "vsock: CONNECT reply has no valid host port",
+        ));
+    }
     Ok(())
 }
 
-/// `stdin -> socket` and `socket -> stdout`, until either side is done.
-///
-/// Half-close matters: ssh signals end of input by closing stdin, and a
-/// proxy that does not pass that on leaves the guest's sshd waiting forever
-/// on a session that is over.
+/// Relay both directions; stdin EOF half-closes the socket for the peer.
 fn pump(mut sock: UnixStream, surplus: Vec<u8>) -> io::Result<()> {
     let mut out = io::stdout();
     if !surplus.is_empty() {
@@ -142,9 +107,7 @@ fn pump(mut sock: UnixStream, surplus: Vec<u8>) -> io::Result<()> {
             Err(e) => return Err(e),
         }
     }
-    // The writer thread outlives us only when ssh keeps our stdin open
-    // without writing; it is a daemon in effect and the process is about
-    // to exit.
+    // Process exit ends a writer still blocked on stdin after the peer closes.
     drop(writer);
     Ok(())
 }
@@ -166,10 +129,7 @@ fn run() -> io::Result<()> {
         .parse()
         .map_err(|_| io::Error::other(format!("vsock: {:?} is not a port number", args[2])))?;
 
-    // AF_UNIX sun_path is 108 bytes INCLUDING the terminator, and the error
-    // for exceeding it is a bare ENAMETOOLONG that names nothing. A cluster
-    // scratch directory nests deeply enough to hit it, so say which limit
-    // was crossed and by how much rather than passing the kernel's answer on.
+    // Linux sun_path holds 108 bytes including the null terminator.
     if path.len() >= 108 {
         return Err(io::Error::other(format!(
             "vsock: the socket path is {} bytes and AF_UNIX allows 107 -- {}\n\
@@ -187,12 +147,10 @@ fn run() -> io::Result<()> {
     })?;
     (&sock).write_all(format!("CONNECT {port}\n").as_bytes())?;
 
-    // A deadline for the handshake ONLY. It is lifted again before the pump,
-    // where a long silence is an idle SSH session rather than a fault.
+    // Idle SSH sessions may remain silent after the handshake.
     sock.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
 
-    // BufReader, then take its unread buffer back: that is the push-back the
-    // module comment is about.
+    // Preserve any payload received in the same read as the handshake.
     let mut r = BufReader::new(sock);
     let mut line = Vec::new();
     handshake(&mut r, &mut line).map_err(|e| match e.kind() {
@@ -232,10 +190,7 @@ mod tests {
         let mut r = BufReader::new(Cursor::new(input.to_vec()));
         let mut line = Vec::new();
         handshake(&mut r, &mut line)?;
-        // The surplus is what BufReader already pulled in, plus anything the
-        // source has not been asked for yet -- in a live socket the second
-        // part arrives later, so the test drains both to model the whole
-        // stream.
+        // Include both buffered payload and bytes not yet read from the source.
         let mut rest = r.buffer().to_vec();
         let mut tail = Vec::new();
         r.into_inner().read_to_end(&mut tail).unwrap();
@@ -243,8 +198,6 @@ mod tests {
         Ok((line, rest))
     }
 
-    /// THE BUG THIS BINARY EXISTS TO NOT HAVE. Reply line and payload arrive
-    /// in ONE write; not a byte of the payload may be eaten.
     #[test]
     fn payload_in_the_same_write_survives() {
         let banner = b"SSH-2.0-OpenSSH_10.4\r\n";
@@ -258,8 +211,6 @@ mod tests {
         );
     }
 
-    /// A payload that itself contains newlines must not be split further --
-    /// only the FIRST line belongs to the handshake.
     #[test]
     fn only_the_first_line_is_consumed() {
         let payload = b"SSH-2.0-x\r\nsecond\nthird\n";
@@ -270,8 +221,6 @@ mod tests {
         assert_eq!(rest, payload);
     }
 
-    /// A payload arriving with NO trailing newline of its own is still
-    /// returned whole (the banner is not the last thing on the stream).
     #[test]
     fn unterminated_payload_survives() {
         let stream = b"OK 1\nabc";
@@ -280,8 +229,6 @@ mod tests {
         assert_eq!(rest, b"abc");
     }
 
-    /// Exactly the reply and nothing else: the common case where the peer
-    /// has not spoken yet.
     #[test]
     fn reply_alone_leaves_nothing_over() {
         let (line, rest) = split(b"OK 1073741824\n").expect("handshake");
@@ -289,7 +236,6 @@ mod tests {
         assert!(rest.is_empty());
     }
 
-    /// A refusal is an error naming what was said, not a silent hang.
     #[test]
     fn refusal_is_reported_verbatim() {
         let e = split(b"ERROR bad port\n").expect_err("must fail");
@@ -298,17 +244,37 @@ mod tests {
         assert!(m.contains("ERROR bad port"), "{m}");
     }
 
-    /// A socket that closes instead of answering must not look like success.
     #[test]
     fn eof_before_the_reply_is_an_error() {
         let e = split(b"").expect_err("must fail");
         assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof);
     }
 
-    /// A half-written reply (no newline) is EOF, not an "OK".
     #[test]
     fn truncated_reply_is_an_error() {
         let e = split(b"OK 107374").expect_err("must fail");
         assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn malformed_success_ports_are_rejected() {
+        for reply in [
+            b"OK \n".as_slice(),
+            b"OK text\n",
+            b"OK 4294967296\n",
+            b"OK 7 extra\n",
+        ] {
+            assert_eq!(split(reply).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        }
+    }
+
+    #[test]
+    fn unterminated_replies_have_a_fixed_memory_bound() {
+        let input = vec![b'x'; 4096];
+        let mut reader = BufReader::new(Cursor::new(input));
+        let mut line = Vec::new();
+        let error = handshake(&mut reader, &mut line).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(line.len(), HANDSHAKE_MAX_BYTES);
     }
 }
