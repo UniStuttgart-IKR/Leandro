@@ -32,5 +32,4 @@ cargo run --bin nvrm-genhdr -- guest-module/virtio_nvrm/nvrm_wire.h
 cargo run --bin nvrm-genhdr -- --check
 ```
 
-- C static assertions check compiled struct layouts. The generator check detects
-  a checked-in header that no longer matches the Rust definitions.
+- C static assertions check layouts; the generator check detects stale headers.

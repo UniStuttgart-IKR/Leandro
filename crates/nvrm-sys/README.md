@@ -22,7 +22,7 @@
 ## Regeneration
 
 ```sh
-scripts/build.sh vendor-abi <version>
+tools/build.sh vendor-abi <version>
 cargo xtask abi
 cargo xtask abi --check
 ```
@@ -33,4 +33,4 @@ cargo xtask abi --check
 - `detect()` accepts exact configured versions enabled in the build.
   `assert_driver_version()` requires the default version.
 - Layout checks establish ABI structure, not end-to-end GPU compatibility.
-- Generated bindings are excluded from the check band's rustdoc and doctest runs.
+- Generated bindings are excluded from workspace rustdoc and doctest checks.

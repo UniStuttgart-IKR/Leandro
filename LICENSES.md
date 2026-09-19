@@ -9,10 +9,12 @@
 
 - Per-file SPDX headers are authoritative. Copyright holders are Silas Müller and Universität Stuttgart, IKR where stated.
 - The host backend and guest kernel modules are separate programs connected by the wire protocol.
-- Hardware probes and VM scripts moved to Leandro-Test retain their MIT headers.
-- Full local license texts: [LICENSES](LICENSES).
+- License texts: [LICENSES](LICENSES).
 
 ## Third-party sources
+
+- Packaged `vhost-device-input` is unmodified rust-vmm source, licensed Apache-2.0
+  or BSD-3-Clause. Host packages include its license notices.
 
 - `vendor/open-gpu-kernel-modules`: NVIDIA source used for ABI definitions, checks and guest NVKMS builds. Preserve its `COPYING` and per-file notices.
 - `vendor/cloud-hypervisor`: upstream hypervisor with the patches in `patches/`.

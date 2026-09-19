@@ -25,7 +25,7 @@
  * exactly where it has to be built.
  *
  * A transcribed layout is what goes stale, so it is checked rather than
- * trusted: the kapi-abi step of `scripts/test.sh check` compiles this header
+ * trusted: the kapi-abi step of `tools/check.sh` compiles this header
  * side by side with the vendor originals and fails on any disagreement in
  * size, alignment or offset.
  */

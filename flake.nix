@@ -58,6 +58,7 @@
 
       overlays.default = final: prev: {
         leandro-nvidia-headers = final.callPackage ./nix/packages/nvidia-headers.nix { inherit driverVersion; };
+        leandro-vhost-device-input = final.callPackage ./nix/packages/vhost-device-input.nix { };
         leandro = final.callPackage ./nix/packages/leandro.nix {
           nvidiaHeaders = final.leandro-nvidia-headers; src = ./.;
         };
@@ -76,7 +77,7 @@
         default = pkgs.leandro;
         leandro = pkgs.leandro;
         vhost-user-nvrm = pkgs.leandro.override { crates = [ "vhost-user-nvrm" ]; };
-        vhost-user-input = pkgs.leandro.override { crates = [ "vhost-user-input" ]; };
+        vhost-device-input = pkgs.leandro-vhost-device-input;
         cloud-hypervisor = pkgs.leandro-cloud-hypervisor;
         nvidia-headers = pkgs.leandro-nvidia-headers;
         nvidia-open-modules-source = pkgs.fetchFromGitHub {
@@ -96,8 +97,9 @@
         # The host side for Ubuntu/Debian hosts: static binaries in a .deb.
         host-deb = pkgs.callPackage ./nix/packages/host-deb.nix {
           src = ./.; inherit driverVersion chVersion;
-          leandroStatic = pkgs.pkgsStatic.leandro.override { crates = [ "vhost-user-nvrm" "vhost-user-input" "nvrm-client" ]; };
+          leandroStatic = pkgs.pkgsStatic.leandro.override { crates = [ "vhost-user-nvrm" "nvrm-client" ]; };
           cloudHypervisorStatic = pkgs.pkgsStatic.leandro-cloud-hypervisor;
+          inputStatic = pkgs.pkgsStatic.leandro-vhost-device-input;
         };
         # kernel + initrd + qcow2 + image.env, for direct kernel boot.
         guest-image = guestImage.image;
@@ -180,7 +182,7 @@
             LEA_CH = "${pkgs.leandro-cloud-hypervisor}/bin/cloud-hypervisor";
             shellHook = hook;
           };
-          # Everything from the store: `scripts/showcase.sh up` without
+          # Core binaries from the store, without
           # `build.sh cargo` or `build.sh ch`.
           prebuilt = pkgs.mkShell {
             name = "leandro-prebuilt";

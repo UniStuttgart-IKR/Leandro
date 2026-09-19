@@ -71,3 +71,6 @@ tmp.md
 # out if it is the raw material of one.
 /matrix/traces/
 /matrix/.tables.txt
+
+# Optional upstream input backend source checkout.
+/vendor/vhost-device/

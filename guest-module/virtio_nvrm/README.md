@@ -27,23 +27,22 @@
 | `test/vramcheck.c` | Display reserve and allocation policy |
 | `test/identitycheck.c` | ID exhaustion, native replies and client separation |
 
-- The tables, identity, EDID and VRAM helpers are included by both production code
-  and userspace tests. Tests exercise the same implementation.
+- Production code and userspace tests share the tables, identity, EDID and VRAM helpers.
 - Table keys include both device type and ioctl number; ctl and UVM reuse numbers.
 
 ## Build and check
 
-Inside the guest, with headers for its running kernel:
+From the repository root inside the guest, with matching kernel headers:
 
 ```sh
-make -C ~/guest-module/virtio_nvrm
+make -C guest-module/virtio_nvrm
 ```
 
 From the repository root:
 
 ```sh
-scripts/ci/check-c.sh all
-CC=clang scripts/ci/check-c.sh all --sanitize
+tools/ci/check-c.sh all
+CC=clang tools/ci/check-c.sh all --sanitize
 nix build .#guest-modules
 ```
 

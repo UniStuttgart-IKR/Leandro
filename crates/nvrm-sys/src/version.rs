@@ -51,7 +51,7 @@ pub fn detect() -> std::io::Result<crate::DriverVersion> {
         std::io::Error::other(format!(
             "driver {running} is not supported: this build carries {}. \
              Adding it is one entry in crates/nvrm-sys/abi.toml plus \
-             `scripts/build.sh vendor-abi {running}` and `cargo xtask abi`.",
+             `tools/build.sh vendor-abi {running}` and `cargo xtask abi`.",
             crate::SUPPORTED_VERSIONS.join(", ")
         ))
     })

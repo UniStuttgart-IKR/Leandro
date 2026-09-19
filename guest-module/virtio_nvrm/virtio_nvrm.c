@@ -311,7 +311,7 @@ MODULE_PARM_DESC(stat_pool_pages, "Pages owned by this module for UVM pools");
 #endif
 
 /* Parse and validate host tables. nvrm_tables.c is shared with userspace C
- * tests; scripts/test.sh check compares its interpretation with the real
+ * tests; tools/check.sh compares its interpretation with the real
  * Rust-generated table stream. */
 
 #include "nvrm_tables.c"

@@ -20,6 +20,34 @@ flowchart LR
     G -->|shared window| C
 ```
 
+## Request trace
+
+For an ioctl on an already opened guest device:
+
+1. NVIDIA userspace passes a payload to `virtio_nvrm`.
+2. The guest copies supported fields into a request, replaces FDs with tokens and queues it on queue 0.
+3. The backend selects the session, validates the request against the host ABI and resolves tokens to host FDs.
+4. `Session::prepare` builds host buffers; `Session::execute` calls the NVIDIA driver.
+5. The backend translates output fields and completes the request. The guest copies results to userspace.
+
+Channel and mapping setup use this control path. GPU command buffers and mapped
+submission registers carry subsequent GPU work; the backend does not translate
+each GPU instruction. Isolation therefore depends on the objects and mappings
+created during setup, not just the forwarded ioctl checks.
+
+## Addresses
+
+| Address | Meaning |
+|---|---|
+| Guest virtual address | Pointer in one guest process; cannot be dereferenced by the host |
+| Guest physical address (GPA) | Guest RAM location resolved through the VMM's memory table |
+| Host virtual address | Backend mapping or translated ioctl buffer |
+| GPU virtual address | Address in an RM-created GPU address space |
+| Shared-window offset | Location in region 1 where the VMM maps a host FD |
+
+These address spaces are distinct. The request metadata selects the translation;
+a numeric address alone establishes neither ownership nor permission.
+
 ## Request processing
 
 - `Open` creates a host device FD; the reply exposes an opaque token, not the host FD number.
@@ -96,15 +124,14 @@ flowchart LR
 - [nvrm-abi](../crates/nvrm-abi/README.md): translation metadata, mediation layouts, and C header generation.
 - [nvrm-client](../crates/nvrm-client/README.md): direct RM diagnostics; not the forwarding backend.
 - [nvrm-trace](../crates/nvrm-trace/README.md): userspace ioctl tracer.
-- [vhost-user-input](../crates/vhost-user-input/README.md): separate input device backend.
+- [Input](INPUT.md): upstream input backend and guest keyboard/mouse delivery.
 
 ## Repository and validation boundaries
 
-- Core owns production Rust/C, wire/ABI definitions, `scripts/build.sh`, `scripts/check.sh` and canonical EDID/frame tools under `tests/tools/`.
-- [Leandro-Test](../../Leandro-Test/README.md) owns VM setup, probes, guest workloads, hardware gates and measurement orchestration. It consumes a selected core checkout or pinned flake input.
-- `lea acceptance` runs the full relocated gates; `lea gate` is a separate MeisterStack smoke check. Record both repository revisions with results.
+- Core owns production Rust/C, wire/ABI definitions, `tools/build.sh`, `tools/check.sh` and canonical EDID/frame tools under `tests/tools/`.
+- Leandro-Test is an optional, separately versioned harness for VM setup, probes, hardware gates and measurements. It consumes a selected core checkout or pinned input. Core builds and the [manual quickstart](QUICKSTART.md) require no Test files.
+- Record core and harness revisions with automated hardware results.
 - ABI generation, Rust/C layout agreement, C table decoding, rejection cases, and accounting rules have automated tests.
 - Kernel builds check compilation against Linux 6.8 and 6.12; runtime gates remain separate.
-- Deterministic tests cover cancellation/rearm, rollback failures, aggregate admission and malformed requests without NVIDIA calls. The refactored core and relocated Leandro-Test runner passed compute, virtual-display and desktop gates on 2026-09-19.
+- Deterministic tests cover cancellation/rearm, rollback failures, aggregate admission and malformed requests without NVIDIA calls.
 - [TESTING.md](TESTING.md) defines the checks and their limits.
-- [THESIS-FREEZE.md](THESIS-FREEZE.md) lists proposed lifecycle and module boundaries before freezing versions.

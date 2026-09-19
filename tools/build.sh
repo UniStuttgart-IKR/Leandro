@@ -8,7 +8,7 @@ set -uo pipefail
 error() { printf 'ERROR: %s\n' "$*" >&2; }
 usage() {
     cat <<'HELP'
-Usage: scripts/build.sh [COMMAND] [OPTIONS]
+Usage: tools/build.sh [COMMAND] [OPTIONS]
 
 Production commands (no VM configuration required):
   all                     vendor + ch + cargo (default)
@@ -22,10 +22,7 @@ Options: --driver VERSION|auto  --jobs N  --dry-run  --help
   --driver overrides this invocation; it does not rewrite DRIVER_VERSION.
   Only --driver auto and check-driver inspect the running NVIDIA driver.
 
-Acceptance commands delegate to ../Leandro-Test/scripts/build.sh:
-  full [ARGS...]          Test's complete build (its `all` command)
-  preflight | probes | hostvenv | image | bake | package [ARGS...]
-Set LEA_TEST_ROOT to use a different acceptance checkout.
+Images, probes and hardware acceptance commands live in Leandro-Test.
 HELP
 }
 
@@ -53,22 +50,6 @@ lea_driver_supported() {
     local version=$1 supported
     while read -r supported; do [[ $supported == "$version" ]] && return 0; done < <(lea_supported_drivers)
     return 1
-}
-
-acceptance_build() {
-    local command=$1 test_root=${LEA_TEST_ROOT:-$LEA_ROOT/../Leandro-Test}
-    shift
-    [[ $command == full ]] && command=all
-    local script=$test_root/scripts/build.sh
-    if [[ ! -x $script ]]; then
-        error "$command requires Leandro-Test: $script (set LEA_TEST_ROOT)"
-        return 2
-    fi
-    if [[ $script -ef ${BASH_SOURCE[0]} ]]; then
-        error "LEA_TEST_ROOT points to core; choose the Leandro-Test checkout"
-        return 2
-    fi
-    LEA_ROOT="$LEA_ROOT" LEA_TEST_ROOT="$test_root" exec "$script" "$command" "$@"
 }
 
 # Fetch the full NVIDIA tree; the guest NVKMS build needs sources as well as headers.
@@ -149,7 +130,7 @@ do_vendor_abi_one() {
         echo
         echo "The transitive closure of crates/nvrm-sys/wrapper.h under this"
         echo "version's five include roots, computed with clang -MM. Produced by"
-        echo "scripts/build.sh vendor-abi $ver, which reproduces it exactly."
+        echo "tools/build.sh vendor-abi $ver, which reproduces it exactly."
         echo "Nothing in this directory is edited."
         if [[ ${#absent[@]} -gt 0 ]]; then
             echo
@@ -272,18 +253,18 @@ Both are measured -- crates/nvrm-sys carries a layout for each. To MEASURE
 $have, point the run at it and re-fetch the headers the catalogue resolves
 against:
      export LEA_DRIVER=$have
-     ./scripts/build.sh vendor
-     ../Leandro-Test/scripts/abi-verify.sh
+     ./tools/build.sh vendor
+     # Follow docs/abi-versions.md to select matching bindings and features.
 DRIVER_VERSION stays $(lea_want_driver_file): it is what the tree is BUILT for."
         else
             error "host driver differs, and $have has no measured layout.
 Supported: $(lea_supported_drivers | tr '\n' ' ')
 Adding it is one entry in crates/nvrm-sys/abi.toml plus
-     ./scripts/build.sh vendor-abi $have && cargo xtask abi"
+     ./tools/build.sh vendor-abi $have && cargo xtask abi"
         fi
         return 1
     fi
-    [[ $vend == "$want" ]] || { error "vendor/ differs (scripts/build.sh vendor)"; return 1; }
+    [[ $vend == "$want" ]] || { error "vendor/ differs (tools/build.sh vendor)"; return 1; }
     echo OK
 }
 
@@ -291,7 +272,6 @@ CMD=all
 if [[ $# -gt 0 ]]; then
     case $1 in
         all|vendor|vendor-abi|ch|cargo|check-driver) CMD=$1; shift ;;
-        full|preflight|probes|hostvenv|image|bake|package) acceptance_build "$@"; exit $? ;;
         -h|--help) usage; exit 0 ;;
         --*) ;;
         *) error "unknown command: $1"; usage >&2; exit 2 ;;
@@ -320,7 +300,7 @@ while [[ $# -gt 0 ]]; do
         --yes|-y) shift ;;
         -h|--help) usage; exit 0 ;;
         --minimal|--full|--skip-checks)
-            error "$1 is an acceptance option; use scripts/build.sh full $*"
+            error "$1 is an acceptance option; run ../Leandro-Test/scripts/build.sh directly"
             exit 2 ;;
         --*) error "unknown option: $1"; exit 2 ;;
         *)

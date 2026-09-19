@@ -1,49 +1,32 @@
 <!-- SPDX-License-Identifier: MIT -->
-# Admission, mixed profiles, and what libcuda asks for (OPEN-QUESTIONS 69)
+# Admission and vGPU-mode traces (question 69)
 
-The three runs that closed number 69, on one RTX 2070 with the host desktop
-running.
+Historical runs on one RTX 2070 with the host desktop active.
 
-## `admission/` -- both refusals
+## Admission
 
-Refused BEFORE the VM exists, which is the point of admitting rather than
-letting an allocation fail at minute two:
+- Four running `2Q` guests: a fifth is refused by the profile's instance limit.
+- Running `4Q + 2Q + 2Q`: an additional `1Q` is refused for insufficient capacity.
+- Both refusals precede VM creation. `admission/catalogue.txt` records the profiles.
 
-  * four `2Q` running, a fifth asked for -> vGPU's own maxInstance error;
-  * `4Q + 2Q + 2Q` running -> a `1Q` refused for NO ROOM, which is the
-    refusal the old homogeneous rule could not phrase.
+## Mixed profiles
 
-`catalogue.txt` is what the card said its profiles are.
+- One `4Q` and two `2Q` consume the 8192 MiB admission budget.
+- All run `vrampress --max` for 120 s; observed allocation ceilings are
+  3072 / 1280 / 1280 MiB, matching the individual guest limits.
+- `hetero/p2-host-1hz.csv` records host samples; `p2-vrampress-vm*.csv` records
+  guest results. This validates these admission/refusal cases, not GPU isolation.
 
-## `hetero/` -- the mixed card under load
+## CUDA mode comparison
 
-One `4Q` beside two `2Q`, admitted to exactly 8192 of 8192 MiB, then
-`vrampress --max` in all three for 120 s. `p2-host-1hz.csv` is the host's
-per-process view at 1 Hz; each `p2-vrampress-vm*.csv` ends in that guest's
-own verdict, and the three ceilings in those lines (3072 / 1280 / 1280) are
-the finding: **each guest is refused at its own limit, not at a shared
-one.**
-
-## `libcuda/` -- what the mode answer costs
-
-The same CUDA binary in the same 2Q guest, traced by `crates/nvrm-trace`
-twice: `LEA_VGPU_MEDIATE=mode` and `none`. The traces are identical for 145
-records and diverge at 146, where libcuda -- having been told the GPU is a
-vGPU -- tries to ALLOCATE class `0xa080` (`KEPLER_DEVICE_VGPU`,
-`class/cla080.h:31`) and RM answers `NV_ERR_NOT_SUPPORTED` because
-`vgpuapiConstruct_IMPL` refuses it on `!IS_VIRTUAL(pGpu)`
-(`kernel/vgpu/vgpuapi.c:43`). The call site is `queryVirtMode`,
-`rmapi/nv_gpu_ops.c:7117`, which is the nvUvmInterface layer -- the CUDA
-path -- and is why `nvidia-smi` was unaffected.
-
-`analysis.txt` is `tracediff.py` over the two, computed on the COMPLETE
-traces. The shipped `mode-off.jsonl` is TRUNCATED to its first 400 records:
-it is 4474 records to `mode-on`'s 164, and that ratio is itself the result
--- the mode answer stops libcuda before it enumerates anything -- but the
-divergence is at record 146 and everything the finding rests on is inside
-the window. Truncated rather than compressed because the licence gate reads
-the first lines of every tracked file, and a .gz has no first lines.
-
-The tracer is PUSHED into the guest by `cudatrace.sh` rather than staged:
-the compute guest carries the probes and the driver libraries, and the
-matrix's own staging is a path these runs must not take.
+- The same binary runs in the same `2Q` guest with `LEA_VGPU_MEDIATE=mode` and `none`.
+- The first 145 trace records match. At record 146, vGPU mode causes libcuda to
+  allocate `0xa080` (`KEPLER_DEVICE_VGPU`); RM returns `NV_ERR_NOT_SUPPORTED`.
+- Recorded vendor source rejects construction on `!IS_VIRTUAL(pGpu)` in
+  `vgpuapiConstruct_IMPL` (`kernel/vgpu/vgpuapi.c:43`). The caller is `queryVirtMode`
+  (`rmapi/nv_gpu_ops.c:7117`), through nvUvmInterface. `nvidia-smi` does not exercise it.
+- `libcuda/analysis.txt` compares the complete traces: 4474 records without mode
+  mediation, 164 with it. The stored `mode-off.jsonl` contains only the first 400
+  records, including the divergence; `mode-on.jsonl` is complete.
+- The tracer was copied into the compute guest by the historical `cudatrace.sh` runner.
+- Trace format and license: [TRACES.md](libcuda/TRACES.md).

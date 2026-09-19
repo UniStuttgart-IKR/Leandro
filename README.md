@@ -1,129 +1,84 @@
 <!-- SPDX-License-Identifier: MIT -->
 # Leandro
 
-- GPU paravirtualization for Linux VMs using an NVIDIA GPU shared with the host.
-- Guest applications use NVIDIA userspace. `virtio_nvrm.ko` forwards driver calls to `vhost-user-nvrm` on the host.
-- One backend process per VM; requires the patched cloud-hypervisor in this repository.
-- Research software developed alongside [MeisterStack](https://github.com/UniStuttgart-IKR/MeisterStack), University of Stuttgart, IKR.
-- Most original code was AI-assisted. Human review is in progress.
-- **Use trusted guests. Hostile-guest isolation is not established.** See [security boundaries and unresolved risks](docs/SECURITY.md).
+GPU paravirtualization for Linux VMs sharing an NVIDIA GPU with the host.
+Guest NVIDIA libraries call `virtio_nvrm.ko`; a per-VM `vhost-user-nvrm`
+backend forwards supported operations to the host driver. Shared mappings
+carry GPU submission without forwarding each doorbell write.
+
+**Use trusted guests. Hostile-guest isolation is not established.**
+See [security limits](docs/SECURITY.md).
 
 ## Start here
 
-- [Build, run, and troubleshoot](DEVELOPMENT.md)
-- [Architecture and code map](docs/ARCHITECTURE.md)
-- [First code review and maintenance guide](docs/REVIEW.md)
-- [Tests and what they verify](docs/TESTING.md)
-- [Display and streaming](docs/DISPLAY.md)
-- [Complete demonstration](docs/SHOWCASE.md)
-- [Driver ABI versions](docs/abi-versions.md)
-- [Known issues](docs/OPEN-QUESTIONS.md)
-- [Changes proposed before the thesis freeze](docs/THESIS-FREEZE.md)
+- [Quickstart](docs/QUICKSTART.md): two Ubuntu desktops or two NixOS compute VMs.
+- [Development](DEVELOPMENT.md): build, check, debug and package.
+- [Architecture](docs/ARCHITECTURE.md): request path, mappings and ownership.
+- [Testing](docs/TESTING.md): coverage, hardware evidence and measurement rules.
+- [Display](docs/DISPLAY.md), [driver versions](docs/abi-versions.md),
+  [known issues](docs/OPEN-QUESTIONS.md), [future work](docs/FUTURE.md).
 
 ## Requirements
 
-- Hardware runs: Linux x86-64 host, KVM access, NVIDIA kernel driver, and matching NVIDIA userspace. Core software checks need no GPU.
-- Guest NVIDIA userspace must match the host driver exactly.
-- Default driver: [DRIVER_VERSION](DRIVER_VERSION). Compiled ABI versions: [abi.toml](crates/nvrm-sys/abi.toml).
-- Rust: [rust-toolchain.toml](rust-toolchain.toml). C kernel modules are build-checked on Linux 6.8 and 6.12.
-- Host tools, storage, network setup, and optional Nix environment: [Development](DEVELOPMENT.md#requirements).
+- Linux x86-64, KVM, an NVIDIA host driver and matching guest NVIDIA userspace.
+- Patched Cloud Hypervisor: [version](CH_VERSION), [patches](patches/README.md).
+- Pinned [Rust toolchain](rust-toolchain.toml) and [driver](DRIVER_VERSION).
+  Exact compiled driver versions are listed in [abi.toml](crates/nvrm-sys/abi.toml).
+- Guest modules are compile-checked on Linux 6.8 and 6.12. Other kernels need validation.
+- Core builds, software checks and manual VM launches need no Leandro-Test checkout.
 
-## Build and run
+## Build and check
 
-- Core builds fetch vendor sources and build the patched hypervisor and Rust binaries. They do not provision a VM.
-- Keep [Leandro-Test](../Leandro-Test/README.md) beside this checkout for images, probes, VM provisioning and hardware gates. Its scripts default to `../Leandro`; set `LEANDRO` for another core checkout.
-- Use [the ABI workflow](docs/abi-versions.md) before selecting a different driver. A build option does not regenerate committed bindings.
-
-```sh
-# From the Leandro checkout:
-./scripts/build.sh --dry-run
-./scripts/build.sh
-
-cd ../Leandro-Test
-./scripts/build.sh --dry-run
-./scripts/build.sh all
-./scripts/showcase.sh net up
-./scripts/showcase.sh up
-./scripts/showcase.sh ssh nvidia-smi
-./scripts/showcase.sh ssh 'cd ~/gpu && ./nvprobe 3'
-./scripts/showcase.sh down --name vm0
-```
-
-- `net up` configures a host bridge, taps, and NAT using sudo.
-- `up` starts the backend, boots the VM, stages userspace, and builds/loads the guest modules.
-- `nvprobe 3` should report `stage 3 ok (kernel, result correct)`.
-- Stop the VM before its backend; `down` handles this order.
-- State and images live under `LEA_VM_DIR`, defaulting to Leandro-Test `vm/`. Set it in Leandro-Test `local.env`; preserve an explicit path when reusing an existing rig.
-
-## Test it yourself
+Run from the repository root; dependencies are in [Development](DEVELOPMENT.md#requirements).
 
 ```sh
-# From Leandro:
-./scripts/build.sh vendor
+./tools/build.sh all
 cargo fmt --all -- --check
-./scripts/ci/check-c-format.sh
-./scripts/check.sh
-./scripts/ci/check-c.sh all --sanitize
+./tools/ci/check-c-format.sh
+./tools/check.sh
+./tools/ci/check-c.sh all --sanitize
 ```
 
-- C formatting requires clang-format 22.1.8.
-- Sanitizers require a C compiler with ASan/UBSan and `edid-decode`.
-- Hardware gates require a prepared rig and current release binaries:
+- `all` fetches sources, patches/builds Cloud Hypervisor and builds the Rust workspace.
+- Software checks need no GPU. C formatting uses clang-format 22.1.8.
+- CI also builds guest modules and checks Nix. Hardware tests run separately.
+- CodeRabbit PR reviews require its GitHub App; configuration is included.
+- Start VMs with the commands in the [quickstart](docs/QUICKSTART.md).
+  Give each VM its own backend, sockets, writable disk and network identity.
 
-```sh
-cd ../Leandro-Test
-./scripts/showcase.sh state --check
-./lea acceptance gpu vdisplay display
-```
+## Hardware evidence
 
-- `lea acceptance` runs the relocated full gates. `lea gate` is a separate, narrower MeisterStack smoke check.
-- Gate exit codes: `0` passed, `1` failed, `2` skipped. A skip is not a pass.
-- Run gates sequentially with no other GPU workload. The display gate needs a desktop image, Sunshine, and Moonlight.
-- CI runs Rust tests, Clippy, Rust/C formatting, C sanitizers, kernel builds, and Nix checks. Hardware gates run separately.
-- CodeRabbit configuration is included; automatic PR reviews require the GitHub App.
+| GPU / driver | Recorded coverage |
+|---|---|
+| RTX 2070 / 610.57.04 | Compute, virtual display and desktop gates; latest recorded run 2026-09-19 |
+| RTX 5060 Ti / 610.57.04 | Earlier compute and virtual-display gates; no full desktop gate |
 
-## Multiple VMs
-
-```sh
-cd ../Leandro-Test
-./scripts/showcase.sh up --name vm0 --index 0
-./scripts/showcase.sh up --name vm1 --index 1 --vram-limit 2048
-./scripts/showcase.sh ssh --name vm1 nvidia-smi
-./scripts/showcase.sh down --name vm1
-./scripts/showcase.sh down --name vm0
-```
-
-- Each VM gets a separate backend, socket, and memory ledger.
-- `--vram-limit` bounds accounted allocations; it is not a physical GPU partition.
-- `--vram-profile` adds the project's reservation policy. Neither mode guarantees availability against another tenant exhausting the GPU.
-- Encoder capacity reporting does not enforce encoder scheduling.
-
-## Recorded hardware coverage
-
-- On 2026-09-19, compute, virtual-display and desktop gates passed from Leandro-Test after removal of the old core harness. These are functional results, not an isolation proof.
-- Older results below describe their recorded hardware, not every revision or workload.
-- RTX 2070 / Turing, driver 610.57.04: compute and virtual-display gates passed; full display gate recorded on 2026-08-20.
-- RTX 5060 Ti / Blackwell, driver 610.57.04: compute and virtual-display gates recorded as passed; full display gate not run.
-- Other GPU/driver pairs require their own validation. Generated bindings compiling is not hardware validation.
-- Measurements and corrections: [Testing](docs/TESTING.md), [Display](docs/DISPLAY.md), [known issues](docs/OPEN-QUESTIONS.md).
+- Results cover the recorded revisions and workloads, not every configuration.
+- VRAM limits account for mediated allocations; they do not partition hardware,
+  guarantee residency or schedule GPU engines.
+- [Testing](docs/TESTING.md) records coverage and limits. The optional private
+  Leandro-Test repository owns automated provisioning and hardware acceptance.
 
 ## Components
 
-- `guest-module/virtio_nvrm`: guest device nodes, forwarding, mappings, and virtual display.
-- `guest-module/nvrm_nodes`: guest parameters and address-translation helper.
-- `crates/vhost-user-nvrm`: request validation, host driver calls, mappings, events, and quotas.
-- `crates/nvrm-wire`: wire layout; `crates/nvrm-abi`: translation metadata and header generator.
-- `crates/nvrm-sys`: generated driver bindings; `crates/nvrm-client`: diagnostic RM client.
-- `crates/nvrm-trace`: ioctl tracer; `crates/vhost-user-input`: input backend.
-- `scripts/build.sh`, `scripts/check.sh`, `scripts/ci/`: core builds and software checks.
-- `tests/tools/`: canonical EDID/frame tools and deterministic frame fixture.
-- Leandro-Test is currently private; core builds and software checks do not require access.
-- [Leandro-Test](../Leandro-Test/README.md): probes, guest workloads, provisioning, hardware acceptance and measurements.
+| Path | Role |
+|---|---|
+| `guest-module/virtio_nvrm` | Guest nodes, forwarding, mappings, events and display |
+| `guest-module/nvrm_nodes` | Guest driver parameters and diagnostic pinning |
+| `crates/vhost-user-nvrm` | Host validation, driver calls, mappings and quotas |
+| `crates/nvrm-wire`, `crates/nvrm-abi` | Wire schema, translation tables and header generator |
+| `crates/nvrm-sys` | Generated NVIDIA driver bindings |
+| `crates/nvrm-client`, `crates/nvrm-trace` | RM diagnostics and ioctl tracing |
+| [Upstream input backend](docs/INPUT.md) | Optional host keyboard/mouse forwarding |
+| `tools/`, `tests/tools/` | Builds, software checks and EDID/frame fixtures |
 
 ## Contributing and attribution
 
-- Keep changes focused; include a reproducer for bugs and the commands used to validate the fix.
-- State GPU model, exact driver version, guest kernel, and commit for hardware results.
-- Core code: MIT. File-specific licences and vendor attribution: [LICENSES.md](LICENSES.md).
-- Driver layouts derive from [NVIDIA open-gpu-kernel-modules](https://github.com/NVIDIA/open-gpu-kernel-modules).
-- RM object-model and ABI work draws on [gVisor nvproxy](https://github.com/google/gvisor).
+- Keep changes focused. Include a reproducer and validation commands.
+- For hardware results, record the commit, GPU, driver, guest kernel and workload.
+- Most original code was AI-assisted; human review is ongoing.
+- Developed at University of Stuttgart, IKR, alongside
+  [MeisterStack](https://github.com/UniStuttgart-IKR/MeisterStack).
+- Driver definitions derive from [NVIDIA open-gpu-kernel-modules](https://github.com/NVIDIA/open-gpu-kernel-modules);
+  RM ABI and ownership work also draws on [gVisor nvproxy](https://github.com/google/gvisor).
+- Rust/tools/docs: MIT. Guest modules: GPL-2.0-only. See [LICENSES.md](LICENSES.md).

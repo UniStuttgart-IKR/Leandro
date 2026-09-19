@@ -20,13 +20,14 @@
 ## Build and use
 
 ```sh
-make -C ~/guest-module/nvrm_nodes
+make -C guest-module/nvrm_nodes
 nvrm-nodes-tool version
 nvrm-nodes-tool provision <name> <file>    # e.g. params params.txt
 nvrm-nodes-tool gpa <MiB> [hold seconds]
 ```
 
-- Build against the guest kernel's headers; `KDIR` can select another header tree.
+- Run from the repository root with guest kernel headers installed; `KDIR`
+  selects another header tree.
 - `provision` requires `CAP_SYS_ADMIN`; `gpa` does not.
 - Provision actual host data. Guest and host driver ABIs must match.
 

@@ -1,75 +1,45 @@
 <!-- SPDX-License-Identifier: MIT -->
 # Guest NVIDIA userspace
 
-- The guest uses NVIDIA userspace libraries with Leandro's guest modules.
-  It does not load NVIDIA's GPU kernel driver.
-- Stage userspace matching the host driver. The normal rig uses `DRIVER_VERSION`;
-  version experiments can select `LEA_DRIVER` through the launcher.
-- Staging and auditing live in [Leandro-Test provision.sh](../../Leandro-Test/scripts/lib/provision.sh); the driver pin and guest modules stay in core.
+- Use NVIDIA userspace matching the host driver exactly.
+- Leandro supplies the guest RM/UVM interfaces; do not load NVIDIA's `nvidia.ko`
+  or `nvidia_uvm.ko` in the guest.
+- Display uses NVIDIA's `nvidia-modeset`/`nvidia-drm` built against Leandro.
+- Installation: [Ubuntu](UBUNTU-DESKTOP.md),
+  [NixOS compute](VM-PREPARATION.md#nixos-userspace-after-boot).
 
-## Check missing libraries
+## Missing libraries
 
-- `ldd` covers linked dependencies, but NVIDIA libraries also load dependencies
-  with `dlopen`. Missing optional libraries can disable a capability without a
-  linker error.
-- Inspect both `DT_NEEDED` and library names embedded in the binaries:
-
-```sh
-objdump -p /path/to/libcuda.so.$WANT | grep NEEDED
-strings /path/to/libcuda.so.$WANT | grep -oE 'libnvidia-[a-z0-9-]+\.so[.0-9]*'
-```
-
-- Run the staged-guest audit from Test:
+`ldd` shows linked dependencies, but NVIDIA also loads libraries with `dlopen`.
+Inspect both linked and runtime names; verify failures with `strace -e trace=file`.
 
 ```sh
-cd ../Leandro-Test
-./scripts/showcase.sh audit --name vm0
+objdump -p /path/to/libcuda.so.VERSION | grep NEEDED
+strings /path/to/libcuda.so.VERSION | grep -oE 'libnvidia-[a-z0-9-]+\.so[.0-9]*'
 ```
 
-- The audit checks the loader paths for each bit width separately:
-  `/opt/nvrm/lib` and `/opt/nvrm-gl/lib` for 64-bit, `/opt/nvrm-gl/lib32` for 32-bit.
-- Repeat after staging missing libraries: each added library can introduce more
-  runtime dependencies.
-- Use `strace` for failed file lookups. An RM ioctl trace cannot show an `ENOENT`
-  from a library load.
+- A library name in `strings` is a candidate dependency, not proof it is used.
+- Check 32-bit and 64-bit loader paths separately.
+- Repeat after adding libraries: each can introduce further dependencies.
+- An ioctl trace cannot reveal a failed library-file lookup.
+- NixOS uses its configured loader environment; Ubuntu uses `ldconfig`.
 
-## Recorded audit: 610.43.03, 2026-08-18
+## GBM
 
-- This is historical evidence, not certification of the currently staged driver.
-- The 64-bit audit resolved all referenced NVIDIA names after adding optional
-  tile raster, NVVM, PKCS#11, debugger, OpenCL and Vulkan SC libraries.
-- The 32-bit JIT chain gained `libnvidia-nvvm`, `libnvidia-ptxjitcompiler` and
-  `libnvidia-tileiras`, plus available video and GLES libraries.
-- The recorded host lacked 32-bit builds of `libnvidia-nvvm70`,
-  `libnvidia-pkcs11`, `libnvidia-pkcs11-openssl3`, `libcudadebugger` and
-  `libnvidia-rtcore`. Recheck availability when changing drivers.
-- The remaining audit output was:
+- GBM resolves `<drivername>_gbm.so` using the DRM driver name, `nvidia-drm` here.
+- Install the matching NVIDIA GBM backend for each required bit width.
+- Missing 32-bit GBM support was suspected in a historical Steam failure; it
+  did not explain the separate 64-bit Xwayland failure. See issue 22 in
+  [Known issues](OPEN-QUESTIONS.md).
 
-```text
-== 64-bit (compute + GL payload) ==
-   all referenced NVIDIA names resolve
-== 32-bit (GL payload) ==
-   MISSING: libnvidia-nvvm70.so.4
-   MISSING: libnvidia-pkcs11-openssl3.so.610.43.03
-   MISSING: libnvidia-pkcs11.so.610.43.03
-```
+## Historical audit: 610.43.03, 2026-08-18
 
-- Without 32-bit `libnvidia-rtcore`, the recorded setup cannot provide that
-  library to a 32-bit Vulkan client requesting acceleration structures.
-
-## GBM backend selection
-
-- GBM loads `<drivername>_gbm.so` from the name returned by `drmGetVersion`.
-  Leandro's DRM nodes report `nvidia-drm`.
-- Stage the backend for both bit widths when the host provides both.
-  `lea_display_stage` warns when 32-bit userspace is unavailable.
-- A missing 32-bit NVIDIA backend can send a client through Mesa's fallback
-  loader. The recorded Steam output included:
-
-```text
-pci id for fd 136: 1af4:107c, driver (null)
-```
-
-- This was a suspected cause of the Steam issue, not a confirmed explanation.
-  It did not explain the separate 64-bit Xwayland issue; see
-  [OPEN-QUESTIONS](OPEN-QUESTIONS.md), issue 22.
+- The staged 64-bit set resolved all referenced NVIDIA names after optional
+  tile raster, NVVM, PKCS#11, debugger, OpenCL and Vulkan SC libraries were added.
+- The 32-bit set gained NVVM, PTX JIT, tile raster and available video/GLES libraries.
+- The host lacked 32-bit NVVM70, PKCS#11, PKCS#11 OpenSSL3, CUDA debugger and rtcore.
+  Unresolved names remained `libnvidia-nvvm70.so.4`,
+  `libnvidia-pkcs11-openssl3.so.610.43.03` and `libnvidia-pkcs11.so.610.43.03`.
+- Without a 32-bit rtcore library, that setup could not provide it to 32-bit
+  Vulkan acceleration-structure clients. Recheck availability on each driver.
+- This audit describes that staged payload, not the current installation.

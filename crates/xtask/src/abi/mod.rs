@@ -91,7 +91,7 @@ pub fn run(args: &[String]) -> Result<()> {
         let headers = root.join("vendor/nvidia-rm-headers").join(v);
         if !headers.is_dir() {
             bail!(
-                "no headers for {v} at {} -- run: scripts/build.sh vendor-abi {v}",
+                "no headers for {v} at {} -- run: tools/build.sh vendor-abi {v}",
                 headers.display()
             );
         }
@@ -291,7 +291,7 @@ fn workspace_root() -> Result<PathBuf> {
 fn provenance_commit(headers: &Path) -> Result<String> {
     let p = headers.join("PROVENANCE");
     let text = std::fs::read_to_string(&p)
-        .with_context(|| format!("reading {} -- run scripts/build.sh vendor-abi", p.display()))?;
+        .with_context(|| format!("reading {} -- run tools/build.sh vendor-abi", p.display()))?;
     text.lines()
         .find_map(|l| l.strip_prefix("commit:"))
         .map(|s| s.trim().to_string())

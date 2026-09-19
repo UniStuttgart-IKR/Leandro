@@ -31,16 +31,15 @@ LEA_TRACE_FILE=out.tsv LD_PRELOAD=/path/to/libnvrm_trace.so <program>
 ```
 
 - Build output: `target/release/libnvrm_trace.so`.
-- Harness: `probe/run/trace.sh`; scripts can select the library with `LEA_TRACE_LIB`.
+- Optional trace runners and comparison tools live in Leandro-Test.
 - `LEA_TRACE_FORMAT` accepts `tsv`, `jsonl` or `both` (default).
 - Without `LEA_TRACE_FILE`, only TSV is written to stderr.
 - `LEA_TRACE_DUMP` limits bytes per payload dump (default 65536); 0 disables dumps.
 - Output is appended. Use a fresh file or truncate it before each run.
 - Both renderers consume the same named fields. JSONL replaces a `.tsv` suffix
   with `.jsonl`, or appends `.jsonl` otherwise.
-- Record definitions are in `src/log.rs`. Readers are `lea_trace_stream` in
-  `scripts/lib/common.sh` and `probe/python/traceread.py`.
-- `traceread.py --check` compares the TSV and JSONL records of a run.
+- Record definitions: `src/log.rs`. Leandro-Test provides `traceread.py --check`
+  to compare TSV and JSONL records.
 - At normal exit, stderr reports failed/short writes and FD registrations outside
   the 65536-slot table if either count is nonzero. Forked children inherit counters;
   `_exit` and fatal termination skip this diagnostic. Other interception gaps are

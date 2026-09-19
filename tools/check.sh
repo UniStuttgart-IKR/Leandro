@@ -3,11 +3,11 @@
 # SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 # SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
 # Run the 17 software checks from a writable source checkout; no GPU or VM needed.
-# Usage: scripts/check.sh
+# Usage: tools/check.sh
 # Each check runs even if an earlier check fails. Exit 0 if all pass, 1 otherwise.
 set -uo pipefail
 
-usage() { echo "Usage: scripts/check.sh"; exit "${1:-0}"; }
+usage() { echo "Usage: tools/check.sh"; exit "${1:-0}"; }
 error() { printf 'ERROR: %s\n' "$*" >&2; }
 
 case ${1:-} in -h|--help) usage ;; esac
@@ -36,7 +36,7 @@ class_sizes() {
     local vendor=$LEA_ROOT/vendor/open-gpu-kernel-modules
     local sdk=$vendor/src/common/sdk/nvidia/inc rl out=$LEA_ROOT/target/class-sizes
     rl=$vendor/src/nvidia/src/kernel/rmapi/resource_list.h
-    [[ -f $rl ]] || { echo "no $rl -- run scripts/build.sh vendor"; return 1; }
+    [[ -f $rl ]] || { echo "no $rl -- run tools/build.sh vendor"; return 1; }
     mkdir -p "$out" || return 1
     python3 - "$sdk" "$rl" "$out/sizes.c" <<'PY' || return 1
 import re, sys, os, glob
@@ -135,7 +135,7 @@ PY
 # Check the NVKMS mirror against vendor sizes, alignments and field offsets.
 kapi_abi() {
     local vendor=$LEA_ROOT/vendor/open-gpu-kernel-modules out=$LEA_ROOT/target/kapi-abi
-    [[ -d $vendor/kernel-open/common/inc ]] || { echo "no $vendor -- run scripts/build.sh vendor"; return 1; }
+    [[ -d $vendor/kernel-open/common/inc ]] || { echo "no $vendor -- run tools/build.sh vendor"; return 1; }
     mkdir -p "$out/linux" || return 1
     # The mirrored header speaks kernel types. Give it just enough of them to
     # compile in userspace -- nothing else about it is changed.
@@ -249,22 +249,22 @@ EOC
 
 # Check the C parser against Rust output and test VRAM arithmetic.
 c_interpreter() {
-    "$LEA_ROOT/scripts/ci/check-c.sh" tables
+    "$LEA_ROOT/tools/ci/check-c.sh" tables
 }
 
 # Validate generated EDIDs and the size/refresh clamps.
 edid_conformity() {
-    "$LEA_ROOT/scripts/ci/check-c.sh" edid
+    "$LEA_ROOT/tools/ci/check-c.sh" edid
 }
 
 shell_syntax() {
     local rc=0 f
     local -a files=()
-    # All .sh files plus the extensionless shebang scripts under scripts/.
+    # All .sh files plus the extensionless shebang scripts under tools/.
     while IFS= read -r f; do
         files+=("$f")
         if ! bash -n "$f"; then echo "syntax error: $f"; rc=1; fi
-    done < <(git ls-files 'scripts/**' 'scripts/*' \
+    done < <(git ls-files 'tools/**' 'tools/*' \
         | while IFS= read -r p; do
               [[ "$p" == *.sh ]] && { echo "$p"; continue; }
               [[ -f "$p" ]] && head -c 64 "$p" | head -1 | grep -qE '^#!.*(bash|sh)$' && echo "$p"
@@ -273,7 +273,7 @@ shell_syntax() {
     # Match CI severity levels when ShellCheck is available.
     if command -v shellcheck >/dev/null 2>&1; then
         shellcheck -x -S error "${files[@]}" || rc=1
-        shellcheck -x -S warning scripts/*.sh scripts/ci/*.sh || rc=1
+        shellcheck -x -S warning tools/*.sh tools/ci/*.sh || rc=1
     else
         echo "note: shellcheck not installed -- only 'bash -n' ran here."
         echo "      CI requires ShellCheck warnings to pass for the core scripts."

@@ -1,74 +1,51 @@
 <!-- SPDX-License-Identifier: MIT -->
 # Table-described UAPI forwarding
 
-- **Status:** design proposal, originally recorded on 2026-08-07.
-- Current implementation: `virtio-nvrm`, targeting NVIDIA RM/UVM.
-- Proposed generalization: carry another driver's userspace interface using the
-  same framing, descriptor tables, mapping window and notification channel.
-- No second driver has demonstrated that these abstractions are sufficient.
+**Proposal, first recorded 2026-08-07.** The implementation targets NVIDIA RM/UVM.
+No second driver has validated the proposed generalization.
 
-## What is reusable today
+## Current pieces
 
-- Requests cover open, close, ioctl, mapping, process teardown and table transfer.
-- Descriptor tables describe payload sizes, embedded pointers and FD fields.
-  The host builds them; the guest validates and interprets them.
-- The mapping window exposes host resources to the guest without copying each
-  submission through the control channel.
-- Queue 1 carries asynchronous host-to-guest notifications.
+- Requests: open, close, ioctl, mapping, process teardown and descriptor transfer.
+- Host-built tables describe payload sizes, embedded pointers and FD fields;
+  the guest validates and interprets them.
+- A shared-memory window exposes host resources without copying every submission.
+- Queue 1 carries asynchronous notifications.
 
-## What remains NVIDIA-specific
+## Driver-specific parts
 
-- `UvmPoolBack` registers guest pages for UVM; `EventFired` carries RM event fields.
-- `DevTag` names NVIDIA device nodes.
-- The guest module also contains UVM, DRM and display handling and uses generated
-  NVIDIA constants. Table-driven forwarding does not make the entire guest generic.
-- Generalization would need backend-defined node indices, event selectors and
-  memory-registration semantics, with explicit lifetime and validation rules.
+- Device tags identify NVIDIA nodes; UVM pool backing and RM events have NVIDIA semantics.
+- Guest UVM, DRM and display code uses generated NVIDIA constants.
+- Another driver needs defined node IDs, event semantics, memory registration,
+  ownership and cleanup. Tables alone do not provide that contract.
 
-## Conditions to investigate for a second driver
-
-| Question | Why it matters |
+| Question | Required evidence |
 |---|---|
-| Who allocates handles? | RM lets the caller choose object handles. Kernel-assigned handles need translation. |
-| Where is the submission path? | Mapped rings and doorbells avoid a round trip per submission. |
-| Can resources be mapped through the window? | A copy fallback changes coherence and submission semantics. |
-| Can ioctl arguments be described? | Nested pointers, FD ownership and variable lengths need a complete description. |
-| Which asynchronous events exist? | The notification channel must preserve their delivery and teardown rules. |
-| Why preserve the existing userspace ABI? | A modifiable userspace driver may offer simpler integration options. |
+| Who allocates handles? | Whether kernel-assigned handles need translation |
+| Where does submission happen? | Whether mapped rings/doorbells avoid control round trips |
+| Can resources use the shared window? | Mapping, coherence and lifetime rules |
+| Can arguments be described? | Nested pointers, variable lengths and FD ownership |
+| Which events are asynchronous? | Delivery, cancellation and teardown behavior |
+| Must userspace remain unchanged? | Whether a driver-specific userspace integration is simpler |
 
-- ML accelerators and RDMA verbs are possible research subjects, not supported
-  devices. Handle allocation, DMA registration and event semantics need a
-  driver-specific review before implementation.
-- See [`llm.md`](llm.md) for the shared-window rationale and rejected copy path.
-
-## Naming and standardization
-
-- `virtio-uapi`, `virtio-accel` and `virtio-devproxy` are candidate names only.
-- A proposed specification would need to define framing, tables, window access,
-  resource lifetimes and errors. Whether backend-defined payload semantics are
-  sufficient remains open.
-- The current device uses experimental type 60. It has no assigned project
-  device ID; an upstream device needs the relevant virtio allocation process.
-- Migration and dependence on a proprietary driver ABI are additional issues
-  to resolve, not assumed upstream acceptance criteria.
-
-## Why this prototype uses its own virtio device
+## Transport choice
 
 - The earlier virtio-gpu carrier was removed on 2026-08-04.
-- Moving interception into a guest kernel module required a kernel-facing
-  transport; the existing virtio-gpu context/blob interface was used from
-  userspace and did not provide the needed exported kernel API.
-- Recorded median control-call latency was 12.15 µs with virtio-nvrm versus
-  17.64 µs with the previous carrier, at 90 ioctls per `cuInit`. These are
-  historical single-rig measurements, not a general transport benchmark.
-- Mesa-based native contexts operate from guest userspace; that integration
-  route does not directly apply to unmodified proprietary `libcuda`.
+- Kernel interception needed a kernel-facing transport; the earlier userspace
+  context/blob interface did not expose the required kernel API.
+- Historical median control-call latency: 12.15 µs with virtio-nvrm versus
+  17.64 µs with the previous carrier, at 90 ioctls per `cuInit`. This is one rig's
+  measurement, not a general comparison of transports.
+- Ordinary mapped loads/stores have no ABI flush point for a copy fallback.
+  The [archived rationale](history/llm-2026-09-18.md#why-there-is-no-copy-based-fallback-for-the-window)
+  records the coherence problem and unverified cost estimate.
 
-## Independent VMM work
+## Open design work
 
-- [`0001-generic-vhost-user-shmem.patch`](../patches/0001-generic-vhost-user-shmem.patch)
-  adds shared-memory support to cloud-hypervisor's generic vhost-user device.
-- [`0002-generic-vhost-user-device-features.patch`](../patches/0002-generic-vhost-user-device-features.patch)
-  carries device-specific feature bits through the generic device.
-- These patches are candidates for separate upstream review. QEMU support
-  remains unimplemented and unmeasured in this project.
+- `virtio-uapi`, `virtio-accel` and `virtio-devproxy` are candidate names only.
+- A specification needs framing, tables, mapping access, lifetimes and error rules.
+- Device type 60 is experimental, not an assigned project ID.
+- Migration, ABI dependence and a second driver remain unresolved.
+- ML accelerators and RDMA are research candidates, not supported devices.
+- The generic [Cloud Hypervisor patches](../patches/README.md) can be reviewed
+  independently. QEMU integration is unimplemented and unmeasured.

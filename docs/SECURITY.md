@@ -41,7 +41,7 @@
 ## Remaining risks
 
 - **Foreign RM handles:** driver DUP looks up source clients globally. The backend still lacks a VM-wide source-object ownership policy across DUP, sharing, and UVM imports. PID-scoped automatic grants reduce exposure but do not revoke wider policies set through other paths.
-- **Unannotated fields:** the newly blocked operations close known hazards, not every nested RM control/class pointer, FD or client handle. A broader audit or strict operation allowlist is still needed. Private-client guards cover reviewed layouts only.
+- **Unannotated fields:** blocked operations cover known hazards; other nested RM control/class pointers, FDs or client handles remain unaudited. A broader audit or strict operation allowlist is still needed. Private-client guards cover reviewed layouts only.
 - **Normal backing-page release:** successful source FREE/CLOSE or pool unmap does not prove that native duplicate/exported references are gone. Guest-page reuse needs a complete reference ledger and release protocol.
 - **Device removal:** device references do not preserve a removed shared-memory BAR. In-flight NVKMS mapping operations still need a teardown barrier; live unbind/rebind remains unsupported.
 - **Identity reset:** reloading the guest module restarts process IDs. Start a fresh backend with it; reconnecting to retained backend state is unsupported.
@@ -57,7 +57,7 @@
 - Use dedicated test hardware or workloads where a GPU reset/driver failure is acceptable.
 - Do not expose this backend to mutually untrusted tenants.
 - Keep `LEA_ADMIN_PRIV` unset for ordinary runs.
-- Stop guest applications and VMs through the normal rig teardown; do not live-unbind an in-use device.
+- Stop guest applications, then the VM, then its backend. Do not live-unbind an in-use device.
 - Guest quarantine deliberately prevents module unload. Uncertain cleanup requires guest restart; leftover fileless kernel backing may require device unbind after all users stop.
 - Keep sockets and instance directories accessible only to their intended operator/VMM.
 - Separate host identities and OS resource limits are additional defenses; they are not substitutes for source-object ownership validation.
@@ -70,8 +70,8 @@
 - Open/mmap/unbind/close tests under a guest kernel with KASAN and lock debugging.
 - Hardware validation of FD close/reuse/rearm and failed allocation cleanup; deterministic worker and fake-driver regressions cover these paths without a GPU.
 - Repeated allocation/free workloads to measure retained-budget growth and confirm acceptable limits.
-- Workloads using newly refused controls, plus event/frame latency and FD counts after acknowledged waiter installation/cancellation.
+- Workloads using refused controls; event/frame latency and FD counts after waiter installation/cancellation.
 - Sustained multi-VM stress with driver logs, accounting, and host/guest memory diagnostics.
-- Software checks stay in core; full hardware gates run through Leandro-Test `lea acceptance`. The separate `lea gate` smoke test does not cover the same paths.
-- On 2026-09-19, compute, virtual-display and desktop gates passed from the relocated Leandro-Test runner. These functional results do not establish isolation.
-- Test commands and coverage: [TESTING.md](TESTING.md). Proposed changes: [THESIS-FREEZE.md](THESIS-FREEZE.md).
+- Software checks stay in core. Leandro-Test provides optional automated hardware gates.
+- Recorded compute, virtual-display and desktop passes establish functionality for those runs, not isolation.
+- Test commands and coverage: [TESTING.md](TESTING.md).

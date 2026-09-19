@@ -36,7 +36,7 @@ jobs:
           pipx install clang-format==22.1.8
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: C formatting
-        run: scripts/ci/check-c-format.sh
+        run: tools/ci/check-c-format.sh
 
   check:
     runs-on: ubuntu-24.04
@@ -66,13 +66,13 @@ jobs:
           key: check-ubuntu24-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'DRIVER_VERSION', 'crates/nvrm-sys/abi.toml') }}
 
       - name: Fetch NVIDIA headers at DRIVER_VERSION
-        run: ./scripts/build.sh vendor
+        run: ./tools/build.sh vendor
 
       - name: Software checks
-        run: ./scripts/check.sh
+        run: ./tools/check.sh
 
       - name: C host tools and frame fixtures
-        run: scripts/ci/check-c.sh host-tools
+        run: tools/ci/check-c.sh host-tools
 
   c-sanitizers:
     runs-on: ubuntu-24.04
@@ -97,7 +97,7 @@ jobs:
       - name: C tests with ASan and UBSan
         env:
           CC: clang-18
-        run: scripts/ci/check-c.sh all --sanitize
+        run: tools/ci/check-c.sh all --sanitize
 
   c-kernel:
     runs-on: ubuntu-24.04
@@ -161,9 +161,9 @@ jobs:
 
       - name: Files
         # The same list check.sh's `bash -n` walks: every .sh under
-        # scripts/ plus the extensionless shebang scripts there.
+        # tools/ plus the extensionless shebang scripts there.
         run: |
-          git ls-files 'scripts/**' 'scripts/*' \
+          git ls-files 'tools/**' 'tools/*' \
             | while IFS= read -r p; do
                 case "$p" in *.sh) echo "$p"; continue ;; esac
                 [ -f "$p" ] && head -c 64 "$p" | head -1 \
@@ -183,7 +183,7 @@ jobs:
         # The files every other script builds on are held to `warning`: the
         # library, test.sh and check.sh. Clean since the 2026-08-18 consolidation, so
         # there is no backlog to grandfather in.
-        run: shellcheck -x -S warning scripts/*.sh scripts/ci/*.sh
+        run: shellcheck -x -S warning tools/*.sh tools/ci/*.sh
 
       - name: Warnings elsewhere (advisory, never blocking)
         # Printed on every run so a new finding stays visible, blocking on

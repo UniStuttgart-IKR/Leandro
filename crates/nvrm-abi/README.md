@@ -3,7 +3,8 @@
 
 - Describes RM/UVM ioctl payloads: sizes, embedded pointers, FD fields and encoding.
 - Provides device wrappers and curated types checked against generated bindings.
-- RM object ownership lives in [nvrm-client](../nvrm-client/README.md).
+- Direct-call tools use [nvrm-client](../nvrm-client/README.md) for RM ownership.
+  The forwarding backend maintains its own ownership records.
 
 ## Source map
 
@@ -31,7 +32,7 @@
 ```sh
 cargo run --bin nvrm-genhdr -- guest-module/virtio_nvrm/nvrm_wire.h
 cargo run --bin nvrm-genhdr -- --check
-scripts/test.sh check
+tools/check.sh
 ```
 
 - The software check exercises the C table interpreter against Rust-generated data.

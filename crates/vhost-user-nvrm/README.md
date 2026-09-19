@@ -6,8 +6,8 @@
 - Guest-process sessions own mirrored device FDs, mappings and resource tracking.
   An ioctl must retain the appropriate open file description because RM associates
   client state with it.
-- Pool backing also creates private host RM clients. The backend is therefore more
-  than a transparent forwarder: it owns resources and rewrites selected controls.
+- Pool backing creates private host RM clients. The backend owns these resources
+  and rewrites selected controls.
 
 ## Source map
 
@@ -46,7 +46,7 @@
   not a guarantee of total physical occupancy.
 - `LEA_GPU_NAME_RAW=1` retains the driver's card name.
 - Known request layouts are validated before resource acquisition. The host refuses
-  32 additional untranslated controls, seven capability-FD classes, serialized RM
+  34 untranslated/attribution controls, seven capability-FD classes, serialized RM
   layouts, unknown frontend envelopes and UVM tools. See [the policy](../../docs/SECURITY.md#refused-operations).
 - Private-client guards and PID-scoped grants do not establish ownership of every
   guest-supplied native source handle. [Security limits](../../docs/SECURITY.md) also

@@ -3,7 +3,6 @@
 # SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
 # Host network, driver persistence and backend service configuration.
 # The host supplies a compatible NVIDIA driver; this module does not install it.
-# Optional test commands come from an explicit Leandro-Test scriptsPackage.
 { leandroPackages, driverVersion }:
 { config, lib, pkgs, ... }:
 let
@@ -26,17 +25,12 @@ in {
     package = lib.mkOption {
       type = lib.types.package;
       default = leandroPackages.leandro;
-      description = "vhost-user-nvrm, vhost-user-input and the tools.";
+      description = "vhost-user-nvrm and the diagnostic tools.";
     };
     cloudHypervisorPackage = lib.mkOption {
       type = lib.types.package;
       default = leandroPackages.cloud-hypervisor;
       description = "cloud-hypervisor with the generic-vhost-user SHMEM patches.";
-    };
-    scriptsPackage = lib.mkOption {
-      type = lib.types.nullOr lib.types.package;
-      default = null;
-      description = "Leandro-Test acceptance-scripts package, installed by dev.enable.";
     };
     bridge = {
       name = lib.mkOption { type = lib.types.str; default = "br-poco"; description = "Bridge name (LEA_BRIDGE)."; };
@@ -76,13 +70,10 @@ in {
         description = "Environment for the backend units (LEA_DEBUG, LEA_MANAGED_COMPAT, LEA_MAX_PIN_MIB, LEA_VRAM_LIMIT_MIB).";
       };
     };
-    dev.enable = lib.mkEnableOption "the wrapped scripts on PATH (leandro-showcase, leandro-test, leandro-bench, leandro-build)";
   };
 
   config = lib.mkIf cfg.enable {
     assertions = [
-      { assertion = !cfg.dev.enable || cfg.scriptsPackage != null;
-        message = "services.leandro.dev.enable requires scriptsPackage from Leandro-Test's acceptance-scripts output."; }
       { assertion = config.hardware.nvidia.enabled or false;
         message = ''
           services.leandro needs the NVIDIA driver from the system
@@ -100,11 +91,10 @@ in {
         this Leandro targets ${driverVersion}. The ioctl layouts are version
         specific -- expect nvidia-smi in the guest to misread memory. Pin the
         driver (nvidiaPackages.mkDriver { version = "${driverVersion}"; ... })
-        or rebuild Leandro with `build.sh --driver auto`.
+        or follow docs/abi-versions.md before selecting another driver.
       '';
 
-    environment.systemPackages = [ cfg.package cfg.cloudHypervisorPackage ]
-      ++ lib.optional (cfg.dev.enable && cfg.scriptsPackage != null) cfg.scriptsPackage;
+    environment.systemPackages = [ cfg.package cfg.cloudHypervisorPackage ];
 
     # The bridge and its taps. vnet_hdr is not needed at creation:
     # cloud-hypervisor sets IFF_VNET_HDR itself when it opens the tap, and

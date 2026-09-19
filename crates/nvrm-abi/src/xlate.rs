@@ -826,7 +826,7 @@ pub fn alloc_class_verified(hclass: u32) -> bool {
 /// Allocation class to parameter size (`rmapi/resource_list.h` RS_ENTRY).
 ///
 /// Non-null parameters need a known layout. Bindgen types supply sizes where
-/// available; `scripts/test.sh check` compares handwritten rows with C sizeof.
+/// available; `tools/check.sh` compares handwritten rows with C sizeof.
 /// Incorrect sizes previously affected 0x90f1 (48 vs 56, missing pasid) and
 /// 0x71 (128 vs 40, separate OSdesc type).
 ///

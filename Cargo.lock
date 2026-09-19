@@ -659,19 +659,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vhost-user-input"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "libc",
- "vhost",
- "vhost-user-backend",
- "virtio-queue",
- "vm-memory",
- "vmm-sys-util",
-]
-
-[[package]]
 name = "vhost-user-nvrm"
 version = "0.0.1"
 dependencies = [

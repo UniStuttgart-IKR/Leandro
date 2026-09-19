@@ -3,8 +3,7 @@
 
 - Owns RM clients, object trees and handle allocation above
   [nvrm-abi](../nvrm-abi/README.md).
-- Used by the diagnostic tools below. The host backend manages its forwarded
-  clients and pool-backing clients separately.
+- Used by the tools below; the host backend owns forwarded and pool clients separately.
 - Child objects must be released in dependency order; bookkeeping must follow
   successful RM operations.
 

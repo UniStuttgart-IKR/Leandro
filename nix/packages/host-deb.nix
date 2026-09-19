@@ -8,7 +8,7 @@
 # Statically linked (pkgsStatic, musl): a binary built by Nix against Nix's
 # glibc does not run on Ubuntu, a static one runs anywhere. The package files
 # are in packaging/host-deb/.
-{ lib, stdenv, dpkg, src, driverVersion, chVersion, leandroStatic, cloudHypervisorStatic }:
+{ lib, stdenv, dpkg, src, driverVersion, chVersion, leandroStatic, cloudHypervisorStatic, inputStatic }:
 
 let
   version = "0.1+${driverVersion}";
@@ -25,9 +25,12 @@ stdenv.mkDerivation {
     root=$PWD/root
     subst() { sed -e 's/@VERSION@/${version}/g' -e 's/@DRIVER@/${driverVersion}/g' -e 's/@CH@/${chVersion}/g' "$1"; }
 
-    for b in vhost-user-nvrm vhost-user-input vgpuprofile; do
+    for b in vhost-user-nvrm vgpuprofile; do
       install -D -m755 ${leandroStatic}/bin/$b $root/usr/bin/$b
     done
+    mkdir -p $root/usr/share/doc/leandro-host
+    cp -r ${inputStatic}/share/licenses/vhost-device-input $root/usr/share/doc/leandro-host/
+    install -D -m755 ${inputStatic}/bin/vhost-device-input $root/usr/bin/vhost-device-input
     install -D -m755 ${cloudHypervisorStatic}/bin/cloud-hypervisor $root/usr/lib/leandro/cloud-hypervisor
     install -D -m644 "$p/leandro-backend@.service" "$root/usr/lib/systemd/system/leandro-backend@.service"
 
@@ -47,11 +50,11 @@ stdenv.mkDerivation {
   '';
 
   # The .deb must not carry store paths: nothing on an Ubuntu host has them.
-  disallowedReferences = [ leandroStatic cloudHypervisorStatic ];
+  disallowedReferences = [ leandroStatic cloudHypervisorStatic inputStatic ];
 
   meta = {
-    description = "Leandro host side as a .deb (static vhost-user-nvrm, vhost-user-input, vgpuprofile, cloud-hypervisor)";
-    license = with lib.licenses; [ mit asl20 ];
+    description = "Leandro host side as a .deb (static vhost-user-nvrm, vhost-device-input, vgpuprofile, cloud-hypervisor)";
+    license = with lib.licenses; [ mit asl20 bsd3 ];
     platforms = [ "x86_64-linux" ];
   };
 }
