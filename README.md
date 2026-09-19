@@ -11,6 +11,7 @@ See [security limits](docs/SECURITY.md).
 
 ## Start here
 
+- [Documentation index](docs/README.md): guides, design notes and component READMEs.
 - [Quickstart](docs/QUICKSTART.md): two Ubuntu desktops or two NixOS compute VMs.
 - [Development](DEVELOPMENT.md): build, check, debug and package.
 - [Architecture](docs/ARCHITECTURE.md): request path, mappings and ownership.
