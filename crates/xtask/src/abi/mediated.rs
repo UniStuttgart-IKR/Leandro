@@ -1,26 +1,17 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! Keeping `[footprint.mediated]` from falling behind the code.
-//!
-//! The mediated list decides three things: what `RmAbi` abstracts over, what
-//! stops the generator when it breaks, and therefore what a person is asked
-//! about. A list like that is worth exactly as much as its completeness, and
-//! nothing about writing code reminds anybody to extend it.
-//!
-//! So it is checked rather than trusted. Every `sys::NAME` the workspace
-//! writes is read out of the sources; if one of them names a type that is not
-//! the same on every supported version and is not in the list, this fails and
-//! says which. The reverse is deliberately NOT checked: a name stays on the
-//! list after its last caller becomes generic, which is the whole point --
-//! otherwise making a caller generic would remove the type from the trait it
-//! was made generic over.
+//! Check that version-dependent workspace types appear in `[footprint.mediated]`.
+//! Entries remain required after callers switch to `RmAbi` associated types.
 
 use crate::abi::config::Footprint;
 use crate::abi::emit::{Partition, Version};
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
+use proc_macro2::{TokenStream, TokenTree};
 use std::collections::BTreeSet;
 use std::path::Path;
+use syn::visit::{self, Visit};
+use syn::UseTree;
 
 pub fn assert_complete(
     root: &Path,
@@ -28,15 +19,6 @@ pub fn assert_complete(
     part: &Partition,
     versions: &[Version],
 ) -> Result<()> {
-    let mut used: BTreeSet<String> = BTreeSet::new();
-    let mut direct_imports: Vec<String> = Vec::new();
-    let crates = root.join("crates");
-    scan(&crates, &mut used, &mut direct_imports)?;
-
-    // Importing the MACHINERY by name is fine and is how a caller becomes
-    // generic: `use nvrm_sys::RmAbi;`. What must not be imported by name is a
-    // BOUND type or constant, because then it no longer reads as `sys::NAME`
-    // and the loop below cannot see it.
     let bound: BTreeSet<&str> = versions
         .iter()
         .flat_map(|v| {
@@ -47,23 +29,15 @@ pub fn assert_complete(
                 .map(String::as_str)
         })
         .collect();
-    direct_imports.retain(|line| {
-        line.split("nvrm_sys::")
-            .skip(1)
-            .flat_map(|rest| {
-                rest.trim_start_matches('{')
-                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
-            })
-            .any(|n| bound.contains(n))
-    });
+    let mut used = BTreeSet::new();
+    let mut direct_imports = Vec::new();
+    scan(&root.join("crates"), &bound, &mut used, &mut direct_imports)?;
 
     if !direct_imports.is_empty() {
+        direct_imports.sort();
         bail!(
-            "these files import items out of nvrm-sys directly:\n  {}\n\
-             Everything goes through `sys::NAME` (nvrm-abi re-exports the crate as `sys`), \
-             because that spelling is what the mediated-list check can see. An item \
-             imported by name is invisible to it, and a type that is invisible to it can \
-             move between driver versions without anybody being asked.",
+            "direct or glob imports of nvrm-sys bindings:\n  {}\n\
+             Use `nvrm_abi::sys` and spell bindings as `sys::NAME` so the mediated check sees them.",
             direct_imports.join("\n  ")
         );
     }
@@ -88,10 +62,7 @@ pub fn assert_complete(
     }
 
     if !volatile_constants.is_empty() {
-        // A constant cannot be an associated const when some supported
-        // version does not define it at all -- there would be no value to
-        // give that impl. Reached through its version module, and the caller
-        // has to be conditional.
+        // Direct version-specific constants require conditional callers.
         eprintln!(
             "abi: version-specific constants the workspace uses, reachable only per module: {}",
             volatile_constants.join(", ")
@@ -115,8 +86,7 @@ pub fn assert_complete(
     )
 }
 
-/// A starting point for the associated-type name, not an answer: NVIDIA's
-/// spelling carried into Rust reads badly and a person should pick.
+/// Suggest an associated-type name for review.
 fn suggest_assoc(c_name: &str) -> String {
     let mut out = String::new();
     for part in c_name.split('_') {
@@ -129,45 +99,250 @@ fn suggest_assoc(c_name: &str) -> String {
     out
 }
 
-fn scan(dir: &Path, used: &mut BTreeSet<String>, imports: &mut Vec<String>) -> Result<()> {
-    for e in std::fs::read_dir(dir)?.flatten() {
+fn scan(
+    dir: &Path,
+    bound: &BTreeSet<&str>,
+    used: &mut BTreeSet<String>,
+    imports: &mut Vec<String>,
+) -> Result<()> {
+    for e in std::fs::read_dir(dir)? {
+        let e = e?;
         let p = e.path();
         if p.is_dir() {
             let name = e.file_name();
             let name = name.to_string_lossy();
-            // The generated crate names its own types, and this crate names
-            // them in prose. Neither is a caller.
+            // Exclude generated bindings and the generator itself.
             if name == "target" || name == "manifests" {
                 continue;
             }
             if p.ends_with("crates/nvrm-sys") || p.ends_with("crates/xtask") {
                 continue;
             }
-            scan(&p, used, imports)?;
+            scan(&p, bound, used, imports)?;
             continue;
         }
         if p.extension().and_then(|x| x.to_str()) != Some("rs") {
             continue;
         }
         let text = std::fs::read_to_string(&p)?;
-        for (i, m) in text.match_indices("sys::") {
-            // `nvrm_sys::` ends with the same five characters; both are the
-            // spelling this check understands.
-            let rest = &text[i + m.len()..];
-            let n: String = rest
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_')
-                .collect();
-            if !n.is_empty() {
-                used.insert(n);
-            }
-        }
-        for line in text.lines() {
-            let t = line.trim_start().trim_start_matches("pub ");
-            if t.starts_with("use nvrm_sys::") && !t.contains(" as sys") {
-                imports.push(format!("{}: {}", p.display(), line.trim()));
+        let found = scan_source(&text, bound)
+            .with_context(|| format!("scanning bindings in {}", p.display()))?;
+        used.extend(found.used);
+        imports.extend(
+            found
+                .direct_imports
+                .into_iter()
+                .map(|path| format!("{}: {path}", p.display())),
+        );
+    }
+    Ok(())
+}
+
+struct SourceUses<'a> {
+    bound: &'a BTreeSet<&'a str>,
+    used: BTreeSet<String>,
+    direct_imports: BTreeSet<String>,
+}
+
+fn scan_source<'a>(text: &str, bound: &'a BTreeSet<&'a str>) -> Result<SourceUses<'a>> {
+    let file = syn::parse_file(text)?;
+    let mut found = SourceUses {
+        bound,
+        used: BTreeSet::new(),
+        direct_imports: BTreeSet::new(),
+    };
+    found.visit_file(&file);
+    Ok(found)
+}
+
+impl SourceUses<'_> {
+    fn path(&mut self, path: &[String]) {
+        for pair in path.windows(2) {
+            if matches!(pair[0].as_str(), "sys" | "nvrm_sys") {
+                self.used.insert(pair[1].clone());
             }
         }
     }
-    Ok(())
+
+    fn use_tree(&mut self, tree: &UseTree, path: &mut Vec<String>) {
+        let name = match tree {
+            UseTree::Path(p) => {
+                path.push(p.ident.to_string());
+                self.use_tree(&p.tree, path);
+                path.pop();
+                return;
+            }
+            UseTree::Group(g) => {
+                for item in &g.items {
+                    self.use_tree(item, path);
+                }
+                return;
+            }
+            UseTree::Name(n) => n.ident.to_string(),
+            UseTree::Rename(r) => r.ident.to_string(),
+            UseTree::Glob(_) => "*".to_string(),
+        };
+        path.push(name);
+        self.path(path);
+        if path[0] == "nvrm_sys"
+            && path
+                .iter()
+                .skip(1)
+                .any(|n| n == "*" || self.bound.contains(n.as_str()))
+        {
+            self.direct_imports.insert(path.join("::"));
+        }
+        path.pop();
+    }
+
+    // Macro bodies are unparsed tokens; inspect paths without counting literals.
+    fn macro_tokens(&mut self, tokens: TokenStream) {
+        let tokens: Vec<_> = tokens.into_iter().collect();
+        for token in &tokens {
+            if let TokenTree::Group(group) = token {
+                self.macro_tokens(group.stream());
+            }
+        }
+        for window in tokens.windows(4) {
+            if let [TokenTree::Ident(root), TokenTree::Punct(a), TokenTree::Punct(b), TokenTree::Ident(name)] =
+                window
+            {
+                if a.as_char() == ':' && b.as_char() == ':' {
+                    self.path(&[root.to_string(), name.to_string()]);
+                }
+            }
+        }
+    }
+}
+
+impl<'ast> Visit<'ast> for SourceUses<'_> {
+    fn visit_path(&mut self, path: &'ast syn::Path) {
+        self.path(
+            &path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect::<Vec<_>>(),
+        );
+        visit::visit_path(self, path);
+    }
+
+    fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
+        self.use_tree(&item.tree, &mut Vec::new());
+    }
+
+    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+        self.macro_tokens(mac.tokens.clone());
+        visit::visit_macro(self, mac);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paths_ignore_comments_literals_and_identifier_suffixes() {
+        let bound = BTreeSet::new();
+        let found = scan_source(
+            r#"
+                // sys::COMMENT
+                /// nvrm_sys::DOC
+                const TEXT: &str = "sys::STRING";
+                type A = sys ::
+                    TYPE_A;
+                type B = nvrm_sys::TYPE_B;
+                type C = unrelated_sys::TYPE_C;
+                fn f() { let _: Option<sys::TYPE_D> = None; }
+            "#,
+            &bound,
+        )
+        .unwrap();
+        assert_eq!(
+            found.used,
+            BTreeSet::from_iter(["TYPE_A", "TYPE_B", "TYPE_D"].map(String::from))
+        );
+        assert!(found.direct_imports.is_empty());
+    }
+
+    #[test]
+    fn direct_imports_include_multiline_groups_visibility_and_renames() {
+        let bound = BTreeSet::from(["TYPE_A", "TYPE_B", "CONST_C", "TYPE_D"]);
+        let found = scan_source(
+            r#"
+                use nvrm_sys::{
+                    TYPE_A,
+                    TYPE_B as sys,
+                    RmAbi,
+                };
+                pub(crate) use ::nvrm_sys::v610::{CONST_C as Other};
+                use {nvrm_sys::TYPE_D, std::fmt::Debug};
+            "#,
+            &bound,
+        )
+        .unwrap();
+        assert_eq!(
+            found.direct_imports,
+            BTreeSet::from_iter(
+                [
+                    "nvrm_sys::TYPE_A",
+                    "nvrm_sys::TYPE_B",
+                    "nvrm_sys::v610::CONST_C",
+                    "nvrm_sys::TYPE_D",
+                ]
+                .map(String::from)
+            )
+        );
+    }
+
+    #[test]
+    fn glob_imports_are_rejected_but_sys_reexports_and_rmabi_are_allowed() {
+        let bound = BTreeSet::from(["TYPE_A"]);
+        let found = scan_source(
+            r#"
+                pub use nvrm_sys as sys;
+                use nvrm_sys::{self as sys, RmAbi};
+                mod nested {
+                    use nvrm_sys::*;
+                    fn f() { use nvrm_sys::v610::*; }
+                }
+            "#,
+            &bound,
+        )
+        .unwrap();
+        assert_eq!(
+            found.direct_imports,
+            BTreeSet::from_iter(["nvrm_sys::*", "nvrm_sys::v610::*"].map(String::from))
+        );
+    }
+
+    #[test]
+    fn grouped_sys_imports_record_original_names() {
+        let bound = BTreeSet::new();
+        let found = scan_source("use sys::{TYPE_A as Local, TYPE_B};", &bound).unwrap();
+        assert_eq!(
+            found.used,
+            BTreeSet::from_iter(["TYPE_A", "TYPE_B"].map(String::from))
+        );
+    }
+
+    #[test]
+    fn macro_paths_are_scanned_without_string_contents() {
+        let bound = BTreeSet::new();
+        let found = scan_source(
+            r#"
+                macro_rules! layout {
+                    () => { size_of::<sys::TYPE_A>() };
+                }
+                layout_check!(nvrm_sys::TYPE_B, [sys::TYPE_C]);
+                log!("sys::STRING", r"nvrm_sys::RAW_STRING");
+            "#,
+            &bound,
+        )
+        .unwrap();
+        assert_eq!(
+            found.used,
+            BTreeSet::from_iter(["TYPE_A", "TYPE_B", "TYPE_C"].map(String::from))
+        );
+    }
 }

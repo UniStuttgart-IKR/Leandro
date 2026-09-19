@@ -1,34 +1,15 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! VRAM cap per VM.
+//! Per-VM accounting and limits for explicit guest VRAM allocations.
 //!
-//! Terms, once: RM is NVIDIA's Resource Manager, the kernel driver behind
-//! /dev/nvidiactl and /dev/nvidiaN, and its ioctls are called escapes;
-//! NVOS64 and NVOS32 are the parameter blocks of its two allocation
-//! escapes, RM_ALLOC and RM_VID_HEAP_CONTROL (nvos.h); FB is the card's
-//! own memory (the framebuffer); USERD is a channel's user-space doorbell
-//! page.
+//! One backend serves one VM; its sessions share a ledger. Guest process IDs
+//! are bookkeeping labels supplied by the guest, not isolation boundaries.
 //!
-//! One backend serves exactly one VM, so the ledger is a process-wide
-//! quantity: every session of this backend charges the same counter, and
-//! the cap is reached for the VM as a whole, not per guest process. That
-//! is deliberate and it is the only boundary the host can enforce -- a
-//! finer split would have to trust labels the guest kernel hands out
-//! (docs/FUTURE.md, "the boundary no technique moves").
-//!
-//! WARNING: this counts only what the guest asks for EXPLICITLY through a
-//! memory class. RM's own device memory -- channel instance memory, USERD,
-//! context buffers, the share of the GSP (the on-card system processor
-//! running half the driver) -- never crosses the boundary as an
-//! allocation request and is therefore invisible here. The cap bounds the
-//! part a workload can grow without limit, not the card's full occupancy.
-//!
-//! Measured (probe/suites/test_vram_churn.py, native, LD_PRELOAD tracer):
-//! the classes that carry an `NV_MEMORY_ALLOCATION_PARAMS` are the only
-//! ones with a guest-chosen size, and among those exactly
-//! `attr.LOCATION == VIDMEM` without `ALLOC_FLAGS_VIRTUAL` lands in FB.
-//! Evidence and the counter-examples are at [`request_bytes`].
+//! RM's internal allocations (channel state, USERD, contexts and GSP memory)
+//! are not visible here. A profile reservation allows for measured overhead
+//! but does not enforce total card occupancy. See [`request_bytes`] for the
+//! allocation classes and placement rules that are charged.
 
 use nvrm_sys::RmAbi;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -52,11 +33,7 @@ const P_LEN: usize = 128;
 /// reserves address space and no memory at all.
 const ALLOC_FLAGS_VIRTUAL: u32 = 0x0008_0000;
 
-// The four offsets and the flag above are typed out by hand, from a
-// comment. These tie them to the generated struct, so a driver bump that
-// moves a field breaks the BUILD rather than charging the ledger from the
-// wrong four bytes -- which would be silent, and wrong in the direction
-// that lets a guest allocate past its cap.
+// ABI changes must fail compilation before the ledger reads the wrong fields.
 const _: () = {
     assert!(P_FLAGS == core::mem::offset_of!(sys::NV_MEMORY_ALLOCATION_PARAMS, flags));
     assert!(P_ATTR == core::mem::offset_of!(sys::NV_MEMORY_ALLOCATION_PARAMS, attr));
@@ -65,61 +42,17 @@ const _: () = {
     assert!(ALLOC_FLAGS_VIRTUAL == sys::NVOS32_ALLOC_FLAGS_VIRTUAL);
 };
 
-// ===========================================================================
-// The VM's memory profile
-// ===========================================================================
-// TWO POLICIES, one card, and exactly one of them is on at a time. The
-// older one is the default and is unchanged by anything here; the newer one
-// exists because the older one cannot see what it does not charge.
-//
-// ACCOUNTING (`LEA_VRAM_LIMIT_MIB`). The number is the GUEST's: it is what
-// the guest may allocate and what the guest is told it has, and the card
-// pays it PLUS whatever RM allocates behind the channel. Measured
-// 2026-08-21 on two 3072 MiB VMs streaming 1080p: the card was charged 3242
-// and 3101 MiB for guests reporting 3069 and 2919 -- so ~175 MiB per
-// backend that no cap could see, roughly constant rather than proportional,
-// and two 3072 caps were never 6144.
-//
-// RESERVED (`LEA_VRAM_PROFILE_MIB`, opt-in). The number is the CARD's. The
-// reservation comes off it first and what is left is the guest's, which is
-// the split NVIDIA's vGPU makes: `profileSize`, `fbReservation` and
-// `fbLength` are three separate fields of `VGPU_TYPE`
-// (vendor/open-gpu-kernel-modules, common_vgpu_mgr.h:95), computed up front
-// rather than discovered afterwards. Their number is closed --
-// `memmgrGetVgpuHostRmReservedFb_KERNEL` (mem_mgr.c:3984) forwards
-// `NV2080_CTRL_CMD_INTERNAL_MEMMGR_GET_VGPU_CONFIG_HOST_RESERVED_FB` to the
-// GSP and returns what the firmware says -- so ours is measured instead,
-// and it is a knob because that measurement belongs to a driver, a card and
-// a workload rather than to this source file.
-//
-// WHAT IS RESERVED, AND WHAT IS NOT. Nothing is allocated and nothing is
-// held. The reservation is FB the guest is never told about and can
-// therefore never ask for, sized so that what RM spends behind its back
-// still fits inside the profile. That is a policy against a measured
-// constant, NOT an enforcement against the card: this backend keeps no RM
-// client of its own (main.rs), so it cannot see the card's total or its
-// free memory, and one backend serves one VM with no path to a sibling.
-// Overprovisioning therefore stays possible and stays the operator's
-// decision -- docs/OPEN-QUESTIONS.md number 67 is what it looks like when
-// the sum of the profiles exceeds the card.
+// Accounting exposes the full cap; Reserved subtracts configured overhead;
+// Grid uses the card-derived profile and framebuffer sizes. A reservation
+// reduces the guest-visible limit without allocating or holding card memory.
+// Backends do not coordinate admission, so operators can overprovision a card.
 
-/// `fbReservation` when the operator does not say otherwise, in MiB.
-///
-/// TWO MEASUREMENTS, an order of magnitude apart, because the quantity
-/// belongs to the WORKLOAD and not to this file (both 2026-08-21, number
-/// 68): ~175 MiB per backend with a game, NVENC and a live 1080p stream,
-/// and ~25 MiB with a CUDA allocator and a desktop -- peak host charge 2841
-/// MiB against a 2816 MiB guest framebuffer, over ten minutes at the limit.
-///
-/// 256 is deliberately more than either. The cost of being too generous is
-/// framebuffer the guest does not get; the cost of being too tight is that
-/// the VM costs the card more than its profile says, which is the whole
-/// thing this policy exists to prevent. Round numbers also make the
-/// arithmetic in a log line legible, which matters when the alternative is
-/// an operator doing it in their head at 2 a.m.
+/// Default overhead allowance in MiB. Measured overhead was about 25 MiB for
+/// CUDA/desktop and 175 MiB for game/NVENC workloads (2026-08-21, issue 68).
+/// This allowance is workload-dependent, not a bound on RM allocations.
 pub const DEFAULT_RESERVATION_MIB: u64 = 256;
 
-/// Which of the two policies this backend runs, if either.
+/// Memory policy selected at backend startup.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Policy {
     /// No cap at all. The default, and what every run before 2026-08-21
@@ -149,25 +82,16 @@ impl Policy {
     }
 }
 
-/// What this VM's memory costs and what of it the guest gets. All three
-/// numbers are bytes.
-///
-/// The field names are vGPU's on purpose (`common_vgpu_mgr.h:95`): the
-/// distinction they carry is the entire content of number 68, and a reader
-/// who knows that header should not have to translate.
+/// Profile budget, overhead allowance and guest framebuffer, in bytes.
+/// Field names follow VGPU_TYPE (common_vgpu_mgr.h:95).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Profile {
     pub policy: Policy,
-    /// `profileSize` -- what the VM may cost the CARD. Equal to `fb_length`
-    /// under `Accounting`, where nothing is held back.
+    /// Planned card budget; equal to fb_length under Accounting.
     pub size: u64,
-    /// `fbReservation` -- held back for RM's own device memory. Zero under
-    /// `Accounting`, which is the honest statement of what that policy
-    /// reserves.
+    /// Allowance for untracked RM allocations; zero under Accounting.
     pub reservation: u64,
-    /// `fbLength` -- what the guest is TOLD it has and what it may
-    /// allocate. One number for both, because a guest told one thing and
-    /// refused at another has been handed a card that contradicts itself.
+    /// Enforced guest allocation limit and reported framebuffer capacity.
     pub fb_length: u64,
     /// What the launcher called it under [`Policy::Grid`] (`RTX2070-2Q`,
     /// `RTX2070-130M`), empty otherwise. For the log; the guest's card is
@@ -191,7 +115,7 @@ impl Profile {
         encoder_capacity: 0,
     };
 
-    /// The old cap, in bytes -- for tests and for the `Accounting` path.
+    /// Accounting policy with the given byte limit.
     pub fn accounting(bytes: u64) -> Profile {
         if bytes == 0 {
             return Profile::OFF;
@@ -240,30 +164,15 @@ impl Profile {
     }
 }
 
-/// Decide the policy from the three raw variables, without touching the
-/// environment.
-///
-/// Pure so that the trap can be TESTED rather than described: an empty
-/// variable is a SET variable (`LEA_VRAM_LIMIT_MIB=""` is what
-/// `rig.sh` passes when nobody asked for a cap, docs/llm.md §3), and it
-/// must mean "off" here or every rig would run capped at nothing.
-///
-/// `Err` is for a configuration that has no honest reading and no safe
-/// default; the backend refuses to start on one: two policies at once, a
-/// reservation that leaves the guest no framebuffer, and a value that is
-/// not a number of MiB. The last one used to warn and run UNCAPPED --
-/// `LEA_VRAM_LIMIT_MIB=4G` was a VM without a limit and one log line.
+/// Raw startup settings for pure policy validation.
+/// Empty values disable a setting; invalid sizes, conflicting policies and
+/// reservations without a usable framebuffer must prevent startup.
 #[derive(Default, Copy, Clone)]
 struct RawEnv<'a> {
     limit: Option<&'a str>,
     profile: Option<&'a str>,
     reserve: Option<&'a str>,
-    /// The vGPU-shaped triple. `vgpu_type` names a type or a size and the
-    /// other two are the numbers the card's rule gives it. The manager that
-    /// starts the VM resolves the name -- `nvrm-client --bin vgpuprofile`
-    /// reads the card, `lea_backend_start` selects the row -- exactly the
-    /// way vGPU's host RM owns the catalogue and the per-VM plugin only
-    /// enforces its slice.
+    /// The launcher resolves a type through vgpuprofile and supplies its sizes.
     vgpu_type: Option<&'a str>,
     vgpu_profile: Option<&'a str>,
     vgpu_fb: Option<&'a str>,
@@ -281,14 +190,16 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
     let mut mib = |name: &str, raw: Option<&str>| -> Option<u64> {
         let s = raw?;
         if s.trim().is_empty() {
-            // Not a note: this is the NORMAL shape of an unset knob as the
-            // rig passes it, and a warning on every run is a warning
-            // nobody reads.
+            // The launcher uses an empty string for an unset setting.
             return None;
         }
         match s.trim().parse::<u64>() {
             Ok(0) => None,
-            Ok(v) => Some(v),
+            Ok(v) if v <= u64::MAX >> 20 => Some(v),
+            Ok(_) => {
+                unusable.push(format!("{name}={s:?} exceeds the byte counter range"));
+                None
+            }
             Err(_) => {
                 let hint = vgpu::parse_mib(s)
                     .map(|m| format!(" -- write {m}"))
@@ -411,16 +322,9 @@ fn decide(env: RawEnv) -> Result<(Profile, Vec<String>), String> {
     ))
 }
 
-/// The profile this process runs under, from the environment.
-///
-/// Read ONCE, at startup, by the one [`Ledger::new`]. `std::env::var` scans
-/// `environ` linearly and takes a lock; at ~12 us per forwarded ioctl a
-/// per-message read would distort exactly the number this rig measures
-/// (docs/TESTING.md §2).
-///
-/// The names are deliberately unlike both pin limits: `max_pin_mib` (guest
-/// module, cumulative over all pins) and `LEA_MAX_PIN_MIB` (host, one
-/// arena) already collide enough that only the log line tells them apart.
+/// Read the profile once at startup, outside the ioctl path.
+/// VRAM settings are separate from the guest's cumulative max_pin_mib and
+/// the host's per-arena LEA_MAX_PIN_MIB limits.
 fn profile_from_env(card_total: u64) -> Result<Profile, String> {
     let get = |n: &str| std::env::var(n).ok();
     let (limit, profile, reserve) = (
@@ -453,55 +357,16 @@ fn profile_from_env(card_total: u64) -> Result<Profile, String> {
     Ok(p)
 }
 
-/// How many bytes of FB this `NV_ESC_RM_ALLOC` would occupy, or `None` if
-/// it occupies none.
-///
-/// Measured under the tracer, `test_vram_churn.py` native (610.43.03,
-/// torch 2.13.0+cu130) -- every distinct request in that run:
-///
-/// | hClass | flags     | attr        | LOCATION | occupies FB |
-/// |--------|-----------|-------------|----------|-------------|
-/// | 0x40   | 0x1c101   | 0x18000000  | VIDMEM 0 | yes         |
-/// | 0x3e   | 0xc001    | 0x3a000000  | PCI 1    | no, sysmem  |
-/// | 0x50a0 | 0x8c415   | 0x0 (in)    | -        | no, VIRTUAL |
-///
-/// So neither the class alone nor the flags alone decide it: 0x50a0
-/// (NV50_MEMORY_VIRTUAL) asked for 0xfb000000 bytes = 4.2 GB in that run
-/// and occupied nothing, because `ALLOC_FLAGS_VIRTUAL` was set. Reading
-/// the class as "0x40 means VRAM" would have been right for this workload
-/// and wrong in principle; reading LOCATION is what RM itself acts on.
-///
-/// ONLY 0x40 WITH `LOCATION_VIDMEM` IS CHARGED, and that is RM's rule, not
-/// a guess about workloads. Until 2026-09-17 `LOCATION_ANY` counted as a
-/// candidate on the way in, for all three classes, on the theory that RM
-/// "may resolve it either way". On a GSP-client dGPU it never does (NVIDIA
-/// open-gpu-kernel-modules 610.57.04, the HAL variants this card binds):
-///
-/// | hClass | LOCATION in       | what RM does                                  | source                        |
-/// |--------|-------------------|-----------------------------------------------|-------------------------------|
-/// | 0x40   | VIDMEM            | FB (PMA or heap), writes VIDMEM back          | video_mem.c:616-619, 1498-1513 |
-/// | 0x40   | ANY, PCI          | NV_ERR_INVALID_ARGUMENT, nothing allocated    | video_mem.c:616-619           |
-/// | 0x3e   | VIDMEM, VIRTUAL   | NV_ERR_INVALID_ARGUMENT                       | system_mem.c:192-195          |
-/// | 0x3e   | ANY, PCI          | system memory (ADDR_SYSMEM, osAllocPages)     | mem_mgr.c:1586-1614, system_mem.c:264-268 |
-/// | 0x50a0 | without VIRTUAL   | NV_ERR_INVALID_ARGUMENT                       | virtual_mem.c:357-358         |
-/// | 0x50a0 | with VIRTUAL      | a GPU VA range, no physical memory            | mem_utils.c:1542-1546         |
-///
-/// There is no sysmem fallback for ANY when FB runs out either: ANY never
-/// reaches the FB allocator at all. The 0x3e table has one trap: with
-/// `NVOS32_ALLOC_FLAGS_PROTECTED` RM writes VIDMEM BACK into attr for what
-/// is still system memory (mem_mgr.c:1604-1608, mem_utils.c:1532), so
-/// settling a 0x3e by its written-back attr would keep a charge for
-/// nothing. `sysmemInitAllocRequest_SOC`'s ANY -> PCI (system_mem.c:568)
-/// is the Tegra variant and not the reason; this card binds `_HMM`
-/// (g_system_mem_nvoc.c:562-571).
-///
-/// So charging ANY was never "cautious". At a full ledger it answered
-/// NV_ERR_NO_MEMORY to system memory RM would have handed out, and to
-/// requests RM would have refused with a different code.
+/// Requested bytes for nonvirtual class 0x40 allocations in VIDMEM.
+/// On the tested GSP-client dGPU, 0x40 rejects ANY/PCI (video_mem.c:616-619).
+/// Class 0x3e uses system RAM; PROTECTED may still return attr=VIDMEM
+/// (system_mem.c:192-195, mem_mgr.c:1586-1614). Never charge it by attr alone.
+/// Class 0x50a0 requires VIRTUAL and reserves only GPU VA
+/// (virtual_mem.c:357-358, mem_utils.c:1542-1546).
+/// Native 610.43.03 churn traces confirmed these three allocation categories.
 pub fn request_bytes(hclass: u32, aux: &[u8]) -> Option<u64> {
-    // Only the three classes whose params ARE NV_MEMORY_ALLOCATION_PARAMS
-    // (xlate.rs:402). 0x71 has its own, much smaller struct -- decoding it
-    // with this layout would read ~88 bytes past the buffer.
+    // These classes use NV_MEMORY_ALLOCATION_PARAMS. Class 0x71 has a
+    // smaller layout and must not be decoded with these offsets.
     if !matches!(hclass, 0x003e | 0x0040 | 0x50a0) || aux.len() < P_LEN {
         return None;
     }
@@ -524,63 +389,35 @@ pub fn request_bytes(hclass: u32, aux: &[u8]) -> Option<u64> {
     (size > 0).then_some(size)
 }
 
-// ===========================================================================
-// The other allocation door: NV_ESC_RM_VID_HEAP_CONTROL (0x4a)
-// ===========================================================================
-// Measured 2026-08-15 (docs/OPEN-QUESTIONS.md nr 12): under a 4096 MiB
-// cap the ledger stood at 101 MiB while CS2 grew the card to 4783 MiB, and
-// tracked a 512 MiB CUDA tensor exactly. The cap was a COMPUTE cap, and
-// the reason is this door -- [`request_bytes`] above is reached only under
-// `NV_ESC_RM_ALLOC`, and the graphics stack allocates through NVOS32
-// instead: 1120 calls in a CS2 trace, 110 in vulkaninfo's.
-//
-// The two doors ask the same question in different structs. Everything the
-// ledger decides -- VIDMEM or not, virtual or not, reserve then settle on
-// what RM wrote back -- is IDENTICAL, and stays identical by calling the
-// same helpers. Only the offsets differ.
-//
-// Offsets from the layout guard in `nvrm-abi/src/nvgpu.rs`
-// (`NVOS32_PARAMETERS` 184 bytes: function @8, status @20, data @40; the
-// `AllocSize` member 120 bytes: hMemory @4, flags @12, attr @16, size @48).
+// NV_ESC_RM_VID_HEAP_CONTROL (0x4a) is the graphics allocation path.
+// It uses the same VIDMEM/virtual classification as RM_ALLOC.
+// NVOS32_PARAMETERS: function @8, status @20, data @40, size 184.
+// AllocSize: hMemory @4, flags @12, attr @16, size @48.
+// Layout assertions below bind these offsets to the generated types.
 
 /// `NVOS32_PARAMETERS::function`.
 const V_FUNCTION: usize = 8;
-/// `NVOS32_PARAMETERS::status` -- plain `NV_STATUS`, the same space the
-/// NVOS64 path uses (`nvos.h:74`, `#define NVOS_STATUS NV_STATUS`), so a
-/// refusal here can read exactly like a refusal there.
+/// NVOS32 status uses NV_STATUS, like NVOS64 (nvos.h:74).
 pub const V_STATUS_OFF: usize = 20;
 /// Where the union starts.
 const V_DATA: usize = 40;
-/// `AllocSize::hMemory` -- IN/OUT, RM generates it unless the guest
-/// provided one. Read AFTER the call, which is the only time it is final.
+/// RM may assign hMemory; read the returned handle after the ioctl.
 const VA_HMEMORY: usize = V_DATA + 4;
 /// `AllocSize::flags`.
 const VA_FLAGS: usize = V_DATA + 12;
-/// `AllocSize::attr` -- IN/OUT, exactly like NVOS32_ATTR in the other door.
+/// Allocation attributes, updated by RM.
 const VA_ATTR: usize = V_DATA + 16;
-/// `AllocSize::size` -- IN/OUT: the guest asks with it, RM writes back what
-/// it really allocated.
-///
-/// The ledger charges what was ASKED, exactly as the NVOS64 path does. RM
-/// rounds up to its page granularity, so the books under-count by that
-/// rounding. Stated rather than corrected: the two doors agreeing matters
-/// more than either being exact, and a cap whose two halves drift is worse
-/// than one that is uniformly a little generous.
+/// Requested size on input, allocated size on output.
+/// Both allocation paths charge requested bytes, excluding RM page rounding.
 const VA_SIZE: usize = V_DATA + 48;
 /// The whole struct. Anything shorter is not it.
 const V_LEN: usize = 184;
-/// `NVOS32_PARAMETERS::total` and `::free` -- OUT for every function, and
-/// filled by exactly one: NVOS32_FUNCTION_INFO ([`rewrite_vidheap_info`]).
+/// Total/free output fields for NVOS32_FUNCTION_INFO.
 const V_TOTAL: usize = 24;
 const V_FREE: usize = 32;
 
-// The same tie to the generated structs as for the NVOS64 door above.
-//
-// `data` is a UNION and `AllocSize` is one of its members; a union member
-// always begins at offset 0 of the union, so an offset inside the whole
-// `NVOS32_PARAMETERS` is `V_DATA` plus the offset inside the member --
-// which bindgen emits as its own struct, `NVOS32_PARAMETERS`'s
-// `__bindgen_ty_1__bindgen_ty_1`.
+// AllocSize starts at offset zero within the data union. Add V_DATA to
+// its field offsets and assert the result against the generated layout.
 const _: () = {
     assert!(V_FUNCTION == core::mem::offset_of!(sys::NVOS32_PARAMETERS, function));
     assert!(V_STATUS_OFF == core::mem::offset_of!(sys::NVOS32_PARAMETERS, status));
@@ -603,19 +440,9 @@ pub fn vidheap_function(buf: &[u8]) -> Option<u32> {
         .then(|| u32::from_le_bytes(buf[V_FUNCTION..V_FUNCTION + 4].try_into().unwrap()))
 }
 
-/// Bytes of FB this `ALLOC_SIZE` is asking for, or `None` if it is asking
-/// for something the cap does not count.
-///
-/// The three tests are the SAME three as [`request_bytes`], in the same
-/// order and for the same reasons: not a virtual reservation, VIDMEM,
-/// non-zero.
-///
-/// Here the class is not the guest's to name, RM picks it from the same
-/// two fields (`_rmVidHeapControlAllocCommon`,
-/// rmapi_deprecated_vidheapctrl.c:137-142): VIRTUAL -> 0x50a0, else VIDMEM
-/// -> 0x40, else (PCI, ANY) -> 0x3e, i.e. system memory. An ALLOC_SIZE
-/// with `LOCATION_ANY` is therefore a sysmem allocation, and refusing it
-/// at a full ledger refused memory the card never pays.
+/// Requested nonvirtual VIDMEM bytes, using the same rules as request_bytes.
+/// RM selects class 0x50a0 for VIRTUAL, 0x40 for VIDMEM and 0x3e for ANY/PCI
+/// (rmapi_deprecated_vidheapctrl.c:137-142). ANY therefore uses system RAM.
 pub fn vidheap_request_bytes(buf: &[u8]) -> Option<u64> {
     if vidheap_function(buf)? != sys::NVOS32_FUNCTION_ALLOC_SIZE {
         return None;
@@ -649,8 +476,7 @@ pub fn vidheap_handle(buf: &[u8]) -> u32 {
     u32::from_le_bytes(buf[VA_HMEMORY..VA_HMEMORY + 4].try_into().unwrap())
 }
 
-/// On the way in: VIDMEM and nothing else. ANY and PCI never reach FB on
-/// this card -- the table at [`request_bytes`].
+/// Only VIDMEM requests reach framebuffer on the tested card; see request_bytes.
 fn asks_for_vidmem(attr: u32) -> bool {
     nvos32_attr::LOCATION.get(attr) == sys::NVOS32_ATTR_LOCATION_VIDMEM
 }
@@ -663,16 +489,8 @@ fn is_vidmem(attr: u32) -> bool {
     nvos32_attr::LOCATION.get(attr) == sys::NVOS32_ATTR_LOCATION_VIDMEM
 }
 
-// ===========================================================================
-// Naming a request in the log
-// ===========================================================================
-// 2026-09-16, guest .23: Shadow of the Tomb Raider's benchmark ran to the
-// end at 2816 of 2816 MiB while the Moonlight stream showed one frozen
-// loading screen. Whatever the ledger refused in that run, its line said
-// "VRAM cap reached (n. refusal) -- used of limit" and nothing else: not the
-// guest process, not the class, not the door, not the LOCATION the guest
-// asked for. Those are exactly the four things that decide whether a
-// refusal was right, so the line now carries them.
+// Refusal logs include the process, allocation path, class and LOCATION so
+// an incorrect classification can be distinguished from an exhausted cap.
 
 /// Which of the two allocation escapes a request came through, and in
 /// which form. The NVOS21 short form is the same escape as NVOS64 with the
@@ -707,11 +525,8 @@ pub fn location_name(attr: u32) -> &'static str {
     }
 }
 
-/// One allocation request as the guest sent it, read BEFORE the ioctl --
-/// RM writes `attr` back into the same four bytes, so afterwards the
-/// question is gone and only the answer is left.
-///
-/// `hclass` is 0 for the NVOS32 door, which has no class: RM picks one.
+/// Original allocation request, captured before RM overwrites attr.
+/// NVOS32 has no explicit class, represented here as hclass=0.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Ask {
     pub door: Door,
@@ -751,9 +566,8 @@ impl Ask {
         })
     }
 
-    /// What makes two requests "the same kind" for the throttles: the
-    /// door, the class and the LOCATION asked for. The size is left out on
-    /// purpose -- a game asks for a hundred sizes of one kind of thing.
+    /// Throttle key: allocation path, class and requested LOCATION.
+    /// Different sizes share a key so size variation cannot bypass throttling.
     pub fn kind(&self) -> (Door, u32, u32) {
         (self.door, self.hclass, nvos32_attr::LOCATION.get(self.attr))
     }
@@ -779,11 +593,8 @@ impl fmt::Display for Ask {
     }
 }
 
-/// One guest process, as the VM's own `nvidia-smi` should see it.
-///
-/// `guest_pid` is the number the GUEST knows (`pid_vnr`), because that is
-/// what `nvidia-smi` resolves in its own `/proc`. The dense `sub_id` is the
-/// key, never the display value: the guest kernel reuses PIDs.
+/// Guest process row keyed internally by sub_id. Display guest_pid, which
+/// guest tools resolve through their own /proc; numeric PIDs may be reused.
 #[derive(Clone, Debug)]
 pub struct ProcRow {
     pub guest_pid: u32,
@@ -802,39 +613,23 @@ struct Placement {
     outcome: Result<u32, u32>,
 }
 
-/// The VM's counter. Shared by every session of this backend.
-///
-/// Two jobs, and they are deliberately not the same one:
-///   - `used`/`limit` ENFORCE, and only when a limit is set.
-///   - `roster` REPORTS, and always -- the guest's process list needs the
-///     numbers whether or not anyone capped the VM.
+/// Shared per-VM allocation counter and process roster.
+/// Counting remains active without a cap; enforcement requires a limit.
 #[derive(Debug)]
 pub struct Ledger {
-    /// What this VM costs the card and what of that the guest gets. The
-    /// ledger enforces `profile.fb_length` and nothing else -- the
-    /// reservation is not a second counter, it is FB that was never
-    /// offered.
+    /// Enforce fb_length; reservation is an allowance, not a second counter.
     profile: Profile,
     used: AtomicU64,
     /// sub_id -> what that guest process is and holds. A Mutex, not an
     /// atomic: it is touched on alloc/free and on the two list controls,
     /// never per forwarded ioctl.
     roster: Mutex<BTreeMap<u32, ProcRow>>,
-    /// Every (door, class, LOCATION asked, what RM made of it) this VM has
-    /// produced so far. The first of each is logged once, which is the map
-    /// of where a workload's LOCATION_ANY really lands -- the question the
-    /// ledger has to answer before RM does.
+    /// Observed placement outcomes, logged once per request kind and result.
     placements: Mutex<HashSet<Placement>>,
 }
 
 impl Ledger {
-    /// The backend's one ledger. The profile is read here, once per
-    /// process.
-    ///
-    /// `Err` ends the backend before it serves anything: the two
-    /// configurations `decide` refuses have no honest reading, and a VM
-    /// that comes up under a policy nobody chose is worse than one that
-    /// does not come up.
+    /// Read startup policy once. Invalid configuration prevents serving requests.
     pub fn new() -> Result<Arc<Self>, String> {
         Ok(Self::with_profile(profile_from_env(
             crate::grid::card().map_or(0, |c| c.total),
@@ -850,8 +645,7 @@ impl Ledger {
         })
     }
 
-    /// A ledger that never refuses -- for tests and for the fuzz target,
-    /// which must reach the same code without an environment.
+    /// A ledger without a VRAM cap, for tests and the fuzz target.
     pub fn off() -> Arc<Self> {
         Self::with_profile(Profile::OFF)
     }
@@ -878,10 +672,7 @@ impl Ledger {
         self.profile.fb_length != 0
     }
 
-    /// What the guest may allocate -- and, through [`rewrite_fb_info`],
-    /// what it is told it has. `fbLength`, never `profileSize`: telling a
-    /// guest the profile would promise it memory the reservation has
-    /// already spent.
+    /// Enforced and reported framebuffer capacity, excluding the reservation.
     pub fn limit(&self) -> u64 {
         self.profile.fb_length
     }
@@ -896,22 +687,15 @@ impl Ledger {
         self.used.load(Ordering::Relaxed)
     }
 
-    /// Reserve `bytes`, or refuse. CAS rather than fetch_add-then-check:
-    /// a temporary overshoot is visible to a concurrent session and would
-    /// make it refuse for a reason that no longer exists.
-    ///
-    /// WARNING: with no limit set this ACCEPTS and still counts. Counting
-    /// and enforcing were one thing while the cap was the only consumer;
-    /// the guest's process list needs the numbers regardless, and a
-    /// counter that only runs when someone caps the VM would report zero
-    /// in the default configuration.
+    /// Reserve bytes atomically without exposing a temporary overshoot.
+    /// Counting remains active without a cap for guest process reporting.
     fn charge(&self, bytes: u64) -> bool {
         let mut cur = self.used.load(Ordering::Relaxed);
         loop {
-            // saturating_add, not `+`: `bytes` is a guest word. In release
-            // it would wrap and land BELOW the limit -- the one arithmetic
-            // slip that turns a cap into an open door (docs/TESTING.md §1).
-            let next = cur.saturating_add(bytes);
+            // Saturation would accept uncounted bytes at u64::MAX.
+            let Some(next) = cur.checked_add(bytes) else {
+                return false;
+            };
             if self.profile.fb_length != 0 && next > self.profile.fb_length {
                 return false;
             }
@@ -989,7 +773,7 @@ impl Ledger {
         })
     }
 
-    /// The guest process is gone -- its session fell.
+    /// Remove a terminated session from the process roster.
     pub fn forget(&self, sub_id: u32) {
         self.roster.lock().unwrap().remove(&sub_id);
     }
@@ -1002,12 +786,7 @@ impl Ledger {
         }
     }
 
-    /// Every guest process of this VM that has an identity, in a stable
-    /// order (the dense ID ascending, i.e. by age).
-    ///
-    /// Processes with `guest_pid == 0` are left out: a caller that stated
-    /// nothing has no PID the guest could resolve, and an invented one
-    /// would be worse than an absent line.
+    /// Named guest processes ordered by sub_id. Omit unspecified PID zero.
     pub fn roster(&self) -> Vec<ProcRow> {
         self.roster
             .lock()
@@ -1039,22 +818,14 @@ impl Ledger {
     }
 }
 
-/// What one memory object costs and what its release hangs off.
-///
-/// Also the argument of [`Books::settle`]: the five fields belong
-/// together, and passing them one by one was a seven-argument call that
-/// nobody could read at the call site.
+/// Allocation size and ownership needed to release its ledger charge.
 #[derive(Copy, Clone, Debug)]
 pub struct Charge {
-    /// The FD the alloc rode on. Closing it frees the client behind it,
-    /// and with the client every object under it -- without a single
-    /// RM_FREE crossing the boundary.
+    /// Allocation token, used to release charges when its FD closes.
     pub token: u64,
-    /// NVOS64.hRoot -- the client. Freeing it takes the whole subtree.
+    /// RM client. Freeing it releases all its charges.
     pub root: u32,
-    /// NVOS64.hObjectParent -- the device. Freeing it takes the memory
-    /// objects hanging off it. Measured: every 0x40 in the churn run had
-    /// hParent 0x5c000002, the device, and hRoot the client.
+    /// Parent object; observed memory allocations are direct device children.
     pub parent: u32,
     /// NVOS64.hObjectNew. Also in the key; kept here so the free walk
     /// reads one place instead of unpacking.
@@ -1067,24 +838,13 @@ fn key_of(root: u32, handle: u32) -> u64 {
     (root as u64) << 32 | handle as u64
 }
 
-/// One session's share of the ledger.
-///
-/// Two books, not one: the ledger is the VM's total, this is what THIS
-/// session still owes it. Drop settles the difference -- which is the
-/// path that catches everything the guest never announced, from a killed
-/// process to a `KIND_PROC_GONE`.
+/// Session-owned charges against the shared VM ledger.
+/// Drop returns remaining charges after process teardown.
 pub struct Books {
     ledger: Arc<Ledger>,
-    /// Which guest process these books belong to -- the key into the
-    /// ledger's roster, so the reporting side never has to walk `open`.
+    /// Session key in the shared process roster.
     sub_id: u32,
-    /// (hRoot, hObjectNew) -> charge, packed into one u64.
-    ///
-    /// The client MUST be part of the key: RM handles are unique within a
-    /// client, not within a session, and libcuda creates more than one
-    /// client. Keyed on the handle alone, a second client reusing a
-    /// handle number would silently release the first client's charge and
-    /// the books would drift below the truth.
+    /// Charges keyed by (client, handle): handles can repeat across clients.
     open: HashMap<u64, Charge>,
     /// Sum of `open`. Kept alongside so Drop needs no walk and cannot
     /// drift from what was charged.
@@ -1105,15 +865,13 @@ impl Books {
         }
     }
 
-    /// The guest process stated who it is. Only from here on can it appear
-    /// in the VM's process list -- without a guest PID there is nothing
-    /// `nvidia-smi` could resolve.
+    /// Publish the guest PID/name and current usage for this session.
     pub fn announce(&self, guest_pid: u32, name: &str) {
         self.ledger.register(self.sub_id, guest_pid, name);
         self.ledger.set_bytes(self.sub_id, self.owed);
     }
 
-    /// The VM's books in one line -- [`Ledger::census`].
+    /// Shared usage summary from Ledger::census.
     pub fn census(&self) -> String {
         self.ledger.census()
     }
@@ -1129,15 +887,8 @@ impl Books {
         self.ledger.roster()
     }
 
-    /// Count a refusal and say whether it is worth a log line. The first
-    /// eight, then every hundredth: libcuda retries after an OOM, and a
-    /// guest that simply keeps asking must not be able to fill the host's
-    /// disk through the backend log.
-    ///
-    /// Per request KIND, not per session: one process retrying one kind
-    /// of allocation a thousand times must not use up the eight lines
-    /// that the first refusal of a different kind needs. The first of
-    /// each kind is always logged.
+    /// Log the first eight refusals of each request kind, then every hundredth.
+    /// Retries of one kind must not suppress the first refusal of another.
     pub fn count_refusal(&mut self, ask: &Ask) -> Option<u64> {
         let n = self.refusals.entry(ask.kind()).or_insert(0);
         *n += 1;
@@ -1207,20 +958,14 @@ impl Books {
         self.ledger.charge(bytes)
     }
 
-    /// After a reserved allocation came back: keep the charge, or give it
-    /// back.
-    ///
-    /// `ok` is the RM verdict, `attr_out` what RM wrote into the params.
-    /// A failed alloc occupies nothing, and an allocation whose attr came
-    /// back as anything but VIDMEM is not this cap's business.
+    /// Keep the reservation only after successful VIDMEM allocation.
+    /// Release it on RM failure or a non-VIDMEM result.
     pub fn settle(&mut self, ok: bool, attr_out: u32, c: Charge) {
         if !ok || !is_vidmem(attr_out) {
             self.ledger.release(c.bytes);
             return;
         }
-        // A (client, handle) pair RM just handed out cannot already be
-        // live. If it is, the old entry is stale bookkeeping and would be
-        // leaked forever -- give it back rather than orphan it.
+        // RM returned this handle as newly allocated; replace any stale charge.
         if let Some(old) = self.open.insert(key_of(c.root, c.handle), c) {
             self.ledger.release(old.bytes);
             self.owed = self.owed.saturating_sub(old.bytes);
@@ -1229,27 +974,16 @@ impl Books {
         self.publish();
     }
 
-    /// The guest freed `handle` under client `root`. That releases the
-    /// object itself, and everything below it: freeing a device takes its
-    /// memory objects, freeing a client takes the lot.
-    ///
-    /// This is the completeness question, and it is the whole risk of the
-    /// feature -- a charge that is never released is a cap that strangles
-    /// the VM after an hour, not a cap that protects it.
-    ///
-    /// Measured: memory objects hang off the device, the device off the
-    /// client (churn run: every 0x40 with hRoot 0xc1d83a38, hParent
-    /// 0x5c000002). Deeper trees do not occur for memory classes -- if
-    /// they ever did, this would under-release, which is the direction a
-    /// cap must not fail in silently. It is named here rather than
-    /// guarded against, because a guard would be untested code.
+    /// Release an object, its direct children, or all charges of a client.
+    /// Memory objects were observed directly under their device. Deeper
+    /// hierarchies would need explicit parent tracking to release descendants.
     pub fn free_object(&mut self, root: u32, handle: u32) {
         let mut freed = 0u64;
         self.open.retain(|_, c| {
             // Same client only: two clients may well use the same handle
             // number, and freeing one must not release the other's.
             let dies =
-                c.root == root && (c.handle == handle || c.parent == handle) || c.root == handle;
+                c.root == root && (c.handle == handle || c.parent == handle || handle == root);
             if dies {
                 freed += c.bytes;
             }
@@ -1296,29 +1030,12 @@ impl Drop for Books {
     }
 }
 
-// ===========================================================================
-// The VM's own process list
-// ===========================================================================
-// `nvidia-smi` builds it from two controls, and both are forwarded today.
-// Measured 2026-08-06, guest against host: the guest receives the HOST's
-// table verbatim -- eight host PIDs with their per-process FB usage. It
-// prints "No running processes found" only because it cannot resolve those
-// PIDs in its own /proc. The numbers cross the boundary regardless, which
-// makes replacing the table a fix for an information leak and not only a
-// cosmetic feature.
-//
-// Both structures are flat -- no second-level pointer, `paramsSize` is
-// self-describing -- so they are rewritten in place on the way back. No
-// protocol change, no table entry, PROTO_VERSION untouched (4 when this
-// was written, 6 today -- no bump ever came from here).
+// Replace host process-query results with this VM's ledger.
+// Both controls use flat buffers and are rewritten in place. Leaving host
+// PIDs in the response leaks them even when guest tools cannot resolve them.
 
-// THE OFFSETS COME FROM `nvrm_abi::mediate`, and so does the manifest that
-// `verify` masks with. That is the point of having moved them: a field this
-// code rewrites and the manifest does not describe would be reported as a
-// defect on every guest run, and a manifest field this code does not touch
-// would quietly widen the mask. Neither can happen while there is one
-// definition, and these are it -- every one an `offset_of!` on the bindgen
-// struct rather than a number anybody typed.
+// Share offsets with the comparison manifest so rewritten fields and
+// measurement masks use the same ABI definitions.
 pub use nvrm_abi::mediate::{
     CMD_GPU_GET_PIDS, CMD_GPU_GET_PID_INFO, PIDINFO_COUNT_OFF, PIDINFO_ENTRY,
     PIDINFO_INDEX_VIDEO_MEMORY_USAGE, PIDINFO_LEN, PIDINFO_LIST_OFF, PIDINFO_MAX,
@@ -1326,14 +1043,7 @@ pub use nvrm_abi::mediate::{
 };
 
 /// Replace the PID table with this VM's guest processes.
-///
-/// Host PIDs disappear from the guest's view. That is the point: they are
-/// not resolvable there, they are not the guest's business, and today they
-/// leak.
-///
-/// Returns how many rows were written, or `None` if the buffer is not this
-/// structure -- in which case the caller forwards RM's answer untouched
-/// rather than inventing one.
+/// Return the row count, or None for a short buffer that remains unchanged.
 pub fn rewrite_get_pids(aux: &mut [u8], roster: &[ProcRow]) -> Option<usize> {
     if aux.len() < PIDS_LEN {
         return None;
@@ -1353,18 +1063,8 @@ pub fn rewrite_get_pids(aux: &mut [u8], roster: &[ProcRow]) -> Option<usize> {
     Some(n)
 }
 
-/// Answer the per-PID query from this VM's own books.
-///
-/// The guest asks about GUEST PIDs -- RM has never heard of them, so its
-/// answer is meaningless here and gets overwritten rather than trusted.
-/// A PID that is not one of ours gets zero bytes and NV_OK: it exists as
-/// far as the guest is concerned (it just asked about it), it simply holds
-/// nothing of ours.
-///
-/// WARNING: `count` comes from the guest. It is clamped against both the
-/// header maximum and the buffer the guest actually sent -- believing it
-/// would write past the end of the aux buffer, which is the same class of
-/// bug as the three `guest_words.rs` exists for.
+/// Answer guest PID queries from this VM's ledger; unknown PIDs report zero.
+/// Clamp the guest count to both the ABI maximum and the received buffer.
 pub fn rewrite_get_pid_info(aux: &mut [u8], roster: &[ProcRow]) -> Option<usize> {
     if aux.len() < PIDINFO_LIST_OFF + PIDINFO_ENTRY {
         return None;
@@ -1411,15 +1111,8 @@ const _: () = {
     assert!(PIDINFO_LEN == 14408);
 };
 
-// ... and the header arithmetic itself against the generated structs, so
-// the two numbers above cannot both be consistently wrong. Every offset
-// here is a write target: these functions REPLACE what RM wrote, and an
-// offset that has moved would scatter guest PIDs and byte counts across
-// neighbouring fields of a buffer that goes straight back to the guest.
-// The offsets themselves are `offset_of!` expressions in `nvrm_abi::mediate`
-// now, so asserting them against `offset_of!` here would be asserting a
-// thing against itself. What is left is the statement that is NOT implied by
-// the struct layout: this loop's own bound.
+// Offsets come from generated layouts through nvrm_abi::mediate.
+// Also check the zeroing loop's bound, which the layout alone cannot establish.
 const _: () = {
     // The zeroing loop writes 6 u64 to clear the whole union; it must stay
     // inside the entry. `data` is the union whose first member is
@@ -1428,73 +1121,34 @@ const _: () = {
     assert!(PIDINFO_MEM_PRIVATE + 6 * 8 <= PIDINFO_ENTRY);
 };
 
-// ===========================================================================
-// The card the guest sees
-// ===========================================================================
-// Two more controls, the same shape as the process list: flat parameter
-// buffers, rewritten on the way back.
-//
-// Measured 2026-08-06 with a hook in this very path, guest `nvidia-smi`
-// plus `torch`: of the twelve FB_GET_INFO_V2 indices that cross the
-// boundary, exactly THREE carry a memory size --
-//   0x08 TOTAL_RAM_SIZE  0x800000 KB = 8 GiB   (the physical card)
-//   0x09 HEAP_SIZE       0x797240 KB = 7773 MiB (what torch reports as
-//                                                total_memory)
-//   0x16 HEAP_FREE       ~0x69f000 KB, moves between calls
-// The rest are ECC status, LTC count and friends and are left alone.
-//
-// WARNING: it is not one number, it is a coherent set. Capping only
-// TOTAL_RAM_SIZE hands the guest "free 6.4 GB of total 1 GB", which is
-// worse than not capping it at all. total, heap and free therefore all
-// come from one source -- this ledger.
+// Keep reported total, heap and free memory consistent with the same ledger.
+// Native/guest traces identified TOTAL_RAM_SIZE, HEAP_SIZE and HEAP_FREE as
+// queried size indices (2026-08-06); unrelated status indices remain unchanged.
 
-/// `NV2080_CTRL_CMD_FB_GET_INFO` (ctrl2080fb.h:480), the V1 form -- the
-/// SAME index list, but the array hangs off an `NvP64` instead of sitting
-/// in the params buffer (`xlate::nested_ptrs`, ptr_off 8).
-///
-/// This one is not an afterthought, it is the one the GRAPHICS stack
-/// asks. Measured 2026-08-15 under a 4096 MiB cap: `nvidia-smi` in the
-/// guest said 4096 MiB (it asks V2, which was already capped) while
-/// `vulkaninfo` reported `memoryHeaps[0].size = 8.00 GiB` -- the whole
-/// card. vulkaninfo's own trace names the caller: four calls to
-/// 0x20801301, none to 0x20801303. A client sizes its texture budget from
-/// that heap, so an uncapped answer here is not a cosmetic leak: it is the
-/// VM being invited to overcommit the card.
+/// V1 FB_GET_INFO uses the same index list through an NvP64 at offset 8
+/// (ctrl2080fb.h:480, xlate::nested_ptrs). Graphics clients query this form;
+/// capping V2 alone left vulkaninfo reporting the full card (2026-08-15).
 pub use nvrm_abi::mediate::CMD_FB_GET_INFO;
 /// `NV2080_CTRL_CMD_FB_GET_INFO_V2` (ctrl2080fb.h:489).
 pub use nvrm_abi::mediate::CMD_FB_GET_INFO_V2;
 /// `NV2080_CTRL_CMD_GPU_GET_NAME_STRING` (ctrl2080gpu.h:325).
 pub use nvrm_abi::mediate::CMD_GPU_GET_NAME_STRING;
 
-/// `NV2080_CTRL_FB_GET_INFO_V2_PARAMS`: `fbInfoListSize` @0, then
-/// `NV2080_CTRL_FB_INFO { u32 index; u32 data; }` -- 1028 bytes for the
-/// 128-entry maximum.
+/// V2 header: list count @0, followed by {u32 index, u32 data} entries.
+/// The 128-entry maximum gives a 1028-byte structure.
 pub use nvrm_abi::mediate::{FBINFO_COUNT_OFF, FBINFO_ENTRY, FBINFO_LIST_OFF, FBINFO_MAX};
 
-/// The size indices, all in KILOBYTES (ctrl2080fb.h:76-112, :254-260).
-/// Measured: the guest asks for 0x08, 0x09 and 0x16. The other two are
-/// rewritten as well because a card that answers one of them honestly and
-/// the others capped is a card that contradicts itself.
-///
-/// From `nvrm_abi::mediate`, because the vGPU-shaped catalogue reads the
-/// same indices off the host's card and two lists could drift.
+/// Memory-size indices use KiB (ctrl2080fb.h:76-112, :254-260).
+/// Keep all five consistent, including those absent from recorded traces.
+/// The catalogue and mediation paths share these definitions.
 use nvrm_abi::mediate::{
     FB_INFO_INDEX_HEAP_FREE, FB_INFO_INDEX_HEAP_SIZE, FB_INFO_INDEX_RAM_SIZE,
     FB_INFO_INDEX_TOTAL_RAM_SIZE, FB_INFO_INDEX_USABLE_RAM_SIZE,
 };
 
-/// Cap the memory sizes the guest is told, and keep them consistent with
-/// each other.
-///
-/// `used` is what this VM holds by our own books. It is smaller than the
-/// true footprint (RM's own device memory behind a channel never crosses
-/// the boundary -- measured ~106 MiB per CUDA context), so `free` is
-/// correspondingly generous. That is stated rather than papered over with
-/// an invented surcharge: a number that is wrong by a known amount beats
-/// one that is wrong by a guessed one.
-///
-/// Returns how many entries were rewritten, or `None` if the buffer is not
-/// this structure.
+/// Report consistent capped total, heap and free sizes.
+/// Usage excludes RM's internal allocations, so reported free is an estimate.
+/// Return the rewritten count, or None when uncapped or the buffer is short.
 pub fn rewrite_fb_info(aux: &mut [u8], limit: u64, used: u64) -> Option<usize> {
     if limit == 0 || aux.len() < FBINFO_LIST_OFF + FBINFO_ENTRY {
         return None;
@@ -1507,13 +1161,8 @@ pub fn rewrite_fb_info(aux: &mut [u8], limit: u64, used: u64) -> Option<usize> {
     cap_fb_entries(&mut aux[FBINFO_LIST_OFF..], asked, limit, used)
 }
 
-/// The same rewrite for the V1 form, where the array is a SEPARATE buffer.
-///
-/// `list` is the nested block on its own (the backend has already brought
-/// it across and pointed the params buffer at it); `asked` is
-/// `fbInfoListSize` out of that params buffer. Everything after that is the
-/// V2 path verbatim -- deliberately, because two index tables that could
-/// drift apart is the bug this function exists to prevent.
+/// Apply the shared FB size rewrite to the separate V1 list buffer.
+/// asked is the list count from the parent parameter block.
 pub fn rewrite_fb_info_list(list: &mut [u8], asked: usize, limit: u64, used: u64) -> Option<usize> {
     if limit == 0 || list.len() < FBINFO_ENTRY {
         return None;
@@ -1521,18 +1170,12 @@ pub fn rewrite_fb_info_list(list: &mut [u8], asked: usize, limit: u64, used: u64
     cap_fb_entries(list, asked, limit, used)
 }
 
-/// Cap one `NV2080_CTRL_FB_INFO[]`, wherever it happens to live.
-///
-/// ONE table of indices, ONE arithmetic, two callers (V1 and V2). The
-/// warning above -- that the numbers are a coherent set, not five
-/// independent ones -- only holds as long as this stays a single function.
+/// Shared size-index selection and arithmetic for both FB_GET_INFO forms.
 fn cap_fb_entries(list: &mut [u8], asked: usize, limit: u64, used: u64) -> Option<usize> {
     let fits = list.len() / FBINFO_ENTRY;
     let n = asked.min(FBINFO_MAX).min(fits);
 
-    // KB, and saturating into u32: `data` is 32 bit, so a limit past 4 TiB
-    // would wrap. Clamping is the honest failure -- a wrapped size would
-    // read as a tiny card.
+    // Saturate KiB values to the u32 data field instead of wrapping.
     let kb = |b: u64| -> u32 { (b / 1024).min(u32::MAX as u64) as u32 };
     let free = limit.saturating_sub(used);
 
@@ -1554,26 +1197,12 @@ fn cap_fb_entries(list: &mut [u8], asked: usize, limit: u64, used: u64) -> Optio
     Some(touched)
 }
 
-/// The same card through the third door: NVOS32_FUNCTION_INFO.
-///
-/// `total` and `free` are answered in BYTES in the NVOS32 block itself, and
-/// RM takes them from an FB_GET_INFO_V2 it issues INSIDE the host RM
-/// (rmapi_deprecated_vidheapctrl.c:340-383: `free` = HEAP_FREE, `total` =
-/// HEAP_SIZE + FB_TAX_SIZE_KB). That control never crosses this boundary,
-/// so the cap on it above cannot see it: under every policy the guest was
-/// told the HOST card's heap and the host's free memory on this door.
-/// Nobody was caught asking -- the guest module's vram_debug census of
-/// 2026-09-17 (GNOME, Xwayland, Sunshine, Steam, Shadow of the Tomb Raider)
-/// saw no INFO call -- so this closes a door by source, not a measured leak.
-///
-/// Rewritten with the arithmetic `cap_fb_entries` uses, so all three doors
-/// tell one card: total = limit, free = limit - used. `data.Info` (the
-/// largest free block and the heap base) is left as RM answered: its offset
-/// and size are addresses on the host card, not sizes this VM owns, and
-/// FB_GET_INFO leaves the matching indices (0x11-0x13) alone as well.
-///
-/// Returns false if the buffer is not an NVOS32 INFO answer or there is no
-/// cap, and leaves it untouched then.
+/// Cap NVOS32_FUNCTION_INFO total/free bytes like the FB_GET_INFO controls.
+/// RM queries FB internally, bypassing their return-path rewrite
+/// (rmapi_deprecated_vidheapctrl.c:340-383). No guest INFO call was observed
+/// in the 2026-09-17 census; this path is covered by source review and tests.
+/// Leave data.Info addresses/block details unchanged. Return false when
+/// uncapped, short or not an INFO response.
 pub fn rewrite_vidheap_info(buf: &mut [u8], limit: u64, used: u64) -> bool {
     if limit == 0 || vidheap_function(buf) != Some(sys::NVOS32_FUNCTION_INFO) {
         return false;
@@ -1587,31 +1216,9 @@ pub fn rewrite_vidheap_info(buf: &mut [u8], limit: u64, used: u64) -> bool {
 /// `ascii[64]` @4 (ctrl2080gpu.h:338, `NV2080_GPU_MAX_NAME_STRING_LENGTH` = 64).
 pub use nvrm_abi::mediate::{name_max, name_off};
 
-/// The name the guest's `nvidia-smi` prints for the card.
-///
-/// Modelled on what NVIDIA's own vGPU does: an `A100` becomes a
-/// `GRID A100-10C`, where the vendor prefix gives way to the mediation
-/// layer and the size joins the name. The size is the guest framebuffer,
-/// under EVERY policy -- a VM told 3072 MiB is `-3G` whether a cap, a
-/// profile, a type or a size set it:
-///
-/// ```text
-///   NVIDIA GeForce RTX 2070   ->  Leandro RTX 2070        (no cap)
-///   NVIDIA GeForce RTX 2070   ->  Leandro RTX 2070-3G     (3072 MiB, e.g. RTX2070-4Q)
-///   NVIDIA GeForce RTX 2070   ->  Leandro RTX 2070-1536M  (1536 MiB)
-/// ```
-///
-/// `Leandro` is the project name spelled out -- the DISPLAY name only. The
-/// env prefix stays `LEA_*` (docs/NAMING.md rule 1); renaming that would
-/// break every script, every doc line and every past measurement. This is
-/// the only place the umbrella name is allowed to surface, and the point is
-/// that nobody can be in a mediated VM and not notice: the card says so.
-///
-/// The marketing prefixes go because they are the vendor's, and the string
-/// is 64 bytes including the NUL -- a suffix that did not fit would be
-/// truncated into a lie about the profile size, so it is dropped whole
-/// instead. Spelling the prefix out cost four of those 64 bytes, so the
-/// budget is: 8 for `"Leandro "`, 55 for the base plus suffix, 1 for the NUL.
+/// Replace vendor prefixes with Leandro and append the guest framebuffer size.
+/// Examples: Leandro RTX 2070, Leandro RTX 2070-3G, Leandro RTX 2070-1536M.
+/// Drop a suffix that would exceed the name buffer; never truncate its size.
 pub fn guest_card_name<A: RmAbi>(real: &str, profile: Profile) -> String {
     let limit = profile.fb_length;
     let real = real.trim();
@@ -1641,10 +1248,7 @@ pub fn guest_card_name<A: RmAbi>(real: &str, profile: Profile) -> String {
     "Leandro GPU".to_string()
 }
 
-/// Write the name into the answer, NUL-terminated and NUL-padded.
-///
-/// Returns `None` if the buffer is not this structure -- the caller then
-/// forwards RM's own name rather than inventing one.
+/// Write a NUL-terminated, padded name; leave short buffers unchanged.
 pub fn rewrite_gpu_name<A: RmAbi>(aux: &mut [u8], profile: Profile) -> Option<String> {
     if aux.len() < name_off::<nvrm_sys::DefaultAbi>() + name_max::<nvrm_sys::DefaultAbi>() {
         return None;
@@ -1696,7 +1300,7 @@ mod tests {
             request_bytes(0x3e, &params(0xc001, 0x3a000000, 0x1000)),
             None
         );
-        // 4.2 GB of VIRTUAL address space (hClass 0x50a0) -- occupies nothing.
+        // A 4.2 GB virtual reservation consumes no physical framebuffer.
         assert_eq!(
             request_bytes(0x50a0, &params(0x8c415, 0x16000000, 0xfb00_0000)),
             None
@@ -1873,10 +1477,7 @@ mod tests {
         }
     }
 
-    /// RM handles are unique within a client, not within a session, and
-    /// libcuda makes several clients. Keyed on the handle alone, the
-    /// second client's allocation would release the first's charge and
-    /// the books would drift below the truth -- a cap that quietly grows.
+    /// Equal handles in separate clients must retain independent charges.
     #[test]
     fn two_clients_may_use_the_same_handle_number() {
         let vid = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM);
@@ -1913,6 +1514,33 @@ mod tests {
         assert_eq!(led.used(), 4096, "only the first client's object went");
         b.free_object(0xdddd, 0xaa);
         assert_eq!(led.used(), 0);
+    }
+
+    #[test]
+    fn an_object_handle_matching_another_client_does_not_release_that_client() {
+        let ledger = Ledger::for_test(8192);
+        let mut books = Books::new(7, ledger.clone());
+        for (root, handle) in [(1, 2), (2, 3)] {
+            assert!(books.reserve(4096));
+            books.settle(
+                true,
+                vidmem_attr(),
+                Charge {
+                    token: 1,
+                    root,
+                    parent: 4,
+                    handle,
+                    bytes: 4096,
+                },
+            );
+        }
+        books.free_object(1, 2);
+        assert_eq!(ledger.used(), 4096);
+        assert_eq!(books.owed(), 4096);
+        assert!(books.open.contains_key(&key_of(2, 3)));
+
+        books.free_object(2, 2);
+        assert_eq!(ledger.used(), 0);
     }
 
     #[test]
@@ -1981,28 +1609,35 @@ mod tests {
         let led = Ledger::for_test(1 << 20);
         let mut b = Books::new(7, led.clone());
         assert!(b.reserve(4096));
-        // `size` is a guest word. 4096 + (u64::MAX - 4095) wraps to exactly
-        // 0, which is under any limit: with `+` this request would be
-        // waved through in release (and panic in debug -- two different
-        // programs, docs/TESTING.md §1). It must be refused in both.
+        // 4096 + (u64::MAX - 4095) must be refused, not wrap to zero.
         assert!(!b.reserve(u64::MAX - 4095));
         assert!(!b.reserve(u64::MAX));
         assert_eq!(led.used(), 4096);
     }
 
-    /// With no limit set, the books still COUNT -- they only stop
-    /// REFUSING. The VM's process list needs the numbers in exactly the
-    /// default configuration, where nobody capped anything; a counter that
-    /// ran only under a cap would report zero to every guest that never
-    /// set one.
     #[test]
-    fn with_no_limit_the_books_count_but_never_refuse() {
+    fn counter_overflow_is_refused_without_losing_existing_charges() {
+        for ledger in [Ledger::off(), Ledger::for_test(u64::MAX)] {
+            assert!(ledger.charge(u64::MAX - 1));
+            assert!(!ledger.charge(2));
+            assert_eq!(ledger.used(), u64::MAX - 1);
+            assert!(ledger.charge(1));
+            assert_eq!(ledger.used(), u64::MAX);
+            assert!(!ledger.charge(1));
+            ledger.release(u64::MAX);
+            assert_eq!(ledger.used(), 0);
+        }
+    }
+
+    /// Guest process usage is counted even when no VRAM cap is configured.
+    #[test]
+    fn with_no_limit_the_books_still_count() {
         let vid = nvos32_attr::LOCATION.set(sys::NVOS32_ATTR_LOCATION_VIDMEM);
         let led = Ledger::off();
         assert!(!led.enabled(), "no limit is set");
         let mut b = Books::new(7, led.clone());
 
-        assert!(b.reserve(8 << 30), "without a limit nothing is refused");
+        assert!(b.reserve(8 << 30), "no configured VRAM cap");
         b.settle(
             true,
             vid,
@@ -2017,10 +1652,9 @@ mod tests {
         assert_eq!(led.used(), 8 << 30, "and it is still counted");
         assert_eq!(b.owed(), 8 << 30);
 
-        // Even u64::MAX must not wrap the counter into acceptance-by-
-        // accident; saturating arithmetic holds with and without a limit.
-        assert!(b.reserve(u64::MAX));
-        assert_eq!(led.used(), u64::MAX);
+        // Overflow must not accept bytes that the ledger cannot count.
+        assert!(!b.reserve(u64::MAX));
+        assert_eq!(led.used(), 8 << 30);
     }
 
     /// The roster is what the process list is built from: it appears with
@@ -2116,9 +1750,7 @@ mod tests {
         }
     }
 
-    /// A buffer that is not the documented struct must not be treated as
-    /// one -- and the caller turns `None` into a refusal rather than
-    /// forwarding RM's host table.
+    /// A short PID buffer must not be interpreted or partially rewritten.
     #[test]
     fn a_short_pids_buffer_is_refused_not_guessed() {
         let mut v = vec![0u8; PIDS_LEN - 1];
@@ -2177,8 +1809,7 @@ mod tests {
         }
     }
 
-    /// `count` is a guest word. Believing it against a short buffer writes
-    /// past the end -- the same class of bug `guest_words.rs` exists for.
+    /// A claimed entry count cannot permit writes beyond the received buffer.
     #[test]
     fn a_lying_count_cannot_write_past_the_buffer() {
         // Room for two entries, but the guest claims the header maximum.
@@ -2218,10 +1849,7 @@ mod tests {
         u32::from_le_bytes(v[o..o + 4].try_into().unwrap())
     }
 
-    /// The measured request: HEAP_FREE, TOTAL_RAM_SIZE, HEAP_SIZE, with the
-    /// values a real 8 GiB card returns. Under a 2 GiB cap all three have
-    /// to agree with each other -- a capped total beside an honest free is
-    /// worse than no cap at all.
+    /// A capped response must report consistent total, heap and free sizes.
     #[test]
     fn the_capped_card_does_not_contradict_itself() {
         let mut v = fb_buf(&[
@@ -2405,9 +2033,7 @@ mod tests {
         );
     }
 
-    /// Every other NVOS32 function shares the struct and must not be read
-    /// as an allocation -- FREE above all, whose union member holds a
-    /// handle and flags exactly where AllocSize holds a size.
+    /// Other NVOS32 union variants must not be interpreted as AllocSize.
     #[test]
     fn only_alloc_size_is_an_allocation() {
         for f in [
@@ -2459,10 +2085,7 @@ mod tests {
         u64::from_le_bytes(v[o..o + 8].try_into().unwrap())
     }
 
-    /// The third door tells the card the other two tell. Before this the
-    /// guest asked FB_GET_INFO and heard the cap, asked NVOS32 INFO and
-    /// heard the host's heap -- the host RM builds that answer from a
-    /// control of its own, which the backend never sees.
+    /// NVOS32 INFO must report the same cap as both FB_GET_INFO forms.
     #[test]
     fn the_nvos32_info_door_answers_the_same_card_as_fb_get_info() {
         let (limit, used) = (2816u64 << 20, 982u64 << 20);
@@ -2560,12 +2183,7 @@ mod tests {
         );
     }
 
-    /// 64 bytes including the NUL, of which `"Leandro "` spends 8. Both
-    /// fallback rungs are pinned BY NUMBER: the previous version of this
-    /// assertion was `len() < 64` on a name that came out 57 long, so it
-    /// passed without ever reaching either rung. Spelling the prefix out
-    /// made the budget four bytes tighter, which is exactly the kind of
-    /// change a test that never bites will not catch.
+    /// Exercise both fallback branches at the default ABI's name-size boundary.
     #[test]
     fn a_name_that_does_not_fit_loses_the_suffix_whole() {
         // 8 + 53 + 3 = 64 -> does not fit, so the suffix goes as a unit
@@ -2626,9 +2244,7 @@ mod tests {
         );
     }
 
-    /// A caller that never stated who it is has no guest PID -- and an
-    /// invented one would be worse than an absent line, because
-    /// `nvidia-smi` resolves it in the guest's /proc.
+    /// Do not invent a display PID for a session without guest identity.
     #[test]
     fn a_process_without_an_identity_is_not_listed() {
         let led = Ledger::off();
@@ -2637,13 +2253,8 @@ mod tests {
         assert!(led.roster().is_empty());
     }
 
-    // =======================================================================
-    // The profile: which policy, and what each of them means by "the number"
-    // =======================================================================
-    // These test [`decide`] rather than the environment, so they can state
-    // the traps as assertions -- above all that an EMPTY variable is a SET
-    // variable (docs/llm.md §3), which is how the rig passes every knob
-    // nobody asked for.
+    // Test policy parsing without changing the process environment.
+    // Empty launcher variables must behave like unset variables.
 
     const MIB: u64 = 1 << 20;
 
@@ -2737,9 +2348,7 @@ mod tests {
         assert_eq!(ok(None, Some("257"), Some("256")).fb_length, MIB);
     }
 
-    /// A unit in a `*_MIB` knob is refused, loudly, instead of running the
-    /// VM without the limit it was given -- and the refusal says what to
-    /// write instead.
+    /// Unit-suffixed values must fail startup and suggest a numeric MiB value.
     #[test]
     fn a_value_that_is_not_mib_refuses_to_start() {
         let e = decide(three(Some("3 GiB"), None, None)).unwrap_err();
@@ -2764,11 +2373,34 @@ mod tests {
         assert!(notes[0].contains("does nothing"), "{:?}", notes[0]);
     }
 
-    /// THE POINT OF THE WHOLE POLICY, in one test: the guest is TOLD
-    /// `fbLength` and REFUSED at `fbLength`, and the profile it was cut
-    /// from is never promised to it. A guest told one number and refused at
-    /// another has been handed a card that contradicts itself -- which is
-    /// what number 67 looks like from inside the guest.
+    #[test]
+    fn mib_values_must_fit_the_byte_counter() {
+        let overflow = "17592186044416"; // 2^44 MiB would wrap to zero bytes.
+        let cases = [
+            ("LEA_VRAM_LIMIT_MIB", three(Some(overflow), None, None)),
+            ("LEA_VRAM_PROFILE_MIB", three(None, Some(overflow), None)),
+            (
+                "LEA_VRAM_RESERVE_MIB",
+                three(None, Some("3072"), Some(overflow)),
+            ),
+            ("LEA_VGPU_PROFILE_MIB", grid("test", overflow, "1536")),
+            ("LEA_VGPU_FB_MIB", grid("test", "2048", overflow)),
+        ];
+        for (name, env) in cases {
+            let error = decide(env).unwrap_err();
+            assert!(
+                error.contains(name) && error.contains("byte counter range"),
+                "{error}"
+            );
+        }
+
+        let largest = (u64::MAX >> 20).to_string();
+        let (profile, _) = decide(three(Some(&largest), None, None)).unwrap();
+        assert_eq!(profile.fb_length, u64::MAX & !((1 << 20) - 1));
+        assert_eq!(profile.policy, Policy::Accounting);
+    }
+
+    /// Report and enforce fbLength; never offer the reserved profile portion.
     #[test]
     fn the_guest_is_told_exactly_what_it_may_allocate() {
         let p = ok(None, Some("3072"), None);
@@ -2833,14 +2465,7 @@ mod tests {
         );
     }
 
-    // =======================================================================
-    // The vGPU-shaped policy (number 69)
-    // =======================================================================
-    // The numbers are NOT computed here -- they come from the card's own
-    // catalogue (nvrm_abi::vgpu, which has the arithmetic and its tests).
-    // What is tested here is what this side does with them: that a name
-    // without numbers is refused, that three policies at once are refused,
-    // and that the guest is told the type it is running on.
+    // Policy integration tests; nvrm_abi::vgpu tests the catalogue arithmetic.
 
     fn grid<'a>(t: &'a str, profile: &'a str, fb: &'a str) -> RawEnv<'a> {
         RawEnv {
@@ -2886,8 +2511,7 @@ mod tests {
         assert!(e.contains("three policies"), "{e}");
     }
 
-    /// A type names the guest framebuffer, and the card is named after the
-    /// framebuffer -- as under every other policy.
+    /// Card names use the guest framebuffer size for every policy.
     #[test]
     fn the_grid_card_is_named_after_its_framebuffer() {
         let p = decide(grid("RTX2070-2Q", "2048", "1536")).unwrap().0;
@@ -2907,11 +2531,8 @@ mod tests {
         assert_eq!(led.limit(), 1536 * MIB, "and refused at the same number");
     }
 
-    /// **One framebuffer, one card, whichever knob named it.** A cap of
-    /// 3072 MiB, a profile that leaves 3072 MiB and the type that picks
-    /// 3072 MiB tell the guest the same name and the same encoder share,
-    /// once the card has answered; without the card, a launcher's share
-    /// stands in.
+    /// Equal framebuffer sizes produce equal names and encoder shares.
+    /// Without a card query, use the launcher's encoder share.
     #[test]
     fn the_same_framebuffer_is_the_same_card_under_every_policy() {
         let card = 8192 * MIB;

@@ -1,34 +1,33 @@
 <!-- SPDX-License-Identifier: MIT -->
-# `nvrm-client` — the RM level
+# nvrm-client
 
-Client, object tree, handle allocation: the layer above
-[`nvrm-abi`](../nvrm-abi) that knows RM has *lifetimes*, not just calls.
-Nothing on the data path uses it — `vhost-user-nvrm` holds no RM client
-of its own — so its users are the diagnostic binaries below. The two
-facts the design rests on (handles pass through verbatim; free is
-transitive along edges only the driver source states) are anchored in
-the crate docs (`src/lib.rs`), where they cannot be lost.
+- Owns RM clients, object trees and handle allocation above
+  [nvrm-abi](../nvrm-abi/README.md).
+- Used by the tools below; the host backend owns forwarded and pool clients separately.
+- Child objects must be released in dependency order; bookkeeping must follow
+  successful RM operations.
 
-| File | What it is |
+## Source map
+
+| File | Responsibility |
 |---|---|
-| `src/lib.rs` | `RmClient` — one client = one `NV01_ROOT_CLIENT` = one fd on `/dev/nvidiactl` |
-| `src/handle.rs` | handle allocation from a reserved range that cannot collide with `libcuda`'s |
-| `src/object.rs` | object tracking with transitive free; modelled on gVisor nvproxy's `object.go` |
-| `src/mem.rs` | allocate `NV01_MEMORY_SYSTEM`, map into the VASpace (the GPU's virtual address space object), map into our own address space |
+| `src/lib.rs` | `RmClient`, root client FD and ioctl operations |
+| `src/handle.rs` | Handle allocation within a client namespace |
+| `src/object.rs` | Object dependencies and free order |
+| `src/mem.rs` | System-memory allocation and CPU/GPU mappings |
 
-## The binaries
+## Binaries
 
-Each diagnostic asks the driver a single question directly, so an answer
-can be checked against what a real program believes:
-
-| Binary | Question it answers |
+| Binary | Purpose |
 |---|---|
-| `classlist` | what the GPU says it can do (`NV0080_CTRL_CMD_GPU_GET_CLASSLIST`) |
-| `smipids` | what `nvidia-smi` asks for its process list (`NV2080_CTRL_CMD_GPU_GET_PIDS`) |
-| `fbclients` | who is holding VRAM right now, and under which guest-process identity |
-| `mmapping` | round-trip latency of one window mapping, with no CUDA around it |
-| `e1-extmap` | does the OS-descriptor → UVM external-mapping chain carry? (host-local, no VM) |
-| `vsockconnect` | not a diagnostic: the `ssh -o ProxyCommand` bridge onto cloud-hypervisor's hybrid vsock, used by the NixOS-guest transport |
+| `classlist` | Query supported RM classes |
+| `smipids` | Query the driver's process list |
+| `fbclients` | Inspect VRAM owners and guest-process identities |
+| `mmapping` | Measure mapping round-trip latency |
+| `e1-extmap` | Exercise OS-descriptor/UVM external mapping without a VM |
+| `vgpuprofile` | Read card properties and calculate memory profiles |
+| `vsockconnect` | Bridge SSH to cloud-hypervisor's hybrid vsock |
 
-The diagnostics need a real card and the matching driver version;
-`vsockconnect` needs neither.
+- GPU diagnostics need a real card and matching driver/userspace setup.
+- `vsockconnect` needs neither the GPU nor NVIDIA libraries.
+- GPU-free ownership tests: `cargo test -p nvrm-client --lib`.

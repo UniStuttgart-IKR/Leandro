@@ -1,29 +1,15 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! E1 - does the OS-descriptor -> UVM (NVIDIA's unified-memory driver)
-//! external-mapping chain carry? (host-local, no guest, no VM)
+//! Host-local OS-descriptor and UVM external-mapping diagnostic.
 //!
-//! Question: memory that RM has been *described* (not handed) via
-//! NV01_MEMORY_SYSTEM_OS_DESCRIPTOR (hClass 0x71 through
-//! NV_ESC_RM_ALLOC_MEMORY, 0x27) - can it afterwards be attached to a
-//! freely chosen GPU VA with UVM_CREATE_EXTERNAL_RANGE +
-//! UVM_MAP_EXTERNAL_ALLOCATION, without any mmap ever happening on the
-//! uvm fd?
+//! Registers memfd pages as NV01_MEMORY_SYSTEM_OS_DESCRIPTOR, creates an
+//! external UVM range and maps the allocation without mmap on the UVM FD.
+//! Tests the libcuda pool VA and a second VA.
 //!
-//! NV_OK from MAP_EXTERNAL_ALLOCATION means: the chain carries, and the
-//! address coupling of uvm.c:793-796 is bypassed - it hangs off the mmap
-//! path, which this chain never enters.
-//!
-//! Failure interpretation (from the driver source, not guessed):
-//!  - NV_ERR_INVALID_DEVICE -> set_ext_gpu_map_location
-//!    (uvm_map_external.c:658-661): owning GPU not registered in va_space.
-//!  - failure at dupMemory -> address space test (nv_gpu_ops.c:8367-8374).
-//!
-//! Command numbers: UVM_IOCTL_BASE(i) == i on Linux (uvm_ioctl.h:40);
-//! bindgen does not expand the function-like macro, hence the literals
-//! below with their source lines. UVM_INITIALIZE is the special value
-//! from uvm_linux_ioctl.h:32 and does come through the bindings.
+//! NV_ERR_INVALID_DEVICE can mean the GPU is absent from the UVM VA space
+//! (uvm_map_external.c). dupMemory also checks address-space compatibility
+//! (nv_gpu_ops.c). UVM command numbers below come from uvm_ioctl.h.
 
 use nvrm_abi::{sys, NvDevice};
 use nvrm_client::RmClient;
@@ -59,13 +45,12 @@ const VASPACE_FLAGS: u32 = VASPACE_IS_EXTERNALLY_OWNED | VASPACE_ENABLE_PAGE_FAU
 
 const POOL_BYTES: usize = 2 << 20;
 
-/// The address at which libcuda demands the semaphore pool - and a second,
-/// freely invented one: NV_OK at both proves the GPU VA really is freely
-/// choosable through this chain.
+/// Test the observed libcuda pool VA and a separate valid GPU VA.
 const BASE_LIBCUDA: u64 = 0x2_04a0_0000;
 const BASE_ARBITRARY: u64 = 0x5_1120_0000;
 
-fn uvm_ioctl<T>(fd: &std::fs::File, cmd: u64, p: &mut T) -> (i32, i32) {
+// SAFETY: callers must pair cmd with its complete initialized UVM payload.
+unsafe fn uvm_ioctl<T>(fd: &std::fs::File, cmd: u64, p: &mut T) -> (i32, i32) {
     let r = unsafe { libc::ioctl(fd.as_raw_fd(), cmd as libc::Ioctl, p as *mut T) };
     let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
     (r, if r == 0 { 0 } else { errno })
@@ -83,7 +68,7 @@ fn step(name: &str, ret: i32, errno: i32, rm_status: u32) -> bool {
 fn main() {
     sys::assert_driver_version();
 
-    // ---- RM side: client, device, subdevice, external vaspace -----------
+    // RM side: client, device, subdevice, external vaspace
     let mut rm = RmClient::new().expect("NV01_ROOT_CLIENT");
     let root = rm.root();
     let gpu = NvDevice::open_gpu(0).expect("/dev/nvidia0");
@@ -91,22 +76,22 @@ fn main() {
     let device = rm.next_handle();
     let mut dp = sys::NV0080_ALLOC_PARAMETERS::default();
     dp.deviceId = 0;
-    rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp))
-        .expect("NV01_DEVICE_0");
+    // SAFETY: NV0080_ALLOC_PARAMETERS matches NV01_DEVICE_0; no embedded buffers.
+    unsafe { rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp)) }.expect("NV01_DEVICE_0");
 
     let subdevice = rm.next_handle();
     let mut sp = sys::NV2080_ALLOC_PARAMETERS::default();
     sp.subDeviceId = 0;
-    rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp))
+    // SAFETY: NV2080_ALLOC_PARAMETERS matches NV20_SUBDEVICE_0; no embedded buffers.
+    unsafe { rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp)) }
         .expect("NV20_SUBDEVICE_0");
 
-    // The card's UUID as UVM expects it: GET_GID_INFO with
-    // FORMAT_BINARY (2) + TYPE_SHA1 (0) -> 16 bytes
-    // (ctrl2080gpu.h:1767-1772; colon DRF macros, hence the literal).
+    // GET_GID_INFO FORMAT_BINARY|TYPE_SHA1 returns the 16-byte UVM UUID.
     let mut gid = sys::NV2080_CTRL_GPU_GET_GID_INFO_PARAMS::default();
     gid.index = 0;
     gid.flags = 2;
-    rm.control(subdevice, sys::NV2080_CTRL_CMD_GPU_GET_GID_INFO, &mut gid)
+    // SAFETY: The generated parameter type matches this command and has no nested pointers.
+    unsafe { rm.control(subdevice, sys::NV2080_CTRL_CMD_GPU_GET_GID_INFO, &mut gid) }
         .expect("GET_GID_INFO");
     assert_eq!(gid.length, 16, "SHA1-binary GID must be 16 bytes");
     let mut uuid = sys::NvProcessorUuid::default();
@@ -117,10 +102,11 @@ fn main() {
     let mut vp = sys::NV_VASPACE_ALLOCATION_PARAMETERS::default();
     vp.index = 0;
     vp.flags = VASPACE_FLAGS;
-    rm.alloc(device, vaspace, sys::FERMI_VASPACE_A, Some(&mut vp))
+    // SAFETY: NV_VASPACE_ALLOCATION_PARAMETERS matches FERMI_VASPACE_A.
+    unsafe { rm.alloc(device, vaspace, sys::FERMI_VASPACE_A, Some(&mut vp)) }
         .expect("FERMI_VASPACE_A (external)");
 
-    // ---- The memory "the guest" provides: a memfd in our own process ----
+    // The memory "the guest" provides: a memfd in our own process
     let memfd = unsafe { libc::memfd_create(c"e1-extmap".as_ptr(), 0) };
     assert!(memfd >= 0, "memfd_create");
     assert_eq!(unsafe { libc::ftruncate(memfd, POOL_BYTES as i64) }, 0);
@@ -138,7 +124,7 @@ fn main() {
     unsafe { std::ptr::write_bytes(host_va as *mut u8, 0xa5, POOL_BYTES) };
     println!("host va  = {host_va:p} ({} MiB memfd)", POOL_BYTES >> 20);
 
-    // ---- (2) OS descriptor: RM gets the host VA *described* -------------
+    // (2) OS descriptor: RM gets the host VA *described*
     let osdesc = rm.next_handle();
     let mut wfd = nvrm_abi::nvgpu::Nvos02WithFd::default();
     wfd.params.hRoot = root;
@@ -149,13 +135,8 @@ fn main() {
     wfd.params.pMemory = host_va as usize as sys::NvP64;
     wfd.params.limit = (POOL_BYTES - 1) as u64;
     wfd.fd = -1; // VIRTUAL_ADDRESS descriptor, not a dma-buf
-                 // On a GPU node, not ctl: NV_ACTUAL_DEVICE_ONLY (escape.c:399) yields
-                 // EINVAL on /dev/nvidiactl before RM ever sets a status. Matches the
-                 // trace: every 0x27 there runs on `gpu`. And the fd must be bound to
-                 // the client's ctl fd via NV_ESC_REGISTER_FD, otherwise the client
-                 // does not validate (NV_ERR_INVALID_CLIENT 0x23, measured) -
-                 // secInfo.clientOSInfo falls back to the GPU nvfp itself
-                 // (escape.c:379-381).
+                 // NV_ACTUAL_DEVICE_ONLY requires a GPU FD registered against this client
+                 // (escape.c); an unregistered FD fails client validation.
     let gpu_reg = gpu.open_for_mapping(rm.ctl()).expect("REGISTER_FD");
     unsafe {
         gpu_reg
@@ -166,7 +147,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    // ---- (3) UVM: initialize (sharing mode), register gpu + vaspace -----
+    // (3) UVM: initialize (sharing mode), register gpu + vaspace
     let uvm = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -175,7 +156,8 @@ fn main() {
 
     let mut ip = sys::UVM_INITIALIZE_PARAMS::default();
     ip.flags = UVM_INIT_FLAGS_MULTI_PROCESS_SHARING_MODE;
-    let (r, e) = uvm_ioctl(&uvm, sys::UVM_INITIALIZE as u64, &mut ip);
+    // SAFETY: the generated UVM payload matches cmd; embedded arrays remain live.
+    let (r, e) = unsafe { uvm_ioctl(&uvm, sys::UVM_INITIALIZE as u64, &mut ip) };
     if !step("UVM_INITIALIZE(0x2)", r, e, ip.rmStatus) {
         std::process::exit(1);
     }
@@ -187,7 +169,8 @@ fn main() {
     rg.rmCtrlFd = ctl_fd;
     rg.hClient = root;
     rg.hSmcPartRef = 0;
-    let (r, e) = uvm_ioctl(&uvm, UVM_REGISTER_GPU, &mut rg);
+    // SAFETY: the generated UVM payload matches cmd; embedded arrays remain live.
+    let (r, e) = unsafe { uvm_ioctl(&uvm, UVM_REGISTER_GPU, &mut rg) };
     if !step("UVM_REGISTER_GPU", r, e, rg.rmStatus) {
         std::process::exit(1);
     }
@@ -197,18 +180,20 @@ fn main() {
     rv.rmCtrlFd = ctl_fd;
     rv.hClient = root;
     rv.hVaSpace = vaspace;
-    let (r, e) = uvm_ioctl(&uvm, UVM_REGISTER_GPU_VASPACE, &mut rv);
+    // SAFETY: the generated UVM payload matches cmd; embedded arrays remain live.
+    let (r, e) = unsafe { uvm_ioctl(&uvm, UVM_REGISTER_GPU_VASPACE, &mut rv) };
     if !step("UVM_REGISTER_GPU_VASPACE", r, e, rv.rmStatus) {
         std::process::exit(1);
     }
 
-    // ---- (4) The actual question, at two bases --------------------------
+    // (4) The actual question, at two bases
     let mut fail = false;
     for base in [BASE_LIBCUDA, BASE_ARBITRARY] {
         let mut cr: sys::UVM_CREATE_EXTERNAL_RANGE_PARAMS = unsafe { std::mem::zeroed() };
         cr.base = base;
         cr.length = POOL_BYTES as u64;
-        let (r, e) = uvm_ioctl(&uvm, UVM_CREATE_EXTERNAL_RANGE, &mut cr);
+        // SAFETY: the generated UVM payload matches cmd; embedded arrays remain live.
+        let (r, e) = unsafe { uvm_ioctl(&uvm, UVM_CREATE_EXTERNAL_RANGE, &mut cr) };
         fail |= !step(
             &format!("CREATE_EXTERNAL_RANGE @{base:#x}"),
             r,
@@ -228,7 +213,8 @@ fn main() {
         mp.rmCtrlFd = ctl_fd;
         mp.hClient = root;
         mp.hMemory = osdesc;
-        let (r, e) = uvm_ioctl(&uvm, UVM_MAP_EXTERNAL_ALLOCATION, mp.as_mut());
+        // SAFETY: the generated UVM payload matches cmd; embedded arrays remain live.
+        let (r, e) = unsafe { uvm_ioctl(&uvm, UVM_MAP_EXTERNAL_ALLOCATION, mp.as_mut()) };
         fail |= !step(
             &format!("MAP_EXTERNAL_ALLOCATION @{base:#x}"),
             r,
@@ -237,14 +223,13 @@ fn main() {
         );
     }
 
-    // Counter-check: a broken hMemory MUST fail, otherwise NV_OK above
-    // proves nothing. (Creating the range works without a handle; only the
-    // map sees it.)
+    // The negative test must reject a nonexistent memory handle.
     let neg_base = 0x6_2233_0000u64;
     let mut cr: sys::UVM_CREATE_EXTERNAL_RANGE_PARAMS = unsafe { std::mem::zeroed() };
     cr.base = neg_base;
     cr.length = POOL_BYTES as u64;
-    let (r, e) = uvm_ioctl(&uvm, UVM_CREATE_EXTERNAL_RANGE, &mut cr);
+    // SAFETY: the generated UVM payload matches cmd; embedded arrays remain live.
+    let (r, e) = unsafe { uvm_ioctl(&uvm, UVM_CREATE_EXTERNAL_RANGE, &mut cr) };
     fail |= !step(
         &format!("CREATE_EXTERNAL_RANGE @{neg_base:#x} (negative check)"),
         r,
@@ -261,7 +246,8 @@ fn main() {
     mp.rmCtrlFd = ctl_fd;
     mp.hClient = root;
     mp.hMemory = 0xdead_beef;
-    let (r, e) = uvm_ioctl(&uvm, UVM_MAP_EXTERNAL_ALLOCATION, mp.as_mut());
+    // SAFETY: the generated UVM payload matches cmd; embedded arrays remain live.
+    let (r, e) = unsafe { uvm_ioctl(&uvm, UVM_MAP_EXTERNAL_ALLOCATION, mp.as_mut()) };
     let neg_ok = !(r == 0 && mp.rmStatus == sys::NV_OK);
     println!(
         "{} MAP_EXTERNAL_ALLOCATION hMemory=0xdeadbeef: ioctl={r} errno={e} rmStatus={:#x} \

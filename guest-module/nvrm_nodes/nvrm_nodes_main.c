@@ -2,35 +2,12 @@
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
 /*
- * nvrm_nodes - guest kernel module.
+ * Provision /proc/driver/nvidia from host data and provide a VA2GPA test API.
+ * VA2GPA pins caller pages until its file is released; normal forwarding uses
+ * virtio_nvrm's own pinning path.
  *
- * Replaces three crutches of a pure userspace setup:
- *
- *  1. mknod /dev/nvidiactl|nvidia0|nvidia-uvm  -> real character devices with
- *     the correct majors (195/235). devtmpfs creates the nodes itself.
- *  2. bind mount over /proc/devices            -> unnecessary, because a real
- *     chrdev registration shows up there anyway.
- *  3. tmpfs over /proc/driver plus a copy of params -> /proc/driver/nvidia/params
- *     comes from the module, filled from the REAL host file (lockstep rule:
- *     never guess) via NVRM_NODES_IOC_SET_PROC.
- *
- * Plus NVRM_NODES_IOC_VA2GPA, which resolves guest VAs into GPA
- * (guest-physical address) runs inside
- * the kernel. That way a CUDA process in the guest needs no root (pagemap
- * shows PFNs only with CAP_SYS_ADMIN) and the pages are genuinely held
- * against migration -- mlock did not do that. It was the point of this
- * module while a userspace shim carried the calls; today virtio_nvrm.ko pins
- * pages itself on the OS-descriptor path (NV01_MEMORY_SYSTEM_OS_DESCRIPTOR,
- * the NVIDIA allocation whose memory the driver pins rather than copies), and
- * this ioctl is exercised by the tool's self-test (`nvrm-nodes-tool gpa`)
- * rather than by the data path.
- *
- * The device nodes created here are PLACEHOLDERS: opening one returns -ENODEV
- * instead of misbehaving silently. Real forwarding lives in virtio_nvrm.ko,
- * which owns the nodes itself; next to it this module is loaded with
- * create_nodes=0 and supplies only /proc/driver/nvidia.
- *
- * Kernel pin: 6.8.0-136-generic (Ubuntu 24.04, GUEST_IMAGE).
+ * Optional NVIDIA placeholder nodes use majors 195/235 and return -ENODEV.
+ * Load with create_nodes=0 beside virtio_nvrm, which owns the real nodes.
  */
 
 #include <linux/cdev.h>
@@ -87,10 +64,7 @@ static const struct file_operations placeholder_fops = {
 	.open = placeholder_open,
 };
 
-/* One chrdev registration: (major, baseminor, count, name). Each produces its
- * own line in /proc/devices -- exactly like the real driver, which claims 195
- * several times under different names (cross-checked against the host's
- * /proc/devices: "195 nvidia", "195 nvidiactl", "235 nvidia-uvm"). */
+/* Separate registrations preserve NVIDIA's /proc/devices names. */
 struct chrdev_range {
 	unsigned int major, baseminor, count;
 	const char *name;
@@ -223,11 +197,7 @@ static void proc_files_free(void)
  * /dev/nvrm_nodes: VA2GPA plus provisioning
  * ------------------------------------------------------------------ */
 
-/* One pinned range. Lives until the FD is closed -- that is, until the
- * CUDA process ends. Exactly the lifetime of the host arena (the
- * contiguous host-side buffer the backend assembles from the GPA runs),
- * and crash-proof: if
- * the process dies, the kernel releases the pages. */
+/* One pinned range, released when the owning file's last reference closes. */
 struct pin_record {
 	struct list_head node;
 	struct page **pages;
@@ -442,16 +412,7 @@ static const struct file_operations nvrm_nodes_fops = {
 	.release = nvrm_nodes_release,
 	.unlocked_ioctl = nvrm_abi,
 	.compat_ioctl = compat_ptr_ioctl,
-/* no_llseek was DELETED in 6.12 ("fs: remove no_llseek"), and with it
- * the meaning of a NULL .llseek changed: up to 6.11 NULL meant
- * default_llseek, from 6.12 it means exactly what no_llseek used to.
- * So the field is set on old kernels and left out on new ones -- the
- * same node semantics on both, which is why this is a version guard
- * and not a deletion. Measured 2026-08-18: without it the module does
- * not compile against 6.18.44 (nixpkgs' default kernel),
- * "'no_llseek' undeclared here"; the Ubuntu guests run 6.8 and take
- * the other branch.
- */
+/* Since 6.12, a NULL llseek has the former no_llseek behavior. */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
 	.llseek = no_llseek,
 #endif

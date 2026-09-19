@@ -1,29 +1,14 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! Writing the crate.
+//! Emit committed bindings; normal builds need no bindgen or vendored headers.
 //!
-//! The source is COMMITTED, not produced in `build.rs`. Two reasons, and the
-//! second is the one that matters: a committed crate needs no libclang and no
-//! vendored headers to build, and a committed crate can be READ -- the layout
-//! a caller compiles against is in the tree, next to the manifest that
-//! measured it, and a reviewer can compare them without running anything.
+//! - `stable.rs`: declarations and dependencies shared by every version.
+//! - `v<NNN>.rs`: version-specific declarations, plus stable re-exports.
+//! - `lib.rs`: version selection, `RmAbi`, and implementations.
+//! - `versions.toml`: provenance and hashes.
 //!
-//! What goes where:
-//!
-//!   * `src/stable.rs` -- every name that is the same on every version in
-//!     abi.toml, and whose references are themselves stable. Used directly;
-//!     these never appear in `RmAbi`.
-//!   * `src/v<NNN>.rs` -- one module per version whose content differs, each
-//!     carrying only what is not stable, plus `pub use super::stable::*` so
-//!     that a module is a complete view of its version.
-//!   * `src/lib.rs` -- the module list, `DriverVersion`, `RmAbi` and its
-//!     impls.
-//!   * `versions.toml` -- what was measured, hashed.
-//!
-//! Nothing here invents a layout. Every number written into an
-//! `assert_layout!` comes out of the manifest, which came out of bindgen,
-//! which came out of the vendored headers.
+//! Layout assertions use measured manifest values.
 
 use crate::abi::classify::{self, Verdict};
 use crate::abi::config::AbiToml;
@@ -45,17 +30,14 @@ pub struct Version {
     pub json: String,
 }
 
-/// Which names every version agrees about, and which it does not.
+/// Names shared by every version and names requiring versioned modules.
 pub struct Partition {
     pub stable: Vec<String>,
     pub volatile: BTreeSet<String>,
 }
 
-/// A name is stable when every version spells it identically AND everything it
-/// names is itself stable. The second half is not pedantry: a struct whose own
-/// text never changed still cannot be shared if a struct it contains did, and
-/// a struct that merely POINTS at one cannot be shared either, because the
-/// module it sits in has to resolve that name to something.
+/// Stable declarations and all their dependencies must match across versions.
+/// Pointer targets are dependencies even though they do not affect layout.
 pub fn partition(versions: &[Version]) -> Partition {
     let primary = &versions[0];
     let mut stable: BTreeSet<String> = primary
@@ -130,7 +112,7 @@ pub fn emit(
         .find(|v| v.name == primary)
         .with_context(|| format!("{primary} (DRIVER_VERSION) is not in abi.toml"))?;
 
-    // --- src/stable.rs ----------------------------------------------------
+    // Shared declarations.
     let mut body = String::new();
     body.push_str(&banner(
         "Every name that is identical on every driver version in abi.toml.",
@@ -148,7 +130,7 @@ pub fn emit(
         &mut stale,
     )?;
 
-    // --- src/v<NNN>.rs ----------------------------------------------------
+    // Version-specific declarations.
     for v in versions {
         let mine: Vec<&str> = v
             .items
@@ -183,7 +165,7 @@ pub fn emit(
         )?;
     }
 
-    // --- src/lib.rs -------------------------------------------------------
+    // Version selection and ABI traits.
     let (lib, abstracted, not_abstractable) = lib_rs(cfg, versions, part, primary)?;
     write_or_check(
         &src.join("lib.rs"),
@@ -192,7 +174,7 @@ pub fn emit(
         &mut stale,
     )?;
 
-    // --- versions.toml ----------------------------------------------------
+    // Provenance and manifest hashes.
     let vt = versions_toml(cfg, versions, part, primary, &abstracted);
     write_or_check(
         &root.join("crates/nvrm-sys/versions.toml"),
@@ -201,10 +183,8 @@ pub fn emit(
         &mut stale,
     )?;
 
-    // --- Cargo.toml features ---------------------------------------------
-    // Every crate that carries the markers gets the same list: nvrm-sys
-    // declares them, everyone else passes them through. A new crate joins by
-    // pasting the two marker lines, which is one fewer place to remember.
+    // Update marked feature tables: nvrm-sys declares each feature;
+    // dependent crates forward it.
     for e in std::fs::read_dir(root.join("crates"))?.flatten() {
         let cargo = e.path().join("Cargo.toml");
         let Ok(text) = std::fs::read_to_string(&cargo) else {
@@ -259,8 +239,7 @@ fn module_body(v: &Version, names: &[&str], verified: Option<&str>) -> Result<St
 
 fn layout_assert(v: &Version, g: &ItemGroup) -> Option<String> {
     let t = v.manifest.types.get(&g.name)?;
-    // An opaque forward declaration has no measured layout and nothing can
-    // depend on one.
+    // Opaque forward declarations have no measured layout.
     if t.align == 0 {
         return None;
     }
@@ -269,8 +248,7 @@ fn layout_assert(v: &Version, g: &ItemGroup) -> Option<String> {
         g.name, t.size, t.align
     );
     for f in &t.fields {
-        // An anonymous member has no `offset_of!` assertion to make; the
-        // manifest says so with a null rather than with a guess.
+        // Anonymous members may lack measured offsets.
         if let Some(o) = f.offset {
             let _ = write!(s, ",\n    {} @ {o}", f.name);
         }
@@ -363,7 +341,7 @@ fn lib_rs(
         list.join(", ")
     );
 
-    // --- DriverVersion ----------------------------------------------------
+    // Runtime driver selection.
     s.push_str(
         "/// Which supported driver a running system has.\n\
          ///\n\
@@ -453,7 +431,7 @@ fn lib_rs(
         marker_of(primary)
     );
 
-    // --- RmAbi ------------------------------------------------------------
+    // Associated types for version-dependent layouts.
     let (trait_src, abstracted, not_abstractable) = rm_abi(cfg, versions, part)?;
     s.push_str(&trait_src);
 
@@ -470,7 +448,7 @@ fn rm_abi(
 
     for (assoc, c_name) in &cfg.footprint.mediated {
         if !part.volatile.contains(c_name) {
-            // Stable: used directly, and the rule says so.
+            // Stable types are used directly.
             continue;
         }
         let missing: Vec<&str> = versions
@@ -506,12 +484,8 @@ fn rm_abi(
          \x20   /// Which driver this implementation is the ABI of.\n\
          \x20   const VERSION: DriverVersion;\n",
     );
-    // A field offset cannot be reached through an associated TYPE: the trait
-    // says nothing about what fields it has, and `offset_of!` needs to know.
-    // So every field of every mediated type gets an associated CONST, derived
-    // the same way the type is. Generating all of them rather than the ones
-    // somebody asked for is the point -- a hand-picked subset is a list that
-    // goes stale, and this trait is read by a compiler, not by a person.
+    // Associated types expose no fields to offset_of!. Generate offset
+    // constants for every mediated field so callers need no layout knowledge.
     let primary_m = &versions[0].manifest;
     for (assoc, c_name) in &abstracted {
         let _ = writeln!(
@@ -620,10 +594,7 @@ fn rm_abi(
             let size = t.map(|t| t.size).unwrap_or_default();
             let _ = writeln!(s, "    const {}: u32 = {size};", size_const(assoc));
             for fname in fields_of(versions, c_name) {
-                // A field this version does not have. There is no offset to
-                // give and there must not be a plausible one, so it is the
-                // type's size: past every byte of it, and any read at it is
-                // out of bounds rather than quietly wrong.
+                // Missing fields use the type's size as an out-of-bounds sentinel.
                 let off = t
                     .and_then(|t| t.fields.iter().find(|x| x.name == fname))
                     .and_then(|x| x.offset)
@@ -822,8 +793,7 @@ fn marker_of(version: &str) -> String {
     variant_of(version)
 }
 
-/// Every field name any version gives this type, in the primary version's
-/// order first so the generated trait reads like the struct.
+/// Union of field names, preserving version and declaration order.
 fn fields_of(versions: &[Version], c_name: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for v in versions {
@@ -863,23 +833,9 @@ fn sha256(s: &str) -> String {
     format!("{:x}", h.finalize())
 }
 
-/// The refusal.
-///
-/// `identical` and `append-only` need nobody: the first is nothing to decide
-/// and the second is a change an older caller cannot see. `breaking` on a
-/// MEDIATED type is different -- it is a struct the boundary reads, laid out
-/// differently, and a generator that quietly gave it a new module would be
-/// making the decision that this whole design exists to put in front of a
-/// person.
-///
-/// So it stops, names the struct, and asks for an acknowledgement in
-/// abi.toml. The acknowledgement does not describe the layout; the layout is
-/// still measured. It records that somebody looked.
-///
-/// Non-mediated types are not asked about. There are hundreds of them per
-/// version pair, they are controls nothing here intercepts, and a question
-/// nobody can answer usefully is not a safeguard -- it is a habit of clicking
-/// through. They are all in `manifests/classification.md`.
+/// Require explicit acknowledgement of breaking mediated layouts in abi.toml.
+/// Reject obsolete acknowledgements and mediated entries for stable types.
+/// Non-mediated changes remain available in the classification report.
 pub fn refuse_on_breaking(
     cfg: &AbiToml,
     part: &Partition,
@@ -914,9 +870,7 @@ pub fn refuse_on_breaking(
         }
     }
 
-    // The other direction. An acknowledgement that no longer applies is worse
-    // than none: it reads as "somebody looked at this move" about a move that
-    // is not there any more, and the next reader believes it.
+    // Reject acknowledgements without a matching measured break.
     let mut stale: Vec<(String, String)> = Vec::new();
     for (version, entry) in &cfg.versions {
         for name in entry.layout.keys() {
@@ -946,9 +900,7 @@ pub fn refuse_on_breaking(
         bail!("{msg}");
     }
 
-    // And the mediated list: a type that does not move must not be on it. The
-    // crate shape rests on that rule -- a stable type lives in src/stable.rs
-    // and is used directly, and listing it here says the opposite.
+    // Stable types belong in stable.rs, not in RmAbi.
     let mut settled: Vec<&str> = Vec::new();
     for c_name in cfg.footprint.mediated.values() {
         if !part.volatile.contains(c_name) {

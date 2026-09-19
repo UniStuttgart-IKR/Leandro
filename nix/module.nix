@@ -1,24 +1,8 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 # SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-# NixOS host module: what scripts/showcase.sh net up does by hand on Arch,
-# declared -- a bridge, user-owned taps, NAT out of the box, the driver's
-# persistence mode, and the host binaries on PATH. Optionally the wrapped
-# scripts (dev.enable) and a template unit for backends started outside the
-# scripts (backend.enable).
-#
-#   services.leandro = {
-#     enable = true;
-#     user = "silas";              # owns the taps; cloud-hypervisor runs as this user
-#     dev.enable = true;           # leandro-showcase, leandro-test, ... on PATH
-#     nat.externalInterface = "enp39s0";   # or leave null: masquerade on any egress
-#   };
-#
-# WARNING: the NVIDIA driver is the system's job (hardware.nvidia), not this
-# module's -- the userspace is not redistributable and the guest is handed
-# the host's own libcuda. This asserts the driver is configured and WARNS
-# when its version is not DRIVER_VERSION: a mismatch is misread struct
-# offsets in the guest, not a comfort problem.
+# Host network, driver persistence and backend service configuration.
+# The host supplies a compatible NVIDIA driver; this module does not install it.
 { leandroPackages, driverVersion }:
 { config, lib, pkgs, ... }:
 let
@@ -41,20 +25,12 @@ in {
     package = lib.mkOption {
       type = lib.types.package;
       default = leandroPackages.leandro;
-      description = "vhost-user-nvrm, vhost-user-input and the tools.";
+      description = "vhost-user-nvrm and the diagnostic tools.";
     };
     cloudHypervisorPackage = lib.mkOption {
       type = lib.types.package;
       default = leandroPackages.cloud-hypervisor;
       description = "cloud-hypervisor with the generic-vhost-user SHMEM patches.";
-    };
-    scriptsPackage = lib.mkOption {
-      type = lib.types.package;
-      default = leandroPackages.leandro-scripts.override {
-        leandro = cfg.package; cloud-hypervisor = cfg.cloudHypervisorPackage;
-      };
-      defaultText = lib.literalExpression "leandro-scripts, wrapped around package and cloudHypervisorPackage";
-      description = "The wrapped scripts (leandro-showcase and friends), installed by dev.enable.";
     };
     bridge = {
       name = lib.mkOption { type = lib.types.str; default = "br-poco"; description = "Bridge name (LEA_BRIDGE)."; };
@@ -84,7 +60,7 @@ in {
     };
     persistence = lib.mkOption {
       type = lib.types.bool; default = true;
-      description = "Run nvidia-persistenced (hardware.nvidia.nvidiaPersistenced). The gates refuse without it: off, the native reference is 58 % slower.";
+      description = "Enable the NVIDIA persistence daemon (hardware.nvidia.nvidiaPersistenced).";
     };
     backend = {
       enable = lib.mkEnableOption "the leandro-backend@<name>.service template (one vhost-user-nvrm per instance at /run/leandro/<name>/nvrm.sock)";
@@ -94,7 +70,6 @@ in {
         description = "Environment for the backend units (LEA_DEBUG, LEA_MANAGED_COMPAT, LEA_MAX_PIN_MIB, LEA_VRAM_LIMIT_MIB).";
       };
     };
-    dev.enable = lib.mkEnableOption "the wrapped scripts on PATH (leandro-showcase, leandro-test, leandro-bench, leandro-build)";
   };
 
   config = lib.mkIf cfg.enable {
@@ -116,11 +91,10 @@ in {
         this Leandro targets ${driverVersion}. The ioctl layouts are version
         specific -- expect nvidia-smi in the guest to misread memory. Pin the
         driver (nvidiaPackages.mkDriver { version = "${driverVersion}"; ... })
-        or rebuild Leandro with `build.sh --driver auto`.
+        or follow docs/abi-versions.md before selecting another driver.
       '';
 
-    environment.systemPackages = [ cfg.package cfg.cloudHypervisorPackage ]
-      ++ lib.optional cfg.dev.enable cfg.scriptsPackage;
+    environment.systemPackages = [ cfg.package cfg.cloudHypervisorPackage ];
 
     # The bridge and its taps. vnet_hdr is not needed at creation:
     # cloud-hypervisor sets IFF_VNET_HDR itself when it opens the tap, and

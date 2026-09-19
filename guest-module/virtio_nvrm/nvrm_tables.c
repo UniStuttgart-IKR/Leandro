@@ -1,22 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de> */
 /* SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR */
-/*
- * nvrm_tables.c -- the table interpreter: parse, check, look up.
- *
- * ONE translation unit for two worlds, pulled in via #include:
- *   - virtio_nvrm.c (kernel module): the production path.
- *   - test/tabcheck.c (userspace): the test binary that runs the same code
- *     over the same stream that `nvrm-abi::table::build()` produces
- *     (`nvrm-genhdr --dump-tables`).
- *
- * Hence ONLY this in here: memcpy, the wire structs from nvrm_wire.h and
- * error codes. No printk, no kvzalloc, no copy_from_user -- whoever obtains
- * memory or prints diagnostics is the includer. Why the code sits in its own
- * file: the kernel module is the ONLY interpreter of the xlate tables, and an
- * interpreter with zero tests would be the largest untested surface in the
- * system.
- */
+/* Translation-table parser shared by virtio_nvrm.c and the userspace tests.
+ * The caller owns the input buffer and handles allocation and diagnostics. */
 
 #ifdef __KERNEL__
 #include <linux/string.h>
@@ -28,6 +14,8 @@
 #endif
 
 #include "nvrm_wire.h"
+
+#define NVRM_XFER_HEADER_MAX 64u
 
 struct nvrm_tables {
 	void *blob; /* owned by the includer */
@@ -51,18 +39,17 @@ static __u32 nvrm_fnv1a32(const __u8 *b, size_t n)
 	return h;
 }
 
-/*
- * Check the blob and set the section pointers. `t->blob`/`t->len` are filled
- * in by the includer; everything else is set here. From here on the stream is
- * checked, not believed: it comes from the host, and the host could be a
- * different one than expected.
- *
- * Returns 0 or -EPROTO; on failure `*why` points at a static string for the
- * includer's diagnostic line.
- */
+static int nvrm_range_valid(__u32 offset, __u32 size, __u32 total)
+{
+	return offset <= total && size <= total - offset;
+}
+
+/* Validate t->blob/t->len and initialize its table views.
+ * On -EPROTO, *why describes the failure; no view may be used. */
 static int nvrm_tables_parse(struct nvrm_tables *t, const char **why)
 {
-	size_t need;
+	__u64 need;
+	__u32 i;
 
 	*why = NULL;
 	if (t->len < sizeof(t->hdr)) {
@@ -83,10 +70,10 @@ static int nvrm_tables_parse(struct nvrm_tables *t, const char **why)
 		return -EPROTO;
 	}
 	need = sizeof(t->hdr) +
-	       (size_t)t->hdr.n_ioctl * sizeof(struct nvrm_ioctl_desc) +
-	       (size_t)t->hdr.n_class * sizeof(struct nvrm_class_desc) +
-	       (size_t)t->hdr.n_ctrl * sizeof(struct nvrm_ctrl_desc) +
-	       (size_t)t->hdr.n_nested * sizeof(struct nvrm_nested_row);
+	       (__u64)t->hdr.n_ioctl * sizeof(struct nvrm_ioctl_desc) +
+	       (__u64)t->hdr.n_class * sizeof(struct nvrm_class_desc) +
+	       (__u64)t->hdr.n_ctrl * sizeof(struct nvrm_ctrl_desc) +
+	       (__u64)t->hdr.n_nested * sizeof(struct nvrm_nested_row);
 	if (need != t->len) {
 		*why = "table counts do not match the stream length";
 		return -EPROTO;
@@ -100,6 +87,20 @@ static int nvrm_tables_parse(struct nvrm_tables *t, const char **why)
 		*why = "host allows more nested pointers than the wire format carries";
 		return -EPROTO;
 	}
+	if (t->hdr.max_inline > NVRM_MAX_PAYLOAD ||
+	    t->hdr.max_ioctl_size > NVRM_MAX_PAYLOAD ||
+	    t->hdr.max_aux > NVRM_MAX_AUX) {
+		*why = "host payload limits exceed the wire format";
+		return -EPROTO;
+	}
+	if (t->hdr.xfer_struct_len > NVRM_XFER_HEADER_MAX ||
+	    !nvrm_range_valid(t->hdr.xfer_cmd_off, 4, t->hdr.xfer_struct_len) ||
+	    !nvrm_range_valid(t->hdr.xfer_size_off, 4,
+			      t->hdr.xfer_struct_len) ||
+	    !nvrm_range_valid(t->hdr.xfer_ptr_off, 8, t->hdr.xfer_struct_len)) {
+		*why = "XFER fields exceed the wrapper";
+		return -EPROTO;
+	}
 
 	t->ioctls = (const struct nvrm_ioctl_desc *)((__u8 *)t->blob +
 						     sizeof(t->hdr));
@@ -107,6 +108,15 @@ static int nvrm_tables_parse(struct nvrm_tables *t, const char **why)
 		(const struct nvrm_class_desc *)(t->ioctls + t->hdr.n_ioctl);
 	t->ctrls = (const struct nvrm_ctrl_desc *)(t->classes + t->hdr.n_class);
 	t->nested = (const struct nvrm_nested_row *)(t->ctrls + t->hdr.n_ctrl);
+	for (i = 0; i < t->hdr.n_ctrl; i++) {
+		const struct nvrm_ctrl_desc *c = &t->ctrls[i];
+
+		if (c->count > t->hdr.max_nested ||
+		    !nvrm_range_valid(c->first, c->count, t->hdr.n_nested)) {
+			*why = "control references invalid nested rows";
+			return -EPROTO;
+		}
+	}
 	return 0;
 }
 

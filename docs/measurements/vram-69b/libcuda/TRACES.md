@@ -1,6 +1,10 @@
 <!-- SPDX-License-Identifier: MIT -->
-`mode-on.jsonl` and `mode-off.jsonl.gz` are raw `crates/nvrm-trace` records,
-one JSON object per line, in the format `crates/nvrm-trace/src/log.rs`
-documents. They are left exactly as the guest wrote them -- an SPDX comment
-inside would make them something a JSONL reader has to skip -- so the
-licence for both is here: MIT, 2026 Silas Müller <github@silasmueller.de>.
+# Trace files
+
+- `mode-on.jsonl`: complete trace, 164 records.
+- `mode-off.jsonl`: first 400 records of the original 4474-record trace.
+- `analysis.txt` was produced from the complete pair; both stored files include
+  the first divergence at record 146.
+- Files start with `#` license/provenance comments, followed by one JSON record
+  per line. Skip comment lines before parsing. Format: `crates/nvrm-trace/src/log.rs`.
+- Both files are licensed MIT, copyright 2026 Silas Müller <github@silasmueller.de>.

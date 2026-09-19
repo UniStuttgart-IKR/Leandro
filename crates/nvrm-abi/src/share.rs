@@ -1,54 +1,30 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! Cross-process DUP_OBJECT grants.
+//! RM object sharing within one backend process.
 //!
-//! RM is NVIDIA's Resource Manager, the kernel driver behind
-//! /dev/nvidiactl and /dev/nvidiaN; UVM is its unified-memory driver
-//! (/dev/nvidia-uvm). DUP_OBJECT is the access right RM checks when one
-//! client duplicates another client's object.
+//! UVM duplicates VASpaces, channels and memory into kernel clients while
+//! handling the backend's ioctl. `RS_SHARE_TYPE_PID` permits these copies and
+//! copies between guest sessions in the same backend. It compares client PIDs;
+//! for a kernel destination it checks the calling process instead
+//! (`cliresShareCallback_IMPL` in NVIDIA's `rmapi/client_resource.c`).
 //!
-//! Why this exists. The RM client is allocated by vhost-user-nvrm, so
-//! `RmClient::ProcID` is the daemon's. UVM however runs natively in the
-//! guest, because it binds its va_space to the caller's mm
-//! (`uvm_va_space_mm.c:195`) and every vma underneath must come from that mm
-//! (`uvm.c:782-788`). UVM therefore duplicates RM objects into its own
-//! kernel client on behalf of the GUEST process, and RM's default share
-//! policy grants DUP_OBJECT only to the client's own process
-//! (`sharing.c:344-353`, RS_SHARE_TYPE_PID). Result without a grant:
-//! NV_ERR_INSUFFICIENT_PERMISSIONS (0x1b, `rs_access_map.c:205`).
-//!
-//! Moving the client to the guest instead does not work: RmCreateMmapContext
-//! requires `ProcID == osGetCurrentProcess()` (`osapi.c:2540-2542`) and
-//! NV_ESC_RM_MAP_MEMORY is forwarded, i.e. runs in the daemon. Measured: a
-//! guest-owned client makes 0x4e fail with NV_ERR_INVALID_CLIENT (0x23)
-//! where a client owned by the calling process returns 0x0. One client
-//! cannot belong to two processes, so the grant has to go the other way.
-//!
-//! Across the VM boundary the host runs every ioctl itself and no
-//! cross-process dup happens there. `grant_dup_same_user` below is still
-//! live: session.rs calls it for the classes UVM duplicates (VASpace,
-//! TSG, ctxshare, memory), and host_pool.rs for the OS descriptor.
-//! (A fresh ROOT_CLIENT takes the other door, `set_sub_process_id`.)
+//! A same-user policy would also let another VM's backend copy these objects.
+//! The object-level PID grant survives libcuda replacing its inherited policy.
+//! This grant alone is not a complete source-handle ownership check.
 
 use crate::iowr_raw;
 use std::os::fd::RawFd;
 
-/// Classes whose objects UVM duplicates on behalf of the calling process.
-/// Each has a DupObject in the RM sources, all of them passing
-/// NV04_DUP_HANDLE_FLAGS_REJECT_KERNEL_DUP_PRIVILEGE, so they take the
-/// access-rights path even though UVM's client is a kernel one
-/// (`rs_client.c:542-552`):
+/// Classes duplicated by UVM with REJECT_KERNEL_DUP_PRIVILEGE, which
+/// requires normal access rights even for a kernel client (`rs_client.c:542`).
 ///
-/// - UVM_REGISTER_GPU_VASPACE (`uvm_ioctl.h:290-297`) dups hVaSpace
-///   (`nv_gpu_ops.c:2752-2759`).
-/// - UVM_REGISTER_CHANNEL (`:315-324`) dups the channel's TSG
-///   (`nv_gpu_ops.c:10156-10162`) and its context share (`:10265-10271`) —
-///   not the channel object itself, which is only looked up via
-///   CliGetKernelChannel.
-/// - UVM_MAP_EXTERNAL_ALLOCATION (`:365-378`) dups hMemory.
+/// - VASpace: REGISTER_GPU_VASPACE (`nv_gpu_ops.c:2752`).
+/// - TSG and context share: REGISTER_CHANNEL (`nv_gpu_ops.c:10156,10265`).
+///   The channel itself is looked up through CliGetKernelChannel.
+/// - Memory: MAP_EXTERNAL_ALLOCATION (`uvm_ioctl.h:365`).
 ///
-/// hSmcPartRef from UVM_REGISTER_GPU (`:405-416`) is 0 without MIG.
+/// REGISTER_GPU's hSmcPartRef is zero without MIG (`uvm_ioctl.h:405`).
 pub fn uvm_dupes_class(hclass: u32) -> bool {
     matches!(
         hclass,
@@ -60,31 +36,18 @@ pub fn uvm_dupes_class(hclass: u32) -> bool {
     )
 }
 
-// ---------------------------------------------------------------------------
-// Parameter blocks
-// ---------------------------------------------------------------------------
-// The three builders below are pure: no fd, no ioctl, no driver -- which is
-// what makes the bytes that reach RM testable at all.
-//
-// Invariant: they must not change a single byte on the wire relative to the
-// escapes they feed. Every field offset and constant is pinned by the tests
-// below; the arrays are built by
-// a named function and returned by value.
+// Pure parameter builders; tests pin field offsets and constants.
 
 /// `NV_PROC_NAME_MAX_LENGTH` (`nvlimits.h:47`).
 const NAME_MAX: usize = 100;
 
-/// `NV0000_CTRL_SET_SUB_PROCESS_ID_PARAMS` (`ctrl0000proc.h:56-59`):
-/// subProcessID u32 @0, subProcessName char[NV_PROC_NAME_MAX_LENGTH] @4.
-///
-/// RM copies the name with `portStringCopy`, which needs a NUL terminator,
-/// so a name of NAME_MAX bytes or longer is truncated to NAME_MAX - 1 and
-/// the last byte stays zero. Anything shorter is NUL-padded to the end of
-/// the fixed-size field, because the whole 104-byte block is sent.
+/// `NV0000_CTRL_SET_SUB_PROCESS_ID_PARAMS` (`ctrl0000proc.h:56`):
+/// subProcessID u32 @0, name char[100] @4. Reserve a trailing NUL for RM's
+/// `portStringCopy`; shorter names retain zero padding.
 fn sub_process_id_params(sub_id: u32, name: &str) -> [u8; 4 + NAME_MAX] {
     let mut params = [0u8; 4 + NAME_MAX];
     params[0..4].copy_from_slice(&sub_id.to_le_bytes());
-    // Leave one byte for the NUL -- portStringCopy expects it.
+    // Leave one byte for the NUL; portStringCopy expects it.
     let n = name.len().min(NAME_MAX - 1);
     params[4..4 + n].copy_from_slice(&name.as_bytes()[..n]);
     params
@@ -98,19 +61,14 @@ fn share_object_params(hobject: u32) -> [u8; 16] {
     let mut params = [0u8; 16];
     params[0..4].copy_from_slice(&hobject.to_le_bytes());
     params[8..12].copy_from_slice(&(1u32 << 0).to_le_bytes()); // RS_ACCESS_DUP_OBJECT == 0 (rs_access.h:59)
-    params[12..14].copy_from_slice(&2u16.to_le_bytes()); // RS_SHARE_TYPE_OS_SECURITY_TOKEN (rs_access.h:244)
+    params[12..14].copy_from_slice(&4u16.to_le_bytes()); // RS_SHARE_TYPE_PID (rs_access.h:246)
     params[14] = 1 << 2; // RS_SHARE_ACTION_FLAG_COMPOSE (rs_access.h:262)
     params
 }
 
-/// The NVOS54 block (the RM_CONTROL parameter block from `nvos.h`) for a
-/// control aimed at the client object itself: hClient @0, hObject @4,
-/// cmd @8, flags @12, params P64 @16, paramsSize @24, status @28 -> 32
-/// bytes.
-///
-/// Both controls here target `RmClientResource`, i.e. the client itself,
-/// hence hObject == hClient. `params` must outlive the ioctl -- the block
-/// stores a pointer to it, not a copy.
+/// NVOS54 client control (`nvos.h`): hClient @0, hObject @4, cmd @8,
+/// flags @12, params P64 @16, paramsSize @24, status @28; 32 bytes.
+/// Both controls target the client itself. `params` must outlive the ioctl.
 fn nvos54_client_control(hclient: u32, cmd: u32, params: &[u8]) -> [u8; 32] {
     let mut p = [0u8; 32];
     p[0..4].copy_from_slice(&hclient.to_le_bytes());
@@ -121,34 +79,18 @@ fn nvos54_client_control(hclient: u32, cmd: u32, params: &[u8]) -> [u8; 32] {
     p
 }
 
-/// Tell RM which GUEST process a freshly allocated client belongs to, via
-/// `NV0000_CTRL_CMD_SET_SUB_PROCESS_ID` (0x901, `ctrl0000proc.h:93`).
+/// Label a new RM client with `SET_SUB_PROCESS_ID` (0x901, ctrl0000proc.h).
 ///
-/// Why this matters beyond bookkeeping: RM decides USERD page sharing on
-/// exactly three fields — `domain`, `processID`, `subProcessID`
-/// (`kernel_fifo.c:508-511`). Every guest process of a VM lives inside the
-/// same host process (this daemon), so `processID` is identical for all of
-/// them; without a `subProcessID` their USERD pages may share a physical
-/// page, which cannot happen between two native processes. Setting the ID
-/// restores that separation inside the VM. RM's own wording for the field is
-/// "In vGPU environment, sub process means the guest user/kernel process
-/// running within a single VM" (`ctrl0000proc.h:37-50`) — exactly our shape.
+/// RM groups USERD pages by domain, processID and subProcessID
+/// (`kernel_fifo.c:508`). Guest sessions share a host PID, so the guest's
+/// dense process ID distinguishes their USERD groups. It is guest-supplied
+/// attribution, not a host security boundary; recycled host/guest PIDs must
+/// not substitute for the dense ID.
 ///
-/// The ID is a dense number the GUEST MODULE hands out per device, not a raw
-/// tgid: a recycled pid would attribute a dead process's allocations to a new
-/// one. `NV_PROC_NAME_MAX_LENGTH` is 100 (`nvlimits.h:47`); RM copies with
-/// `portStringCopy`, so the buffer must be NUL-terminated.
-///
-/// WARNING: This is attribution and RM-side isolation INSIDE one VM. It is a
-/// label the guest supplied, so no host-side enforcement may rest on it —
-/// the only boundary the host can enforce is the VM itself.
-///
-/// Returns `(ioctl return, RM status)`; callers log. A failure leaves the
-/// client at `subProcessID = 0`, i.e. exactly today's behaviour.
+/// Returns `(ioctl return, RM status)`. Failure leaves the default label 0.
 ///
 /// # Safety
-/// `fd` must be an open `/dev/nvidiactl` (or per-GPU node) that `hclient`
-/// was allocated on.
+/// `fd` must be an open NVIDIA ctl or GPU node on which `hclient` was allocated.
 pub unsafe fn set_sub_process_id(fd: RawFd, hclient: u32, sub_id: u32, name: &str) -> (i32, u32) {
     let params = sub_process_id_params(sub_id, name);
     let mut p = nvos54_client_control(hclient, 0x901, &params);
@@ -162,27 +104,21 @@ pub unsafe fn set_sub_process_id(fd: RawFd, hclient: u32, sub_id: u32, name: &st
     (ret, st)
 }
 
-/// Grant DUP_OBJECT on `hobject` to other processes of the same user, via
-/// NV0000_CTRL_CMD_CLIENT_SHARE_OBJECT on `fd`.
+/// Grant DUP_OBJECT to clients in the backend process, including UVM's kernel
+/// client when it handles a call from that process.
 ///
-/// The grant goes on the OBJECT, not on the client, on purpose: libcuda
-/// issues its own SET_INHERITED_SHARE_POLICY (0xd04) a few calls after
-/// creating the client, and a policy without COMPOSE clears the entire list
-/// (`clientShareResource_IMPL:233-236`) — a client-level grant would be
-/// wiped. `rsAccessGetActiveShareList` returns the first modified list
-/// walking UP from the object (`rs_access_map.c:430-452`), so an
-/// object-level list wins and is independent of that ordering.
+/// Use an object policy: libcuda can replace the client's inherited policy
+/// (`rsAccessGetActiveShareList` selects the nearest modified object list).
+/// PID sharing avoids granting access to other backends running as the same
+/// user. The PID comes from the source client; `target` is unused by this policy.
 ///
-/// OS_SECURITY_TOKEN means "same euid", not "anyone": osValidateClientTokens
-/// compares euid or pid (`os.c:4086-4107`).
-///
-/// Returns `(ioctl return, RM status)`. Callers log; a failure here is not
-/// fatal, the later dup then fails visibly with 0x1b instead of silently.
+/// Returns `(ioctl return, RM status)`. A failed grant may make a later UVM
+/// operation fail with `NV_ERR_INSUFFICIENT_PERMISSIONS`.
 ///
 /// # Safety
 /// `fd` must be an open `/dev/nvidiactl` (or per-GPU node) that `hclient`
 /// was allocated on.
-pub unsafe fn grant_dup_same_user(fd: RawFd, hclient: u32, hobject: u32) -> (i32, u32) {
+pub unsafe fn grant_dup_same_process(fd: RawFd, hclient: u32, hobject: u32) -> (i32, u32) {
     let params = share_object_params(hobject);
     // NV0000_CTRL_CMD_CLIENT_SHARE_OBJECT (ctrl0000client.h:157).
     let mut p = nvos54_client_control(hclient, 0x0d06, &params);
@@ -200,11 +136,7 @@ pub unsafe fn grant_dup_same_user(fd: RawFd, hclient: u32, hobject: u32) -> (i32
 mod tests {
     use super::*;
 
-    /// `subProcessID` is a plain little-endian u32 at offset 0 of
-    /// `NV0000_CTRL_SET_SUB_PROCESS_ID_PARAMS`. RM keys USERD page sharing
-    /// on this number (`kernel_fifo.c:508-511`), so a byte-swapped or
-    /// misplaced value would put two guest processes into the same
-    /// isolation bucket -- silently, since RM has no way to notice.
+    /// The USERD attribution field is a little-endian u32 at offset 0.
     #[test]
     fn the_sub_process_id_is_a_little_endian_u32_at_offset_zero() {
         let p = sub_process_id_params(0x0403_0201, "");
@@ -213,9 +145,7 @@ mod tests {
         assert_eq!(sub_process_id_params(0, "")[0..4], [0, 0, 0, 0]);
     }
 
-    /// A short name sits at offset 4 and the rest of the fixed-size field
-    /// stays zero. The whole 104-byte block is sent, so whatever is not
-    /// written is what RM reads.
+    /// The full name field is sent, including its zero-filled tail.
     #[test]
     fn a_short_name_is_nul_padded_to_the_end_of_the_field() {
         let p = sub_process_id_params(7, "vectorAdd");
@@ -223,10 +153,7 @@ mod tests {
         assert!(p[13..].iter().all(|&b| b == 0), "the tail must stay zero");
     }
 
-    /// `NV_PROC_NAME_MAX_LENGTH` is 100 and RM copies the name with
-    /// `portStringCopy`, which walks to a NUL. A name that filled all 100
-    /// bytes would leave the buffer unterminated and RM would read past it,
-    /// so the name is truncated to 99 BYTES and byte 103 stays zero.
+    /// Names occupy at most 99 bytes, leaving the 100th byte NUL.
     #[test]
     fn a_long_name_is_truncated_leaving_room_for_the_nul() {
         let long = "x".repeat(500);
@@ -247,13 +174,9 @@ mod tests {
         assert_eq!(p[4 + NAME_MAX - 1], 0);
     }
 
-    /// `NV0000_CTRL_CLIENT_SHARE_OBJECT_PARAMS` field by field. Every one
-    /// of the four values is a magic number from the RM headers, and a
-    /// wrong one does not fail loudly: the grant is simply not the grant
-    /// that was meant, and the later DUP_OBJECT fails with
-    /// NV_ERR_INSUFFICIENT_PERMISSIONS (0x1b) far away from here.
+    /// Pin the DUP access mask, PID policy, COMPOSE action and padding.
     #[test]
-    fn the_share_policy_names_dup_object_for_the_same_security_token() {
+    fn the_share_policy_grants_dup_only_to_the_source_process() {
         let p = share_object_params(0xcafe_1234);
         assert_eq!(
             u32::from_le_bytes(p[0..4].try_into().unwrap()),
@@ -271,12 +194,12 @@ mod tests {
             1,
             "accessMask @8"
         );
-        // RS_SHARE_TYPE_OS_SECURITY_TOKEN == 2, a u16 -- "same euid", not
-        // "anyone".
+        // RS_SHARE_TYPE_PID == 4. OS_SECURITY_TOKEN (2) also admits other
+        // backends running as the same user.
         assert_eq!(
             u16::from_le_bytes(p[12..14].try_into().unwrap()),
-            2,
-            "type @12"
+            4,
+            "type @12 must scope access to the source process"
         );
         // RS_SHARE_ACTION_FLAG_COMPOSE == 1 << 2. Without COMPOSE the
         // grant would REPLACE the list libcuda sets up moments later.
@@ -285,10 +208,7 @@ mod tests {
         assert_eq!(p.len(), 16);
     }
 
-    /// The NVOS54 block both calls send: the control targets the client
-    /// object itself, so hObject must repeat hClient rather than name the
-    /// object being shared. Sending the object handle in hObject routes the
-    /// control to the wrong resource and RM answers with a status.
+    /// Both controls target the client object: hObject must equal hClient.
     #[test]
     fn the_control_block_addresses_the_client_object_itself() {
         let params = [0u8; 16];
@@ -335,10 +255,7 @@ mod tests {
         );
     }
 
-    /// The two commands and their parameter sizes, as the two callers pair
-    /// them up. `paramsSize` is what RM's `copy_from_user` uses: pairing
-    /// 0x901 with the 16-byte block (or 0x0d06 with the 104-byte one) would
-    /// hand RM a block of the wrong length for the struct it expects.
+    /// Each control must use its own parameter size for RM copying.
     #[test]
     fn each_command_travels_with_its_own_parameter_block() {
         // NV0000_CTRL_CMD_SET_SUB_PROCESS_ID (0x901, ctrl0000proc.h:93).
@@ -353,9 +270,7 @@ mod tests {
         assert_eq!(u32::from_le_bytes(p[8..12].try_into().unwrap()), 0x0d06);
         assert_eq!(u32::from_le_bytes(p[24..28].try_into().unwrap()), 16);
 
-        // 0x901 is the one control the host BLOCKS from the guest (it is a
-        // host-assigned label); the block lives in xlate, and this is the
-        // one place that still sends it -- from the host itself.
+        // The host assigns 0x901 itself and refuses guest attempts to replace it.
         assert!(
             crate::xlate::ctrl_blocked(0x901),
             "0x901 must stay on the blocked list"

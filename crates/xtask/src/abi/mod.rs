@@ -1,16 +1,8 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! `cargo xtask abi` -- the multi-version RM binding generator.
-//!
-//! Reads `crates/nvrm-sys/abi.toml`, runs bindgen once per version against
-//! that version's headers under `vendor/nvidia-rm-headers/`, writes
-//! `crates/nvrm-sys/manifests/<version>.json`, and classifies every bound
-//! type and constant between every pair of versions.
-//!
-//! The manifests are committed. They are the evidence: a claim that two
-//! driver versions have the same footprint is checkable by a reader with a
-//! diff, without a card, without the driver, and without running this.
+//! Generate bindings and layout manifests for every configured driver version.
+//! Classify type and constant changes between each ordered pair of versions.
 
 pub mod classify;
 pub mod config;
@@ -26,10 +18,7 @@ use manifest::Manifest;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-/// The include roots inside a vendored header set. The same five directories
-/// `crates/nvrm-sys/build.rs` names, in the same order and for the same
-/// reason: header names are duplicated across them and the order decides
-/// which one wins.
+/// Include order selects among duplicate names in the vendored headers.
 const INCLUDE_DIRS: &[&str] = &[
     "kernel-open/common/inc",
     "src/common/sdk/nvidia/inc",
@@ -51,13 +40,6 @@ pub fn run(args: &[String]) -> Result<()> {
             "--report" => {
                 report_to = Some(PathBuf::from(it.next().context("--report needs a path")?))
             }
-            // Not part of the pipeline: what bindgen produced, so that a
-            // version whose manifest this refuses to build can be looked at.
-            // A CANDIDATE version set, and where to put its manifests. The
-            // point of this pair is to answer "what would adding this driver
-            // cost" before abi.toml claims the answer is known. Neither
-            // belongs in a normal run: the committed manifests come from the
-            // committed abi.toml.
             "--config" => {
                 config_path = Some(PathBuf::from(it.next().context("--config needs a path")?))
             }
@@ -109,7 +91,7 @@ pub fn run(args: &[String]) -> Result<()> {
         let headers = root.join("vendor/nvidia-rm-headers").join(v);
         if !headers.is_dir() {
             bail!(
-                "no headers for {v} at {} -- run: scripts/build.sh vendor-abi {v}",
+                "no headers for {v} at {} -- run: tools/build.sh vendor-abi {v}",
                 headers.display()
             );
         }
@@ -180,14 +162,9 @@ pub fn run(args: &[String]) -> Result<()> {
     }
     print!("{}", matrix(&manifests, &pairs));
 
-    // --- the crate ---------------------------------------------------------
     let part = emit::partition(&built);
     mediated::assert_complete(&root, &cfg.footprint, &part, &built)?;
-    // Every entry in [footprint.renamed] is a CLAIM, typed by a person: that
-    // two of NVIDIA's names are the same type. The measurement can disagree
-    // -- a rename that is really two different structs would classify as
-    // breaking and then sit in a 60 KB classification nobody reads line by
-    // line. So say the verdict here, on every run, one line per rename.
+    // Report whether configured renames preserve the measured layout.
     for (canonical, per_version) in &cfg.footprint.renamed {
         let versions_renamed: Vec<&str> = per_version.keys().map(String::as_str).collect();
         let old: Vec<&str> = {
@@ -231,10 +208,7 @@ pub fn run(args: &[String]) -> Result<()> {
         eprintln!("abi: not abstractable -- {n}");
     }
 
-    // A manifest whose version left abi.toml. It is history and is not
-    // regenerated, so a reader who diffs it against the headers of the day
-    // will find it wrong -- say which ones those are on every run rather than
-    // leaving the directory to be read as uniformly current.
+    // Retain historical manifests, but identify them as outside this check.
     let mut history: Vec<String> = Vec::new();
     if let Ok(dir) = std::fs::read_dir(&manifest_dir) {
         for e in dir.flatten() {
@@ -267,17 +241,8 @@ pub fn run(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Replace one whole identifier throughout bindgen's output.
-///
-/// Textual on purpose, and before the parse: a rename has to reach the
-/// struct, the `impl Default` behind it, every field that names it AND the
-/// strings inside bindgen's own layout assertions, which is where the
-/// manifest's keys come from. One pass over the text does all four; rewriting
-/// a syntax tree would miss the strings.
-///
-/// These are NVIDIA's C identifiers, so a whole-word match cannot hit
-/// anything else -- and if the new name were already there, this would be
-/// merging two different types into one, which is refused rather than done.
+/// Replace whole C identifiers, including names inside layout-assertion strings.
+/// Refuse an existing canonical definition to avoid merging distinct types.
 fn rename_ident(src: &str, old: &str, canonical: &str) -> Result<String> {
     if src.contains(&format!("pub struct {canonical} "))
         || src.contains(&format!("pub union {canonical} "))
@@ -326,19 +291,14 @@ fn workspace_root() -> Result<PathBuf> {
 fn provenance_commit(headers: &Path) -> Result<String> {
     let p = headers.join("PROVENANCE");
     let text = std::fs::read_to_string(&p)
-        .with_context(|| format!("reading {} -- run scripts/build.sh vendor-abi", p.display()))?;
+        .with_context(|| format!("reading {} -- run tools/build.sh vendor-abi", p.display()))?;
     text.lines()
         .find_map(|l| l.strip_prefix("commit:"))
         .map(|s| s.trim().to_string())
         .with_context(|| format!("{} has no commit: line", p.display()))
 }
 
-/// bindgen, pointed at one vendored header set.
-///
-/// This is the only bindgen invocation in the workspace. `nvrm-sys` used to
-/// carry its own in a `build.rs`, which meant every build of every consumer
-/// needed libclang and the vendored tree; the crate source is committed now,
-/// and bindgen runs here, when a person regenerates it.
+/// Generate bindings from one vendored header set. Normal builds use committed output.
 fn run_bindgen(root: &Path, headers: &Path, fp: &config::Footprint) -> Result<String> {
     let mut b = bindgen::Builder::default()
         .header(root.join("crates/nvrm-sys/wrapper.h").display().to_string())
@@ -453,9 +413,7 @@ fn render(manifests: &[Manifest], pairs: &[PairReport]) -> String {
         detail(&mut s, p);
     }
 
-    // Every other pair, counted but not itemised. A non-neighbour pair is a
-    // sum of the steps between it and nothing else; listing all of them
-    // itemised buries the four comparisons anybody reads.
+    // Summarize non-neighbour pairs; detailed changes are listed above.
     s.push_str("\n## Every other pair, counted\n\n");
     s.push_str("| from | to | verdict | identical | append-only | breaking | constants |\n");
     s.push_str("|---|---|---|---|---|---|---|\n");
@@ -481,7 +439,7 @@ fn render(manifests: &[Manifest], pairs: &[PairReport]) -> String {
     s
 }
 
-/// The one table worth having on a terminal: which pairs can share a layout.
+/// Print the pairwise layout-compatibility matrix.
 fn matrix(manifests: &[Manifest], pairs: &[PairReport]) -> String {
     let v: Vec<&str> = manifests.iter().map(|m| m.version.as_str()).collect();
     let w = v.iter().map(|s| s.len()).max().unwrap_or(10).max(11);
@@ -547,8 +505,7 @@ fn detail(s: &mut String, p: &PairReport) {
     }
 }
 
-/// A struct whose every field moved produces one reason per field, and forty
-/// of those say nothing the first three do not.
+/// Limit repeated field-change details in the summary.
 fn first_reasons(reasons: &[String]) -> String {
     const N: usize = 3;
     if reasons.len() <= N {

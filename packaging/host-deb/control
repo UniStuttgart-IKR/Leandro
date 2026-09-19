@@ -9,7 +9,7 @@ Priority: optional
 Homepage: https://github.com/UniStuttgart-IKR/Leandro
 Description: Leandro host side: GPU paravirtualisation over virtio-nvrm
  vhost-user-nvrm, the backend that serves one guest's virtio-nvrm device from
- the host's NVIDIA driver; vhost-user-input; vgpuprofile, which reads the
+ the host's NVIDIA driver; upstream vhost-device-input; vgpuprofile, which reads the
  card's vGPU-shaped profiles; and cloud-hypervisor @CH@ with Leandro's
  generic-vhost-user patches, as /usr/lib/leandro/cloud-hypervisor so it does
  not shadow a distribution cloud-hypervisor. All statically linked.

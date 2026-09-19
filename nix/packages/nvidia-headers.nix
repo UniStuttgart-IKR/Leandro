@@ -20,7 +20,7 @@ fetchFromGitHub {
   # kernel-open/nvidia-modeset to build.rs and to wrapper.h, and not here, so
   # `nix build` died on `'nvkms-ioctl.h' file not found` while every local
   # build was fine -- a checkout has the whole tree and only this derivation
-  # is sparse. `scripts/test.sh check` compares the two lists now.
+  # is sparse. `tools/check.sh` compares the two lists now.
   sparseCheckout = [
     "kernel-open/common/inc"
     "src/common/sdk/nvidia/inc"
@@ -57,7 +57,7 @@ fetchFromGitHub {
   # integrity check on third-party source here. Two machines on two networks
   # produced the same hash for the same input, and the 862 files it covers
   # are byte-for-byte identical to vendor/open-gpu-kernel-modules -- which
-  # `scripts/build.sh vendor` clones by a completely different route and
+  # `tools/build.sh vendor` clones by a completely different route and
   # every gate builds against -- across all five directories above.
   #
   # A note for whoever changes this next: adding a sparseCheckout path does

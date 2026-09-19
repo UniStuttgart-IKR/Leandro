@@ -1,18 +1,10 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! Object tracking with transitive free.
+//! Free-order tracking for RM parents and explicit resource dependencies.
 //!
-//! Model: gVisor nvproxy `object.go`.
-//!
-//! Two kinds of edges that are not the same thing:
-//! - `parent`: the tree as RM knows it (hObjectParent at alloc)
-//! - `deps`: extra dependencies from `refAddDependant` in the driver.
-//!   Example: a channel hangs off the VASpace *and* the memory object
-//!   for USERD (its user-space doorbell page), although neither is its
-//!   parent.
-//!
-//! Tearing down only the tree frees memory a channel is still using.
+//! Parent edges alone are insufficient: a channel can also depend on its
+//! VASpace and USERD memory. Callers record those constructor-defined edges.
 
 use std::collections::{HashMap, HashSet};
 
@@ -45,23 +37,26 @@ pub struct ObjectTree {
 }
 
 impl ObjectTree {
-    pub fn insert(&mut self, handle: u32, obj: Object) {
+    pub fn insert(&mut self, obj: Object) {
+        let handle = obj.handle;
         let parent = obj.parent;
+        // A reused handle belongs to a new object, not its former dependencies.
+        if self.map.contains_key(&handle) {
+            self.remove(handle);
+        }
         self.map.insert(handle, obj);
         if let Some(p) = self.map.get_mut(&parent) {
             p.dependants.insert(handle);
         }
     }
 
-    /// Enter an extra edge (not parent-child).
-    ///
-    /// TODO(leandro): the list of these edges comes from the constructors
-    /// in open-gpu-kernel-modules. It is the part that can only be read,
-    /// not derived. Until it is complete, every free is potentially too
-    /// early.
+    /// Record a dependency between tracked objects.
+    /// Callers must supply the driver's constructor-defined dependency edges.
     pub fn add_dependant(&mut self, on: u32, dependant: u32) {
-        if let Some(o) = self.map.get_mut(&on) {
-            o.dependants.insert(dependant);
+        if self.map.contains_key(&dependant) {
+            if let Some(o) = self.map.get_mut(&on) {
+                o.dependants.insert(dependant);
+            }
         }
     }
 
@@ -73,15 +68,7 @@ impl ObjectTree {
         self.map.get(&h)
     }
 
-    /// Forget `h`, and with it every edge that pointed at it.
-    ///
-    /// The scrub runs over *all* objects, not just the parent: an extra
-    /// edge from [`add_dependant`](Self::add_dependant) has no counterpart
-    /// in `h.parent`, so clearing the parent alone leaves the dependency
-    /// edges behind. A later `free_order` would then hand the caller a
-    /// handle that is already gone, and `RmClient::free` would send an
-    /// NV_ESC_RM_FREE for a dead handle - on a *live* client, where the
-    /// number may since have been handed out again.
+    /// Forget the object and all incoming parent/dependency edges.
     pub fn remove(&mut self, h: u32) {
         self.map.remove(&h);
         for o in self.map.values_mut() {
@@ -117,9 +104,9 @@ mod tests {
     #[test]
     fn free_order_is_bottom_up() {
         let mut t = ObjectTree::default();
-        t.insert(1, Object::root(1));
-        t.insert(2, Object::new(2, 1, 0x80));
-        t.insert(3, Object::new(3, 2, 0x2080));
+        t.insert(Object::root(1));
+        t.insert(Object::new(2, 1, 0x80));
+        t.insert(Object::new(3, 2, 0x2080));
         let order = t.free_order(1);
         assert_eq!(order, vec![3, 2, 1]);
     }
@@ -127,26 +114,20 @@ mod tests {
     #[test]
     fn extra_dependency_is_honoured() {
         let mut t = ObjectTree::default();
-        t.insert(1, Object::root(1));
-        t.insert(2, Object::new(2, 1, 0x3e)); // memory
-        t.insert(3, Object::new(3, 1, 0xc46f)); // channel, uses the memory
+        t.insert(Object::root(1));
+        t.insert(Object::new(2, 1, 0x3e)); // memory
+        t.insert(Object::new(3, 1, 0xc46f)); // channel, uses the memory
         t.add_dependant(2, 3);
         let order = t.free_order(2);
         assert_eq!(order, vec![3, 2]);
     }
 
-    /// An extra edge outlives the object it points at unless `remove`
-    /// scrubs it. It has no counterpart in the parent field, so a `remove`
-    /// that only cleaned up `parent.dependants` left it in place -- and the
-    /// next `free_order` over the object it hangs off handed back a handle
-    /// that was freed one call earlier. `RmClient::free` would then send an
-    /// NV_ESC_RM_FREE for a dead handle on a live client.
     #[test]
     fn removing_an_object_takes_its_extra_edges_with_it() {
         let mut t = ObjectTree::default();
-        t.insert(1, Object::root(1));
-        t.insert(2, Object::new(2, 1, 0x3e)); // memory
-        t.insert(3, Object::new(3, 1, 0xc46f)); // channel, uses the memory
+        t.insert(Object::root(1));
+        t.insert(Object::new(2, 1, 0x3e)); // memory
+        t.insert(Object::new(3, 1, 0xc46f)); // channel, uses the memory
         t.add_dependant(2, 3);
         assert_eq!(
             t.free_order(2),
@@ -160,18 +141,13 @@ mod tests {
         assert_eq!(t.free_order(1), vec![2, 1]);
     }
 
-    /// A diamond -- two objects under the root, one object hanging off both
-    /// -- is freed once and in a valid order. Twice would be an
-    /// NV_ESC_RM_FREE on a handle that is already gone; the wrong way round
-    /// would tear out memory a channel is still using, which is the reason
-    /// the dependency edges exist at all.
     #[test]
     fn a_diamond_is_freed_once_and_dependants_first() {
         let mut t = ObjectTree::default();
-        t.insert(1, Object::root(1));
-        t.insert(2, Object::new(2, 1, 0x80)); // device
-        t.insert(3, Object::new(3, 1, 0x3e)); // memory
-        t.insert(4, Object::new(4, 2, 0xc46f)); // channel under the device
+        t.insert(Object::root(1));
+        t.insert(Object::new(2, 1, 0x80)); // device
+        t.insert(Object::new(3, 1, 0x3e)); // memory
+        t.insert(Object::new(4, 2, 0xc46f)); // channel under the device
         t.add_dependant(3, 4); // ... and using the memory
 
         let order = t.free_order(1);
@@ -188,13 +164,34 @@ mod tests {
         assert!(pos(3) < pos(1));
     }
 
-    /// A handle the tree never saw still gets freed, alone. `RmClient::free`
-    /// is called with handles the caller owns; answering an untracked one
-    /// with an empty order would silently skip the RM_FREE and leak the
-    /// object for the lifetime of the client.
     #[test]
     fn an_unknown_handle_is_freed_by_itself() {
         let t = ObjectTree::default();
         assert_eq!(t.free_order(0xdead), vec![0xdead]);
+    }
+
+    #[test]
+    fn replacing_a_handle_drops_its_old_incoming_edges() {
+        let mut t = ObjectTree::default();
+        t.insert(Object::root(1));
+        t.insert(Object::root(2));
+        t.insert(Object::new(3, 1, 0x80));
+        t.insert(Object::new(4, 1, 0x3e));
+        t.add_dependant(4, 3);
+
+        t.insert(Object::new(3, 2, 0x2080));
+        assert_eq!(t.free_order(4), vec![4]);
+        assert!(!t.free_order(1).contains(&3));
+        assert_eq!(t.free_order(2), vec![3, 2]);
+    }
+
+    #[test]
+    fn an_untracked_dependant_does_not_create_a_stale_free() {
+        let mut t = ObjectTree::default();
+        t.insert(Object::root(1));
+        t.add_dependant(1, 99);
+        assert_eq!(t.free_order(1), vec![1]);
+        t.insert(Object::root(99));
+        assert_eq!(t.free_order(1), vec![1]);
     }
 }

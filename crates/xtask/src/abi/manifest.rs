@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! The measured footprint of one driver version.
-//!
-//! A manifest is read out of bindgen's own output rather than out of the C
-//! headers, because bindgen's output is what the crate compiles against: a
-//! size this file records is the size a caller will see. bindgen emits, for
-//! every type it knows the layout of, a block of the shape
+//! Extract layouts from bindgen assertions, using `syn` to preserve formatting independence.
+//! Expected assertion form:
 //!
 //! ```text
 //! const _: () = {
@@ -15,12 +11,6 @@
 //!     ["Offset of field: NVOS64_PARAMETERS::hRoot"][offset_of!(..) - 0usize];
 //! };
 //! ```
-//!
-//! and the numbers in it are the manifest. It is parsed with `syn` and not
-//! with a regular expression: rustfmt wraps those lines in three different
-//! ways depending on how long the type name is, and a pattern that silently
-//! matched none of them would produce an EMPTY manifest, which every
-//! comparison below would then call "identical".
 
 use anyhow::{bail, Context, Result};
 use quote::ToTokens;
@@ -46,17 +36,9 @@ impl Kind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Field {
     pub name: String,
-    /// `None` for an anonymous union or struct member. bindgen names such a
-    /// member `__bindgen_anon_N` and emits no `offset_of!` assertion for it,
-    /// so there is no measured number to record and inventing one would be
-    /// the one thing this file must not do. Four fields in the UVM event API
-    /// are in that position; the anonymous type itself is a footprint type
-    /// whose own layout is measured, and the container's size, alignment and
-    /// every other field offset still are.
+    /// `None` for anonymous members without a bindgen offset assertion.
     pub offset: Option<u64>,
-    /// The type as bindgen spelled it. Not part of the size/offset
-    /// classification, but a field that keeps its offset and changes its type
-    /// is still a change, and this is where that is visible.
+    /// Bindgen type spelling; changes count even when layout is unchanged.
     pub ty: String,
 }
 
@@ -66,9 +48,7 @@ pub struct TypeLayout {
     pub size: u64,
     pub align: u64,
     pub fields: Vec<Field>,
-    /// Footprint types this one contains BY VALUE, directly or through an
-    /// array. A pointer is not an embedding: the pointee growing does not
-    /// move anything in the type that points at it.
+    /// Types contained by value, including array elements. Excludes pointers.
     pub embeds: BTreeSet<String>,
 }
 
@@ -83,9 +63,7 @@ pub struct Manifest {
     pub version: String,
     pub headers: String,
     pub commit: String,
-    /// The name this crate uses, mapped to what this version's headers called
-    /// it. Applied before anything below was measured; kept so the evidence
-    /// says which spelling it came from.
+    /// Canonical name to upstream spelling, applied before layout measurement.
     pub renames: BTreeMap<String, String>,
     pub aliases: BTreeMap<String, String>,
     pub constants: BTreeMap<String, Constant>,
@@ -165,9 +143,7 @@ impl Manifest {
             );
         }
 
-        // Alias resolution, so that a field spelled `NvHandle` is known to be
-        // an integer and a field spelled `NV_MEMORY_DESC_PARAMS` is known to
-        // be an embedding.
+        // Resolve aliases to distinguish scalar fields from embedded structs.
         let resolve = |mut name: String| -> String {
             for _ in 0..32 {
                 match aliases.get(&name) {
@@ -185,9 +161,7 @@ impl Manifest {
             let (size, align) = match (layouts.size.get(name), layouts.align.get(name)) {
                 (Some(s), Some(a)) => (*s, *a),
                 _ if decl.fields.is_empty() => {
-                    // An opaque forward declaration (`struct Uvm..._tag;`).
-                    // It has no layout to assert and nothing can depend on
-                    // one, so it is recorded with none.
+                    // Opaque forward declarations have no measured layout.
                     (0, 0)
                 }
                 _ => bail!(
@@ -240,9 +214,8 @@ impl Manifest {
         })
     }
 
-    /// Every footprint type that some other footprint type contains by value.
-    /// A type in here cannot grow at the end without moving whatever follows
-    /// it in its container, so "append-only" does not apply to it.
+    /// Types embedded by value. Growing them can move later container fields,
+    /// so they cannot be classified as append-only.
     pub fn embedded_types(&self) -> BTreeSet<String> {
         let mut out = BTreeSet::new();
         for t in self.types.values() {
@@ -251,9 +224,7 @@ impl Manifest {
         out
     }
 
-    /// Deterministic by construction: every map is a `BTreeMap`, field order
-    /// is declaration order, and one field is one line so a diff points at
-    /// the field that moved.
+    /// Sorted maps and declaration-order fields produce deterministic diffs.
     pub fn to_json(&self) -> String {
         let mut s = String::new();
         s.push_str("{\n");
@@ -334,10 +305,7 @@ fn named(fields: &syn::Fields) -> Vec<(String, Type)> {
     }
 }
 
-/// bindgen marks a type it could not see inside with a PRIVATE
-/// `_unused: [u8; 0]`, and emits no layout assertion for it -- correctly, it
-/// has no layout. A private field is bindgen's bookkeeping and never part of
-/// the ABI, so it is not a field here either.
+/// Exclude bindgen's private `_unused` fields for opaque declarations.
 fn is_public(f: &&syn::Field) -> bool {
     matches!(f.vis, syn::Visibility::Public(_))
 }
@@ -386,8 +354,7 @@ fn read_layout_block(c: &syn::ItemConst, out: &mut Layouts) -> Result<()> {
     Ok(())
 }
 
-/// Types this one contains by value. Arrays carry the embedding through;
-/// pointers and function pointers do not.
+/// Collect by-value dependencies, including arrays but excluding pointers.
 fn by_value_refs(ty: &Type, out: &mut BTreeSet<String>) {
     match ty {
         Type::Path(p) => {
@@ -417,10 +384,7 @@ fn tokens(e: &Expr) -> String {
     normalise(&e.to_token_stream().to_string())
 }
 
-/// `proc-macro2` prints a token stream with a space between every token.
-/// That is deterministic but unreadable, and these strings are read in a
-/// manifest diff. Collapsing the spacing changes nothing about what is
-/// compared -- both sides go through here.
+/// Normalize token spacing consistently for readable manifest comparisons.
 fn normalise(s: &str) -> String {
     let mut out = s
         .replace(" :: ", "::")

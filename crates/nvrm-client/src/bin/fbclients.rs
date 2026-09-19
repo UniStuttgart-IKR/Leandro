@@ -1,48 +1,16 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! Who is holding VRAM right now -- and under which guest-process
-//! identity?
+//! Query per-client VRAM/system-memory allocation totals and subprocess IDs.
 //!
-//! Asks `NV2080_CTRL_CMD_FB_GET_CLIENT_ALLOCATION_INFO` (0x20801349,
-//! `ctrl2080fb.h:2512`) and prints, per RM client, `handle`, `pid`,
-//! `subProcessID`, `subProcessName` and the sum of its allocations.
+//! NV2080_CTRL_CMD_FB_GET_CLIENT_ALLOCATION_INFO requires count and fill passes.
+//! Release drivers return NV_ERR_NOT_SUPPORTED: mem_mgr_ctrl.c compiles the
+//! implementation only for DEBUG, DEVELOP, NV_VERIF_FEATURES or NV_MODS.
+//! Use this probe with a debug driver; production accounting lives in vram.rs.
 //!
-//! What for: this is the counter-check for the sub-process identity. If the
-//! host sets the guest process's identity when a client is created
-//! (`SET_SUB_PROCESS_ID`, the RM control that stamps a client with a
-//! sub-process identity), it has to show up here -- with the guest
-//! module's dense ID (its never-reused per-process key) and the guest
-//! process's name, while `pid` stays that
-//! of the BACKEND (every guest process of a VM lives in its process; that
-//! is exactly why the sub-field exists).
-//!
-//! Invocation (on the HOST, while something runs in the guest):
-//!   cargo run --release -p nvrm-client --bin fbclients
-//!
-//! Two rounds, as the header prescribes (`ctrl2080fb.h:2507-2510`): ask
-//! with counters 0 first, then with adequately sized buffers. Values come
-//! back only when BOTH counters are large enough.
-//!
-//! Measured: **on a release driver RM always answers
-//! `NV_ERR_NOT_SUPPORTED` (0x56) here -- including as root.** The reason is
-//! in the source and is not a permission question: the whole
-//! implementation sits behind
-//! `#if defined(DEBUG) || defined(DEVELOP) || defined(NV_VERIF_FEATURES) ||
-//! defined(NV_MODS)` (`mem_mgr_ctrl.c:449`) and is simply not present in a
-//! production driver.
-//!
-//! The tool stays here anyway: against a debug driver it is the direct
-//! counter-check, and the finding itself is an answer -- a per-guest-process
-//! VRAM breakdown is NOT queryable on this driver, however cleanly the host
-//! sets the IDs. Whoever needs it has to keep the books themselves (the
-//! host sees every allocation) instead of asking RM. That is what
-//! `vhost-user-nvrm/src/vram.rs` does.
-//!
-//! That the IDs DO arrive is therefore shown by other evidence:
-//! `SET_SUB_PROCESS_ID` returns `NV_OK` only after it has written
-//! `pClient->SubProcessID` (`client_resource.c:4856-4872`) -- and the host
-//! logs every deviation from that loudly.
+//! ```text
+//! cargo run --release -p nvrm-client --bin fbclients
+//! ```
 
 use nvrm_abi::{sys, NvDevice};
 use nvrm_client::RmClient;
@@ -98,6 +66,18 @@ impl Default for ClientInfo {
     }
 }
 
+const _: () = {
+    assert!(
+        size_of::<FbInfoParams>()
+            == size_of::<sys::NV2080_CTRL_CMD_FB_GET_CLIENT_ALLOCATION_INFO_PARAMS>()
+    );
+    assert!(size_of::<AllocInfo>() == size_of::<sys::NV2080_CTRL_CMD_FB_ALLOCATION_INFO>());
+    assert!(size_of::<ClientInfo>() == size_of::<sys::NV2080_CTRL_CMD_FB_CLIENT_INFO>());
+    assert!(std::mem::offset_of!(FbInfoParams, p_client_info) == 24);
+    assert!(std::mem::offset_of!(AllocInfo, size) == 16);
+    assert!(std::mem::offset_of!(ClientInfo, sub_process_name) == 12);
+};
+
 /// `NV2080_CTRL_CMD_FB_ALLOCATION_FLAGS_TYPE` 4:0, `_VIDMEM` == 1
 /// (ctrl2080fb.h:2519-2521).
 fn is_vidmem(flags: u32) -> bool {
@@ -123,27 +103,26 @@ fn main() {
     let mut rm = RmClient::new().expect("NV01_ROOT_CLIENT");
     let root = rm.root();
 
-    // The per-GPU node must be OPEN, otherwise the card is not attached to
-    // this client and NV01_DEVICE_0 fails with
-    // NV_ERR_INSUFFICIENT_PERMISSIONS (0x1b) -- measured, first without and
-    // then with this line. The FD is only held, never used.
+    // RM device allocation requires the GPU node to remain open.
     let _gpu = NvDevice::open_gpu(0).expect("/dev/nvidia0");
 
     let device = rm.next_handle();
     let mut dp = sys::NV0080_ALLOC_PARAMETERS::default();
     dp.deviceId = 0;
-    rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp))
-        .expect("NV01_DEVICE_0");
+    // SAFETY: NV0080_ALLOC_PARAMETERS matches NV01_DEVICE_0; no embedded buffers.
+    unsafe { rm.alloc(root, device, sys::NV01_DEVICE_0, Some(&mut dp)) }.expect("NV01_DEVICE_0");
 
     let subdevice = rm.next_handle();
     let mut sp = sys::NV2080_ALLOC_PARAMETERS::default();
     sp.subDeviceId = 0;
-    rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp))
+    // SAFETY: NV2080_ALLOC_PARAMETERS matches NV20_SUBDEVICE_0; no embedded buffers.
+    unsafe { rm.alloc(device, subdevice, sys::NV20_SUBDEVICE_0, Some(&mut sp)) }
         .expect("NV20_SUBDEVICE_0");
 
     // Round 1: count only.
     let mut p = FbInfoParams::default();
-    if let Err(e) = rm.control(subdevice, CMD_FB_GET_CLIENT_ALLOCATION_INFO, &mut p) {
+    // SAFETY: FbInfoParams matches the command; counts describe its live output buffers.
+    if let Err(e) = unsafe { rm.control(subdevice, CMD_FB_GET_CLIENT_ALLOCATION_INFO, &mut p) } {
         eprintln!("FB_GET_CLIENT_ALLOCATION_INFO (counting round): {e}");
         eprintln!("  0x56 (NOT_SUPPORTED) is the RIGHT answer on a release driver");
         eprintln!("  and not a defect: the implementation sits behind");
@@ -158,9 +137,7 @@ fn main() {
         return;
     }
 
-    // Round 2: with buffers. Some slack, so that a client which appeared
-    // in the meantime does not make the round worthless -- RM delivers only
-    // when BOTH counters suffice.
+    // Leave capacity for new clients/allocations between the count and fill calls.
     let mut allocs = vec![AllocInfo::default(); n_alloc + 64];
     let mut clients = vec![ClientInfo::default(); n_client + 16];
     let mut p = FbInfoParams {
@@ -169,15 +146,15 @@ fn main() {
         client_count: clients.len() as u64,
         p_client_info: clients.as_mut_ptr() as u64,
     };
-    if let Err(e) = rm.control(subdevice, CMD_FB_GET_CLIENT_ALLOCATION_INFO, &mut p) {
+    // SAFETY: FbInfoParams matches the command; counts describe its live output buffers.
+    if let Err(e) = unsafe { rm.control(subdevice, CMD_FB_GET_CLIENT_ALLOCATION_INFO, &mut p) } {
         eprintln!("FB_GET_CLIENT_ALLOCATION_INFO (data round): {e}");
         std::process::exit(1);
     }
     let n_alloc = (p.alloc_count as usize).min(allocs.len());
     let n_client = (p.client_count as usize).min(clients.len());
 
-    // Sum per client. `client` in AllocInfo is the INDEX into the client
-    // list (ctrl2080fb.h:2535), not the handle.
+    // AllocInfo.client indexes the returned client list (ctrl2080fb.h).
     let mut vid = vec![0u64; n_client];
     let mut sys_b = vec![0u64; n_client];
     let mut chunks = vec![0u32; n_client];

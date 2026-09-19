@@ -83,6 +83,77 @@ static __u32 get32(const unsigned char *buf, size_t off)
 	return v;
 }
 
+static void reject_field(const unsigned char *buf, size_t len, const char *name,
+			 size_t offset, __u32 value)
+{
+	unsigned char *c = copy_of(buf, len);
+
+	put32(c, offset, value);
+	/* Recompute the checksum so payload cases exercise semantic validation. */
+	put32(c, offsetof(struct nvrm_table_hdr, checksum),
+	      nvrm_fnv1a32(c + sizeof(struct nvrm_table_hdr),
+			   len - sizeof(struct nvrm_table_hdr)));
+	expect(name, c, len, -EPROTO);
+	free(c);
+}
+
+static void reject_layouts(const unsigned char *buf, size_t len)
+{
+	struct nvrm_table_hdr h;
+	size_t first_ctrl;
+
+	memcpy(&h, buf, sizeof(h));
+#define REJECT_HEADER(name, field, value)                                    \
+	reject_field(buf, len, name, offsetof(struct nvrm_table_hdr, field), \
+		     value)
+	REJECT_HEADER("XFER wrapper exceeds stack buffer", xfer_struct_len,
+		      NVRM_XFER_HEADER_MAX + 1);
+	REJECT_HEADER("XFER wrapper empty", xfer_struct_len, 0);
+	REJECT_HEADER("XFER command past wrapper", xfer_cmd_off,
+		      h.xfer_struct_len);
+	REJECT_HEADER("XFER size crosses wrapper end", xfer_size_off,
+		      h.xfer_struct_len - 3);
+	REJECT_HEADER("XFER pointer crosses wrapper end", xfer_ptr_off,
+		      h.xfer_struct_len - 7);
+	REJECT_HEADER("XFER command offset wraps", xfer_cmd_off, 0xfffffffeu);
+	REJECT_HEADER("XFER size offset wraps", xfer_size_off, 0xfffffffeu);
+	REJECT_HEADER("XFER pointer offset wraps", xfer_ptr_off, 0xfffffffcu);
+	REJECT_HEADER("inline limit exceeds protocol", max_inline,
+		      NVRM_MAX_PAYLOAD + 1);
+	REJECT_HEADER("ioctl limit exceeds protocol", max_ioctl_size,
+		      NVRM_MAX_PAYLOAD + 1);
+	REJECT_HEADER("aux limit exceeds protocol", max_aux, NVRM_MAX_AUX + 1);
+#undef REJECT_HEADER
+	if (!h.n_ctrl) {
+		fprintf(stderr,
+			"FAIL: control rejection cases need a control row\n");
+		failures++;
+		return;
+	}
+	first_ctrl = sizeof(h) +
+		     (size_t)h.n_ioctl * sizeof(struct nvrm_ioctl_desc) +
+		     (size_t)h.n_class * sizeof(struct nvrm_class_desc);
+	reject_field(buf, len, "nested count exceeds protocol",
+		     first_ctrl + offsetof(struct nvrm_ctrl_desc, count),
+		     NVRM_MAX_NESTED + 1);
+	reject_field(buf, len, "nested row starts past table",
+		     first_ctrl + offsetof(struct nvrm_ctrl_desc, first),
+		     h.n_nested + 1);
+
+	/* A wrapped first+count must not pass a range check. */
+	{
+		unsigned char *c = copy_of(buf, len);
+
+		put32(c, first_ctrl + offsetof(struct nvrm_ctrl_desc, count),
+		      2);
+		reject_field(c, len, "nested row range wraps",
+			     first_ctrl +
+				     offsetof(struct nvrm_ctrl_desc, first),
+			     0xffffffffu);
+		free(c);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	unsigned char *buf, *c;
@@ -126,6 +197,11 @@ int main(int argc, char **argv)
 	/* The original is accepted -- otherwise every refusal below would be
 	 * meaningless. */
 	expect("original stream", buf, len, 0);
+	if (failures) {
+		free(buf);
+		return 1;
+	}
+	reject_layouts(buf, len);
 
 	/* 1. Shorter than a header: not even the magic can be read. */
 	c = copy_of(buf, len);

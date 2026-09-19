@@ -1,23 +1,9 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! What changed between two versions, and whether one layout can serve both.
-//!
-//! Three classes, and only the first two are automatic:
-//!
-//!   * **identical** -- same size, same alignment, same fields at the same
-//!     offsets with the same types. One layout serves both versions.
-//!   * **append-only** -- every field the older version had is still there at
-//!     the same offset, the type grew, and everything new sits past the old
-//!     end. An older caller reads the same bytes it always did.
-//!   * **breaking** -- anything else. The generator stops and names the
-//!     struct; a person decides which layout module the version takes.
-//!
-//! The trap that makes append-only harder than it looks is EMBEDDING. A
-//! params struct that grew at the end is harmless on its own and is not
-//! harmless inside another struct or an array of itself: there, growing at
-//! the end moves whatever follows. So a type that any other footprint type
-//! contains by value is breaking when it grows, however tidy the growth is.
+//! Classify layout changes as identical, append-only, or breaking.
+//! Append-only requires unchanged existing fields and new fields beyond the
+//! old size. Growth of a type embedded by value is always breaking.
 
 use crate::abi::manifest::{Constant, Manifest, TypeLayout};
 use std::collections::BTreeSet;
@@ -71,11 +57,7 @@ impl PairReport {
     }
 }
 
-/// Classify every type and constant of `from` against `to`.
-///
-/// Direction matters: append-only is a statement about reading an older
-/// layout out of a newer struct, so `classify(a, b)` and `classify(b, a)` are
-/// different questions and the second one is breaking.
+/// Compare `from` with `to`. Append-only compatibility is directional.
 pub fn classify(from: &Manifest, to: &Manifest) -> PairReport {
     let embedded: BTreeSet<String> = from
         .embedded_types()
@@ -205,11 +187,7 @@ pub fn classify_type(
                 reasons,
             };
         }
-        // Every field kept its name, its offset and its spelling, and the
-        // type still changed size. That is an EMBEDDED type that grew: an
-        // array element or a member struct, named the same and bigger. The
-        // growth is real and this type did not append anything, so there is
-        // nothing here that an older caller can rely on.
+        // Size changed without new fields, possibly through an embedded type.
         return breaking(format!(
             "size {} -> {} with no field of its own added or moved -- something it \
              contains grew",
@@ -217,14 +195,11 @@ pub fn classify_type(
         ));
     }
 
-    // Everything old is where it was, and there are new fields. The remaining
-    // question is whether they sit entirely past the old end, and whether
-    // anything contains this type by value.
+    // New fields must lie beyond the old footprint.
     if b.size <= a.size {
         return breaking(format!("size {} -> {} with fields added", a.size, b.size));
     }
-    // A field with no measured offset cannot be shown to sit past the old
-    // end, so it is not appended -- it is unproven, which is breaking.
+    // Unknown offsets cannot establish append-only compatibility.
     if let Some(early) = added.iter().find(|g| g.offset.is_none_or(|o| o < a.size)) {
         return breaking(match early.offset {
             Some(o) => format!(
@@ -258,8 +233,7 @@ pub fn classify_type(
     }
 }
 
-/// A constant has no shape to grow into. Any change of value is breaking, and
-/// so is a constant that one version does not have.
+/// Constant value changes and additions/removals are breaking.
 pub fn classify_const(
     name: &str,
     from: Option<&Constant>,
@@ -396,8 +370,7 @@ mod tests {
 
     #[test]
     fn append_only_is_not_symmetric() {
-        // Reading the NEW struct with the OLD one's eyes is fine; the other
-        // direction loses a field, which is not.
+        // Reversing an append removes fields.
         let a = manifest(
             "1.0",
             &[("P", ty(8, vec![f("x", 0, "NvU32"), f("y", 4, "NvU32")]))],
@@ -463,8 +436,7 @@ mod tests {
 
     #[test]
     fn appending_to_an_embedded_struct_is_breaking() {
-        // The trap. `Inner` grows only at its end, which would be append-only
-        // on its own -- but `Outer` holds one by value, so `after` moves.
+        // Growing `Inner` moves the following field in `Outer`.
         let inner_a = ty(8, vec![f("a", 0, "NvU32"), f("b", 4, "NvU32")]);
         let inner_b = ty(
             16,
@@ -491,8 +463,7 @@ mod tests {
 
     #[test]
     fn appending_to_a_struct_held_in_an_array_is_breaking() {
-        // The same trap through an array, which is the shape
-        // NV_CHANNEL_ALLOC_PARAMS uses for NV_MEMORY_DESC_PARAMS.
+        // Growing an array element changes its stride.
         let inner_a = ty(8, vec![f("a", 0, "NvU32"), f("b", 4, "NvU32")]);
         let inner_b = ty(
             16,
@@ -514,8 +485,7 @@ mod tests {
 
     #[test]
     fn growth_into_trailing_padding_is_breaking() {
-        // Same size, a field appeared: it went into padding that an older
-        // caller may have written. Not append-only.
+        // Old callers may have written arbitrary bytes into padding.
         let a = manifest("1.0", &[("P", ty(16, vec![f("x", 0, "NvU32")]))], &[]);
         let b = manifest(
             "2.0",
@@ -528,9 +498,7 @@ mod tests {
 
     #[test]
     fn a_container_that_grew_without_a_field_of_its_own_is_breaking() {
-        // No field was added, moved or respelled, and the struct is bigger:
-        // an array element or a member struct grew underneath it. Nothing
-        // here is appended, so nothing here is append-only.
+        // An embedded type grew; the container appended no fields.
         let a = manifest(
             "1.0",
             &[("P", ty(32, vec![f("four", 0, "[Inner; 4usize]")]))],

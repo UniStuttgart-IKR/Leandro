@@ -1,48 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! The virtio-nvrm device side: the counterpart to `virtio_nvrm.ko`.
+//! Virtio request dispatch, shared-window mappings, and event delivery.
 //!
-//! Terms this file leans on, once (docs/ARCHITECTURE.md has the longer
-//! story): RM is NVIDIA's Resource Manager, the kernel driver behind
-//! /dev/nvidiactl and /dev/nvidiaN whose ioctls are called escapes; a
-//! token is the host-issued id for one device fd the guest opened;
-//! `guest_proc` is the dense per-process id the guest module assigns; the
-//! host-visible window is the SHMEM region the guest maps RM mappings
-//! through.
-//!
-//! Two virtqueues. Queue 0 is the request queue -- request buffer in,
-//! response buffer out -- and was the only one until the event return
-//! channel: the guest driver is purpose-built for this protocol. (The
-//! retired virtio-gpu carrier had to reuse an EXISTING guest driver and
-//! therefore join in the whole blob/capset/EXECBUFFER dance.)
-//!
-//! Queue 1 is the EVENT queue: the guest pre-posts `Req`-sized inbufs, the
-//! device writes one `KIND_EVENT_FIRED` per RM event that fired on the
-//! host (`on_poll`). WHY a second queue and not an answer piggy-back: a
-//! device-initiated message either rides on a request the guest keeps
-//! parked (a permanent request, or guest polling) or on a queue of its
-//! own -- and the latter is the pattern of every virtio device that has
-//! something to say unasked (virtio-input eventq, virtio-gpu cursorq).
-//! Latency is one interrupt, and the crate gives exactly this
-//! (`add_used` + `signal_used_queue` on `vrings[1]`).
-//!
-//! Three things this device does itself, before a message reaches a
-//! session at all:
-//!
-//!  - `KIND_GET_TABLES`: deliver the descriptor tables, paginated.
-//!  - `MapPrepare`: after registering the mapping with the session, place
-//!    it via SHMEM_MAP at the window offset the guest named. The GUEST
-//!    picks the offset here, because it manages the window -- the host
-//!    checks it and answers with the cacheability instead of a
-//!    virtio-gpu-style blob_id (the name survives in session.rs for the
-//!    pending-mapping key).
-//!  - `KIND_MAP_RELEASE`: take that same mapping back out.
-//!
-//! One session per guest process, keyed on `Req.guest_proc`. The guest
-//! module keeps guest processes apart from each other (one context per
-//! `struct file`, tokens reachable only through the owning context); across
-//! the VM boundary, the VM is the unit the host can actually isolate.
+//! Queue 0 carries requests and replies; queue 1 carries host events.
+//! Sessions are keyed by guest process ID. IDs and cross-process FD owners
+//! are guest-controlled; isolation and resource policy apply to the whole VM.
 
 use std::collections::{BTreeMap, HashMap};
 use std::os::fd::{AsRawFd, RawFd};
@@ -69,50 +32,15 @@ type NvVring = VringRwLock<Mem>;
 const VIRTIO_F_VERSION_1: u64 = 32;
 const VHOST_USER_F_PROTOCOL_FEATURES: u64 = 30;
 
-/// virtio_gpu.h:442-446 -- the cacheability encoding the guest is told.
-/// Taken from the virtio-gpu protocol; `virtio_nvrm.ko` uses the same
-/// values so the answer to MapPrepare does not have to be reinvented.
+/// Cacheability values shared with virtio-gpu and the guest module.
 const MAP_CACHE_CACHED: u32 = 0x01;
 const MAP_CACHE_UNCACHED: u32 = 0x02;
 
-/// virtio_gpu.h:127 -- the shmid under which the guest driver looks for the
-/// window (cloud-hypervisor derives it from the list index, which is why
-/// index 0 stays empty).
+/// Host-visible region ID. cloud-hypervisor uses the list index; slot 0 is empty.
 const SHM_ID_HOST_VISIBLE: u8 = 1;
 
-/// Size of the host-visible window (address space, PROT_NONE).
-///
-/// 8 GiB, and every step up from the 256 MiB this started at came from a
-/// measurement rather than a guess. NVENC raised it first: a single
-/// 1080p `h264_nvenc` session holds **250.6 MiB simultaneously** --
-/// 30 surfaces of 6,328,320 bytes (181 MiB), one block of 58,720,256
-/// bytes (56 MiB), and change -- and nothing is released until the process
-/// exits. At 256 MiB the next allocation is the one that fails, which the
-/// encoder reports as
-///
-/// ```text
-/// CreateBitstreamBuffer failed: out of memory (10)
-/// ```
-///
-/// The tell that this is capacity and not corruption: the failure follows
-/// the PIXEL COUNT, not the width or the height. Measured, 3 frames each:
-/// 1856x1044 and 1920x1008 pass, 1856x1080 and 1888x1062 fail -- the edge
-/// sits just under 2.0 MPix, exactly where 30 surfaces stop fitting.
-///
-/// 1 GiB carries 4K by the same arithmetic (30 x 24.9 MiB + 56 MiB is
-/// ~800 MiB). It costs nothing but address space: the window is an
-/// anonymous PROT_NONE MAP_NORESERVE region until the backend maps
-/// something into it, and the guest's page bitmap grows to 32 KiB.
-///
-/// And then a GAME. Measured 2026-08-15 with the tracer on CS2 in the
-/// guest: 128 mappings, 938 MiB in the window, and the 129th -- 32 MiB --
-/// finds no hole, mmap returns MAP_FAILED, and CS2 memcpys into NULL+16
-/// from five GlobPool threads at once (SIGSEGV in libc, minidumps by the
-/// handful). The user's native dust2 run maps 3.6 GB in its first 3000
-/// trace lines. Same arithmetic, same answer: 8 GiB. Still address space
-/// only; the bitmap is 256 KiB. The guest's window comes from the
-/// virtio shmem region, so both sides move together through this one
-/// constant.
+/// Virtual address space reserved for RM mappings. Backing is installed on demand.
+/// 8 GiB accommodates the measured multi-GiB graphics working sets.
 const HOST_VISIBLE_SIZE: u64 = 8 << 30;
 
 /// One-shot latch for `LEA_TEST_SHMEM_MAP_OOB` (see `on_map_prepare`). Fires
@@ -120,15 +48,8 @@ const HOST_VISIBLE_SIZE: u64 = 8 << 30;
 /// after it is the recovery being measured, not a second injection.
 static TEST_OOB_FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Which cacheability a window mapping gets. The **GPU node** never gets
-/// write-back -- registers are `NV_MEMORY_UNCACHED`, framebuffer is
-/// `UNCACHED` or write-combining. The **ctl node** maps system memory,
-/// which is cached.
-///
-/// Registers cannot be told apart from framebuffer at this point, so the
-/// GPU node gets a blanket `UNCACHED`: stricter than WC, hence never wrong,
-/// at worst slower. The doorbell (`TURING_USERMODE_A`) is a register and
-/// needs exactly that.
+/// GPU mappings use uncached access because this path cannot distinguish
+/// registers from framebuffer memory. Control-node system memory is cached.
 fn cache_for(dev: nvrm_abi::xlate::Dev) -> u32 {
     match dev {
         nvrm_abi::xlate::Dev::Gpu => MAP_CACHE_UNCACHED,
@@ -136,26 +57,14 @@ fn cache_for(dev: nvrm_abi::xlate::Dev) -> u32 {
     }
 }
 
-/// Virtio-PCI *modern* maps PCI device `0x1040 + type` and accepts only
-/// `0x1040..0x107f` -- that is, types 0..63. The spec assigns up to ~42; 60
-/// is free and works (measured: `1af4:107c`, `virtio5: 0x003c`). Must match
-/// `--generic-vhost-user device_type=60` and `VIRTIO_ID_NVRM` in the driver
-/// header. Should virtio-nvrm ever get an official ID, the number changes
-/// at exactly those two places.
+/// Experimental virtio type. Must match VIRTIO_ID_NVRM in the generated
+/// header and the hypervisor device_type argument.
 pub const VIRTIO_ID_NVRM: u32 = 60;
 
-/// Indirect descriptors: a maximum-size message (1 MiB aux) is more than
-/// 256 pages and would otherwise not fit into a 256-entry queue. The guest
-/// module attaches its buffers as a page list; without this feature it
-/// would have to cap the message size.
+/// Indirect descriptors allow a 1 MiB auxiliary buffer in a 256-entry queue.
 const VIRTIO_RING_F_INDIRECT_DESC: u64 = 28;
 
-/// `LEA_DEBUG` set to a non-empty value. NOT `var_os(..).is_some()`: an EMPTY
-/// value is still `Some("")`, so a launcher that passes
-/// `LEA_DEBUG="${LEA_DEBUG:-}"` through -- the normal, careful-looking shell
-/// idiom -- would turn the firehose on for every run. It did: 86,645 debug
-/// lines on a per-frame path before anyone noticed the variable was set at
-/// all. Read once, through the session's cached level.
+/// Use the session's cached debug level; an empty LEA_DEBUG disables logging.
 fn debug() -> bool {
     crate::session::debug_level() >= 1
 }
@@ -168,19 +77,12 @@ macro_rules! dlog {
 /// mapping open for as long as the VMM has it blended in.
 struct WindowMap {
     len: u64,
-    /// Which guest process placed it. `KIND_MAP_RELEASE` names ONE offset,
-    /// and a process that dies -- crash, SIGKILL, or an exit that never
-    /// tears down -- names none, so without an owner nothing could ever
-    /// give these back. See [`Backend::release_window_of`].
+    /// Owner used to release leftover mappings on PROC_GONE.
     guest_proc: u32,
     _fd: std::fs::File,
 }
 
-/// Which window offsets a guest process placed.
-///
-/// A free function for the same reason `window_overlaps` is one: this is the
-/// decision PROC_GONE acts on, it decides whether a dead process's slice of
-/// the 8 GiB window comes back, and it must be checkable without a VMM.
+/// Window offsets owned by this guest process.
 fn window_of_proc(
     window: &std::collections::BTreeMap<u64, WindowMap>,
     guest_proc: u32,
@@ -192,24 +94,9 @@ fn window_of_proc(
         .collect()
 }
 
-/// Does `[off, off+len)` touch a mapping that is already in the window?
-///
-/// A free function rather than a method so it can be tested without a
-/// device: this is the check that stops one guest process from placing its
-/// mapping on top of another's, and it is three lines of range arithmetic
-/// that would be easy to get subtly wrong.
-///
-/// Looking at only the LAST mapping that starts before `off+len` is
-/// sufficient, and the reason is the invariant this very function
-/// maintains -- the mappings never overlap EACH OTHER. Let `o` be that
-/// last key.
-///   - If `o > off` it starts inside the query and `o + len > off` holds
-///     trivially: overlap.
-///   - If `o <= off` and it ends at or before `off`, then every earlier
-///     mapping ends at or before `o`, hence at or before `off`: no overlap.
-///
-/// Callers check `off.checked_add(len)` against the window size first, so
-/// the sum here cannot wrap.
+/// Whether [off, off + len) overlaps an existing mapping.
+/// Existing mappings are disjoint, so only the last start before the query
+/// end can overlap. Callers validate both ranges against HOST_VISIBLE_SIZE.
 fn window_overlaps(
     window: &std::collections::BTreeMap<u64, WindowMap>,
     off: u64,
@@ -221,11 +108,8 @@ fn window_overlaps(
         .is_some_and(|(&o, m)| o + m.len > off)
 }
 
-/// The `data` under which the device's OWN epoll fd sits in the worker's
-/// epoll set. `register_listener` reserves `0..=num_queues()` for the two
-/// queues and the exit event (event_loop.rs:119-121), so with two queues
-/// the first free value is 3; it arrives in `handle_event` as
-/// `device_event` (a u16, event_loop.rs:186).
+/// The worker reserves event IDs 0 and 1 for queues, and 2 for exit.
+/// Its handle_event interface receives this ID as u16.
 const EVENT_LISTENER: u64 = 3;
 const EVENT_LISTENER_U16: u16 = EVENT_LISTENER as u16;
 
@@ -246,11 +130,8 @@ enum PollSrc {
         token: u64,
         fd: RawFd,
     },
-    /// The waiter poller's notify eventfd: readable = retired semsurf
-    /// (semaphore-surface: the fence object nvidia-drm signals through)
-    /// waiters to collect (`WaiterPoller::take_fired`). The waiter fds
-    /// themselves are NOT in this set -- waiters.rs explains why epoll
-    /// would eat their wakes.
+    /// Waiter completions, delivered through a persistent eventfd counter.
+    /// NVIDIA waiter FDs use poll(2) in waiters.rs because epoll consumes wakes.
     WaiterNotify,
 }
 
@@ -261,19 +142,8 @@ type PollKey = (u32, u64, u32);
 
 pub struct NvrmDevice<A: RmAbi> {
     mem: Option<Mem>,
-    event_idx: bool,
-    /// Guest process ID -> its session. The key is `Req.guest_proc`, the
-    /// dense ID the guest module assigns per `open`; 0 means "not stated"
-    /// and shares a single session with every other caller that states
-    /// nothing.
-    ///
-    /// Why per process and not per VM: `PoolState.pools` is keyed on the
-    /// GPU VA, and libcuda places the semaphore pool of EVERY process at
-    /// the same one (`0x204a00000`). With one session per VM, two
-    /// concurrent managed-memory processes collided there structurally --
-    /// the stopgap in `back_pool` (drop the older entry) was correct
-    /// sequentially and a race under concurrency. Separate sessions solve
-    /// it at the root: separate pools, separate tokens, separate mirrors.
+    /// Guest process ID to session. ID 0 shares the unspecified-process session.
+    /// Separate sessions prevent GPU VA and token collisions between processes.
     sessions: BTreeMap<u32, Session<A>>,
     /// How often a `fd_field_token` missed the caller's own mirror. Only for
     /// the diagnostic below; see there for what it is proving.
@@ -285,23 +155,13 @@ pub struct NvrmDevice<A: RmAbi> {
     /// host checks it: nothing may overlap, nothing may cross the window
     /// boundary.
     window: BTreeMap<u64, WindowMap>,
-    /// The VRAM policy and its counter. One ledger per device, i.e. per VM
-    /// -- every session charges the same counter, because the VM is the only
-    /// boundary the host can enforce (docs/FUTURE.md). Which policy, and
-    /// what it holds back, is [`crate::vram::Profile`].
+    /// VM-wide VRAM policy and accounting, shared by all sessions.
     vram: std::sync::Arc<crate::vram::Ledger>,
+    pins: std::sync::Arc<crate::host_pool::PinBudget>,
 
-    /// The device's OWN epoll set for host fds that announce RM events.
-    ///
-    /// WHY a nested epoll and not `register_listener` per fd: the
-    /// worker's `handle_event` runs under the backend's `RwLock::write`
-    /// (backend.rs:594-604), and `VringEpollHandler::register_listener`
-    /// reads `self.backend.num_queues()` under `RwLock::read`
-    /// (event_loop.rs:120) -- std's RwLock is not reentrant, so registering
-    /// an fd from inside `handle()`/`handle_event()` would deadlock the
-    /// worker. This set is registered ONCE with the worker (`serve`, before
-    /// `daemon.serve`), and every later `epoll_ctl` goes here, where no
-    /// backend lock is involved.
+    /// Nested epoll for RM events. Registering FDs directly with the worker
+    /// from handle_event would reacquire the backend RwLock and deadlock.
+    /// Register this epoll FD once, before serving requests.
     poll: Epoll,
     /// epoll `data` -> what it names. Ids count up from 1 and are never
     /// reused: a stale event for a deleted id resolves to nothing instead
@@ -324,6 +184,7 @@ pub struct NvrmDevice<A: RmAbi> {
     /// The semaphore-surface waiter poller (waiters.rs): its own thread,
     /// `poll(2)`, reporting through an eventfd in `poll`.
     waiters: crate::waiters::WaiterPoller,
+    event_error: Option<String>,
 }
 
 impl<A: RmAbi> NvrmDevice<A> {
@@ -342,7 +203,6 @@ impl<A: RmAbi> NvrmDevice<A> {
         );
         Ok(Self {
             mem: None,
-            event_idx: false,
             sessions: BTreeMap::new(),
             fd_field_misses: 0,
             tables,
@@ -352,6 +212,7 @@ impl<A: RmAbi> NvrmDevice<A> {
             // exists: the guest then fails to start with the reason in
             // this log, rather than coming up under a policy nobody chose.
             vram: crate::vram::Ledger::new().map_err(|e| anyhow::anyhow!("{e}"))?,
+            pins: crate::host_pool::PinBudget::from_env()?,
             poll: Epoll::new().map_err(|e| anyhow::anyhow!("event epoll: {e}"))?,
             poll_srcs: HashMap::new(),
             poll_ids: HashMap::new(),
@@ -363,60 +224,47 @@ impl<A: RmAbi> NvrmDevice<A> {
             ev_dropped_noqueue: 0,
             ev_announced: false,
             waiters: crate::waiters::WaiterPoller::new()?,
+            event_error: None,
         })
     }
 
-    /// The poller's notify eventfd joins the device's epoll set once, at
-    /// construction time of the set's bookkeeping. An eventfd is safe
-    /// there: its counter stays until read, unlike the nvidia fds' flag.
-    fn register_waiter_notify(&mut self) {
+    /// An eventfd retains readiness until read, so it is safe in epoll.
+    fn register_waiter_notify(&mut self) -> std::io::Result<()> {
         let fd = self.waiters.notify_fd();
         let id = self.next_poll_id;
         self.next_poll_id += 1;
-        match self
-            .poll
-            .ctl(ControlOperation::Add, fd, EpollEvent::new(EventSet::IN, id))
-        {
-            Ok(()) => {
-                self.poll_srcs.insert(id, PollSrc::WaiterNotify);
-                dlog!("poll +{id}: WaiterNotify fd {fd}");
-            }
-            Err(e) => eprintln!(
-                "vhost-user-nvrm: cannot watch waiter notify fd {fd}: {e} -- \
-                 semsurf waiter fences will hang"
-            ),
-        }
+        self.poll
+            .ctl(ControlOperation::Add, fd, EpollEvent::new(EventSet::IN, id))?;
+        self.poll_srcs.insert(id, PollSrc::WaiterNotify);
+        dlog!("poll +{id}: WaiterNotify fd {fd}");
+        Ok(())
     }
 
-    // ---- the event return channel: registering ----------------------------
+    // Event registration.
 
     fn poll_key(guest_proc: u32, p: &Pollable) -> PollKey {
-        match *p {
-            Pollable::EventCtl { h_client, .. } => (guest_proc, proto::NONE_U64, h_client),
-            Pollable::Client { token, owner, .. } => (owner.unwrap_or(guest_proc), token, 0),
+        match p {
+            Pollable::EventCtl { h_client, .. } => (guest_proc, proto::NONE_U64, *h_client),
+            Pollable::Client { token, owner, .. } => (owner.unwrap_or(guest_proc), *token, 0),
             // Never in the epoll set; register_pollables diverts these
             // before the key is asked for.
             Pollable::Waiter { .. } => unreachable!("waiter fds bypass the epoll set"),
         }
     }
 
-    /// Put what a session reported into the epoll set.
-    ///
-    /// Event ctls are LEVEL-triggered: the device drains them itself, and
-    /// whatever it leaves is meant to fire again. Client fds are
-    /// EDGE-triggered: the GUEST drains those, through its own
-    /// passed-through NV_ESC_RM_GET_EVENT_DATA -- level would be a busy
-    /// loop until it does. Every `nv_post_event` is a
-    /// `wake_up_interruptible` and thus a fresh edge (nv.c:4085), and
-    /// coalescing is wanted: the guest only sets a flag.
-    fn register_pollables(&mut self, guest_proc: u32, new: Vec<Pollable>) {
+    /// Register event FDs. Event controls are level-triggered and drained here;
+    /// client FDs are edge-triggered and drained by the guest to avoid a busy loop.
+    fn register_pollables(&mut self, guest_proc: u32, new: Vec<Pollable>) -> std::io::Result<()> {
         for p in new {
-            // Waiter fds bypass the epoll set entirely (waiters.rs says
-            // why) -- they go to the poller thread, keyed by fd, replacing
-            // whatever stale entry a recycled slot left behind.
-            if let Pollable::Waiter { id, fd } = p {
-                self.waiters
-                    .watch(crate::waiters::Watch { guest_proc, id, fd });
+            // Waiters use the dedicated poller; registration retains the FD.
+            if let Pollable::Waiter { registration, fd } = p {
+                self.waiters.watch(crate::waiters::Watch {
+                    fired: crate::waiters::Fired {
+                        guest_proc,
+                        registration,
+                    },
+                    fd,
+                })?;
                 continue;
             }
             let key = Self::poll_key(guest_proc, &p);
@@ -462,15 +310,12 @@ impl<A: RmAbi> NvrmDevice<A> {
                 }
             }
         }
+        Ok(())
     }
 
-    /// Take one fd out of the set -- out of the KERNEL's set, not just our
-    /// map. A level-triggered fd that stays registered fires forever:
-    /// an event ctl on a GPU_IS_LOST answers POLLHUP (nv.c:2306) as long as
-    /// the session lives, and a worker that only forgot its id spins on it
-    /// while also serving queue 0. The fd is what the kernel needs for the
-    /// DELETE, so the source carries it. `fd_hint` overrides it for the
-    /// token path, where the caller has the more current number.
+    /// Remove the kernel registration and its lookup entries. A hung-up FD
+    /// left in level-triggered epoll would spin. fd_hint supplies the current
+    /// mirror FD; the stored FD remains valid for event controls.
     fn unregister_id(&mut self, id: u64, fd_hint: Option<RawFd>) {
         let Some(src) = self.poll_srcs.remove(&id) else {
             return;
@@ -505,11 +350,8 @@ impl<A: RmAbi> NvrmDevice<A> {
         dlog!("poll -{id}: {src:?}");
     }
 
-    /// The guest closes a token: its host fd leaves the set BEFORE the
-    /// session closes it. Order matters: `take_pending_map` duplicated
-    /// mirror fds for the VMM, so the FILE may outlive the mirror's fd and
-    /// keep the epoll registration alive -- and the fd NUMBER gets reused by
-    /// the next open, which would then be watched under a stale id.
+    /// Unregister before closing the mirror FD. A duplicate held by the VMM
+    /// can keep the epoll registration alive after the original FD closes.
     fn unregister_token(&mut self, guest_proc: u32, token: u64) {
         let Some(&id) = self.poll_ids.get(&(guest_proc, token, 0)) else {
             return;
@@ -521,11 +363,7 @@ impl<A: RmAbi> NvrmDevice<A> {
         self.unregister_id(id, fd);
     }
 
-    /// One event ctl leaves the set: its RM client was freed, and the
-    /// session is handing the fd over to be closed. Same order as
-    /// `unregister_token` and for the same reason -- out of the KERNEL's
-    /// epoll set first, close second. The caller drops the fd only after
-    /// this returns.
+    /// Unregister a freed client's event control before the caller closes it.
     fn unregister_event_ctl(&mut self, guest_proc: u32, h_client: u32) {
         let key = (guest_proc, proto::NONE_U64, h_client);
         let Some(&id) = self.poll_ids.get(&key) else {
@@ -535,10 +373,8 @@ impl<A: RmAbi> NvrmDevice<A> {
     }
 
     /// Everything a session ever reported, on its way out.
-    fn unregister_proc(&mut self, guest_proc: u32) {
-        // The waiter poller's entries first: the session's slot fds close
-        // with the session, and a stale entry would poll a reused number.
-        self.waiters.unwatch_proc(guest_proc);
+    fn unregister_proc(&mut self, guest_proc: u32) -> std::io::Result<()> {
+        self.waiters.cancel_process(guest_proc)?;
         let ids: Vec<u64> =
             self.poll_srcs
                 .iter()
@@ -561,18 +397,18 @@ impl<A: RmAbi> NvrmDevice<A> {
             };
             self.unregister_id(id, fd);
         }
+        Ok(())
     }
 
-    // ---- the event return channel: firing ---------------------------------
+    // Event delivery.
 
     fn next_seq(&mut self) -> u32 {
         self.ev_seq = self.ev_seq.wrapping_add(1);
         self.ev_seq
     }
 
-    /// Write one KIND_EVENT_FIRED into the next inbuf the guest posted on
-    /// the event queue. `false` = dropped and counted; NEVER waits -- the
-    /// worker thread that runs this also serves queue 0.
+    /// Deliver one event without blocking request processing.
+    /// Returns false and increments a drop counter if delivery fails.
     fn push_event(&mut self, evq: &NvVring, req: &Req) -> bool {
         if !evq.get_ref().is_enabled() {
             self.ev_dropped_noqueue += 1;
@@ -633,12 +469,8 @@ impl<A: RmAbi> NvrmDevice<A> {
         true
     }
 
-    /// The device's epoll fd turned readable: some host fd has an RM event.
-    ///
-    /// Bounded rounds, so that queue 0 does not starve behind a chatty
-    /// event source; the outer epoll is level-triggered on our fd, so
-    /// whatever is left triggers the next `handle_event`. ONE
-    /// `signal_used_queue` per pass, like `process_queue`.
+    /// Drain bounded event batches so request processing cannot starve.
+    /// Level triggering schedules any remainder. Signal the guest once per pass.
     fn on_poll(&mut self, evq: &NvVring) -> std::io::Result<()> {
         let mut evs = [EpollEvent::default(); 64];
         let mut wrote_any = false;
@@ -655,6 +487,9 @@ impl<A: RmAbi> NvrmDevice<A> {
                 let id = e.data();
                 let set = EventSet::from_bits(e.events()).unwrap_or(EventSet::empty());
                 if set.intersects(EventSet::HANG_UP | EventSet::ERROR) {
+                    if matches!(self.poll_srcs.get(&id), Some(PollSrc::WaiterNotify)) {
+                        return Err(std::io::Error::other("waiter notification FD failed"));
+                    }
                     // The fd died under us; the kernel drops it from the set
                     // when the last reference goes, but forget it now.
                     dlog!("poll id {id}: fd hung up / errored ({set:?})");
@@ -696,12 +531,8 @@ impl<A: RmAbi> NvrmDevice<A> {
                                 continue;
                             }
                         };
-                        // The drain may have CLOSED the ctl (a refusal it
-                        // cannot recover from). Forget the registration
-                        // with it: a later alloc opens a fresh ctl under
-                        // the same key, and a stale entry would dedupe it
-                        // away -- that client's events would never arrive
-                        // again, silently.
+                        // A failed drain can close the control. Remove its registration so a
+                        // replacement under the same client key can be registered.
                         if !ctl_alive {
                             self.unregister_id(id, None);
                         }
@@ -736,21 +567,17 @@ impl<A: RmAbi> NvrmDevice<A> {
                         }
                     }
                     Some(PollSrc::WaiterNotify) => {
-                        // Retired semsurf waiters. The poller already took
-                        // them out of its watch list; the session retires
-                        // the books and hands back what the guest needs to
-                        // call its NVOS10 block: hEvent = 0 is the marker
-                        // (a waiter has no event object), `addr` the
-                        // callback pointer.
-                        for w in self.waiters.take_fired() {
+                        // Retire completed waiters and return their callback data. A zero
+                        // hEvent distinguishes these from allocated event objects.
+                        for w in self.waiters.take_fired()? {
                             let woken = self
                                 .sessions
                                 .get_mut(&w.guest_proc)
-                                .and_then(|s| s.semsurf_wake(w.id));
+                                .and_then(|s| s.semsurf_wake(w.registration));
                             let Some((h_client, kc, token)) = woken else {
                                 dlog!(
                                     "waiter id {} of proc {}: no books -- dropped",
-                                    w.id,
+                                    w.registration.event_id,
                                     w.guest_proc
                                 );
                                 continue;
@@ -763,7 +590,7 @@ impl<A: RmAbi> NvrmDevice<A> {
                                 target_token: token,
                                 aux_len: sys::NV_OK,
                                 fd_field_off: h_client,
-                                fd_field_token: w.id as u64,
+                                fd_field_token: w.registration.event_id as u64,
                                 embedded_ptr_off: 0,
                                 addr: kc,
                                 guest_proc: w.guest_proc,
@@ -771,7 +598,7 @@ impl<A: RmAbi> NvrmDevice<A> {
                             };
                             dlog!(
                                 "EVENT_FIRED semsurf proc {} hClient {h_client:#x} kc {kc:#x} id {}",
-                                w.guest_proc, w.id
+                                w.guest_proc, w.registration.event_id
                             );
                             wrote_any |= self.push_event(evq, &req);
                             self.ev_wakes += 1;
@@ -793,33 +620,9 @@ impl<A: RmAbi> NvrmDevice<A> {
         Ok(())
     }
 
-    /// Every FD this backend holds, split by who holds it, against the FD
-    /// count the kernel actually reports for this process.
-    ///
-    /// The one line OPEN-QUESTIONS 31 was missing. It could say that
-    /// 2003 `nvidiactl` FDs were open and that only one guest process was
-    /// alive, but not WHICH structure held them -- and a leak whose owner is
-    /// unknown cannot be fixed, only guessed at. Anything the sum does not
-    /// account for is held outside every session.
-    ///
-    /// Behind its OWN switch, `LEA_FD_CENSUS`, and not `LEA_DEBUG`: that one
-    /// is a firehose (it prints a line per semsurf waiter, i.e. per frame),
-    /// so anyone who wanted this line would have had to drown to read it.
-    /// This reads a directory, and PROC_GONE is hot enough that it must not
-    /// be free either.
+    /// Compare session-owned FDs with /proc/self/fd, gated by LEA_FD_CENSUS.
     fn fd_census(&self) {
-        // `is_some_and(|v| !v.is_empty())`, NOT `is_some()`. An EMPTY value is
-        // still a SET variable, and the shell that starts this backend passes
-        // `LEA_FD_CENSUS="${LEA_FD_CENSUS:-}"` (rig.sh) -- the careful-looking
-        // idiom llm.md names as a trap -- so `is_some()` switched the census
-        // on for every rig anybody ever brought up, whether or not they asked.
-        // Measured 2026-08-21: a desktop guest nobody had set the variable for
-        // was writing census lines into nvrm.log, and this is a PROC_GONE
-        // path, which the doc above says must not be free.
-        //
-        // LEA_OBJLOG, three lines of code away in session.rs, has always had
-        // the correct test. This was one missed site and not a pattern -- the
-        // other six switches compare against a value or parse one.
+        // An empty LEA_FD_CENSUS disables the directory scan.
         if std::env::var_os("LEA_FD_CENSUS").is_none_or(|v| v.is_empty()) {
             return;
         }
@@ -841,19 +644,8 @@ impl<A: RmAbi> NvrmDevice<A> {
             }
         }
         let named: usize = t[0] + t[2] + t[3] + t[4] + t[5] + t[6];
-        // `total`, not `ctl`, and no window term. The old expression was
-        // `ctl - named - window.len()` and subtracted three different units
-        // from each other: `ctl` counts only the fds whose link says
-        // nvidiactl, `named` counts session-held fds of EVERY node
-        // (/dev/nvidia0 and the two uvm nodes as well), and `window` counts
-        // guest memory MAPPINGS, which are not fds at all. It therefore read
-        // negative whenever a session held anything but ctl fds, which is
-        // always: measured 2026-08-20, -21 on a bare boot and -203 on a
-        // desktop, for a figure the doc above calls "held outside every
-        // session" -- a count of things, which cannot be less than zero.
-        // Still i64 and still printed signed: if this ever does go negative
-        // the sessions are claiming fds the process does not have, and that
-        // is worth seeing rather than clamping away.
+        // Subtract all session FDs from all process FDs. Keep the signed result
+        // to expose inconsistent counts; window FDs are outside the sessions.
         eprintln!(
             "vhost-user-nvrm: fd census: {} sessions hold {named} \
              (mirror {} of {} ever, event_ctls {} pooled_waiters {} armed {} pending {} osdesc {}) \
@@ -886,21 +678,10 @@ impl<A: RmAbi> NvrmDevice<A> {
         }
     }
 
-    /// This guest process's session, created on demand.
-    ///
-    /// It is created on the process's first word and torn down on the
-    /// `KIND_PROC_GONE` of its last FD. If creation fails (it opens no
-    /// devices, so in practice only memory can defeat it), the guest gets
-    /// an error rather than being quietly attached to someone else's
-    /// session.
+    /// Get or create the session. Refuse new sessions at the VM-wide limit.
     fn session_for(&mut self, sub_id: u32) -> Option<&mut Session<A>> {
         if !self.sessions.contains_key(&sub_id) {
-            // The guest assigns the IDs, so it must not be allowed to
-            // assign arbitrarily many: every session holds host FDs and
-            // pools. The guest module would never go past a few dozen (one
-            // ID per process with an open node) -- this bound catches a
-            // guest that sends something else, and is deliberately far away
-            // from anything a real run needs.
+            // Bound guest-controlled session creation and its associated host resources.
             const MAX_SESSIONS: usize = 1024;
             if self.sessions.len() >= MAX_SESSIONS {
                 eprintln!(
@@ -909,7 +690,7 @@ impl<A: RmAbi> NvrmDevice<A> {
                 );
                 return None;
             }
-            match Session::<A>::detached_proc(sub_id, self.vram.clone()) {
+            match Session::<A>::detached_proc(sub_id, self.vram.clone(), self.pins.clone()) {
                 Ok(s) => {
                     dlog!("new session for guest process {sub_id}");
                     self.sessions.insert(sub_id, s);
@@ -923,74 +704,59 @@ impl<A: RmAbi> NvrmDevice<A> {
         self.sessions.get_mut(&sub_id)
     }
 
-    /// Give back every window mapping this guest process still had blended
-    /// in, and unmap them from the VMM.
-    ///
-    /// Nothing else ever did. `KIND_MAP_RELEASE` names one offset at a
-    /// time, so a process that dies without tearing down leaves all of its
-    /// mappings behind, and each leftover costs twice: a DUPLICATED
-    /// `/dev/nvidia*` FD (`take_pending_map` clones it), which is why the FD
-    /// census counted FDs that belonged to no session at all, and -- worse
-    /// -- its slice of the host-visible window, which no later mapping can
-    /// reuse. Running out of holes in that window is what killed CS2 at the
-    /// 129th mapping (see `HOST_VISIBLE_SIZE`), so a leak here is not a
-    /// bookkeeping detail but the same wall with a slower fuse.
-    ///
-    /// Removed FIRST, unmapped second: if the VMM refuses the unmap there is
-    /// nothing sensible left to do with the entry, and keeping it would mean
-    /// keeping the FD too.
-    fn release_window_of(&mut self, guest_proc: u32) {
-        let offs = window_of_proc(&self.window, guest_proc);
-        if offs.is_empty() {
-            return;
-        }
-        let taken: Vec<(u64, u64)> = offs
-            .into_iter()
-            .filter_map(|off| self.window.remove(&off).map(|m| (off, m.len)))
-            .collect();
-        let n = taken.len();
-        if let Some(backend) = self.backend.as_ref() {
-            for (off, len) in taken {
-                let msg = VhostUserMMap {
-                    shmid: SHM_ID_HOST_VISIBLE,
-                    padding: [0; 7],
-                    fd_offset: 0,
-                    shm_offset: off,
-                    len,
-                    flags: 0,
-                };
-                if let Err(e) = backend.shmem_unmap(&msg) {
-                    eprintln!(
-                        "vhost-user-nvrm: SHMEM_UNMAP of dead process {guest_proc}'s \
-                         window+{off:#x}: {e}"
-                    );
-                }
-            }
-        }
-        dlog!("PROC_GONE {guest_proc}: gave back {n} window mappings");
+    /// Release a window slot after SHMEM_UNMAP succeeds. Requires REPLY_ACK.
+    fn release_window(&mut self, off: u64) -> std::io::Result<()> {
+        let backend = self
+            .backend
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("SHMEM_UNMAP without a backend channel"))?;
+        let Some(entry) = self.window.get(&off) else {
+            return Ok(());
+        };
+        let msg = VhostUserMMap {
+            shmid: SHM_ID_HOST_VISIBLE,
+            padding: [0; 7],
+            fd_offset: 0,
+            shm_offset: off,
+            len: entry.len,
+            flags: 0,
+        };
+        backend.shmem_unmap(&msg)?;
+        self.window.remove(&off);
+        Ok(())
     }
 
-    /// The guest process has exited -- its session falls, and with it
-    /// tokens, host FDs, pools and arenas. That is why the dense ID may be
-    /// reused: its meaning ends here.
+    /// Release a process's mappings. Failed unmaps retain their FDs and reserved slots.
+    fn release_window_of(&mut self, guest_proc: u32) -> std::io::Result<()> {
+        let mut failure = None;
+        for off in window_of_proc(&self.window, guest_proc) {
+            if let Err(e) = self.release_window(off) {
+                eprintln!("vhost-user-nvrm: SHMEM_UNMAP proc {guest_proc} window+{off:#x}: {e}");
+                failure = Some(e);
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
+    /// Unregister events, release mappings, and remove an exited session.
     fn on_proc_gone(&mut self, req: &Req) -> Vec<u8> {
         if req.guest_proc == 0 {
             return err_rsp(req.seq, libc::EINVAL);
         }
         // The poll registrations go BEFORE the session: the session's drop
         // closes the fds, and a registration must not outlive its fd.
-        self.unregister_proc(req.guest_proc);
+        if let Err(e) = self.unregister_proc(req.guest_proc) {
+            self.event_error = Some(e.to_string());
+            return err_rsp(req.seq, libc::EIO);
+        }
         // ... and the window mappings it never released itself.
-        self.release_window_of(req.guest_proc);
+        if self.release_window_of(req.guest_proc).is_err() {
+            return err_rsp(req.seq, libc::EIO);
+        }
         match self.sessions.remove(&req.guest_proc) {
             Some(s) => {
                 dlog!("guest process {} exited, session torn down", req.guest_proc);
-                // The one line that says whether the channel did anything
-                // for this process -- measured 2026-08-15 as "26 kernel
-                // callbacks registered in a GNOME session, none delivered"
-                // before the channel existed, and this line is what would
-                // have shown it. Only when it registered at all: most
-                // processes never touch an event.
+                // Report event delivery only for sessions that registered events.
                 let (r, f, u, d) = s.event_stats();
                 if r + f + u + d != 0 {
                     eprintln!(
@@ -1007,6 +773,13 @@ impl<A: RmAbi> NvrmDevice<A> {
             }
             None => dlog!("PROC_GONE for unknown guest process {}", req.guest_proc),
         }
+        self.pins.retry_cleanup();
+        if self.pins.used_bytes() != 0 {
+            eprintln!(
+                "vhost-user-nvrm: guest-page registrations: {} bytes charged, {} retained, {} cleanup-pending",
+                self.pins.used_bytes(), self.pins.retained_bytes(), self.pins.quarantined_bytes()
+            );
+        }
         self.fd_census();
         Rsp {
             seq: req.seq,
@@ -1016,6 +789,10 @@ impl<A: RmAbi> NvrmDevice<A> {
         .to_vec()
     }
 
+    fn resolve_fd(&self, guest_proc: u32, token: u64) -> Option<RawFd> {
+        self.sessions.get(&guest_proc)?.mirror_raw(token)
+    }
+
     /// Answer one message. The return value is the finished response bytes.
     fn handle(&mut self, msg: &[u8]) -> Vec<u8> {
         let Some(req) = Req::from_bytes(msg) else {
@@ -1023,6 +800,9 @@ impl<A: RmAbi> NvrmDevice<A> {
             return err_rsp(0, libc::EPROTO);
         };
 
+        if self.event_error.is_some() {
+            return err_rsp(req.seq, libc::EIO);
+        }
         match req.kind {
             proto::KIND_GET_TABLES => self.on_get_tables(&req),
             proto::KIND_MAP_RELEASE => self.on_map_release(&req),
@@ -1036,60 +816,24 @@ impl<A: RmAbi> NvrmDevice<A> {
                     self.unregister_token(req.guest_proc, req.target_token);
                 }
                 let mem = self.mem.clone();
-                // The fd that sits in the INLINE struct, and below it the one
-                // inside the aux buffer. Both must be resolved HERE, before the
-                // session borrow: the owner may be a different guest process
-                // (NVKMS imports an object the X server exported), and from
-                // inside `Session` there is no path to a sibling. `RawFd` is
-                // Copy, so the shared borrow of `self.sessions` ends on these
-                // lines -- the same reason `mem` is cloned above.
-                //
-                // `get`, never `session_for`: the latter CREATES on demand and
-                // is capped, so resolving through it would let the guest mint
-                // empty sessions out of a field it controls.
+                // Resolve inline and auxiliary FD owners before borrowing the caller
+                // session. Lookup must not create sessions from guest-controlled fields.
                 let fd_field_fd = if req.fd_field_token != proto::NONE_U64
                     && req.fd_field_proc != proto::NONE_U32
                 {
-                    self.sessions
-                        .get(&req.fd_field_proc)
-                        .and_then(|s| s.mirror_raw(req.fd_field_token))
+                    self.resolve_fd(req.fd_field_proc, req.fd_field_token)
                 } else {
                     None
                 };
-                // DIAGNOSTIC 2026-08-17, and it is a READER, not a fix. The
-                // EGLImage import that fails names an fd owned by a DIFFERENT
-                // guest process -- Xwayland imports what a client exported --
-                // and a lookup that cannot see it answers EBADF, which
-                // NVIDIA's GL stack reports as GL_OUT_OF_MEMORY. Measured
-                // 2026-08-17: 139936 such refusals in ONE session while the
-                // VRAM ledger stood at 287 of 4096 MiB, so it is not the cap.
-                //
-                // CORRECTED 2026-08-20, and the correction matters more than
-                // the diagnostic. It used to ask only whether the CALLER's own
-                // mirror holds the token, which stopped being the right
-                // question at protocol v6: the resolution just above goes
-                // through `fd_field_proc`, so a token that is absent from the
-                // caller and present in the process that field names is the
-                // HEALTHY cross-process import, not a miss. Asked the old way
-                // it reported 20 CROSS-SESSION misses in a session that
-                // refused NOTHING -- no `session N:` line anywhere in
-                // 1_392_006 traced calls -- which reads exactly like the bug
-                // it was added to find, and cost a reader most of a session.
-                // It now fires only when the call really is about to be
-                // refused, which is all three of: the field is actually
-                // translated at all (`fd_field_off` set -- without it
-                // session.rs never looks the token up and cannot refuse), the
-                // device could not resolve it, and neither can the caller's
-                // own mirror, which is what session.rs falls back to before it
-                // returns EBADF.
+                // Log unresolved translated FDs. An explicit owner must resolve in that
+                // session; only an unspecified owner may use the caller's mirror.
                 if req.fd_field_token != proto::NONE_U64
                     && req.fd_field_off != proto::NONE_U32
                     && fd_field_fd.is_none()
-                    && self
-                        .sessions
-                        .get(&req.guest_proc)
-                        .and_then(|s| s.mirror_raw(req.fd_field_token))
-                        .is_none()
+                    && (req.fd_field_proc != proto::NONE_U32
+                        || self
+                            .resolve_fd(req.guest_proc, req.fd_field_token)
+                            .is_none())
                 {
                     let mut owner = None;
                     for (p, s) in self.sessions.iter() {
@@ -1120,9 +864,7 @@ impl<A: RmAbi> NvrmDevice<A> {
                 let aux_fd = if req.aux_fd_field_token != proto::NONE_U64
                     && req.aux_fd_field_proc != proto::NONE_U32
                 {
-                    self.sessions
-                        .get(&req.aux_fd_field_proc)
-                        .and_then(|s| s.mirror_raw(req.aux_fd_field_token))
+                    self.resolve_fd(req.aux_fd_field_proc, req.aux_fd_field_token)
                 } else {
                     None
                 };
@@ -1137,23 +879,22 @@ impl<A: RmAbi> NvrmDevice<A> {
                         err_rsp(req.seq, libc::EPROTO)
                     }
                 };
-                // What the session opened for events goes into the poll set
-                // -- after the borrow of `session` has ended, on the
-                // device's own epoll (no backend lock involved).
                 let new = session.take_pollables();
                 let unwatch = session.take_unwatch();
                 let ctl_unwatch = session.take_ctl_unwatch();
-                if !new.is_empty() {
-                    self.register_pollables(req.guest_proc, new);
+                let ids: Vec<u32> = unwatch.iter().map(|r| r.event_id()).collect();
+                if let Err(e) = self.waiters.cancel_slots(req.guest_proc, &ids) {
+                    self.event_error = Some(e.to_string());
+                    return err_rsp(req.seq, libc::EIO);
                 }
-                if !unwatch.is_empty() {
-                    // Poller first, close second: `unwatch` owns the slot
-                    // fds, and dropping it after the poller forgot them is
-                    // what keeps a reused fd NUMBER out of the watch list.
-                    use std::os::fd::AsRawFd;
-                    let fds: Vec<std::os::fd::RawFd> =
-                        unwatch.iter().map(|s| s.as_raw_fd()).collect();
-                    self.waiters.unwatch(&fds);
+                // The old poll is finished before these slots become reusable.
+                self.sessions
+                    .get_mut(&req.guest_proc)
+                    .unwrap()
+                    .finish_unwatch(unwatch);
+                if let Err(e) = self.register_pollables(req.guest_proc, new) {
+                    self.event_error = Some(e.to_string());
+                    return err_rsp(req.seq, libc::EIO);
                 }
                 // Event ctls of freed RM clients: epoll first, then the
                 // drop at the end of this scope closes them. Same order,
@@ -1167,10 +908,8 @@ impl<A: RmAbi> NvrmDevice<A> {
         }
     }
 
-    /// One chunk of the table stream. `addr` = offset, `map_len` = the
-    /// maximum length wanted. Answer: `token` = total length (so the guest
-    /// module knows how often it must come back), `inline_len` = length of
-    /// this chunk.
+    /// Return a bounded table chunk: addr is the offset, map_len the requested
+    /// length, and the response token carries the total stream length.
     fn on_get_tables(&mut self, req: &Req) -> Vec<u8> {
         let total = self.tables.bytes.len() as u64;
         let off = req.addr;
@@ -1196,12 +935,8 @@ impl<A: RmAbi> NvrmDevice<A> {
         out
     }
 
-    /// Place a mapping into the window.
-    ///
-    /// First the session (it checks the token and registers the mapping),
-    /// then SHMEM_MAP at the offset the guest named. The guest manages the
-    /// window because only it knows what is still free in its own address
-    /// space -- but that does not let it decide WHAT lies there.
+    /// Validate and consume a session mapping, then install it at the
+    /// guest-selected window offset through SHMEM_MAP.
     fn on_map_prepare(&mut self, req: &Req, msg: &[u8]) -> Vec<u8> {
         let mem = self.mem.clone();
         let Some(session) = self.session_for(req.guest_proc) else {
@@ -1253,19 +988,9 @@ impl<A: RmAbi> NvrmDevice<A> {
             return err_rsp(req.seq, libc::EBUSY);
         }
 
-        // Probe the mmap HERE before involving the VMM. The fd and length
-        // come from an arbitrary guest process, and the driver may refuse
-        // the mmap for reasons that are its right -- measured 2026-08-16,
-        // twice: Steam's vulkandriverquery mmaps the node without a prior
-        // RM map ioctl and gets "NVRM: VM: invalid mmap context"
-        // (nv-mmap.c:546), a harmless EINVAL on bare metal. Handed to
-        // cloud-hypervisor instead, the failed mmap counted as a corrupted
-        // request, the worker exited and the device stopped until reset
-        // (OPEN-QUESTIONS nr 9): ONE bad mmap from ANY guest process
-        // bricked every future NVKMS session. The probe is safe to repeat:
-        // the driver's mmap path only READS the context under the file-VA
-        // read lock (nv_acquire_file_va(.., NV_FALSE)) -- nothing is
-        // consumed, and the probe VMA is gone before the real one is made.
+        // Reject invalid RM mapping contexts before calling the VMM. Its mmap
+        // path reads the context without consuming it, so this probe is repeatable.
+        // The probe VMA is released before the VMM creates the final mapping.
         let probe = unsafe {
             libc::mmap(
                 std::ptr::null_mut(),
@@ -1294,23 +1019,8 @@ impl<A: RmAbi> NvrmDevice<A> {
             len,
             flags: VhostUserMMapFlags::WRITABLE.bits(),
         };
-        // TEST HOOK, and the only way to reach the VMM's refusal path from
-        // here. The bounds check above means a well-formed request never asks
-        // the VMM for something outside the window, so the branch where the
-        // VMM says no is unreachable in ordinary running -- and that branch is
-        // what OPEN-QUESTIONS number 9 is about: before the third
-        // cloud-hypervisor patch a refused SHMEM_MAP killed the whole device,
-        // not the one mapping.
-        //
-        // Set LEA_TEST_SHMEM_MAP_OOB to make the FIRST MapPrepare ask for an
-        // offset past the end of the window, once per process. The VMM
-        // bounds-checks it (patch 0001 does that), refuses, and everything
-        // after this line is the behaviour under test: this backend must get
-        // an error and answer the guest, and the device must still be there
-        // for the next request.
-        //
-        // `is_some_and(|v| !v.is_empty())` and not `is_some()` -- an empty
-        // value is still a set variable, and llm.md has the long version.
+        // Inject one out-of-window SHMEM_MAP to test VMM refusal and recovery.
+        // An empty LEA_TEST_SHMEM_MAP_OOB disables the hook.
         if std::env::var_os("LEA_TEST_SHMEM_MAP_OOB").is_some_and(|v| !v.is_empty())
             && !TEST_OOB_FIRED.swap(true, std::sync::atomic::Ordering::Relaxed)
         {
@@ -1353,42 +1063,12 @@ impl<A: RmAbi> NvrmDevice<A> {
         .to_vec()
     }
 
-    /// Take a mapping back out of the window and drop the host fd behind it.
-    ///
-    /// Keyed on the window offset alone, not on `(offset, guest_proc)`: the
-    /// guest MODULE is the only sender of this kind, it owns the window
-    /// bitmap for the whole VM, and the VM is the unit the host isolates
-    /// (docs/ARCHITECTURE.md §2). A guest kernel that releases another
-    /// process's slot is lying to itself, not to the host.
+    /// Release a VM-wide window offset. Guest process IDs are not a trust boundary.
     fn on_map_release(&mut self, req: &Req) -> Vec<u8> {
-        let Some(backend) = self.backend.as_ref() else {
-            return err_rsp(req.seq, libc::EIO);
-        };
-        let Some(entry) = self.window.remove(&req.addr) else {
-            // Not an error: at process exit the guest also tears down
-            // mappings that never came about.
-            dlog!("MAP_RELEASE: {:#x} was not blended in", req.addr);
-            return Rsp {
-                seq: req.seq,
-                ..Rsp::default()
-            }
-            .as_bytes()
-            .to_vec();
-        };
-        let msg = VhostUserMMap {
-            shmid: SHM_ID_HOST_VISIBLE,
-            padding: [0; 7],
-            fd_offset: 0,
-            shm_offset: req.addr,
-            len: entry.len,
-            flags: 0,
-        };
-        if let Err(e) = backend.shmem_unmap(&msg) {
+        if let Err(e) = self.release_window(req.addr) {
             eprintln!("vhost-user-nvrm: SHMEM_UNMAP: {e}");
             return err_rsp(req.seq, libc::EIO);
         }
-        dlog!("MAP_RELEASE window+{:#x}, {} bytes", req.addr, entry.len);
-        // entry (and with it the host FD) is dropped here.
         Rsp {
             seq: req.seq,
             ..Rsp::default()
@@ -1439,6 +1119,12 @@ impl<A: RmAbi> NvrmDevice<A> {
                 }
             };
 
+            if let Some(error) = &self.event_error {
+                return Err(std::io::Error::other(format!(
+                    "waiter event path failed: {error}"
+                )));
+            }
+
             // If the response does not fit into the guest's buffer, it gets
             // a clean error instead of a truncated message.
             let resp = if resp.len() > writer.available_bytes() {
@@ -1484,10 +1170,8 @@ impl<A: RmAbi> VhostUserBackendMut for NvrmDevice<A> {
     type Bitmap = ();
     type Vring = NvVring;
 
-    /// Queue 0 requests, queue 1 events. cloud-hypervisor derives the
-    /// count from `queue_sizes=[...]` on the command line
-    /// (generic_vhost_user.rs:166, 241-253) -- `[256,256]`, or SET_VRING
-    /// for index 1 never arrives.
+    /// Queue 0 carries requests; queue 1 carries events.
+    /// The hypervisor must configure `queue_sizes=[256,256]`.
     fn num_queues(&self) -> usize {
         2
     }
@@ -1508,10 +1192,8 @@ impl<A: RmAbi> VhostUserBackendMut for NvrmDevice<A> {
             | VhostUserProtocolFeatures::SHMEM
     }
 
-    /// The host-visible window: region 1, HOST_VISIBLE_SIZE. That a non-GPU device
-    /// gets one at all rests on cloud-hypervisor's shmem support being
-    /// genuinely generic (`patches/0001-generic-vhost-user-shmem.patch`);
-    /// why index 0 stays empty is on `SHM_ID_HOST_VISIBLE` above.
+    /// Region 1 is the host-visible window; region 0 is unused.
+    /// Requires the generic-vhost-user SHMEM hypervisor patch.
     fn get_shmem_config(&self) -> std::io::Result<VhostUserShMemConfig> {
         Ok(VhostUserShMemConfig::new(2, &[0, HOST_VISIBLE_SIZE]))
     }
@@ -1520,9 +1202,7 @@ impl<A: RmAbi> VhostUserBackendMut for NvrmDevice<A> {
         self.backend = Some(backend);
     }
 
-    fn set_event_idx(&mut self, enabled: bool) {
-        self.event_idx = enabled;
-    }
+    fn set_event_idx(&mut self, _enabled: bool) {}
 
     fn update_memory(&mut self, mem: Mem) -> std::io::Result<()> {
         self.mem = Some(mem);
@@ -1576,16 +1256,8 @@ impl<A: RmAbi> VhostUserBackendMut for NvrmDevice<A> {
     }
 }
 
-/// Serve as a vhost-user device on `socket` until the VMM hangs up.
-///
-/// THE dispatch point. The running driver is read once, here, turned into a
-/// [`nvrm_sys::DriverVersion`], and handed to [`nvrm_sys::dispatch`], which
-/// picks the ABI type everything below is generic over. Nothing downstream
-/// ever asks again -- a session cannot be reading 610 structs for one message
-/// and 615 structs for the next, because there is no value to get wrong.
-///
-/// Guest and host driver versions are assumed equal, so the host's answer is
-/// the guest's answer too.
+/// Serve one VM using the detected host driver ABI.
+/// Guest userspace must match that driver version; no guest-version check exists.
 pub fn serve(socket: &str) -> anyhow::Result<()> {
     let version = nvrm_sys::detect()?;
     eprintln!("vhost-user-nvrm: driver {} ABI", version.as_str());
@@ -1605,7 +1277,7 @@ fn serve_with<A: RmAbi>(socket: &str) -> anyhow::Result<()> {
     // own UUID come out of both (grid.rs).
     crate::grid::set_card(socket, crate::host_pool::card());
     let backend = Arc::new(RwLock::new(NvrmDevice::<A>::new()?));
-    backend.write().unwrap().register_waiter_notify();
+    backend.write().unwrap().register_waiter_notify()?;
     let mut daemon = VhostUserDaemon::new(
         "vhost-user-nvrm".into(),
         backend.clone(),
@@ -1613,12 +1285,8 @@ fn serve_with<A: RmAbi>(socket: &str) -> anyhow::Result<()> {
     )
     .map_err(|e| anyhow::anyhow!("vhost-user daemon: {e:?}"))?;
 
-    // The device's own epoll set joins the worker's epoll HERE -- after the
-    // daemon has built its handlers, before any request can hold the
-    // backend's write lock. `register_listener` takes `num_queues()` under
-    // the read lock (event_loop.rs:120); at this point nobody holds the
-    // write lock, so this is the one moment it cannot deadlock. The fd is
-    // copied out first, so our own read guard is gone before the call.
+    // Register before serving: register_listener reads the backend lock.
+    // Copy the FD out first so no backend lock remains held during registration.
     let poll_fd = backend
         .read()
         .map_err(|_| anyhow::anyhow!("backend lock poisoned"))?
@@ -1640,28 +1308,9 @@ fn serve_with<A: RmAbi>(socket: &str) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("vhost-user: {e:?}"))?;
     eprintln!("vhost-user-nvrm: VMM hung up");
 
-    // EXIT here rather than returning, and it is not a shortcut.
-    //
-    // Returning unwinds through the daemon's destructor, which joins its
-    // vring worker -- and that worker sits in `epoll_wait` with nothing
-    // left to wake it, because the thing that used to wake it is the VMM
-    // that just went away. Measured 2026-08-16 by SIGKILLing a guest that
-    // held 1792 MiB: the message below appeared in the log, and the
-    // process then lived on with its main thread in `futex_do_wait` and
-    // the worker in `do_epoll_wait`, FOREVER.
-    //
-    // What that costs is not a stray process. RM frees a client's memory
-    // when the process holding it dies, so a backend that never dies
-    // never gives the card back: the host's free memory stayed 1.9 GB
-    // short until the backend was killed by hand, and an orchestrator
-    // restarting a crashed VM would leak that much per crash.
-    //
-    // Exiting is the honest end of this program's life. One backend serves
-    // exactly one VM (see the module header and `vram.rs`), that VM is
-    // gone, and everything worth releasing is released by the kernel on
-    // process death -- which is measurably true: killing the backend by
-    // hand freed the card completely. There is nothing to flush; the log
-    // is stderr and `eprintln!` has already written it.
+    // Avoid joining a vring worker blocked in epoll_wait after VMM disconnect.
+    // Process exit releases RM clients and memory. Orderly worker shutdown is
+    // a separate lifecycle fix; returning here previously leaked the backend.
     std::process::exit(0);
 }
 
@@ -1687,7 +1336,6 @@ mod window_tests {
             .collect()
     }
 
-    /// Like `win`, but each entry names the guest process that placed it.
     fn win_owned(entries: &[(u64, u64, u32)]) -> BTreeMap<u64, WindowMap> {
         entries
             .iter()
@@ -1705,15 +1353,6 @@ mod window_tests {
             .collect()
     }
 
-    /// PROC_GONE gives back the dead process's window mappings and NOBODY
-    /// else's.
-    ///
-    /// Until 2026-08-18 nothing gave them back at all: MAP_RELEASE names
-    /// one offset, and a process that dies names none. Each leftover held a
-    /// duplicated device FD -- the FDs the census found outside every
-    /// session -- and its slice of the host-visible window, which no later
-    /// mapping can reuse. The window running out of holes is what killed CS2
-    /// at its 129th mapping.
     #[test]
     fn proc_gone_takes_only_that_processes_window_mappings() {
         let mut w = win_owned(&[
@@ -1742,16 +1381,12 @@ mod window_tests {
         assert_eq!(window_of_proc(&w, 0), vec![0x3000]);
     }
 
-    /// The window is empty, so nothing can collide with anything.
     #[test]
     fn an_empty_window_refuses_nothing() {
         assert!(!window_overlaps(&win(&[]), 0, 0x1000));
         assert!(!window_overlaps(&win(&[]), 0x4000_0000, 0x1000));
     }
 
-    /// Touching at the boundary is NOT an overlap: a mapping that ends
-    /// exactly where the next begins is the dense packing the guest is
-    /// supposed to achieve, and refusing it would waste the window.
     #[test]
     fn end_to_end_mappings_do_not_collide() {
         let w = win(&[(0, 0x1000), (0x2000, 0x1000)]);
@@ -1765,8 +1400,6 @@ mod window_tests {
         );
     }
 
-    /// Every way one range can meet another, in one place: same start,
-    /// starting inside, ending inside, and swallowing it whole.
     #[test]
     fn the_four_shapes_of_an_overlap_are_all_caught() {
         let w = win(&[(0x2000, 0x2000)]); // [0x2000, 0x4000)
@@ -1790,9 +1423,6 @@ mod window_tests {
         );
     }
 
-    /// The reason only the last mapping before the query needs checking:
-    /// a hit must not be missed just because a LATER mapping sits between
-    /// the query and the end of the map.
     #[test]
     fn a_hit_far_down_the_map_is_still_found() {
         let w = win(&[(0, 0x1000), (0x2000, 0x1000), (0x8000, 0x4000)]);
@@ -1804,15 +1434,96 @@ mod window_tests {
     }
 }
 
-/// The device WITHOUT a VM: `NvrmDevice::new` builds the descriptor
-/// tables, an epoll set and the waiter poller, and touches no GPU, no
-/// vhost-user socket and no guest memory. That makes the message handlers
-/// that answer out of the device's own books -- GET_TABLES, MAP_RELEASE,
-/// PROC_GONE -- testable here, which they are not from outside the module:
-/// `handle`, `err_rsp` and the fields they read are private.
 #[cfg(test)]
 mod device_tests {
     use super::*;
+
+    fn unmap_reply(
+        d: &mut NvrmDevice<nvrm_sys::DefaultAbi>,
+        status: u64,
+    ) -> std::thread::JoinHandle<()> {
+        use std::os::fd::BorrowedFd;
+        use vhost::vhost_user::FrontendReqHandler;
+
+        struct UnmapHandler(u64);
+        impl VhostUserFrontendReqHandler for UnmapHandler {
+            fn shmem_unmap(&self, _: &VhostUserMMap) -> std::io::Result<u64> {
+                Ok(self.0)
+            }
+        }
+        let mut frontend = FrontendReqHandler::new(Arc::new(UnmapHandler(status))).unwrap();
+        frontend.set_reply_ack_flag(true);
+        // SAFETY: frontend owns this FD until it moves into the response thread.
+        let fd = unsafe { BorrowedFd::borrow_raw(frontend.get_tx_raw_fd()) };
+        let socket = std::os::unix::net::UnixStream::from(fd.try_clone_to_owned().unwrap());
+        socket
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        let backend = vhost::vhost_user::Backend::from_stream(socket);
+        backend.set_shmem_flag(true);
+        backend.set_reply_ack_flag(true);
+        d.backend = Some(backend);
+        std::thread::spawn(move || {
+            assert_eq!(frontend.handle_request().unwrap(), status);
+        })
+    }
+
+    #[test]
+    fn failed_unmap_keeps_slot_until_a_successful_retry() {
+        let mut d = dev();
+        d.window.insert(
+            0x1000,
+            WindowMap {
+                len: 0x1000,
+                guest_proc: 7,
+                _fd: std::fs::File::open("/dev/null").unwrap(),
+            },
+        );
+        let peer = unmap_reply(&mut d, 1);
+        let req = Req {
+            kind: proto::KIND_MAP_RELEASE,
+            addr: 0x1000,
+            ..Req::default()
+        };
+        assert_eq!(answer(&mut d, req).ret, -libc::EIO);
+        peer.join().unwrap();
+        assert!(d.overlaps(0x1000, 0x1000));
+
+        let peer = unmap_reply(&mut d, 0);
+        assert_eq!(answer(&mut d, req).ret, 0);
+        peer.join().unwrap();
+        assert!(d.window.is_empty());
+    }
+
+    #[test]
+    fn process_cleanup_keeps_mappings_when_vmm_refuses_unmap() {
+        let mut d = dev();
+        assert!(d.session_for(7).is_some());
+        d.window.insert(
+            0x1000,
+            WindowMap {
+                len: 0x1000,
+                guest_proc: 7,
+                _fd: std::fs::File::open("/dev/null").unwrap(),
+            },
+        );
+        let peer = unmap_reply(&mut d, 1);
+        let req = Req {
+            kind: proto::KIND_PROC_GONE,
+            guest_proc: 7,
+            ..Req::default()
+        };
+        assert_eq!(answer(&mut d, req).ret, -libc::EIO);
+        peer.join().unwrap();
+        assert!(d.window.contains_key(&0x1000));
+        assert!(d.sessions.contains_key(&7));
+
+        let peer = unmap_reply(&mut d, 0);
+        assert_eq!(answer(&mut d, req).ret, 0);
+        peer.join().unwrap();
+        assert!(d.window.is_empty());
+        assert!(!d.sessions.contains_key(&7));
+    }
 
     fn dev() -> NvrmDevice<nvrm_sys::DefaultAbi> {
         NvrmDevice::new().expect("NvrmDevice::new must work without a GPU")
@@ -1822,8 +1533,6 @@ mod device_tests {
         Rsp::from_bytes(&d.handle(req.as_bytes())).expect("every answer starts with a Rsp")
     }
 
-    /// One GET_TABLES round trip: the response header plus the chunk that
-    /// follows it.
     fn get_tables(
         d: &mut NvrmDevice<nvrm_sys::DefaultAbi>,
         addr: u64,
@@ -1848,13 +1557,6 @@ mod device_tests {
         (rsp, body)
     }
 
-    /// An `addr` past the end of the stream is refused with EINVAL.
-    ///
-    /// `on_get_tables` slices `tables.bytes[off..end]` with a number the
-    /// GUEST chose. Without this check the slice panics -- and a panic in
-    /// the vhost-user worker takes the whole daemon, and with it the VM's
-    /// GPU, down. `addr == total` is NOT past the end: it is the empty
-    /// tail a guest lands on when the stream divides evenly.
     #[test]
     fn get_tables_refuses_an_offset_past_the_end_of_the_stream() {
         let mut d = dev();
@@ -1869,14 +1571,6 @@ mod device_tests {
         assert_eq!((rsp.inline_len, body.len()), (0, 0));
     }
 
-    /// A `map_len` of 0 still yields one byte, and a chunk that reaches
-    /// the end of the stream is short.
-    ///
-    /// Both are the guest module's loop condition. A zero-length chunk
-    /// would advance the guest's offset by nothing -- a loop that never
-    /// ends, bought with a `map_len` the guest controls -- and a last
-    /// chunk that was padded up to the asked-for length would append
-    /// garbage to the table stream.
     #[test]
     fn get_tables_never_answers_with_zero_bytes_and_shortens_the_last_chunk() {
         let mut d = dev();
@@ -1900,20 +1594,6 @@ mod device_tests {
         assert_eq!(body, d.tables.bytes[total as usize - 10..]);
     }
 
-    /// Paging the real stream reproduces `tables.bytes` byte for byte,
-    /// `token` names the total length in every answer, and the reassembled
-    /// bytes carry the header and the checksum the guest verifies them
-    /// against.
-    ///
-    /// This is the one message the guest cannot survive getting wrong
-    /// quietly: the module holds no NVIDIA constant of its own and
-    /// interprets these bytes for every ioctl it forwards. A paging bug
-    /// that dropped or duplicated a chunk would not fail here, it would
-    /// mis-describe some ioctl several kilobytes in.
-    ///
-    /// The chunk size is deliberately small (and not `MAX_PAYLOAD`): the
-    /// whole stream is presently under 7 KiB, so a maximum-size request
-    /// would take exactly one chunk and page nothing.
     #[test]
     fn get_tables_pages_reassemble_into_the_checksummed_stream() {
         use nvrm_wire::tables as t;
@@ -1979,19 +1659,6 @@ mod device_tests {
         );
     }
 
-    /// However large a `map_len` the guest asks for, one chunk is at most
-    /// `MAX_PAYLOAD`.
-    ///
-    /// Uncapped, a `map_len` of `u64::MAX` would build a response longer
-    /// than the buffer the guest posted, and `process_queue` would have to
-    /// turn the whole read into EMSGSIZE -- the guest would never get its
-    /// tables and could forward nothing at all.
-    ///
-    /// The stream as built today is SHORTER than one maximum chunk
-    /// (~7 KiB), so the cap cannot bite on it and a test against the real
-    /// tables would prove nothing. The handler serves whatever
-    /// `tables.bytes` holds, so the bytes are lengthened here instead --
-    /// which is exactly the situation the next table growth creates.
     #[test]
     fn get_tables_caps_one_chunk_at_max_payload() {
         let mut d = dev();
@@ -2030,14 +1697,6 @@ mod device_tests {
         assert_eq!(got, want);
     }
 
-    /// A message too short to hold a `Req` is EPROTO, with sequence 0.
-    ///
-    /// There is nothing else it could be: the sequence number lives inside
-    /// the bytes that did not arrive, so the device cannot echo one, and
-    /// it must not read the fields either. `process_queue` bounds the size
-    /// before calling `handle`, but `handle` is also the fuzz target's
-    /// entry point (`fuzz/fuzz_targets/handle_msg.rs`) and must stand on
-    /// its own.
     #[test]
     fn a_message_shorter_than_a_request_is_eproto() {
         let mut d = dev();
@@ -2061,18 +1720,6 @@ mod device_tests {
         assert_eq!((rsp.ret, rsp.seq), (0, 77));
     }
 
-    /// MAP_RELEASE without a VMM channel answers EIO and KEEPS the mapping
-    /// in the book.
-    ///
-    /// `self.backend` is the vhost-user BACKEND channel, the one the
-    /// device sends SHMEM_MAP/SHMEM_UNMAP on; the VMM hands it over at
-    /// `set_backend_req_fd`, so a device built by a unit test does not
-    /// have one. Releasing a window mapping IS that message -- the entry
-    /// here is only the host's record of what the VMM blended in -- so
-    /// without the channel there is nothing to do but refuse. Forgetting
-    /// the entry anyway would be the worse failure: the VMM would keep the
-    /// mapping, the offset would never be reusable, and nothing would ever
-    /// name it again. That ordering is what the second assertion pins.
     #[test]
     fn map_release_without_a_vmm_channel_is_eio_and_keeps_the_entry() {
         let mut d = dev();
@@ -2103,16 +1750,6 @@ mod device_tests {
         );
     }
 
-    /// PROC_GONE refuses `guest_proc == 0` and shrugs at a process it
-    /// never heard of.
-    ///
-    /// 0 is the "not stated" key: every caller that names no process
-    /// shares that one session, so acting on a PROC_GONE for it would tear
-    /// down a session that belongs to nobody in particular and to all of
-    /// them at once. An UNKNOWN process, on the other hand, is the normal
-    /// case -- a guest process that never forwarded anything still sends
-    /// its PROC_GONE on exit -- so it must be a plain success, or every
-    /// such exit would log an error the guest cannot act on.
     #[test]
     fn proc_gone_refuses_process_zero_but_not_an_unknown_process() {
         let mut d = dev();
@@ -2146,13 +1783,6 @@ mod device_tests {
         assert!(d.sessions.is_empty(), "and nothing was created on the way");
     }
 
-    /// `err_rsp` puts the errno in `ret` NEGATED, echoes the sequence
-    /// number, and carries no payload.
-    ///
-    /// The sign is the whole protocol: `Rsp.ret` is the return of `ioctl(2)`
-    /// itself, so the guest module reads `ret < 0` as `-errno` and hands
-    /// that straight to its caller. A positive value there would read as a
-    /// successful ioctl whose return happened to be nonzero.
     #[test]
     fn err_rsp_negates_the_errno_and_echoes_the_sequence() {
         for (seq, errno) in [

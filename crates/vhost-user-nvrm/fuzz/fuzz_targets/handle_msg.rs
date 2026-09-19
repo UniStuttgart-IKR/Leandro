@@ -34,7 +34,7 @@ impl NvSyscalls for NoSyscalls {
     fn set_sub_process_id(&self, _: i32, _: u32, _: u32, _: &str) -> (i32, u32) {
         (0, 0)
     }
-    fn grant_dup_same_user(&self, _: i32, _: u32, _: u32) -> (i32, u32) {
+    fn grant_dup_same_process(&self, _: i32, _: u32, _: u32) -> (i32, u32) {
         (0, 0)
     }
 }
@@ -44,7 +44,7 @@ fuzz_target!(|data: &[u8]| {
     // attacker model is the guest, not the operator. Every check the cap
     // adds still runs -- with the cap off the alloc path is the one every
     // corpus message takes.
-    let mut s = match Session::detached_proc(1, vhost_user_nvrm::vram::Ledger::off()) {
+    let mut s = match Session::detached_proc(1, vhost_user_nvrm::vram::Ledger::off(), vhost_user_nvrm::host_pool::PinBudget::new(1024 << 20).unwrap()) {
         Ok(s) => s,
         Err(_) => return,
     };
@@ -55,7 +55,7 @@ fuzz_target!(|data: &[u8]| {
         if fd < 0 {
             return;
         }
-        s.insert_token(unsafe { OwnedFd::from_raw_fd(fd) });
+        s.insert_token(unsafe { OwnedFd::from_raw_fd(fd) }, nvrm_abi::xlate::Dev::Ctl);
     }
 
     // An Err is an allowed outcome (transport error); a panic or a memory

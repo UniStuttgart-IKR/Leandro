@@ -1,31 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! NV_ESC_IOCTL_XFER_CMD - the special case that breaks the assumption
-//! "the size is in the ioctl number".
+//! Unwrap `NV_ESC_IOCTL_XFER_CMD` before decoding a frontend payload.
 //!
-//! RM is NVIDIA's Resource Manager, the kernel driver behind
-//! /dev/nvidiactl and /dev/nvidiaN; its ioctls are called escapes and
-//! `NV_ESC_*` are their numbers.
-//!
-//! From kernel-open/nvidia/nv.c:
-//!
-//! ```text
-//! if (arg_cmd == NV_ESC_IOCTL_XFER_CMD) {
-//!     copy_from_user(&ioc_xfer, arg_ptr, sizeof(ioc_xfer));
-//!     arg_cmd  = ioc_xfer.cmd;      // the *real* ioctl number
-//!     arg_size = ioc_xfer.size;     // the *real* size
-//!     arg_ptr  = ioc_xfer.ptr;      // a second user pointer
-//! }
-//! ```
-//!
-//! Consequence for anyone intercepting or forwarding ioctls: dispatch must
-//! not trust `_IOC_SIZE(cmd)`. XFER_CMD has to be resolved *before* the
-//! handler table, otherwise only 16 bytes get copied instead of the real
-//! payload, and the mistake surfaces much later as garbage data.
-//!
-//! This affects large RM_CONTROLs (the reason NVIDIA built it):
-//! `_IOC_SIZE` has only 14 bits, i.e. at most 16383 bytes.
+//! `kernel-open/nvidia/nv.c` replaces the outer request number, size and
+//! pointer with `nv_ioctl_xfer_t` fields. `_IOC_SIZE` describes only that
+//! 16-byte wrapper; the inner payload can exceed the 14-bit size limit.
 
 use crate::sys;
 
@@ -36,19 +16,16 @@ pub const ABSOLUTE_MAX_IOCTL_SIZE: usize = 16384;
 /// Size at which the userspace driver *must* fall back to XFER_CMD.
 pub const IOC_SIZE_LIMIT: usize = (1 << crate::IOC_SIZEBITS) - 1;
 
-/// Resolves a possibly wrapped ioctl into (real_nr, ptr, len).
+/// Resolve a wrapped ioctl into `(real_nr, ptr, len)`.
 ///
-/// A return of `None` means: no XFER, `cmd` and the original pointer apply
-/// unchanged.
-///
-/// `Some(Err(()))` means: XFER, but the size is unusable. The caller must
-/// then fail with EINVAL and must not build a slice — `size` is an NvU32
-/// coming from the guest, and unchecked it would produce a 4 GiB read past
-/// the end of the application's buffer. The driver rejects the same input
-/// with EINVAL (`nv.c`, limit NV_ABSOLUTE_MAX_IOCTL_SIZE).
+/// `None` leaves an ordinary ioctl unchanged. `Some(Err(()))` rejects a null
+/// pointer, zero length or length above `NV_ABSOLUTE_MAX_IOCTL_SIZE`; callers
+/// must not build a slice from a rejected wrapper.
 ///
 /// # Safety
-/// `arg` must point to a valid `nv_ioctl_xfer_t` when `cmd` is XFER_CMD.
+/// For XFER_CMD, a non-null `arg` must point to an aligned, initialized
+/// `nv_ioctl_xfer_t` that remains readable for this call. Success validates
+/// the inner length, not whether the inner pointer is accessible.
 pub unsafe fn unwrap_xfer(
     cmd: u32,
     arg: *const libc::c_void,
@@ -93,10 +70,7 @@ mod tests {
         unsafe { unwrap_xfer(cmd, x as *const sys::nv_ioctl_xfer_t as *const libc::c_void) }
     }
 
-    /// Everything that is not the XFER escape must pass through untouched
-    /// -- `None` means "use `cmd` and the original pointer unchanged". A
-    /// false positive here would make the caller read a 16-byte wrapper out
-    /// of an ordinary parameter block.
+    /// An ordinary parameter block must never be read as an XFER wrapper.
     #[test]
     fn an_ordinary_command_is_not_unwrapped() {
         let mut payload = [0u8; 32];
@@ -111,10 +85,7 @@ mod tests {
         }
     }
 
-    /// The XFER escape with a NULL argument: `Some(Err(()))`, i.e. "this
-    /// IS an XFER and it is unusable". The distinction from `None` matters
-    /// -- `None` would send the caller off to dereference the same null
-    /// pointer as an ordinary payload.
+    /// A null XFER argument is invalid, not an ordinary ioctl.
     #[test]
     fn a_null_argument_is_reported_as_a_broken_xfer() {
         // SAFETY: the null case must be decided before any dereference,
@@ -123,10 +94,7 @@ mod tests {
         assert_eq!(got, Some(Err(())));
     }
 
-    /// A valid wrapper resolves to the REAL ioctl number, the second user
-    /// pointer and the real size. Trusting `_IOC_SIZE(cmd)` instead would
-    /// copy 16 bytes (the wrapper) where the payload may be up to 16 KiB,
-    /// and the mistake would surface much later as garbage data.
+    /// Use the inner command, pointer and size rather than the wrapper size.
     #[test]
     fn a_valid_wrapper_yields_the_inner_command_pointer_and_size() {
         let mut payload = [0u8; 64];
@@ -138,7 +106,7 @@ mod tests {
         );
 
         // The largest size the driver accepts (NV_ABSOLUTE_MAX_IOCTL_SIZE)
-        // is still valid -- the bound is inclusive.
+        // is still valid; the bound is inclusive.
         let x = wrapper(sys::NV_ESC_RM_CONTROL, ABSOLUTE_MAX_IOCTL_SIZE as u32, p);
         assert_eq!(
             call(xfer_cmd(), &x),
@@ -146,16 +114,13 @@ mod tests {
         );
     }
 
-    /// The three ways a wrapper can be unusable. `size` is an NvU32 that
-    /// comes straight from the guest: unchecked, `u32::MAX` would produce a
-    /// 4 GiB read past the end of the application's buffer. The driver
-    /// rejects the same input with EINVAL.
+    /// Reject invalid lengths and null inner pointers before constructing a slice.
     #[test]
     fn an_unusable_wrapper_is_rejected_rather_than_clamped() {
         let mut payload = [0u8; 64];
         let p: *mut libc::c_void = payload.as_mut_ptr().cast();
 
-        // (1) size 0 -- nothing to copy, and a zero-length slice would hide
+        // (1) size 0; nothing to copy, and a zero-length slice would hide
         //     a caller bug rather than report it.
         assert_eq!(
             call(xfer_cmd(), &wrapper(sys::NV_ESC_RM_CONTROL, 0, p)),
@@ -179,10 +144,7 @@ mod tests {
         );
     }
 
-    /// Only the nr decides, not the size encoded in the wrapping number:
-    /// a caller that sends the XFER escape with an unexpected `_IOC_SIZE`
-    /// still gets it unwrapped, because the payload it points at is what
-    /// counts.
+    /// The escape number identifies XFER even if its encoded size is zero.
     #[test]
     fn the_wrapper_is_recognised_by_its_nr() {
         let mut payload = [0u8; 64];

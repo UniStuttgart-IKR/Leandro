@@ -9,7 +9,6 @@
   services.leandro = {
     enable = true;
     user = "leandro";
-    dev.enable = true;
     backend.enable = true;
     nat.externalInterface = "eth0";
   };

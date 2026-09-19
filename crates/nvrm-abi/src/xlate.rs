@@ -1,24 +1,12 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! What has to be known per (device, ioctl_nr) in order to carry a call
-//! across the process boundary: payload size, fd field offset, embedded
-//! pointer. One source for host and guest.
+//! Forwarding descriptors shared by the host and guest table generator.
 //!
-//! Terms, once (docs/ARCHITECTURE.md has the longer story): RM is NVIDIA's
-//! Resource Manager, the kernel driver behind /dev/nvidiactl and
-//! /dev/nvidiaN, and its ioctls are called escapes; UVM is its
-//! unified-memory driver (/dev/nvidia-uvm), whose command numbers are raw
-//! integers rather than `_IOC` encodings; hClass is an RM object class
-//! number; NVOS54, NVOS64, NVOS00, NVOS02, NVOS33 and NVOS41 are the
-//! parameter blocks of RM_CONTROL, RM_ALLOC, RM_FREE, RM_ALLOC_MEMORY,
-//! RM_MAP_MEMORY and RM_GET_EVENT_DATA, all from nvos.h.
-//!
-//! Where the numbers come from: struct layouts from gVisor pkg/abi/nvgpu,
-//! reconciled against the bindgen types in nvgpu.rs (the same Apache-2.0
-//! source). Where a size follows from a struct, the arithmetic stands
-//! beside it as a comment -- at the next version change that is the
-//! checklist.
+//! RM frontend escapes use `_IOC` encoding; UVM uses raw request numbers.
+//! `nvos.h` defines the RM parameter blocks. Layouts use bindgen types where
+//! available; handwritten sizes retain their vendor-header derivations.
+//! Unknown descriptors require refusal or a separate reviewed handling path.
 
 use crate::sys;
 use core::mem::{offset_of, size_of};
@@ -40,18 +28,14 @@ impl Dev {
     }
 }
 
-// ===========================================================================
-// UVM command numbers (kernel-open/nvidia-uvm/uvm_ioctl.h + uvm_linux_ioctl.h)
-// ===========================================================================
-// UVM uses NO _IOC encoding: the request number is the raw number. So the
-// size cannot be derived from the cmd here -- it lives in
-// uvm_param_size().
+// UVM command numbers: kernel-open/nvidia-uvm/{uvm_ioctl,uvm_linux_ioctl}.h.
+// Raw numbers carry no encoded payload size.
 
 pub mod uvm {
     pub const INITIALIZE: u32 = 0x3000_0001;
     pub const DEINITIALIZE: u32 = 0x3000_0002;
     pub const PAGEABLE_MEM_ACCESS: u32 = 39; // 0x27  (NO collision with
-                                             // frontend 0x27 -- other device)
+                                             // frontend 0x27; other device)
     pub const MM_INITIALIZE: u32 = 75; // 0x4b, carries UvmFD @ 0
 
     // The libcuda path (from the nvprobe lvl4 trace). Names and numbers from
@@ -79,11 +63,9 @@ pub mod uvm {
     pub const CREATE_EXTERNAL_RANGE: u32 = 73;
 }
 
-/// Payload size of a UVM command in bytes.
-///
-/// `None` means: unknown UVM command. The caller MUST then fail loudly
-/// (ENOTSUP) and never guess -- a wrong size is an out-of-bounds read on
-/// the host side, in the driver's copy_from_user.
+/// Reference UVM payload sizes, derived from the headers below.
+/// Unknown commands return `None`; forwarding must not guess their size.
+/// Use [`uvm_param_size_for`] for a selected driver ABI.
 pub fn uvm_param_size(cmd: u32) -> Option<u32> {
     Some(match cmd {
         // UVM_INITIALIZE_PARAMS { Flags u64; RMStatus u32; Pad0[4] } = 16
@@ -174,23 +156,10 @@ pub fn uvm_param_size(cmd: u32) -> Option<u32> {
     })
 }
 
-/// Payload size of a UVM command, **as the compiler measures it**.
-///
-/// The sibling above is a hand-computed table: every entry carries the
-/// arithmetic that produced it in a comment, and the guest module forwards
-/// UVM commands on its authority. This one asks `size_of` of the bindgen
-/// struct, so it is the header's answer rather than anyone's reading of it.
-///
-/// WHY BOTH EXIST. `nvrm-trace` dumps a UVM answer buffer at this length,
-/// and it must not take that length from `uvm_param_size`: the point of
-/// dumping UVM answers is to judge the forwarding that table drives, and an
-/// instrument measuring with the table under test agrees with it by
-/// construction. The test below then asks the two for the same command and
-/// requires the same answer, which is what turns a hand-computed table into
-/// a checked one.
-///
-/// `None` means no compiled struct. UVM_DEINITIALIZE takes no parameter
-/// block at all and is the only command in the list without one.
+/// UVM payload sizes from the selected ABI's bindgen types.
+/// Compared with the handwritten reference table in tests and used by the
+/// tracer. DEINITIALIZE has no struct; [`uvm_param_size_for`] returns its
+/// zero-length payload explicitly.
 pub fn uvm_param_size_compiled<A: RmAbi>(cmd: u32) -> Option<usize> {
     Some(match cmd {
         uvm::INITIALIZE => size_of::<sys::UVM_INITIALIZE_PARAMS>(),
@@ -221,20 +190,76 @@ pub fn uvm_param_size_compiled<A: RmAbi>(cmd: u32) -> Option<usize> {
     })
 }
 
-/// Payload size of an allocation's `pAllocParms`, **as the compiler
-/// measures it**, or `None` where no compiled struct backs the class.
-///
-/// The sibling `alloc_param_size` answers for a hundred-odd classes, most
-/// of them from arithmetic done by hand while reading a header. This one
-/// answers only where `size_of` can, and it is deliberately the smaller
-/// answer: `nvrm-trace` dumps an allocation's parameter block at this
-/// length, and the point of dumping allocation answers is to judge the
-/// forwarding that `alloc_param_size` drives. An instrument that took its
-/// length from the table under test would agree with it by construction.
-///
-/// Reading past the end of a caller's struct is the bug this file has had
-/// before -- 88 bytes past a foreign one -- so a class that cannot be
-/// measured gets no dump rather than a guessed one.
+/// Size selected for the host driver's ABI, including parameterless teardown.
+pub fn uvm_param_size_for<A: RmAbi>(cmd: u32) -> Option<u32> {
+    if cmd == uvm::DEINITIALIZE {
+        Some(0)
+    } else {
+        uvm_param_size_compiled::<A>(cmd).and_then(|n| u32::try_from(n).ok())
+    }
+}
+
+/// Reviewed frontend request envelopes. Nested controls/classes need separate rules.
+#[derive(Clone, Copy, Debug)]
+pub enum FrontendSize {
+    Fixed(u32),
+    Array(u32),
+    Allocation,
+}
+
+impl FrontendSize {
+    pub fn accepts(self, size: u32) -> bool {
+        match self {
+            Self::Fixed(n) => size == n,
+            Self::Array(n) => size.is_multiple_of(n),
+            Self::Allocation => {
+                size == sz::<sys::NVOS21_PARAMETERS>() || size == sz::<sys::NVOS64_PARAMETERS>()
+            }
+        }
+    }
+}
+
+/// Frontend envelopes supported by forwarding. Sources: escape.c and nv.c's
+/// ioctl validation tables. Pointer-bearing exceptions are translated separately;
+/// unhandled escapes, including raw XFER wrappers, are refused by the host.
+pub fn frontend_size(nr: u32) -> Option<FrontendSize> {
+    use crate::nvgpu;
+    use FrontendSize::{Allocation, Array, Fixed};
+    Some(match nr {
+        sys::NV_ESC_RM_ALLOC => Allocation,
+        sys::NV_ESC_RM_ALLOC_OBJECT => Fixed(sz::<sys::NVOS05_PARAMETERS>()),
+        sys::NV_ESC_RM_FREE => Fixed(sz::<sys::NVOS00_PARAMETERS>()),
+        sys::NV_ESC_RM_CONTROL => Fixed(sz::<sys::NVOS54_PARAMETERS>()),
+        sys::NV_ESC_RM_ALLOC_MEMORY => Fixed(sz::<nvgpu::Nvos02WithFd>()),
+        sys::NV_ESC_RM_MAP_MEMORY => Fixed(sz::<nvgpu::Nvos33WithFd>()),
+        sys::NV_ESC_RM_UNMAP_MEMORY => Fixed(sz::<sys::NVOS34_PARAMETERS>()),
+        sys::NV_ESC_RM_VID_HEAP_CONTROL => Fixed(sz::<sys::NVOS32_PARAMETERS>()),
+        sys::NV_ESC_RM_ALLOC_CONTEXT_DMA2 => Fixed(sz::<sys::NVOS39_PARAMETERS>()),
+        sys::NV_ESC_RM_BIND_CONTEXT_DMA => Fixed(sz::<sys::NVOS49_PARAMETERS>()),
+        sys::NV_ESC_RM_MAP_MEMORY_DMA => Fixed(sz::<sys::NVOS46_PARAMETERS>()),
+        sys::NV_ESC_RM_UNMAP_MEMORY_DMA => Fixed(sz::<sys::NVOS47_PARAMETERS>()),
+        sys::NV_ESC_RM_DUP_OBJECT => Fixed(sz::<sys::NVOS55_PARAMETERS>()),
+        sys::NV_ESC_RM_SHARE => Fixed(sz::<sys::NVOS57_PARAMETERS>()),
+        sys::NV_ESC_RM_GET_EVENT_DATA => Fixed(sz::<sys::NVOS41_PARAMETERS>()),
+        sys::NV_ESC_STATUS_CODE => Fixed(sz::<sys::nv_ioctl_status_code_t>()),
+        nvgpu::NV_ESC_CARD_INFO => Array(sz::<sys::nv_ioctl_card_info_t>()),
+        nvgpu::NV_ESC_ATTACH_GPUS_TO_FD => Array(sz::<u32>()),
+        nvgpu::NV_ESC_REGISTER_FD => Fixed(sz::<nvgpu::IoctlRegisterFd>()),
+        nvgpu::NV_ESC_ALLOC_OS_EVENT => Fixed(sz::<nvgpu::IoctlAllocOsEvent>()),
+        nvgpu::NV_ESC_FREE_OS_EVENT => Fixed(sz::<nvgpu::IoctlFreeOsEvent>()),
+        nvgpu::NV_ESC_CHECK_VERSION_STR => Fixed(sz::<sys::nv_ioctl_rm_api_version_t>()),
+        nvgpu::NV_ESC_SYS_PARAMS => Fixed(sz::<sys::nv_ioctl_sys_params_t>()),
+        nvgpu::NV_ESC_NUMA_INFO => Fixed(sz::<nvgpu::IoctlNumaInfo>()),
+        nvgpu::NV_ESC_WAIT_OPEN_COMPLETE => Fixed(sz::<sys::nv_ioctl_wait_open_complete_t>()),
+        // NV_ESC_QUERY_DEVICE_INTR, nv-ioctl-numbers.h.
+        213 => Fixed(sz::<sys::nv_ioctl_query_device_intr>()),
+        _ => return None,
+    })
+}
+
+/// Allocation payload sizes from bindgen, or `None` for unbound classes.
+/// The tracer uses these lengths independently of the forwarding size table;
+/// a class without a compiled layout gets no parameter dump.
 pub fn alloc_param_size_compiled<A: RmAbi>(hclass: u32) -> Option<usize> {
     Some(match hclass {
         0x003e | 0x0040 | 0x50a0 | 0x90ce => size_of::<sys::NV_MEMORY_ALLOCATION_PARAMS>(),
@@ -285,30 +310,14 @@ pub fn alloc_param_size_compiled<A: RmAbi>(hclass: u32) -> Option<usize> {
     })
 }
 
-/// Where a control's nested pointer and its count live, **as the compiler
-/// measures them**.
+/// Nested pointer/count offsets from bindgen for trace capture.
+/// The tracer must follow these pointers to compare answer data, not just
+/// its enclosing count/pointer fields. Tests compare the compiled offsets
+/// with the forwarding descriptors.
 ///
-/// `ctrlout` dumps a control's params BUFFER. For these commands that buffer
-/// is the QUESTION -- a count and an `NvP64` -- and the ANSWER is behind the
-/// pointer. Thirteen signatures were reported `verified` on "16 of 16 bytes"
-/// because of it, which says the whole answer was compared and means the
-/// whole question was.
-///
-/// So `nvrm-trace` follows the pointer. The two OFFSETS come from
-/// `offset_of!` on the bindgen struct and not from `nested_ptrs` below,
-/// which is the table under test and which the guest module forwards on --
-/// an instrument that took them from there would agree with it by
-/// construction. The test beside this requires the two to agree.
-///
-/// WHAT REMAINS HAND-DERIVED, stated because it is the honest edge: `elem`.
-/// Whether a count field means BYTES or ENTRIES is prose in the header, not
-/// layout, and no `size_of` can answer it -- `NV0080_CTRL_GR_GET_INFO`'s
-/// `grInfoListSize` is a number of entries while `NV0080_CTRL_GR_GET_CAPS`'s
-/// `capsTblSize` is a number of bytes, and the two structs are identical.
-/// The element STRUCT is compiled where there is one. A wrong `elem` makes
-/// the tracer read the same wrong length the boundary already reads, so it
-/// adds no risk that is not already there, and it costs coverage rather than
-/// correctness in the direction that matters: fewer bytes compared.
+/// Element types use sizeof where available, but count units still require
+/// header review: identical layouts can count bytes (GET_CAPS) or entries
+/// (GET_INFO). Matching tables cannot independently validate those semantics.
 pub fn ctrl_nested_compiled(cmd: u32) -> &'static [(usize, usize, u32)] {
     /// `NVXXXX_CTRL_XXX_INFO { index; data }`, the element of every
     /// `...InfoList` below (ctrlxxxx.h:71).
@@ -431,18 +440,9 @@ pub fn ctrl_nested_compiled(cmd: u32) -> &'static [(usize, usize, u32)] {
 mod ctrl_nested_tests {
     use super::*;
 
-    /// The hand-written nested-pointer table against the compiler.
-    ///
-    /// `nested_ptrs` drives the guest module: it says where a pointer sits in
-    /// a params buffer and how long the buffer behind it is, and the module
-    /// copies exactly that across the boundary. A wrong offset there reads
-    /// the wrong eight bytes as a pointer. The offsets are layout, so the
-    /// compiler can check them, and every command the compiler knows about
-    /// must agree.
-    ///
-    /// `elem` is checked too, but that is the two tables agreeing rather than
-    /// the compiler adjudicating: whether a count means bytes or entries is
-    /// prose in a header. `ctrl_nested_compiled` says so in its own words.
+    /// Compare forwarding pointer/count offsets with bindgen.
+    /// Element-size agreement is checked too, but byte-vs-entry count semantics
+    /// remain derived from header documentation.
     #[test]
     fn the_nested_pointer_offsets_are_what_the_compiler_measures() {
         let mut checked = 0;
@@ -489,22 +489,10 @@ mod ctrl_nested_tests {
 mod uvm_size_tests {
     use super::*;
 
-    /// The hand-computed ALLOCATION sizes against the compiler's.
-    ///
-    /// `alloc_param_size` is the largest hand-computed table in this tree:
-    /// a hundred-odd classes, most of them a number a person worked out
-    /// while reading a header, with the citation in a comment beside it.
-    /// The guest module copies exactly that many bytes on every allocation.
-    /// A number that is too small truncates the caller's request; one that
-    /// is too large reads out of bounds in `copy_from_user`. Neither is
-    /// visible to any sweep -- a wrong size is wrong identically on both
-    /// sides of the boundary, so the guest and the host agree perfectly
-    /// about a truncated struct.
-    ///
-    /// Each row below is one class and the params struct its comment cites.
-    /// The pairs are what the bindgen allowlist can reach; the rest of the
-    /// table still rests on the arithmetic in its comments, and extending
-    /// this list is a matter of adding the header to nvrm-sys's allowlist.
+    /// Cross-check allocation sizes against bindgen where types are available.
+    /// A wrong shared size can truncate or over-read identically on both sides,
+    /// so matching native/guest traces alone cannot validate it. Remaining sizes
+    /// are checked by the C `class-sizes` test against their cited headers.
     #[test]
     fn the_hand_computed_allocation_sizes_are_what_the_compiler_measures() {
         macro_rules! check {
@@ -601,15 +589,8 @@ mod uvm_size_tests {
         check!(sys::NV_MEMORY_SYNCPOINT_ALLOCATION_PARAMS, 0x00c3u32);
     }
 
-    /// The hand-computed UVM sizes against the compiler's.
-    ///
-    /// The guest module copies exactly `uvm_param_size` bytes to and from
-    /// the host on every UVM call. An entry that is too small truncates a
-    /// caller's request; one that is too large is an out-of-bounds read in
-    /// `copy_from_user`. Neither is visible to any sweep, because a wrong
-    /// size is wrong identically on both sides of the boundary -- the guest
-    /// and the host would agree perfectly about a truncated struct. So the
-    /// compiler checks the arithmetic instead.
+    /// Compare reference UVM sizes with bindgen. Matching guest/host traces
+    /// cannot detect a wrong size shared by both sides.
     #[test]
     fn the_hand_computed_uvm_sizes_are_what_the_compiler_measures() {
         let cmds = [
@@ -658,18 +639,11 @@ mod uvm_size_tests {
     }
 }
 
-// ===========================================================================
 // fd field offset  (the only value translation besides the aux pointer)
-// ===========================================================================
 
-/// Byte offset of a process-local fd field in the inline struct, if the
-/// call carries one. `None` means no fd field.
-///
-/// Frontend: FIVE escapes, not four. The four from gVisor's HasFrontendFD
-/// (ALLOC/FREE_OS_EVENT, RM_ALLOC_MEMORY, RM_MAP_MEMORY) plus REGISTER_FD,
-/// which nvproxy handles in a handler of its own and therefore does not
-/// route through the interface. Relying on HasFrontendFD as the complete
-/// list ends in EINVAL on 0xc9.
+/// Known inline FD offsets. Frontend requests include REGISTER_FD in
+/// addition to gVisor's four HasFrontendFD cases. `None` means no registered
+/// FD translation; it does not establish that an unknown request is flat.
 pub fn fd_field_offset(dev: Dev, nr: u32, _size: u32) -> Option<u32> {
     if dev.is_uvm() {
         return Some(match nr {
@@ -688,14 +662,8 @@ pub fn fd_field_offset(dev: Dev, nr: u32, _size: u32) -> Option<u32> {
     }
     // Frontend (ctl/gpu):
     Some(match nr {
-        // nv_ioctl_register_fd_t { ctl_fd: i32 } - ctl_fd @ 0.
-        //
-        // NOT in ESCAPES_WITH_FD / gVisor's HasFrontendFD: nvproxy translates
-        // this escape in a handler of its own instead of through the
-        // generic path. It still carries a process-local fd number and is
-        // therefore the fifth escape that must be translated. libcuda calls
-        // it after EVERY open of a per-GPU node (10 times in the vectorAdd
-        // trace).
+        // REGISTER_FD: ctl_fd i32 @0. gVisor handles this separately from
+        // HasFrontendFD; the vectorAdd trace used it after each GPU-node open.
         x if x == crate::nvgpu::NV_ESC_REGISTER_FD => 0,
 
         // IoctlAllocOSEvent/FreeOSEvent { HClient, HDevice, FD u32 @ 8, Status }
@@ -717,9 +685,7 @@ fn nvgpu_free_os_event() -> u32 {
     crate::nvgpu::NV_ESC_FREE_OS_EVENT
 }
 
-// ===========================================================================
 // Embedded pointer  (RM_CONTROL / RM_ALLOC)
-// ===========================================================================
 
 /// Description of an embedded pointer that points at a second buffer,
 /// which has to travel across the boundary as well.
@@ -730,15 +696,13 @@ pub struct Embedded {
     pub len: u32,
 }
 
-/// Does this call carry an embedded pointer? `buf` is the inline payload
-/// (at least `size` bytes), out of which length fields are read.
-///
-/// Returns `Ok(None)`  = no embedded pointer.
-/// Returns `Err(())`   = embedded, but the length is not determinable
-///                          (unknown hClass) -> the caller fails loudly.
+/// Describe a known primary embedded pointer in the inline payload.
+/// `Ok(None)` means no translation descriptor was selected; it does not
+/// validate the complete request. `Err(())` means an unknown allocation
+/// layout or unsupported rights pointer.
 ///
 /// # Safety
-/// `buf` must be valid for at least `size` bytes.
+/// `buf` must be readable and initialized for at least `size` bytes.
 #[allow(clippy::result_unit_err)] // Err(()) means "not determinable"; the caller maps it to ENOTSUP
 pub unsafe fn embedded_ptr<A: RmAbi>(
     dev: Dev,
@@ -767,26 +731,16 @@ pub unsafe fn embedded_ptr<A: RmAbi>(
                 }))
             }
         }
-        // RM_ALLOC comes in TWO forms. The driver accepts exactly these two
-        // sizes (escape.c:325):
-        //   NVOS64 (48): hClass @12, pAllocParms @16, pRightsRequested @24
-        //   NVOS21 (32): hClass @12, pAllocParms @16, paramsSize @24
-        // pAllocParms sits at 16 in both (guaranteed by a ct_assert in
-        // escape.c:286); pRightsRequested exists only in NVOS64.
-        //
-        // Matching only on `size >= 48` lets the 32-byte form fall
-        // through quietly -- and then RM gets a guest VA instead of a
-        // pointer into the aux buffer. NVOS21 does not appear in the traced
-        // runs, but "does not appear" is no reason to let it through
-        // unchecked.
+        // RM_ALLOC accepts NVOS64 (48 bytes) and NVOS21 (32), escape.c:325.
+        // Both use hClass @12 and pAllocParms @16 (ct_assert at :286).
+        // Byte 24 is pRightsRequested in NVOS64, paramsSize in NVOS21.
         sys::NV_ESC_RM_ALLOC if size == 48 || size == 32 => {
             let pptr = core::ptr::read_unaligned(buf.add(16) as *const u64);
             if pptr == 0 {
                 return Ok(None); // class with no params (ROOT_CLIENT, USERMODE)
             }
             if size == 48 {
-                // pRightsRequested is not supported -- it appears in no
-                // measured run. Non-null here -> fail loudly.
+                // Non-null rights pointers have no translation descriptor.
                 let rights = core::ptr::read_unaligned(buf.add(24) as *const u64);
                 if rights != 0 {
                     return Err(());
@@ -822,23 +776,18 @@ const fn sz<T>() -> u32 {
     core::mem::size_of::<T>() as u32
 }
 
-/// Has this class ever been exercised on real hardware?
-///
-/// Everything in [`alloc_param_size`] is derived from the vendor headers, but
-/// derivation is not the same as having run. The classes below are the ones a
-/// gate run actually allocates on the Turing card this project is developed
-/// on — measured by tracing `nvidia-smi`, `nvprobe`, `managedprobe` and a
-/// PyTorch workload, not assumed. Everything else answers with a size but has
-/// never moved a byte on real silicon, and says so: the descriptor table
-/// carries [`KF_UNVERIFIED`](nvrm_wire::tables::KF_UNVERIFIED) for it and the
-/// host logs a line the first time a guest uses one.
-///
-/// `0x0071` is in the verified set for a different reason than the others: a
-/// guest workload does not allocate it, the host does, for the UVM pool
-/// backing (see `host_pool.rs`), and the gate covers that path.
-///
-/// This is a statement about hardware coverage, not about correctness. Moving
-/// a class into this list requires a gate run on a card of that architecture.
+/// Classes whose capability FDs have no guest translation.
+pub fn alloc_class_blocked(hclass: u32) -> bool {
+    matches!(
+        hclass,
+        0xc637 | 0xc638 | 0xc639 | 0xc640 | 0xb0cd | 0xb0ce | 0xcdcd
+    )
+}
+
+/// Classes exercised by hardware gates, including historical refusals.
+/// `KF_UNVERIFIED` marks other classes; this is coverage, not a safety policy.
+/// The host's OSdesc pool path covers 0x71. Promotion requires a gate on the
+/// relevant architecture; blocked classes remain refused.
 pub fn alloc_class_verified(hclass: u32) -> bool {
     matches!(
         hclass,
@@ -860,23 +809,13 @@ pub fn alloc_class_verified(hclass: u32) -> bool {
             | 0xc5c0
             | 0xc640
             | 0xcb33
-            // --- the video block, promoted 2026-08-06 ---
-            //
-            // Reached for the first time once NV0080_CTRL_CMD_GPU_GET_CLASSLIST
-            // was annotated: before that the encoder got a truncated class
-            // list and concluded there was no encoder, so nothing below was
-            // ever allocated. Each of these appeared in the backend trace of
-            // a guest `h264_nvenc` run and a guest `-hwaccel cuda` decode,
-            // every one with status 0x0. The `encode` stage of
-            // scripts/test.sh gpu runs exactly that and keeps them covered.
+            // Video classes observed with NV_OK in the 2026-08-06 h264_nvenc and
+            // CUDA decode runs; covered by the GPU encode gate.
             | 0x0002 // NV01_CONTEXT_DMA
             | 0x0041 // NV01_ROOT_USER
             | 0x0070 // NV01_MEMORY_SYSTEM_DYNAMIC
             | 0xa0bc // NVENC_SW_SESSION
-            // The two USERMODE doorbell classes are RS_NONE (parameterless)
-            // and therefore have no row in alloc_param_size at all -- listed
-            // here for the record of what the trace showed, not because
-            // anything reads them.
+            // Parameterless USERMODE classes have no allocation-size table row.
             | 0xc361 // VOLTA_USERMODE_A (clc361.h)
             | 0xc461 // TURING_USERMODE_A (already the doorbell path, now traced here too)
             | 0xc4b0 // NVC4B0_VIDEO_DECODER  -- NVDEC, Turing
@@ -884,54 +823,21 @@ pub fn alloc_class_verified(hclass: u32) -> bool {
     )
 }
 
-/// hClass -> size of the alloc parameter struct.
+/// Allocation class to parameter size (`rmapi/resource_list.h` RS_ENTRY).
 ///
-/// Only classes with a non-null pAllocParms need an entry; the alloc side is
-/// not self-describing. Unknown -> None -> the caller fails loudly with
-/// ENOTSUP. Never guess: a wrong size is an out-of-bounds read in the
-/// driver's `copy_from_user`, while a clean ENOTSUP is an understood error.
+/// Non-null parameters need a known layout. Bindgen types supply sizes where
+/// available; `tools/check.sh` compares handwritten rows with C sizeof.
+/// Incorrect sizes previously affected 0x90f1 (48 vs 56, missing pasid) and
+/// 0x71 (128 vs 40, separate OSdesc type).
 ///
-/// **Where bindgen knows the type, the size is derived rather than
-/// transcribed** — the same principle as the guards in `nvgpu.rs`. Two
-/// hand-maintained numbers here were once wrong (0x90f1 at 48 instead of 56,
-/// because the gVisor layout does not know `pasid`; 0x0071 at 128 instead of
-/// 40, because OS_DESCRIPTOR has a struct of its own). `size_of` rules that
-/// class of error out structurally. What remains are the classes whose struct
-/// is not in the bindgen allowlist; for those the source header and line are
-/// cited, and the `class-sizes` step of `scripts/test.sh check`
-/// compares every one of them against a `sizeof` compiled from those very
-/// headers — so a transcription error cannot survive a check run.
+/// RS_NONE classes need no row when pAllocParms is NULL: 0x73, 0x90e7,
+/// 0x9096 and Volta/Turing/Ampere USERMODE. Hopper/Blackwell USERMODE instead
+/// have optional parameters. The 2026-08-22 coverage run observed 35
+/// successful parameterless 0x9096 allocations (OPEN-QUESTIONS 59).
 ///
-/// The class -> struct mapping itself is mechanical: it is
-/// `src/nvidia/src/kernel/rmapi/resource_list.h` in the vendor tree, whose
-/// `RS_ENTRY` rows name the Alloc Param Info of every class.
-///
-/// Classes with `RS_NONE` need no entry at all — their `pAllocParms` is NULL
-/// and `embedded_ptr` bails out before asking. That covers `0x73`
-/// (NV04_DISPLAY_COMMON, resource_list.h:1197), `0x90e7`
-/// (GF100_SUBDEVICE_INFOROM, :815), `0x9096` (GF100_ZBC_CLEAR) and the
-/// USERMODE doorbell classes of Volta/Turing/Ampere (:884, :895, :906) —
-/// but NOT the Hopper and Blackwell doorbells, which do take params; see
-/// their entry below.
-///
-/// `0x9096` joined this list on 2026-08-22 rather than being found in the
-/// header: number 59's coverage diff reported it allocated **35 times, every
-/// one NV_OK, and named in no table entry**, which is what a class that is
-/// RS_NONE and undocumented here looks like from the outside. The list was
-/// incomplete by exactly one, and the run is what said so.
-///
-/// WARNING: a class is listed here only if `resource_list.h` names ONE
-/// unambiguous param struct AND that struct carries no NvP64 the host does
-/// not translate. Forwarding an untranslated pointer hands the host RM a
-/// guest address; where that pointer is a callback (`pProc`, `pCallbkFn`) it
-/// would be an address the host kernel calls. Those classes are deliberately
-/// absent, and absent means a clean ENOTSUP.
-///
-/// Where a class sits in this file says how it was measured, not how it was
-/// derived: the entries above the "never run on real hardware" divider are
-/// listed in [`alloc_class_verified`]; a class promoted into that list stays
-/// where its header citation is. The two are compared by
-/// `hclass_sizes_match_xlate` in `table.rs`.
+/// This table establishes copy size only. It does not authorize a class or
+/// prove all pointer/FD fields are translated; the host also validates shape
+/// and policy. Hardware coverage is recorded by [`alloc_class_verified`].
 pub fn alloc_param_size<A: RmAbi>(hclass: u32) -> Option<u32> {
     Some(match hclass {
         // --- derived from the bindgen types (the vendor tree governs) ---
@@ -947,35 +853,14 @@ pub fn alloc_param_size<A: RmAbi>(hclass: u32) -> Option<u32> {
         0x0079 => 24, // NV0005_ALLOC_PARAMETERS (cl0005.h:40-47):
         // hParentClient@0, hSrcResource@4, hClass@8,
         // notifyIndex@12, data P64 @16 -> 24
-        // NVC640_ALLOCATION_PARAMETERS { NvU64 capDescriptor } (clc640.h:38).
-        // WARNING: on Unix capDescriptor is a FILE DESCRIPTOR, not a value --
-        // a process-local FD INSIDE the alloc params. `alloc_fd_field` has
-        // no entry for it, deliberately: the class is MIG-only and has
-        // never been exercised here, so a guest that allocates it gets the
-        // fd forwarded untranslated rather than a silent half-translation.
-        //
-        // MEASURED 2026-08-21 (number 65), which narrows that warning to
-        // something exact rather than something feared. The capability fd
-        // comes from /dev/nvidia-caps/nvidia-cap<minor>, whose minor is read
-        // out of /proc/driver/nvidia/capabilities/mig/monitor -- and NEITHER
-        // path exists in a guest, because they are made by the host's
-        // nvidia.ko and not by this project's guest module. So no guest
-        // client can obtain the fd this field carries, and the untranslated
-        // forward cannot be reached from a guest at all. `probe/bin/rmdirect`
-        // asks for the class directly and gets NV_ERR_INSUFFICIENT_PERMISSIONS
-        // (0x1b) on both sides for capDescriptor = -1 -- identical to a
-        // native run given the same input, so the boundary carries the
-        // allocation faithfully and the refusal is RM's, not ours.
-        //
-        // The entry to add here is therefore still MISSING and still wanted,
-        // but it is a prerequisite for exposing MIG to a guest, not a live
-        // hole: nothing can currently drive it.
+        // capDescriptor is a Unix FD (clc640.h); alloc_class_blocked refuses
+        // this class until capability FDs can be translated.
         0xc640 => 8, // AMPERE_SMC_MONITOR_SESSION
         // NV_MEMORY_ALLOCATION_PARAMS for the ordinary memory classes
         // (resource_list.h:574, :542, :563).
         0x003e | 0x0040 | 0x50a0 => sz::<sys::NV_MEMORY_ALLOCATION_PARAMS>(),
         // NV01_MEMORY_SYSTEM_OS_DESCRIPTOR uses a struct of its OWN, much
-        // smaller (resource_list.h:605) -- not the same as above.
+        // smaller (resource_list.h:605); not the same as above.
         0x0071 => sz::<sys::NV_OS_DESC_MEMORY_ALLOCATION_PARAMS>(),
 
         // --- libcuda path (nvprobe lvl4 trace). Class -> param struct
@@ -997,15 +882,9 @@ pub fn alloc_param_size<A: RmAbi>(hclass: u32) -> Option<u32> {
         // { hClient } = 4 (clcb33.h:37-39, resource_list.h:2365)
         0xcb33 => 4,
 
-        // ---- classes below here have (mostly) never run on real hardware --
-        // Same derivation as above, from the same resource_list.h rows, but
-        // no gate has exercised them: alloc_class_verified() excludes them,
-        // the descriptor table marks them KF_UNVERIFIED, and the host logs
-        // the first use of each. Promoting one needs a gate run on a card of
-        // that architecture. The exceptions -- 0x0002, 0x0041, 0x0070,
-        // 0xa0bc, 0xc4b0, 0xc4b7 -- were promoted on 2026-08-06 by the
-        // encode stage and are in alloc_class_verified(); they keep their
-        // rows here, next to the header citations they came with.
+        // Additional header-derived classes. Hardware coverage is recorded by
+        // alloc_class_verified, not by row order; promoted entries keep their
+        // original header citations.
 
         // NV_GR_ALLOCATION_PARAMETERS (nvos.h:2729) = 16. Graphics/compute class
         // of every architecture. Turing (0xc5c0) above is the verified one; these
@@ -1022,7 +901,7 @@ pub fn alloc_param_size<A: RmAbi>(hclass: u32) -> Option<u32> {
         }
 
         // NV_CHANNEL_ALLOC_PARAMS (alloc/alloc_channel.h:347) = 376. GPFIFO
-        // channel of every architecture -- one struct for all of them, so the
+        // channel of every architecture; one struct for all of them, so the
         // verified Turing entry (0xc46f) fixes the size for the rest. Without
         // these the FIRST channel allocation on a non-Turing card fails.
         // 10 classes, resource_list.h from :315
@@ -1210,53 +1089,28 @@ pub fn alloc_param_size<A: RmAbi>(hclass: u32) -> Option<u32> {
     })
 }
 
-/// Byte offset of a process-local fd field INSIDE the alloc-params buffer
-/// (the aux payload of NV_ESC_RM_ALLOC), for classes whose params carry one.
-/// The field is an 8-byte NvP64 holding a plain fd number; the host rewrites
-/// it to its own fd number for the same OFD.
-///
-/// `None` = no fd in the params (the normal case).
+/// Known FD offset within allocation parameters (NV_ESC_RM_ALLOC aux).
+/// The field is an 8-byte NvP64; [`alloc_fd_guard`] determines when it is an
+/// FD rather than a callback. `None` means no registered FD translation.
 pub fn alloc_fd_field(hclass: u32) -> Option<u32> {
     Some(match hclass {
-        // NV01_EVENT_OS_EVENT: NV0005_ALLOC_PARAMETERS.data @16
-        // (cl0005.h:40-47). For a user-priv client RM converts data via
-        // osUserHandleToKernelPtr (event_api.c:173-183), which matches it
-        // as an FD NUMBER against the events registered by
-        // NV_ESC_ALLOC_OS_EVENT (os.c:1741-1761, `e->fd == fd`). Those were
-        // registered with the HOST fd number, so the guest number must be
-        // translated or the lookup silently misses.
+        // NV0005.data @16 (cl0005.h:40-47) identifies an OS-event registration.
+        // User clients resolve it through osUserHandleToKernelPtr
+        // (event_api.c:173; os.c:1741), so it must match the registered host ID.
         0x0079 => 16,
 
-        // NV01_EVENT, same NV0005_ALLOC_PARAMETERS, same `data` at 16.
-        //
-        // Measured 2026-08-07: NVIDIA's VULKAN driver allocates its
-        // event under hClass 0x0005 with the INNER hClass (params @8) set to
-        // 0x79, where CUDA allocates under 0x0079 directly. Both hand RM an
-        // fd on /dev/nvidia0 -- dumped with an LD_PRELOAD that reads `data`
-        // BEFORE the call, which matters because RM overwrites the field in
-        // place with a kernel pointer (osUserHandleToKernelPtr,
-        // event_api.c:173-183). Reading it afterwards shows 0xffff8c.. and
-        // hides the fd entirely.
-        //
-        // Untranslated the guest gets NV_ERR_OBJECT_NOT_FOUND (0x57) and
-        // NVIDIA's Vulkan reports "Failed to allocate semaphore event".
+        // Vulkan uses outer class 0x0005 with inner class 0x79; CUDA uses 0x79
+        // outside too. The 2026-08-07 pre-ioctl trace confirmed both carry an FD.
+        // Inspect before the call: RM overwrites data with a kernel pointer.
         0x0005 => 16,
 
         _ => return None,
     })
 }
 
-/// Guard for `alloc_fd_field`: `(offset, value)` -- translate the fd only
-/// when the u32 at `offset` in the params buffer equals `value`.
-///
-/// `None` = no condition.
-///
-/// The event classes need one, because NV0005_ALLOC_PARAMETERS reuses
-/// `data` (@16) for two different things and says which by `hClass` (@8):
-/// an fd for `NV01_EVENT_OS_EVENT` (0x79), a callback pointer for
-/// `NV01_EVENT_KERNEL_CALLBACK`(_EX). Only the first may be translated, and
-/// the outer class does not say which one it is -- 0x0005 appears with an
-/// fd (Vulkan) and could appear with a pointer.
+/// `(offset, value)` required before translating an allocation FD.
+/// NV0005.hClass @8 distinguishes OS-event data @16 from callback pointers.
+/// The outer class alone is insufficient. `None` means no condition.
 pub fn alloc_fd_guard(hclass: u32) -> Option<(u32, u32)> {
     match hclass {
         // hClass @8 == NV01_EVENT_OS_EVENT (cl0005.h:40-47, cl0000.h)
@@ -1265,18 +1119,9 @@ pub fn alloc_fd_guard(hclass: u32) -> Option<(u32, u32)> {
     }
 }
 
-// ===========================================================================
-// SECOND-level embedded pointers
-// ===========================================================================
-// NVOS54.params points at a buffer that can ITSELF contain P64 pointers.
-// The first level is generic (paramsSize is self-describing); the second
-// is NOT -- which field is a pointer, and where its length sits, cannot be
-// derived from C headers. That is exactly why nvproxy has a handler per
-// control command.
-//
-// Without an annotation RM gets a guest VA and answers with
-// NV_ERR_INVALID_PARAM_STRUCT (0x3a) or NV_ERR_INVALID_ADDRESS (0x1e) --
-// both codes are the signature of a missing entry here.
+// Nested pointers inside NVOS54.params need command-specific lengths.
+// Untranslated guest addresses refer to the backend's address space;
+// known unsupported pointer controls must remain blocked.
 
 /// Where the length of the target buffer comes from.
 #[derive(Copy, Clone, Debug)]
@@ -1301,13 +1146,8 @@ pub struct NestedPtr {
 /// quietly.
 pub const MAX_NESTED: usize = 4;
 
-/// The commands that carry an annotation below.
-///
-/// `nested_ptrs` is a function over a 32-bit key space and therefore not
-/// enumerable; the serializer for the guest module (`table.rs`) needs the
-/// list to fill the table. It therefore stands right here, next to the
-/// entries, and `table::build()` checks that every entry here really does
-/// have an annotation. Whoever adds a command below adds it here too.
+/// Enumerate [`nested_ptrs`] for table serialization.
+/// Add commands to both lists; table construction verifies each annotation.
 pub fn nested_cmds() -> &'static [u32] {
     &[
         0x101, 0x20801802, 0x20801201, 0x80170d, 0x800201, 0x801b01, 0x801301, 0x801102, 0x801701,
@@ -1315,28 +1155,51 @@ pub fn nested_cmds() -> &'static [u32] {
     ]
 }
 
-/// RM_CONTROL commands that are **never** forwarded from the guest.
+/// Controls the host refuses and advertises with CF_BLOCK to the guest.
 ///
-/// Measured: both write fields the HOST assigns, and both are
-/// NON_PRIVILEGED -- `accessRight` 0, flags `0x10109` in the export table
-/// (`g_client_resource_nvoc.c:1935-1944`):
-///
-///  - `NV0000_CTRL_CMD_SET_SUB_PROCESS_ID` (0x901, `ctrl0000proc.h:93`).
-///    The implementation (`client_resource.c:4856-4872`) writes
-///    `pClient->SubProcessID` without any check. Since the host assigns the
-///    IDs, a guest process could use it to pose as a different one -- or
-///    lift itself into domain `GUEST_KERNEL` via `KERNEL_PID`
-///    (`kernel_fifo.c:748-757`).
-///  - `NV0000_CTRL_CMD_DISABLE_SUB_PROCESS_USERD_ISOLATION` (0x902,
-///    `ctrl0000proc.h:95`). Switches off precisely the USERD separation the
-///    IDs bring in the first place (`kernel_fifo.c:508-511`).
-///
-/// Enforced in the HOST (`session.rs`, `on_ioctl`) -- that is the boundary
-/// that counts. The module gets the same list through the descriptor table
-/// (`CF_BLOCK`) and saves itself the trip; a guest that ignores the table
-/// runs into the host block anyway.
+/// The first group preserves host-owned process attribution (ctrl0000proc.h).
+/// The second contains untranslated FD inputs (ctrl0000unix.h, os.c).
+/// The last is the Linux driver's embeddedParamCopyIn switch minus controls
+/// handled by nested_ptrs. Their user pointers would address the backend.
+/// Add translation and tests before enabling one; native RM privilege checks
+/// do not make an untranslated process address safe to forward.
 pub fn blocked_ctrls() -> &'static [u32] {
-    &[0x901, 0x902]
+    &[
+        0x901,      // SET_SUB_PROCESS_ID
+        0x902,      // DISABLE_SUB_PROCESS_USERD_ISOLATION
+        0x3d08,     // GET_EXPORT_OBJECT_INFO
+        0x3d0a,     // CREATE_EXPORT_OBJECT_FD
+        0x3d0b,     // EXPORT_OBJECTS_TO_FD
+        0x3d0c,     // IMPORT_OBJECTS_FROM_FD
+        0x127,      // NV0000_CTRL_CMD_SYSTEM_GET_P2P_CAPS
+        0x130,      // NV0000_CTRL_CMD_SYSTEM_EXECUTE_ACPI_METHOD
+        0x602,      // NV0000_CTRL_CMD_NVD_GET_DUMP
+        0x730120,   // NV0073_CTRL_CMD_SYSTEM_EXECUTE_ACPI_METHOD
+        0x801401,   // NV0080_CTRL_CMD_HOST_GET_CAPS
+        0x80180f,   // NV0080_CTRL_CMD_DMA_UPDATE_PDE_2
+        0x20800122, // NV2080_CTRL_CMD_GPU_EXEC_REG_OPS
+        0x20800124, // NV2080_CTRL_CMD_GPU_GET_ENGINE_CLASSLIST
+        0x2080016e, // NV2080_CTRL_GPU_GET_NVENC_SW_SESSION_INFO
+        0x208001e8, // NV2080_CTRL_CMD_GPU_RPC_GSP_TEST
+        0x208001f2, // NV2080_CTRL_CMD_GSP_CRYPTO_CONTROL
+        0x20800610, // NV2080_CTRL_CMD_I2C_ACCESS
+        0x20800803, // NV2080_CTRL_CMD_BIOS_GET_NBSI
+        0x20800806, // NV2080_CTRL_CMD_BIOS_GET_NBSI_OBJ
+        0x20801336, // NV2080_CTRL_CMD_FB_GET_AMAP_CONF
+        0x20802204, // NV2080_CTRL_CMD_RC_READ_VIRTUAL_MEM
+        0x20802402, // NV2080_CTRL_CMD_NVD_GET_DUMP
+        0x20802a01, // NV2080_CTRL_CMD_CE_GET_CAPS
+        0x402c0102, // NV402C_CTRL_CMD_I2C_INDEXED
+        0x402c0105, // NV402C_CTRL_CMD_I2C_TRANSACTION
+        0x83de0315, // NV83DE_CTRL_CMD_DEBUG_READ_MEMORY
+        0x83de0316, // NV83DE_CTRL_CMD_DEBUG_WRITE_MEMORY
+        0x83de0326, // NV83DE_CTRL_CMD_DEBUG_READ_BATCH_MEMORY
+        0x83de0327, // NV83DE_CTRL_CMD_DEBUG_WRITE_BATCH_MEMORY
+        0xa0830103, // NVA083_CTRL_CMD_VIRTUAL_DISPLAY_GET_DEFAULT_EDID
+        0xa0bc0101, // NVA0BC_CTRL_CMD_NVENC_SW_SESSION_UPDATE_INFO
+        0xb06f010c, // NVB06F_CTRL_CMD_GET_ENGINE_CTX_DATA
+        0xb06f010d, // NVB06F_CTRL_CMD_MIGRATE_ENGINE_CTX_DATA
+    ]
 }
 
 /// Is this control blocked? One place, two consumers (host + table).
@@ -1344,57 +1207,22 @@ pub fn ctrl_blocked(cmd: u32) -> bool {
     blocked_ctrls().contains(&cmd)
 }
 
-/// Where a process-local fd sits inside this RM_CONTROL's params buffer.
-///
-/// `None` = no fd, which is the normal case.
-///
-/// WHY THIS EXISTS. A file descriptor is a **process** resource. The guest
-/// sends its own number; on the host the same number names a different file
-/// or none at all, and RM answers `NV_ERR_INVALID_PARAMETER` (0x3b). That is
-/// the same family as `NV_ESC_REGISTER_FD` and as `ClassDesc.fd_off`, only
-/// one level deeper: the fd is inside the *control params*, behind
-/// NVOS54.params, not in the inline struct.
-///
-/// Measured (2026-08-06): NVIDIA's EGL is the
-/// first consumer on this rig to use one. With the whole NVIDIA GL stack
-/// staged into the guest, `eglInitialize` fails on every platform, and the
-/// backend logs exactly one failure for the whole run --
-/// `nr 0x2a cmd 0x3d05 status 0x3b`. A CUDA run makes no `0x3d..` control at
-/// all, so nothing on the compute path takes this branch.
-///
-/// FOUR bytes. These are all `NvS32` (`ctrl0000unix.h`), unlike
-/// `alloc_fd_field`, which names an `NvP64`.
+/// Known NvS32 FD offsets inside NVOS54 control parameters.
+/// These fields are four bytes, unlike allocation NvP64 FDs.
+/// `None` means no registered translation; unsupported inputs are blocked.
 pub fn ctrl_fd_offset(cmd: u32) -> Option<u32> {
     match cmd {
-        // NV0000_CTRL_CMD_OS_UNIX_EXPORT_OBJECT_TO_FD (ctrl0000unix.h:147),
-        // params :151-155:
-        //   { EXPORT_OBJECT object @0 (type u32, hDevice, hParent, hObject)
-        //     NvS32 fd @16  /* IN/OUT */ ; NvU32 flags @20 } = 24
-        // The guest trace agrees: psize 0x18.
-        //
-        // Measured natively with an LD_PRELOAD that dumps the params: RMAPI
-        // passes an ALREADY OPEN fd on /dev/nvidiactl (type=1 _TYPE_RM,
-        // flags=0 i.e. EMPTY_FD_FALSE), and RM leaves the value untouched on
-        // return. So it is an IN parameter at the ioctl level, and the guest
-        // keeps its own number.
+        // EXPORT_OBJECT_TO_FD (ctrl0000unix.h:147): object @0, fd i32 @16,
+        // flags @20; 24 bytes. Despite IN/OUT in the header, the measured RMAPI
+        // path supplies an already-open ctl FD and preserves its number.
         0x3d05 => Some(16),
 
-        // NV0000_CTRL_CMD_OS_UNIX_IMPORT_OBJECT_FROM_FD (:181), params
-        // :185-188: { NvS32 fd @0 /* IN */ ; EXPORT_OBJECT object @4 } = 20.
-        // The counterpart of 0x3d05 -- an export nothing can import is not
-        // worth having, and it is the same struct read the other way round.
+        // IMPORT_OBJECT_FROM_FD (ctrl0000unix.h:181): fd i32 @0, object @4;
+        // 20 bytes. Resolve the input FD to the exporting OFD.
         0x3d06 => Some(0),
 
-        // NOT annotated on purpose, and each for its own reason:
-        //   0x3d04 GET_CONTROL_FILE_DESCRIPTOR -- the fd is an OUT. RM opens
-        //          it on the HOST, and handing a host fd number to the guest
-        //          is a different problem from translating one that exists on
-        //          both sides. It needs a new fd in the guest, not a lookup.
-        //   0x3d08 GET_EXPORT_OBJECT_INFO (fd @0), 0x3d0b EXPORT_OBJECTS_TO_FD
-        //          (fd @0), 0x3d0c IMPORT_OBJECTS_FROM_FD (fd @0) -- plain IN
-        //          fds and mechanically identical to 0x3d06, but no run on
-        //          this rig has made one. They go in when a trace shows them.
-        //   0x3d0a CREATE_EXPORT_OBJECT_FD -- deprecated in the header itself.
+        // Other Unix FD-input controls are refused by blocked_ctrls until
+        // translated. 0x3d04 declares an output FD, not a token to resolve.
         _ => None,
     }
 }
@@ -1411,12 +1239,9 @@ pub fn ctrl_fd_cmds() -> &'static [u32] {
 /// Empty slice = flat, nothing to do (the normal case).
 pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
     match cmd {
-        // NV0000_CTRL_CMD_SYSTEM_GET_BUILD_VERSION (ctrl0000system.h).
-        // { SizeOfStrings u32 @0, Pad[4], pDriverVersionBuffer @8,
-        //   pVersionBuffer @16, pTitleBuffer @24, ChangelistNumber @32,
-        //   OfficialChangelistNumber @36 } = 40 B.
-        // All three buffers are SizeOfStrings bytes. That is the
-        // "KMD Version" line in nvidia-smi.
+        // SYSTEM_GET_BUILD_VERSION (ctrl0000system.h): SizeOfStrings @0,
+        // three pointers @8/16/24, changelist @32, official changelist @36;
+        // 40 bytes. Each pointed-to buffer contains SizeOfStrings bytes.
         0x101 => &[
             NestedPtr {
                 ptr_off: 8,
@@ -1432,73 +1257,41 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
             },
         ],
 
-        // NV2080_CTRL_CMD_BUS_GET_INFO (legacy, not in gVisor) -- the
-        // "Bus-Id" column. The pattern of every *_GET_INFO control:
-        // { listSize u32 @0, pad 4, list P64 @8 }, elements of 8 bytes
-        // (NVXXXX_CTRL_XXX_INFO { index u32, data u32 }). Confirmed against
-        // ctrl2080bus.h:583-586 (busInfoListSize is "the number of entries",
-        // busInfoList an NV_DECLARE_ALIGNED NvP64, NV2080_CTRL_BUS_INFO is
-        // the 8-byte pair).
+        // BUS_GET_INFO (ctrl2080bus.h:583): count u32 @0, list NvP64 @8.
+        // NV2080_CTRL_BUS_INFO is an 8-byte { index, data } pair.
         0x20801802 => &[NestedPtr {
             ptr_off: 8,
             len: LenSource::Field { off: 0, elem: 8 },
         }],
 
-        // NV2080_CTRL_CMD_BIOS_GET_INFO (ctrl2080bios.h:71, params :73-76).
-        // { biosInfoListSize u32 @0; pad 4; NV_DECLARE_ALIGNED(biosInfoList
-        // NvP64, 8) @8 } = 16, and the guest trace agrees (psize 0x10).
-        // Elements are NV2080_CTRL_BIOS_INFO, which is the
-        // NVXXXX_CTRL_XXX_INFO { index u32; data u32 } pair again
-        // (ctrl2080bios.h:39) -- 8 bytes, the same shape as BUS_GET_INFO
-        // above and read out of its own header rather than inherited from
-        // it.
-        //
-        // Found by the guest sweep on 2026-08-20, and by nothing before it.
-        // `nvidia-smi -q` PASSES in a guest without this entry and prints a
-        // plausible report; this one control inside it answers 0x1e
-        // NV_ERR_INVALID_ADDRESS, because RM was handed a guest VA. The
-        // recorded answers say it outright -- biosInfoListSize 2 on both
-        // sides, and a pointer that is 0x7ffe0a3f95c0 natively and
-        // 0x7fff4db34730 in the guest. A workload that succeeds while one of
-        // its calls is refused is exactly the case a status-code gate
-        // cannot see (OPEN-QUESTIONS number 51).
+        // BIOS_GET_INFO (ctrl2080bios.h:71-76): count @0, pointer @8;
+        // 16-byte params, 8-byte { index, data } entries (:39).
+        // The 2026-08-20 sweep found this missing despite nvidia-smi succeeding
+        // (OPEN-QUESTIONS 51): whole-workload status alone missed the refusal.
         0x20800802 => &[NestedPtr {
             ptr_off: 8,
             len: LenSource::Field { off: 0, elem: 8 },
         }],
 
-        // NV0041_CTRL_CMD_GET_SURFACE_INFO (ctrl0041.h:279, params :283-286).
-        // { surfaceInfoListSize u32 @0; pad 4; surfaceInfoList NvP64 @8 }.
-        // Elements are NVXXXX_CTRL_XXX_INFO { index u32; data u32 } = 8, the
-        // same typedef chain as GR_GET_INFO below.
-        //
-        // Reached for the first time by the VIRTUAL DISPLAY: NVKMS asks it
-        // while building the display colour lookup table, and without this
-        // entry RM gets a guest pointer and answers 0x1e -- measured
-        // 2026-08-08 as "Failed to allocate memory for the display color
-        // lookup table."
+        // GET_SURFACE_INFO (ctrl0041.h:279-286): count @0, pointer @8,
+        // 8-byte { index, data } entries. NVKMS uses it for the display LUT;
+        // a missing translation failed that allocation (2026-08-08).
         0x410110 => &[NestedPtr {
             ptr_off: 8,
             len: LenSource::Field { off: 0, elem: 8 },
         }],
 
-        // NV2080_CTRL_CMD_GR_GET_INFO (ctrl2080gr.h:408, params :412-416).
-        // { grInfoListSize u32 @0; pad 4; grInfoList NvP64 @8;
-        //   grRouteInfo @16 } = 32. List elements are NVXXXX_CTRL_XXX_INFO
-        // { index u32; data u32 } = 8 (ctrlxxxx.h:71-74, via
-        // NV2080_CTRL_GR_INFO typedef chain ctrl2080gr.h:154 ->
-        // ctrl0080gr.h:99). Status was 0x1e under the retired LD_PRELOAD
-        // shim, 0x0 in the direct trace.
+        // GR_GET_INFO (ctrl2080gr.h:408-416): count @0, pointer @8,
+        // route @16; 32-byte params. Entries are 8-byte NVXXXX_CTRL_XXX_INFO
+        // pairs (ctrlxxxx.h:71; ctrl2080gr.h:154; ctrl0080gr.h:99).
         0x20801201 => &[NestedPtr {
             ptr_off: 8,
             len: LenSource::Field { off: 0, elem: 8 },
         }],
 
-        // NV0080_CTRL_CMD_FIFO_GET_CHANNELLIST (ctrl0080fifo.h:178, params
-        // :181-185). { numChannels u32 @0; pad 4; pChannelHandleList NvP64
-        // @8; pChannelList NvP64 @16 } = 24. Both lists have numChannels
-        // elements of 4 bytes (NvHandle / NvU32 channel ID). Status was
-        // 0x1e under the retired LD_PRELOAD shim, 0x0 in the direct trace.
+        // FIFO_GET_CHANNELLIST (ctrl0080fifo.h:178-185): count @0,
+        // handle pointer @8, channel-ID pointer @16; 24-byte params.
+        // Both arrays have count elements of four bytes.
         0x80170d => &[
             NestedPtr {
                 ptr_off: 8,
@@ -1510,52 +1303,27 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
             },
         ],
 
-        // NV0080_CTRL_CMD_GPU_GET_CLASSLIST (ctrl0080gpu.h:70, params :74-77).
-        // { numClasses u32 @0; NV_DECLARE_ALIGNED(classList NvP64, 8) @8 }
-        // = 16, and the guest trace agrees (psize 0x10). One 32-bit class
-        // number per entry, so numClasses * 4.
-        //
-        // The header spells out the two-call pattern that is the whole
-        // diagnosis: "If the classList pointer is NULL, then this command
-        // returns the number of classes [...] If the classList pointer is
-        // non-NULL, then this command returns the set of supported class
-        // numbers". Measured in the guest, the first call passed and the
-        // second returned 0x1e (NV_ERR_INVALID_ADDRESS) -- RM was handed a
-        // guest VA.
-        //
-        // Two independent things sit behind this one entry: the encoder
-        // asks which classes exist before opening a session (0xc4b7), and
-        // NVKMS picks its display HAL from the same list
-        // (nvkms-rm.c:3692).
+        // GPU_GET_CLASSLIST (ctrl0080gpu.h:70-77): count @0, pointer @8;
+        // 16-byte params, four bytes per class. NULL queries the count.
+        // The encoder and NVKMS display HAL both consume the returned list.
         0x800201 => &[NestedPtr {
             ptr_off: 8,
             len: LenSource::Field { off: 0, elem: 4 },
         }],
 
-        // NV0080_CTRL_CMD_NVENC_GET_CAPS (ctrl0080nvenc.h:59, params :65-68).
-        // { capsTblSize u32 @0; NV_DECLARE_ALIGNED(capsTbl NvP64, 8) @8 }
-        // = 16. capsTblSize is "the size in bytes of the caps table"
-        // (:47-48), i.e. already a byte count -- hence elem 1, not 4. The
-        // table itself is NV0080_CTRL_NVENC_CAPS_TBL_SIZE = 6 bytes.
-        //
-        // Never reached in the guest so far: it sits behind 0x800201, which
-        // failed first.
+        // NVENC_GET_CAPS (ctrl0080nvenc.h:59-68): byte count @0, pointer @8;
+        // 16-byte params. Count is bytes (:47), not entries; table size is six.
         0x801b01 => &[NestedPtr {
             ptr_off: 8,
             len: LenSource::Field { off: 0, elem: 1 },
         }],
 
-        // ---- the *_GET_CAPS / *_GET_INFO family on the DEVICE class ----
-        // All four came out of one guest run of NVIDIA's EGL (2026-08-06):
-        // each returned 0x1e NV_ERR_INVALID_ADDRESS, one after the
-        // next, because RM was handed a guest VA. Every shape below is read
-        // out of the header it belongs to, not inferred from the one above
-        // it -- the family looks uniform and the length SEMANTICS are not
-        // (bytes here, element count there).
+        // Device-class GET_CAPS/GET_INFO lengths are not interchangeable:
+        // GET_CAPS uses bytes; GET_INFO uses a count of index/data pairs.
 
         // NV0080_CTRL_CMD_FB_GET_CAPS (ctrl0080fb.h:60, params :63-66).
         // { capsTblSize u32 @0; NV_DECLARE_ALIGNED(capsTbl NvP64, 8) @8 }
-        // = 16. The header: "the size in BYTES of the caps table" -- so
+        // = 16. The header: "the size in BYTES of the caps table"; so
         // elem 1. NV0080_CTRL_FB_CAPS_TBL_SIZE is 3 (:99).
         0x801301 => &[NestedPtr {
             ptr_off: 8,
@@ -1577,60 +1345,31 @@ pub fn nested_ptrs(cmd: u32) -> &'static [NestedPtr] {
             len: LenSource::Field { off: 0, elem: 1 },
         }],
 
-        // NV0080_CTRL_CMD_GR_GET_INFO (ctrl0080gr.h:72).
-        // NOT bytes. The header is explicit: "grInfoListSize [...] the
-        // NUMBER of entries on the caller's grInfoList", and the buffer
-        // "must be at least as big as grInfoListSize multiplied by the size
-        // of the NV0080_CTRL_GR_INFO structure". That structure is
-        // NVXXXX_CTRL_XXX_INFO (:99) = { index u32; data u32 } = 8 -- the
-        // same element the already-annotated 0x20801201 uses.
+        // GR_GET_INFO (ctrl0080gr.h:72,99): listSize is an entry count;
+        // each NVXXXX_CTRL_XXX_INFO pair occupies eight bytes.
         0x801104 => &[NestedPtr {
             ptr_off: 8,
             len: LenSource::Field { off: 0, elem: 8 },
         }],
 
-        // NV2080_CTRL_CMD_FB_GET_INFO (ctrl2080fb.h:480, params :483-486).
-        // { fbInfoListSize u32 @0; NV_DECLARE_ALIGNED(fbInfoList NvP64, 8)
-        //   @8 } = 16. The header again spells out the semantics: "the
-        // NUMBER of entries", buffer "at least as big as fbInfoListSize
-        // multiplied by the size of the NV2080_CTRL_FB_INFO structure", and
-        // that structure is NVXXXX_CTRL_XXX_INFO (:315) = 8 bytes.
-        //
-        // This one closes the list for NVIDIA's EGL: of the ~60 distinct
-        // RM controls that workload makes natively, exactly SEVEN carry an
-        // NvP64 -- 0x202, 0x801102, 0x801104, 0x801301, 0x801701, 0x20801201
-        // and this one. Everything else is flat or a _V2 that embeds its
-        // table.
+        // FB_GET_INFO (ctrl2080fb.h:480-486): count @0, pointer @8;
+        // 16-byte params, eight-byte NVXXXX_CTRL_XXX_INFO entries (:315).
         0x20801301 => &[NestedPtr {
             ptr_off: 8,
             len: LenSource::Field { off: 0, elem: 8 },
         }],
 
-        // NV2080_CTRL_CMD_GPU_GET_ENGINES (ctrl2080gpu.h, params right
-        // after). { engineCount u32 @0; NV_DECLARE_ALIGNED(engineList
-        // NvP64, 8) @8 } = 16.
-        //
-        // elem 4, not 8, and the header says why: "a pointer to a buffer
-        // of NvU32 values". Not the NVXXXX_CTRL_XXX_INFO pair the other
-        // *_GET_INFO entries above use -- the _V2 variant confirms it by
-        // embedding `NvU32 engineList[...]` directly. The same two-call
-        // pattern as 0x800201: NULL pointer first to learn the count.
-        //
-        // Found by NVIDIA's VULKAN driver, not by EGL: vkCreateDevice
-        // fails without it (status 0x1e), and it is the only NvP64-carrying
-        // control vulkaninfo adds to the seven EGL needs.
+        // GPU_GET_ENGINES (ctrl2080gpu.h): count @0, pointer @8;
+        // 16-byte params, four bytes per engine. NULL queries the count.
+        // Vulkan device creation requires this translation.
         0x20800123 => &[NestedPtr {
             ptr_off: 8,
             len: LenSource::Field { off: 0, elem: 4 },
         }],
 
-        // NOT annotated on purpose: NV0000_CTRL_CMD_GPU_GET_ID_INFO (0x202)
-        // carries an NvP64 too, but measured it is NULL in every call this
-        // workload makes -- 6 times status 0x0 in the guest AND natively.
-        // An entry with a guessed length source is worse than no entry: it
-        // turns a clean ENOTSUP into an out-of-bounds read in the driver's
-        // copy_from_user. It goes in when a run shows it with a non-NULL
-        // pointer, and not before.
+        // GPU_GET_ID_INFO (0x202) declares szName, but the vendored
+        // gpumgrGetGpuIdInfo only copies scalar fields through its V2 form.
+        // Recheck that unused pointer when updating the driver source.
         _ => &[],
     }
 }
@@ -1675,14 +1414,8 @@ mod nested_tests {
         }
     }
 
-    /// NV2080_CTRL_BIOS_GET_INFO_PARAMS (ctrl2080bios.h:73): biosInfoListSize
-    /// u32 @0, biosInfoList NvP64 @8, elements NV2080_CTRL_BIOS_INFO =
-    /// NVXXXX_CTRL_XXX_INFO { index u32; data u32 } = 8 bytes.
-    ///
-    /// The `elem` is the half worth a test of its own: 4 would truncate the
-    /// list and hand RM half a buffer, 16 would read past the guest's. The
-    /// value comes from the typedef in the header, and this is where that
-    /// reading is written down.
+    /// BIOS list entries are eight-byte index/data pairs
+    /// (ctrl2080bios.h:39,73); an incorrect stride truncates or over-reads.
     #[test]
     fn bios_get_info_points_at_offset_8_with_eight_bytes_per_entry() {
         let specs = nested_ptrs(0x20800802);
@@ -1701,14 +1434,7 @@ mod nested_tests {
         );
     }
 
-    /// NV0080_CTRL_GPU_GET_CLASSLIST_PARAMS (ctrl0080gpu.h:74):
-    /// numClasses u32 @0, classList NvP64 @8 (8-aligned), 4 bytes per class.
-    ///
-    /// The offsets are read out of the vendor header, not guessed, and this
-    /// test is where that reading is written down. Getting `elem` wrong is
-    /// the dangerous half: too small truncates the list and the encoder
-    /// concludes there is no encoder; too large reads past the guest's
-    /// buffer.
+    /// Pin class count @0, pointer @8 and four-byte entries (ctrl0080gpu.h:74).
     #[test]
     fn classlist_points_at_offset_8_with_four_bytes_per_class() {
         let specs = nested_ptrs(0x800201);
@@ -1727,11 +1453,7 @@ mod nested_tests {
         assert_eq!(len, Some(380));
     }
 
-    /// NV0080_CTRL_NVENC_GET_CAPS_PARAMS (ctrl0080nvenc.h:65):
-    /// capsTblSize u32 @0, capsTbl NvP64 @8. capsTblSize is a BYTE count
-    /// ("the size in bytes of the caps table"), so elem is 1 -- the one
-    /// place this command differs from the *_GET_INFO family next to it,
-    /// and the easy thing to copy wrong.
+    /// NVENC caps use a byte count, not an entry count (ctrl0080nvenc.h:65).
     #[test]
     fn nvenc_caps_length_is_bytes_not_elements() {
         let specs = nested_ptrs(0x801b01);
@@ -1793,14 +1515,8 @@ mod uvm_tests {
     use super::*;
     use core::mem::offset_of;
 
-    /// The nr range the scan below covers: UVM (the unified-memory driver
-    /// behind /dev/nvidia-uvm) numbers its commands from 1 upwards -- the
-    /// dense range tops out at 81 today, and the one outlier,
-    /// `UVM_IOCTL_BASE(2047)`, sits apart and is not implemented here
-    /// (`uvm_ioctl.h`). The range reaches that outlier so that the day it
-    /// gains a size it is inside the scan rather than outside it.
-    /// `table.rs` scans the same range plus the two 0x3000_000x values
-    /// from uvm_linux_ioctl.h; the two constants must stay equal.
+    /// Scan through UVM_IOCTL_BASE (2047, uvm_ioctl.h), matching table.rs.
+    /// The two Linux 0x3000_000x commands are checked separately.
     const SCAN_MAX: u32 = 2047;
     const SPECIAL: [u32; 2] = [uvm::INITIALIZE, uvm::DEINITIALIZE];
 
@@ -1878,16 +1594,7 @@ mod uvm_tests {
         ]
     }
 
-    /// Every size in `uvm_param_size` against `size_of` of the bindgen
-    /// struct from the vendor header it names in its comment.
-    ///
-    /// The numbers there were added up by hand, field by field, and nothing
-    /// in the build checks them: UVM commands carry no `_IOC` size (the
-    /// request number is a raw number, not an `_IOC` encoding), so this
-    /// function is the ONLY place the payload length of a forwarded UVM
-    /// call comes from. Too small truncates the guest's parameters; too
-    /// large is an out-of-bounds read in the host driver's
-    /// `copy_from_user`.
+    /// Compare each handwritten UVM size with the selected compiled ABI.
     #[test]
     fn every_uvm_size_equals_its_bindgen_struct() {
         for (name, cmd, want) in size_table() {
@@ -1900,7 +1607,7 @@ mod uvm_tests {
         }
     }
 
-    /// UVM_DEINITIALIZE takes no parameter struct at all -- there is no
+    /// UVM_DEINITIALIZE takes no parameter struct at all; there is no
     /// `UVM_DEINITIALIZE_PARAMS` in the vendor header. It must answer 0,
     /// not `None`: `None` means "unknown command" and makes the host reject
     /// the call.
@@ -1924,7 +1631,7 @@ mod uvm_tests {
 
     /// The size table above must name EVERY arm of `uvm_param_size`. A new
     /// arm added without a row here would otherwise be an unchecked
-    /// hand-transcribed number again -- which is the exact failure this
+    /// hand-transcribed number again; which is the exact failure this
     /// file's tests exist to prevent.
     #[test]
     fn no_uvm_arm_is_untested() {
@@ -1938,12 +1645,7 @@ mod uvm_tests {
         assert_eq!(known, tested, "an arm of uvm_param_size has no test row");
     }
 
-    /// Every UVM fd field offset against `offset_of!` of the field it
-    /// names. The fd (file descriptor) is process-local: the guest sends
-    /// its own number and the host rewrites it in place at exactly this
-    /// offset. A wrong offset corrupts a neighbouring field of a struct RM
-    /// then acts on, and RM answers with a status rather than a crash --
-    /// i.e. it fails far away from the cause.
+    /// Compare UVM FD offsets with bindgen to prevent adjacent-field corruption.
     #[test]
     fn every_uvm_fd_offset_is_the_structs_own_field() {
         let want = |cmd: u32, off: u32| {
@@ -2117,7 +1819,7 @@ mod embedded_ptr_tests {
     }
 
     /// A class that allocates with `pAllocParms == NULL` (ROOT_CLIENT,
-    /// USERMODE) has no second buffer -- and no need for the hClass table
+    /// USERMODE) has no second buffer; and no need for the hClass table
     /// either, which is why classes with no params need no entry there.
     #[test]
     fn rm_alloc_with_a_null_params_pointer_carries_nothing() {
@@ -2156,7 +1858,7 @@ mod embedded_ptr_tests {
         }
     }
 
-    /// An hClass the table does not know must be `Err(())` -- the caller
+    /// An hClass the table does not know must be `Err(())`; the caller
     /// turns that into ENOTSUP. Silently forwarding it would hand RM a
     /// guest address, or copy a guessed number of bytes.
     #[test]
@@ -2179,7 +1881,7 @@ mod embedded_ptr_tests {
 
     /// `pRightsRequested` (NVOS64 @24) is not supported. It appears in no
     /// measured run, and it points at yet another buffer that nothing
-    /// translates -- so a non-null value must fail rather than be ignored.
+    /// translates; so a non-null value must fail rather than be ignored.
     #[test]
     fn rm_alloc_refuses_a_non_null_rights_pointer() {
         let known = 0x2080u32; // a class the table knows
@@ -2196,12 +1898,8 @@ mod embedded_ptr_tests {
         // ... and the check happens only in the 48-byte form (below).
     }
 
-    /// The 32-byte NVOS21 form of RM_ALLOC is accepted exactly like the
-    /// 48-byte NVOS64 one. It has no rights pointer at all: what sits at 24
-    /// there is `paramsSize`, so a non-zero word must NOT be read as
-    /// "rights requested" and rejected. Matching only `size >= 48` would
-    /// let this form fall through unnoticed, and RM would then get a guest
-    /// address instead of a pointer into the host's aux buffer.
+    /// NVOS21 uses paramsSize at byte 24, not NVOS64's rights pointer.
+    /// Both forms must translate pAllocParms at byte 16.
     #[test]
     fn the_32_byte_nvos21_form_is_accepted_like_the_48_byte_one() {
         let hclass = 0x2080u32;
@@ -2239,8 +1937,8 @@ mod embedded_ptr_tests {
     }
 
     /// NVOS41 (`NV_ESC_RM_GET_EVENT_DATA`): `pEvent` @0 points at exactly
-    /// ONE `NvUnixEvent`, which RM writes. The length is a constant -- it
-    /// cannot be read out of the guest's buffer -- so it must be
+    /// ONE `NvUnixEvent`, which RM writes. The length is a constant; it
+    /// cannot be read out of the guest's buffer; so it must be
     /// `sizeof(NvUnixEvent)` and nothing else.
     #[test]
     fn get_event_data_points_at_exactly_one_event() {
@@ -2259,7 +1957,7 @@ mod embedded_ptr_tests {
             probe(Dev::Ctl, sys::NV_ESC_RM_GET_EVENT_DATA, &zero, size),
             Ok(None)
         );
-        // A payload too short to hold NVOS41 is not decoded at all -- the
+        // A payload too short to hold NVOS41 is not decoded at all; the
         // pointer field would be read past the end of the guest's buffer.
         assert_eq!(
             probe(Dev::Ctl, sys::NV_ESC_RM_GET_EVENT_DATA, &buf, size - 1),
@@ -2267,12 +1965,8 @@ mod embedded_ptr_tests {
         );
     }
 
-    /// No UVM call carries an embedded pointer: the big per-GPU attribute
-    /// arrays of MAP_EXTERNAL_ALLOCATION and ALLOC_SEMAPHORE_POOL are
-    /// inline, not pointed to. The dev check comes FIRST, so a UVM nr that
-    /// happens to collide with a frontend escape (0x27 is both
-    /// NV_ESC_RM_ALLOC_MEMORY and UVM_PAGEABLE_MEM_ACCESS) is never
-    /// decoded as one.
+    /// Known UVM arrays are inline. Check the device before interpreting a
+    /// number that also names an RM escape.
     #[test]
     fn uvm_calls_never_carry_an_embedded_pointer() {
         let buf = nvos64(0x2080, 0xdead_beef, 0);
@@ -2315,12 +2009,8 @@ mod alloc_fd_tests {
     /// (`resource_list.h`), so this is exhaustive rather than a sample.
     const CLASS_MAX: u32 = 0xffff;
 
-    /// `alloc_fd_field` (where the fd sits) and `alloc_fd_guard` (when it
-    /// may be translated at all) must name the same set of classes. A class
-    /// with an offset but no guard would have its `data` field rewritten
-    /// even when it holds a kernel CALLBACK pointer rather than an fd
-    /// (NV0005_ALLOC_PARAMETERS reuses the field, keyed on the inner
-    /// hClass); a class with a guard but no offset is a dead guard.
+    /// Allocation FD offsets and guards must cover the same classes.
+    /// NV0005.data must never be translated when it contains a callback.
     #[test]
     fn every_class_with_an_fd_field_has_a_guard_and_the_other_way_round() {
         let mut with_fd = Vec::new();
@@ -2333,7 +2023,7 @@ mod alloc_fd_tests {
                 "hClass {hclass:#x}: fd field {fd:?}, guard {guard:?} -- one without the other"
             );
             if let Some(off) = fd {
-                // NV0005_ALLOC_PARAMETERS.data @16 (cl0005.h:40-47) -- the
+                // NV0005_ALLOC_PARAMETERS.data @16 (cl0005.h:40-47); the
                 // NvP64 that holds the fd number.
                 assert_eq!(off, 16, "hClass {hclass:#x}: fd offset");
                 // The guard: translate only when the inner hClass at 8 says
@@ -2361,11 +2051,7 @@ mod alloc_fd_tests {
 mod ctrl_fd_tests {
     use super::*;
 
-    /// `ctrl_fd_cmds()` is the hand-maintained enumeration of
-    /// `ctrl_fd_offset`'s match arms -- the table builder cannot enumerate a
-    /// function over a 32-bit key space, so the list stands beside it. Every
-    /// entry must really have an offset, or `table::collect()` panics at
-    /// host start.
+    /// Every enumerated control FD must have an offset for table construction.
     #[test]
     fn every_named_control_really_carries_an_fd() {
         for &cmd in ctrl_fd_cmds() {
@@ -2380,19 +2066,8 @@ mod ctrl_fd_tests {
         );
     }
 
-    /// The two offsets themselves, read out of ctrl0000unix.h and pinned
-    /// here. Both are `NvS32` fields inside the RM_CONTROL params buffer --
-    /// one level deeper than the fd fields of the inline struct.
-    ///
-    ///  - 0x3d05 EXPORT_OBJECT_TO_FD: `{ EXPORT_OBJECT object @0; NvS32 fd
-    ///    @16; NvU32 flags @20 }`
-    ///  - 0x3d06 IMPORT_OBJECT_FROM_FD: `{ NvS32 fd @0; EXPORT_OBJECT
-    ///    object @4 }` -- the same struct read the other way round, hence
-    ///    offset 0 and not 16.
-    ///
-    /// Swapping the two is the mistake this pins: the guest's fd number
-    /// would be written over `object.type`, and RM answers
-    /// NV_ERR_INVALID_PARAMETER (0x3b).
+    /// Pin ctrl0000unix.h's NvS32 inputs: EXPORT_OBJECT_TO_FD @16,
+    /// IMPORT_OBJECT_FROM_FD @0. Both live in the control params buffer.
     #[test]
     fn the_two_known_controls_keep_their_offsets() {
         assert_eq!(ctrl_fd_offset(0x3d05), Some(16));
@@ -2400,11 +2075,8 @@ mod ctrl_fd_tests {
         assert_eq!(ctrl_fd_cmds(), &[0x3d05, 0x3d06]);
     }
 
-    /// The neighbouring 0x3d.. controls are deliberately NOT annotated,
-    /// each for a reason spelled out at `ctrl_fd_offset`: 0x3d04 hands back
-    /// an fd RM opened on the HOST (a different problem), and 0x3d08 /
-    /// 0x3d0b / 0x3d0c have simply never been seen on this rig. An
-    /// annotation added on a guess would rewrite a field nothing verified.
+    /// Neighboring FD controls have no translation descriptor.
+    /// Input-FD controls are blocked; 0x3d04 declares an output FD.
     #[test]
     fn the_unannotated_neighbours_stay_unannotated() {
         for cmd in [0x3d04u32, 0x3d08, 0x3d0a, 0x3d0b, 0x3d0c] {

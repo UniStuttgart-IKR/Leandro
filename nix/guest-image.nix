@@ -5,7 +5,6 @@
 #
 #   nix build .#guest-image        kernel + initrd + qcow2, for DIRECT KERNEL BOOT
 #   nix build .#guest-image-uefi   the same system as a UEFI-bootable qcow2
-#   scripts/build.sh bake --nixos  builds it and copies it into LEA_VM_DIR
 #
 # WHY THIS EXISTS. The Ubuntu path (build.sh bake) is a convenience: it boots
 # a cloud image, runs apt in it and syspreps the result, and it is

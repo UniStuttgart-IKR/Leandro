@@ -505,8 +505,9 @@ fn generate<A: RmAbi>() -> String {
     // filled in -- but NVKMS's questions are ours to ask, so the module has
     // to write the fields itself. Generated for the same reason as the
     // sizes: a hand-typed offset is a wrong pointer, not a failed call.
-    o.push_str("/* ---- NVOS64 (alloc) and NVOS54 (control), for the fields we write ---- */\n");
+    o.push_str("/* ---- RM allocation and control fields used by the guest ---- */\n");
     for (n, v) in [
+        ("NVOS02_HROOT", off!(sys::NVOS02_PARAMETERS, hRoot)),
         ("NVOS64_HROOT", off!(sys::NVOS64_PARAMETERS, hRoot)),
         (
             "NVOS64_HOBJECTPARENT",

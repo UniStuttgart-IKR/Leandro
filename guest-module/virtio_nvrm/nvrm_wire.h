@@ -101,7 +101,8 @@
 #define NVRM_KESC_REGISTER_FD	201u
 #define NVRM_KSIZE_REGISTER_FD	4u
 
-/* ---- NVOS64 (alloc) and NVOS54 (control), for the fields we write ---- */
+/* ---- RM allocation and control fields used by the guest ---- */
+#define NVRM_NVOS02_HROOT_OFF	0u
 #define NVRM_NVOS64_HROOT_OFF	0u
 #define NVRM_NVOS64_HOBJECTPARENT_OFF	4u
 #define NVRM_NVOS64_HOBJECTNEW_OFF	8u

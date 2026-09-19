@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 # SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
 # The Rust workspace: vhost-user-nvrm (the host end of virtio-nvrm),
-# vhost-user-input, nvrm-genhdr, mmapping, smipids, vsockconnect, and
+# nvrm-genhdr, mmapping, smipids, vsockconnect, and
 # libnvrm_trace.so.
 #
 # `crates` narrows the build to named workspace members (`packages

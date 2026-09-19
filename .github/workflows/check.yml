@@ -36,7 +36,7 @@ jobs:
           pipx install clang-format==22.1.8
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: C formatting
-        run: scripts/ci/check-c-format.sh
+        run: tools/ci/check-c-format.sh
 
   check:
     runs-on: ubuntu-24.04
@@ -66,13 +66,13 @@ jobs:
           key: check-ubuntu24-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'DRIVER_VERSION', 'crates/nvrm-sys/abi.toml') }}
 
       - name: Fetch NVIDIA headers at DRIVER_VERSION
-        run: ./scripts/build.sh vendor
+        run: ./tools/build.sh vendor
 
-      - name: test.sh check
-        run: ./scripts/test.sh check
+      - name: Software checks
+        run: ./tools/check.sh
 
       - name: C host tools and frame fixtures
-        run: scripts/ci/check-c.sh host-tools
+        run: tools/ci/check-c.sh host-tools
 
   c-sanitizers:
     runs-on: ubuntu-24.04
@@ -97,7 +97,7 @@ jobs:
       - name: C tests with ASan and UBSan
         env:
           CC: clang-18
-        run: scripts/ci/check-c.sh all --sanitize
+        run: tools/ci/check-c.sh all --sanitize
 
   c-kernel:
     runs-on: ubuntu-24.04
@@ -160,10 +160,10 @@ jobs:
           shellcheck --version
 
       - name: Files
-        # The same list test.sh check's `bash -n` walks: every .sh under
-        # scripts/ plus the extensionless shebang scripts there.
+        # The same list check.sh's `bash -n` walks: every .sh under
+        # tools/ plus the extensionless shebang scripts there.
         run: |
-          git ls-files 'scripts/**' 'scripts/*' \
+          git ls-files 'tools/**' 'tools/*' \
             | while IFS= read -r p; do
                 case "$p" in *.sh) echo "$p"; continue ;; esac
                 [ -f "$p" ] && head -c 64 "$p" | head -1 \
@@ -179,11 +179,11 @@ jobs:
         # and, through it, on every script that sourced it.
         run: xargs -a /tmp/shell-files.txt shellcheck -x -S error
 
-      - name: Warnings in the library and the test entry point (blocking)
+      - name: Warnings in the library and test entry points (blocking)
         # The files every other script builds on are held to `warning`: the
-        # library and test.sh. Clean since the 2026-08-18 consolidation, so
+        # library, test.sh and check.sh. Clean since the 2026-08-18 consolidation, so
         # there is no backlog to grandfather in.
-        run: shellcheck -x -S warning scripts/lib/*.sh scripts/test.sh
+        run: shellcheck -x -S warning tools/*.sh tools/ci/*.sh
 
       - name: Warnings elsewhere (advisory, never blocking)
         # Printed on every run so a new finding stays visible, blocking on
@@ -206,7 +206,7 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d # v16
       - name: nix flake check
         run: nix flake check --no-build --no-update-lock-file
-      - name: nix build .#leandro-scripts
-        run: nix build .#leandro-scripts --no-link --no-update-lock-file
+      - name: Build shared C test tools
+        run: nix build .#test-tools --no-link --no-update-lock-file
       - name: Build guest modules (Linux 6.12)
         run: nix build .#guest-modules --no-link --no-update-lock-file

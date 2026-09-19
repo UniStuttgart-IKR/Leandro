@@ -1,20 +1,10 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! Logging without std::io.
-//!
-//! Reason: the interposer runs before (and during) libstd's own stdout
-//! initialization, and that initialization can itself call open/ioctl.
-//! Re-entering the hooks is a particularly nasty deadlock.
-//!
-//! TWO LINE FORMATS, ONE RECORD. Every line is built once as a list of
-//! named fields (see `F` and `rec` below) and rendered by BOTH renderers,
-//! so the formats cannot carry different information -- not because two
-//! writers were kept in step, but because there is one writer and two
-//! renderings of it. `LEA_TRACE_FORMAT` picks which are written: `tsv`,
-//! `jsonl`, or `both` (the default, and what the migration runs on).
-//!
-//! The legacy format (TSV), one record per line, fields separated by tabs:
+//! Raw-write logging with shared TSV and JSONL fields.
+//! Avoid `std::io`: its initialization can re-enter the interposed hooks.
+//! TSV column order and JSON keys are consumed by `scripts/lib/common.sh`
+//! and `probe/python/traceread.py`.
 //!
 //! ```text
 //! open      <dev> <fd>
@@ -22,42 +12,13 @@
 //! mmap      <dev> <fd> <len> <off> <addr>
 //! read      <dev> <fd> <ret>
 //! poll      <dev> <fd> <revents>
-//! eventreg  <fd> <previous dev tag, or "new" if unknown>
+//! eventreg  <fd> <previous dev tag, or "new">
 //! ```
 //!
-//! The same records as JSONL, one JSON object per line, `t` first:
-//!
-//! ```text
-//! {"t":"open","dev":"ctl","fd":9}
-//! {"t":"ioctl","dev":"gpu","nr":"0xd6","sub":null,"size":8,...,"fd":9}
-//! ```
-//!
-//! WHY JSONL AT ALL, since TSV counts and greps fine: the reach half of
-//! OPEN-QUESTIONS 55 wants answer dumps for ALLOCATIONS and UVM, whose
-//! lengths are per-command and come from compiled headers. A positional
-//! TSV with a fixed 32-byte tail cannot carry a variable payload without
-//! becoming a format that is parsed by position AND by convention. This
-//! one can.
-//!
-//! Scripts parse TSV lines by column, so field order and separators are
-//! part of the interface; the JSON keys are the same interface by name.
-//! Both are read through ONE reader per language -- `lea_trace_stream` in
-//! `scripts/lib/matrix.sh` and `probe/python/traceread.py` -- and no
-//! consumer opens a trace itself.
-//!
-//! `detail()` emits a SECOND, key=value format beside those: `nvos02`,
-//! `nvos32`, `nvos33`, `nvos46`, `nvos64`, `memparams`, `uvminit`,
-//! `uvmpma`, `uvmreg`, `cardinfo`, `ctrlout`. Those are diagnostic lines,
-//! not measurements -- `trace.sh analyse` filters on column 1 and never
-//! sees them. NVOS02/33/46/64 are the RM parameter blocks of
-//! RM_ALLOC_MEMORY, RM_MAP_MEMORY, RM_MAP_MEMORY_DMA and RM_ALLOC
-//! (nvos.h); NVOS32 is that of RM_VID_HEAP_CONTROL; NVOS54's
-//! (RM_CONTROL's) answers travel on the `ctrlout` line.
-//!
-//! `sub` is the second dispatch level: NVOS54.cmd for RM_CONTROL, hClass
-//! for RM_ALLOC, "-" otherwise. Without that column all RM_CONTROLs
-//! collapse into a single signature and the saturation curve looks far
-//! flatter than it is.
+//! Detail records use key=value TSV fields and the same named JSON fields.
+//! `sub` identifies the RM control, allocation class, mapping handle, or
+//! NVKMS command. Dump sizes use caller metadata or the compiled driver ABI;
+//! they do not prove that a caller's pointers are readable.
 
 use crate::NvDev;
 use nvrm_abi::sys;
@@ -72,10 +33,7 @@ static OUT: AtomicI32 = AtomicI32::new(2);
 static OUT_JSON: AtomicI32 = AtomicI32::new(-1);
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 
-/// Where the JSONL goes when only `LEA_TRACE_FILE` was given: the same
-/// path with a `.tsv` suffix replaced, or `.jsonl` appended if there was
-/// none. Deriving it rather than demanding a second variable means every
-/// existing caller gets both formats by changing nothing.
+/// Replace a .tsv suffix with .jsonl, or append .jsonl.
 fn jsonl_path(tsv: &str) -> String {
     match tsv.strip_suffix(".tsv") {
         Some(stem) => format!("{stem}.jsonl"),
@@ -83,28 +41,8 @@ fn jsonl_path(tsv: &str) -> String {
     }
 }
 
-/// O_APPEND, and this used to be O_TRUNC.
-///
-/// WHY IT CHANGED. `LEA_TRACE_FILE` is inherited by every child of the
-/// traced process, and each child's constructor opens it again. Under
-/// O_TRUNC that is a SECOND file description with its own offset, writing
-/// over the first from byte zero -- and the damage is silent, because a
-/// half-overwritten file is still a valid file. Measured 2026-08-20 on
-/// `cuda-gdb`, which launches an inferior: a complete second ioctl record
-/// written over the middle of the first, with a different fd, in both
-/// formats.
-///
-/// O_APPEND fixes it at the source. Every writer's `write(2)` on a regular
-/// file positions at the end and writes under the inode lock, so a record
-/// from another process lands after the previous one instead of on top of
-/// it. Multi-process workloads produce an interleaving of whole records --
-/// which is what a multi-threaded workload has always produced within one
-/// process, and what `strace -f` counts on the other side.
-///
-/// WHAT NOW TRUNCATES. Whoever owns the path, before the run: the matrix
-/// runner hands the tracer a fresh `mktemp` file per attempt, and
-/// `probe/run/trace.sh` truncates its per-stage files in `lea_trace_stage`.
-/// A tracer that truncated could not be told "append to this" by anyone.
+/// Append so execed children sharing LEA_TRACE_FILE do not truncate earlier records.
+/// The runner is responsible for creating or truncating the file before a run.
 fn open_out(path: &str) -> i32 {
     let Ok(c) = std::ffi::CString::new(path) else {
         return -1;
@@ -122,12 +60,7 @@ pub fn init() {
     let Ok(path) = std::env::var("LEA_TRACE_FILE") else {
         return;
     };
-    // `both` is the default for the duration of the migration: one run
-    // produces both formats, so the equivalence check compares two
-    // renderings of the SAME calls. Two runs would compare two runs, and
-    // this pipeline has measured values that differ between two runs of
-    // one binary -- that confound is exactly what a format check must not
-    // have in it.
+    // Both formats observe the same calls, allowing an equivalence check.
     let fmt = std::env::var("LEA_TRACE_FORMAT").unwrap_or_else(|_| "both".into());
     let (want_tsv, want_json) = match fmt.as_str() {
         "tsv" => (true, false),
@@ -137,7 +70,7 @@ pub fn init() {
             emit_fd(
                 2,
                 &format!(
-                "nvrm-trace: LEA_TRACE_FORMAT={other} is not tsv, jsonl or both -- writing both\n"
+                "nvrm-trace: LEA_TRACE_FORMAT={other} is not tsv, jsonl or both; writing both\n"
             ),
             );
             (true, true)
@@ -149,8 +82,7 @@ pub fn init() {
         if fd >= 0 {
             OUT.store(fd, Ordering::Relaxed);
         } else {
-            // Do not fall back to stderr silently - that is exactly how a whole
-            // run gets lost without anyone noticing.
+            // Report the fallback sink.
             emit_fd(
                 2,
                 &format!("nvrm-trace: cannot open {path}, trace goes to stderr\n"),
@@ -166,9 +98,7 @@ pub fn init() {
         if fd >= 0 {
             OUT_JSON.store(fd, Ordering::Relaxed);
         } else {
-            // Louder than the TSV case: a missing JSONL is not a trace that
-            // went somewhere else, it is a trace that does not exist, and
-            // the format gate would read that as "nothing differs".
+            // A missing JSONL file has no fallback sink.
             emit_fd(
                 2,
                 &format!("nvrm-trace: cannot open {jp}, no JSONL trace this run\n"),
@@ -178,6 +108,7 @@ pub fn init() {
 }
 
 fn emit_fd(fd: i32, s: &str) {
+    let _errno = crate::ErrnoGuard::new();
     if fd < 0 {
         return;
     }
@@ -187,25 +118,8 @@ fn emit_fd(fd: i32, s: &str) {
     }
 }
 
-// ---- the record layer -------------------------------------------------------
-//
-// One record, two renderings, ONE write() per line per format. The write
-// stays per line because that is what makes a trace of a crashed process
-// still a trace up to the crash, and because this sits on a per-frame path
-// -- 86 645 lines in one measured session. A document format (a JSON array,
-// an XML tree) cannot carry that: it has a closing bracket.
-//
-// THE PAIR IS NOT ATOMIC, and that is deliberate. `rec` writes the TSV line
-// and then the JSON line, and another thread can write both of ITS lines in
-// between -- so during the migration the two files hold the same records in
-// a different INTERLEAVING. Measured 2026-08-20: 7 of 20 probes, all of them
-// the concurrent ones. Making the pair atomic would mean holding a lock
-// across two write() calls on a path that runs inside every frame, in a
-// library that is preloaded into processes that fork; the cost and the
-// deadlock surface are real and the benefit is an ordering nothing consumes.
-// The equivalence gate therefore compares the two files as MULTISETS, which
-// is what the renderers actually control -- see `traceread.py --check`.
-// After the cutover only one file is written and the question disappears.
+// One write per line. TSV/JSON pairs may interleave across threads, so
+// traceread.py --check compares record multisets rather than file order.
 
 /// A field value. `Copy`, so a record's fields live in the caller's stack
 /// frame and the only allocation per line is the rendered string itself.
@@ -216,20 +130,15 @@ enum V<'a> {
     H32(u32),
     H64(u64),
     I(i64),
-    /// A byte dump: space-separated in TSV, because that is what the
-    /// readers of the old format split on; contiguous in JSON, because a
-    /// variable-length dump is easier to slice without them.
+    /// Byte dump: space-separated in TSV, contiguous in JSON.
     Dump(&'a [u8]),
     /// An array index: `[3]` in TSV, a bare number in JSON.
     Idx(usize),
-    /// Absent: `-` in TSV -- the spelling every awk site tests for -- and
-    /// `null` in JSON.
+    /// Absent: `-` in TSV, `null` in JSON.
     Nil,
 }
 
-/// One field of one record. `name` is the JSON key always, and the TSV key
-/// only when `keyed`; the TSV format is positional for the measurement
-/// lines and key=value for the diagnostic ones, and this carries both.
+/// Named JSON field; keyed TSV fields use name=value, others are positional.
 #[derive(Clone, Copy)]
 struct F<'a> {
     name: &'a str,
@@ -254,29 +163,9 @@ const fn key<'a>(name: &'a str, v: V<'a>) -> F<'a> {
     }
 }
 
-/// How many bytes of a params buffer a dump carries, at most.
-///
-/// It was a hard-coded 32, which is two words past the first field of most
-/// controls -- enough to tell an enumeration answer apart and not enough to
-/// verify a struct. `answerdiff` compares the words both sides dumped, so
-/// this is directly how much of each answer is under test.
-///
-/// It was 32, then 256, and 256 turned out to be 4.3% of the answer bytes in
-/// a sweep: 38 signatures were truncated, some of them badly -- one control
-/// declares 67396 bytes and 256 of them were being compared. 65536 covers
-/// every answer in the current trace set whole, and costs about 36 MB of
-/// dump text across a sweep against 4 MB, which is nothing against a 120 GB
-/// disk. Truncation is safe in the direction that matters -- fewer bytes
-/// compared, never bytes invented -- but it is still a claim about 4% of a
-/// struct being read as a claim about the struct.
-///
-/// The length read is always the CALLER'S declared size (`paramsSize` for a
-/// control, `_IOC_SIZE` for an escape, `size_of` of the compiled struct for
-/// an allocation or a UVM command), so raising the cap never reads a byte
-/// that the caller did not say was there.
-///
-/// `LEA_TRACE_DUMP` overrides it. 0 disables dumping entirely, which is the
-/// way to take a cheap trace when only the call COUNTS are wanted.
+/// Maximum bytes per dump (default 65536). LEA_TRACE_DUMP=0 disables dumps.
+/// Reads are also bounded by the caller length or the compiled ABI size.
+/// A truncated dump only verifies the bytes it contains.
 fn dump_cap() -> usize {
     static CAP: AtomicUsize = AtomicUsize::new(usize::MAX);
     let c = CAP.load(Ordering::Relaxed);
@@ -303,9 +192,7 @@ fn push_hex_bytes(s: &mut String, b: &[u8], spaced: bool) {
     }
 }
 
-/// JSON string body, escaped. Every string this file writes today is
-/// ASCII and free of quotes, but a field added later will not be, and a
-/// trace that is not parseable JSON fails in the reader rather than here.
+/// Escape a JSON string body, including quotes, backslashes and control bytes.
 fn push_json_str(s: &mut String, x: &str) {
     for c in x.chars() {
         match c {
@@ -339,9 +226,7 @@ fn push_json(s: &mut String, v: V) {
             push_json_str(s, x);
             s.push('"');
         }
-        // Hex stays a hex STRING in JSON. A number would lose the spelling
-        // the descriptor tables and the catalogue use, and every consumer
-        // already reads these with int(x, 16).
+        // Keep hexadecimal values as strings in both formats for existing readers.
         V::H32(x) => s.push_str(&format!("\"{x:#x}\"")),
         V::H64(x) => s.push_str(&format!("\"{x:#x}\"")),
         V::I(x) => s.push_str(&format!("{x}")),
@@ -355,9 +240,7 @@ fn push_json(s: &mut String, v: V) {
     }
 }
 
-/// TSV rendering. `phase` is the `in`/`out` suffix the old format spells
-/// by appending `in` to the kind (`nvos64in` against `nvos64`), which is
-/// why it is a suffix here and a field in JSON.
+/// TSV appends the input phase to the kind (nvos64in); JSON has a phase field.
 fn render_tsv(kind: &str, phase: Option<&str>, fields: &[F]) -> String {
     let mut s = String::with_capacity(160);
     s.push_str(kind);
@@ -418,15 +301,54 @@ fn phase_of(tag: &str) -> Option<&'static str> {
     Some(if tag == "in" { "in" } else { "out" })
 }
 
-#[allow(dead_code)] // counterpart to the counter above, read when diagnosing
 pub fn dropped() -> u64 {
     DROPPED.load(Ordering::Relaxed)
+}
+
+// Fixed storage keeps normal-exit reporting independent of allocator locks.
+struct LossReport {
+    bytes: [u8; 160],
+    len: usize,
+}
+
+impl std::fmt::Write for LossReport {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        let dst = self
+            .bytes
+            .get_mut(self.len..self.len + s.len())
+            .ok_or(std::fmt::Error)?;
+        dst.copy_from_slice(s.as_bytes());
+        self.len += s.len();
+        Ok(())
+    }
+}
+
+fn loss_report(dropped: u64, untracked: u64) -> LossReport {
+    use std::fmt::Write;
+    let mut report = LossReport {
+        bytes: [0; 160],
+        len: 0,
+    };
+    // The fixed message and two decimal u64 values fit in 160 bytes.
+    let _ = writeln!(report, "nvrm-trace: incomplete trace: {dropped} failed/short writes, {untracked} untracked FD registrations");
+    report
+}
+
+/// Normal exit only; forked children inherit the counters at fork time.
+pub fn report_losses() {
+    let dropped = dropped();
+    let untracked = crate::fdtable::overflow_count();
+    if dropped != 0 || untracked != 0 {
+        let report = loss_report(dropped, untracked);
+        // Do not count failure to report the counters as another lost record.
+        unsafe { libc::write(2, report.bytes.as_ptr().cast(), report.len) };
+    }
 }
 
 fn dev_tag(d: NvDev) -> &'static str {
     match d {
         NvDev::Ctl => "ctl",
-        NvDev::Gpu(_) => "gpu",
+        NvDev::Gpu => "gpu",
         NvDev::Uvm => "uvm",
         NvDev::UvmTools => "uvmtools",
         NvDev::Event => "event",
@@ -443,18 +365,11 @@ pub fn open(dev: NvDev, fd: i32) {
     );
 }
 
-/// What the driver really sees for this number.
-///
-/// UVM and the frontend share the name "ioctl" and nothing else: on Linux
-/// `uvm_ioctl.h` defines `UVM_IOCTL_BASE(i) = i`, i.e. raw numbers with no
-/// `_IOC` encoding. Applying `_IOC_SIZE` to those silently yields 0, and
-/// the empty payloads only puzzle you much later.
-fn decode(dev: NvDev, cmd: u32) -> (u32, u32) {
+/// UVM uses raw ioctl numbers without _IOC size/type bits.
+pub fn decode(dev: NvDev, cmd: u32) -> (u32, u32) {
     match dev {
         NvDev::Uvm | NvDev::UvmTools => (cmd, 0),
-        // DRM uses the same _IOC encoding, so nr and size come out right;
-        // what does NOT apply is everything below -- subcode() and detail()
-        // read NVIDIA parameter blocks and a DRM ioctl is not one.
+        // DRM uses _IOC encoding, but its payload is never decoded as RM.
         _ => (nvrm_abi::ioc_nr(cmd), nvrm_abi::ioc_size(cmd)),
     }
 }
@@ -469,28 +384,15 @@ unsafe fn q(arg: *const c_void, i: usize) -> u64 {
     ((arg as *const u32).add(i) as *const u64).read_unaligned()
 }
 
-/// Second dispatch level plus RM status.
-///
-/// Safety: `arg` is the caller's buffer, which the driver has already
-/// validated and written to. It is only read here, and only as far as
-/// `size` covers.
+/// Return (subcommand, parameter size, RM status).
+/// Safety: the caller must supply readable, suitably aligned ABI buffers.
 unsafe fn subcode(
     dev: NvDev,
     nr: u32,
     size: u32,
     arg: *const c_void,
 ) -> (Option<u32>, Option<u32>, Option<u32>) {
-    // (sub, psize, status)
-    // DRM is excluded here and in detail() for the same reason UVM is,
-    // and it is not cosmetic: every arm below casts `arg` to an NVIDIA
-    // parameter struct and reads fields at ITS offsets. A DRM ioctl carries
-    // a different struct, usually a smaller one, so interpreting it reads
-    // past the end of somebody else's allocation. That exact bug has been
-    // in this file before: 88 bytes read past a foreign struct. A DRM line
-    // therefore carries nr, size and ret and stops.
-    // `Event` too: an fd registered through NV_ESC_ALLOC_OS_EVENT that is
-    // not a device node (an eventfd, typically) -- an ioctl on it carries
-    // whatever that file's ioctls carry, never an NVIDIA block.
+    // Only RM and the NVKMS wrapper have the layouts decoded below.
     if arg.is_null()
         || matches!(
             dev,
@@ -499,18 +401,8 @@ unsafe fn subcode(
     {
         return (None, None, None);
     }
-    // NVKMS. The whole interface goes through ONE ioctl number, so `nr` is
-    // 0 on every line and says nothing; the command is a field of the
-    // 16-byte indirection struct (nvkms-ioctl.h, offsets guarded by
-    // nvrm-sys's layout tests) and that is what `sub` carries. `psize` is
-    // the size of the block the struct points AT.
-    //
-    // No status. NVKMS answers inside that block, per command, with no
-    // field in a shared position -- so `ret` is the only verdict this line
-    // can carry without inventing one. Reading the block would need a
-    // decoder for the NVKMS command namespace, which is a separate piece of
-    // work and deliberately not here: those commands resolve against no
-    // `ctrl*.h`, and a made-up name is worse than a number.
+    // NVKMS uses ioctl 0 with command/size in NvKmsIoctlParams.
+    // It has no common payload status field; the syscall return is logged separately.
     if matches!(dev, NvDev::Modeset) {
         if size as usize >= size_of::<sys::NvKmsIoctlParams>() {
             let p = &*(arg as *const sys::NvKmsIoctlParams);
@@ -549,49 +441,19 @@ unsafe fn subcode(
     }
 }
 
-/// Full payload of the three escapes that make up the memory path.
-///
-/// Deliberately a separate line kind in key=value form: this is a
-/// diagnostic line, not a measurement format. `trace.sh analyse` filters on
-/// column 1 and therefore never sees it.
-///
-/// Offsets in u32 words, taken from the layout guards in
-/// `nvrm_abi::nvgpu`:
-///   NVOS02+fd (56): hRoot0 hParent1 hNew2 hClass3 flags4 | pMemory6 limit8 status10 | fd12
-///   NVOS33+fd (56): hClient0 hDevice1 hMemory2 | offset4 length6 pLinear8 status10 flags11 | fd12
-///   NVOS46    (64): hClient0 hDevice1 hDma2 hMemory3 | offset4 length6 flags8 flags2_9 kind10 dmaOffset12 status14
+/// Diagnostic payload records. Word offsets are guarded in nvrm_abi::nvgpu:
+/// NVOS02+fd (56): hRoot0 hParent1 hNew2 hClass3 flags4 pMemory6 limit8 status10 fd12
+/// NVOS33+fd (56): hClient0 hDevice1 hMemory2 offset4 length6 pLinear8 status10 flags11 fd12
+/// NVOS46 (64): hClient0 hDevice1 hDma2 hMemory3 offset4 length6 flags8 flags2_9 kind10 dmaOffset12 status14
+/// Safety: all decoded caller buffers and nested pointers must be readable.
 unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) {
     if arg.is_null() {
         return;
     }
-    // UVM: no size in the request (UVM_IOCTL_BASE(n) is a bare number), so
-    // only the ONE call whose answer the RT init branches on gets a line --
-    // UVM_REGISTER_GPU's rmStatus, plus the uuid and the numa answer.
-    // Layout from uvm_ioctl.h (UVM_REGISTER_GPU_PARAMS): uuid[16] @0,
-    // numaEnabled @16, numaNodeId @20, rmCtrlFd @24, hClient @28,
-    // hSmcPartRef @32, rmStatus @36.
+    // UVM lengths come from the compiled ABI; the request number carries no size.
     if matches!(dev, NvDev::Uvm) {
-        // THE UVM ANSWER, for every command whose parameter block the
-        // compiler can measure. UVM is where a large part of the governed
-        // class lives and it had no answer evidence of any kind: its ioctls
-        // carry no size (UVM_IOCTL_BASE(i) is a bare number, so _IOC_SIZE is
-        // 0), which is exactly why the length has to come from somewhere
-        // else.
-        //
-        // AND NOT FROM `xlate::uvm_param_size`, which is the hand-computed
-        // table the guest module forwards on. Dumping UVM answers exists to
-        // JUDGE that forwarding, and an instrument that measured with the
-        // table under test would agree with it by construction. The length
-        // is `size_of` of the bindgen struct; nvrm-abi's own test requires
-        // the two to agree, so the table is checked rather than trusted.
-        // DefaultAbi, deliberately. The tracer is an LD_PRELOAD interposer
-        // that runs beside whatever driver the build was made for, and it
-        // reads a length to DUMP -- not to forward. Making it detect the
-        // running version would put a /proc read and a match on a path
-        // measured at 86 645 lines in one session, to change two sizes.
-        // A tracer built for one driver and run against another dumps the
-        // wrong number of bytes for exactly two UVM commands; it cannot
-        // corrupt a call, because it does not carry one.
+        // Use bindgen sizes independently of the forwarding table being tested.
+        // DefaultAbi must match the loaded driver; this tracer does not detect its version.
         if let Some(plen) = nvrm_abi::xlate::uvm_param_size_compiled::<nvrm_sys::DefaultAbi>(nr) {
             if plen > 0 {
                 let n = plen.min(dump_cap());
@@ -607,10 +469,7 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 );
             }
         }
-        // UVM_INITIALIZE (0x30000001): flags IN/OUT @0 (u64), rmStatus @8.
-        // The driver reads the flags back and decides on the pageable/ATS
-        // path from them -- the branch point between "calls 0x46" and
-        // "does not" (OPEN-QUESTIONS nr 11).
+        // UVM_INITIALIZE: flags u64 @0, rmStatus u32 @8.
         if nr == 0x30000001 && tag.is_empty() {
             let b = core::slice::from_raw_parts(arg as *const u8, 12);
             rec1(
@@ -627,12 +486,8 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 ],
             );
         }
-        // UVM_PAGEABLE_MEM_ACCESS (0x27: pageableMemAccess NvBool @0,
-        // rmStatus @4 -- EIGHT bytes, uvm_ioctl.h) and
-        // UVM_PAGEABLE_MEM_ACCESS_ON_GPU (0x46: uuid @0, pageableMemAccess
-        // @16, rmStatus @20 -- 24 bytes). Two structs, two lengths: reading
-        // 24 bytes for the 8-byte one is the over-read this file has had
-        // before, only on the UVM side.
+        // PAGEABLE_MEM_ACCESS is 8 bytes; ON_GPU is 24 bytes with a UUID prefix.
+        // Their status fields are at byte offsets 4 and 20 respectively (uvm_ioctl.h).
         if nr == nvrm_abi::xlate::uvm::PAGEABLE_MEM_ACCESS && tag.is_empty() {
             let b = core::slice::from_raw_parts(arg as *const u8, 8);
             rec1(
@@ -677,11 +532,7 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
             for x in &b[0..16] {
                 uuid.push_str(&format!("{x:02x}"));
             }
-            // `numa` stays the composite `enabled/node` string it has
-            // always been. Splitting it would be a better JSON shape and a
-            // worse migration: the equivalence gate compares the two
-            // renderings of this record, and a field that exists on one
-            // side only cannot be compared at all.
+            // Preserve the enabled/node spelling shared by both trace readers.
             let numa = format!(
                 "{}/{}",
                 b[16],
@@ -709,35 +560,15 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
         }
         return;
     }
-    // See subcode(): a DRM ioctl's argument is not an NVIDIA parameter
-    // block, and every arm below assumes it is.
-    // Modeset for the same reason, one step further: its argument IS a
-    // known struct, but everything it points at belongs to a namespace
-    // nothing here decodes.
+    // The remaining payload decoders require RM layouts.
     if matches!(
         dev,
         NvDev::UvmTools | NvDev::Drm(_) | NvDev::Event | NvDev::Modeset
     ) {
         return;
     }
-    // THE ESCAPE'S OWN PARAMETER BLOCK, for every escape that does not
-    // already have a dump of its own.
-    //
-    // This needs no table at all, and that is the point: the length is
-    // `_IOC_SIZE` of the request, which is the caller's declared size of the
-    // struct it is passing, encoded in the ioctl number by the caller
-    // itself. Self-describing, so it is safe to read at any width and there
-    // is nothing here that could disagree with the descriptor table.
-    //
-    // It covers what nothing else did: RM_FREE, REGISTER_FD, the OS_EVENT
-    // pair, DUP_OBJECT, IDLE_CHANNELS, VID_HEAP_CONTROL, both MAP_MEMORY
-    // escapes and ALLOC_MEMORY -- every one of which had a signature in the
-    // catalogue and no answer evidence of any kind.
-    //
-    // RM_CONTROL and RM_ALLOC are excluded deliberately. Their answer is not
-    // in the ioctl struct but in the buffer it POINTS at, `ctrlout` and
-    // `allocout` dump that, and emitting a second stream under the same
-    // signature would interleave two different things in one list.
+    // Dump inline bytes using the decoded size. CONTROL and ALLOC have their
+    // own records for pointed-to parameters; avoid a second record for those calls.
     if !matches!(nr, sys::NV_ESC_RM_CONTROL | sys::NV_ESC_RM_ALLOC) && size > 0 {
         let (sub, _, _) = subcode(dev, nr, size, arg);
         let n = (size as usize).min(dump_cap());
@@ -756,9 +587,7 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
     }
 
     match nr {
-        // The ANSWERS the RT userspace branches on (OPEN-QUESTIONS nr 11):
-        // one line per valid card, all the fields the BDF mediation
-        // touches. Only after the call -- the input is all zeros.
+        // Card-info output: one record per valid card, including mediated PCI fields.
         sys::NV_ESC_CARD_INFO
             if tag.is_empty() && size as usize >= size_of::<sys::nv_ioctl_card_info_t>() =>
         {
@@ -768,9 +597,7 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 if c.valid == 0 {
                     continue;
                 }
-                // Three composite fields (`pci`, `reg`, `fb`) keep the
-                // spelling they have in the old format, for the reason
-                // `uvmreg`'s `numa` does.
+                // Preserve the composite PCI/register/framebuffer strings used by the readers.
                 let pci = format!(
                     "{:04x}:{:02x}:{:02x}.{}",
                     c.pci_info.domain, c.pci_info.bus, c.pci_info.slot, c.pci_info.function
@@ -793,28 +620,8 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 );
             }
         }
-        // The params buffer of EVERY control, on both sides of the call, so
-        // that what a forwarded control ANSWERED can be diffed native
-        // against guest without a struct per control. NVOS54: params P64
-        // @16, paramsSize @24.
-        //
-        // EVERY control, and it used to be `(cmd >> 8) == 0x2 ||
-        // (cmd >> 16) == 0x2080`. That covered the root-client and
-        // subdevice namespaces and silently covered nothing else -- no
-        // NV0073 display control, no NV0080 device control, and none of the
-        // class-specific ones the graphics stack actually calls (0x906f,
-        // 0xc36f, 0xa06c). Measured 2026-08-21: those are about half the
-        // distinct controls in a trace, and every one of them had no answer
-        // evidence at all, so no amount of sweeping could ever verify them.
-        // The length is NVOS54's own `paramsSize`, which is the caller's
-        // declared size of its own buffer -- self-describing, and therefore
-        // safe to read at any width.
-        //
-        // BOTH PHASES, and the `in` one is the point of number 60. A dump
-        // taken only after the call cannot tell an OUT pointer the boundary
-        // dropped from an IN pointer the guest's caller never supplied:
-        // both read as zero afterwards. With the before-call sample the two
-        // are different rows.
+        // Capture every control before and after the call. NVOS54 supplies params/size;
+        // both phases distinguish omitted input pointers from lost output pointers.
         sys::NV_ESC_RM_CONTROL if size as usize >= size_of::<sys::NVOS54_PARAMETERS>() => {
             let p = &*(arg as *const sys::NVOS54_PARAMETERS);
             let cmd = p.cmd as u32;
@@ -824,24 +631,8 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 let n = plen.min(dump_cap());
                 let bytes = core::slice::from_raw_parts(pp, n);
 
-                // AND WHAT THE PARAMS POINT AT. For these commands the params
-                // buffer is the QUESTION -- a count and an NvP64 -- and the
-                // ANSWER is behind the pointer. Without this, thirteen
-                // signatures were reported verified on "16 of 16 bytes",
-                // which says the whole answer was compared and means the
-                // whole question was.
-                //
-                // The offsets come from `offset_of!` on the bindgen struct,
-                // NOT from `xlate::nested_ptrs`: that is the table the guest
-                // module forwards on, and an instrument that took its
-                // offsets from the table under test would agree with it by
-                // construction. nvrm-abi's own test requires the two to
-                // agree.
-                //
-                // The read is bounded twice over: by the caller's own count
-                // field, which is the same length RM's copy_from_user and
-                // the guest module both read, and by the dump cap. A count
-                // beyond any plausible list is skipped rather than trusted.
+                // Nested layouts use bindgen offsets independently of the forwarding table.
+                // Caller counts and the dump cap bound each read; skip counts above 2^20.
                 let mut nested: Vec<u8> = Vec::new();
                 let mut ntotal: usize = 0;
                 for (ptr_off, len_off, elem) in nvrm_abi::xlate::ctrl_nested_compiled(cmd) {
@@ -867,12 +658,7 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                         ));
                     }
                 }
-                // `hobject` is the object the control was issued ON, which
-                // is what tells two calls of one command apart when they
-                // differ: a device control and a subdevice control of the
-                // same number are different questions. Diagnostic -- the
-                // comparison reads `cmd`, `len`, `status` and `dump` by
-                // name and never sees it.
+                // Object/client handles distinguish instances of the same control command.
                 rec(
                     "ctrlout",
                     phase_of(tag),
@@ -928,19 +714,8 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 key("fd", V::I(w(arg, 12) as i32 as i64)),
             ],
         ),
-        // NVOS32: the OTHER allocation door, and the one the graphics stack
-        // actually uses. Until this arm existed the tracer emitted a bare
-        // `ioctl ctl 0x4a` line with no parameters at all, which is why the
-        // native-vs-guest allocation diff asked for in OPEN-QUESTIONS 22 was
-        // not merely undone but IMPOSSIBLE: the fields to compare were never
-        // recorded. Offsets from the guards in nvgpu.rs (NVOS32_PARAMETERS
-        // and its AllocSize union member), so a layout drift breaks the
-        // build rather than this reader.
-        //
-        // `size` and `attr` are IN/OUT -- the caller asks and RM writes back
-        // what it really did (LOCATION may go in as ANY and come back
-        // VIDMEM). Tracing both sides of the call is therefore the point,
-        // not a nicety, and `detail_pre` gives the `in` tag.
+        // NVOS32 video-heap allocation/free layouts are guarded in nvgpu.rs.
+        // Size and attributes are IN/OUT, so both phases matter.
         sys::NV_ESC_RM_VID_HEAP_CONTROL if size >= 184 => {
             let function = w(arg, 2);
             // 2 = ALLOC_SIZE, 3 = FREE (nvos.h:636-637). Only these two
@@ -1031,58 +806,14 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
                 ],
             );
 
-            // Follow pAllocParms. This only works because paramsSize is
-            // always 0, so the size has to come from the class - these are
-            // the memory classes that use NV_MEMORY_ALLOCATION_PARAMS
-            // (128 bytes, field offsets from the guards in nvgpu.rs):
-            // 0x3e NV01_MEMORY_SYSTEM, 0x40 NV01_MEMORY_LOCAL_USER, 0x50a0
-            // NV50_MEMORY_VIRTUAL (resource_list.h:574, :542, :563).
-            //
-            // Two memory classes are deliberately NOT in this list. 0x71
-            // (NV01_MEMORY_SYSTEM_OS_DESCRIPTOR) allocates with the 40-byte
-            // NV_OS_DESC_MEMORY_ALLOCATION_PARAMS, and 0x70
-            // (NV01_MEMORY_VIRTUAL) with the 24-byte
-            // NV_MEMORY_VIRTUAL_ALLOCATION_PARAMS (cl0070.h,
-            // resource_list.h:580); decoding either with the 128-byte layout
-            // reads far past the end of the caller's struct -- 0x70 was in
-            // this list until 2026-08-18.
+            // NV_MEMORY_ALLOCATION_PARAMS applies to classes 0x3e, 0x40 and 0x50a0.
+            // Classes 0x71 and 0x70 use smaller, unrelated parameter structs.
             let pp = q(arg, 4) as usize as *const c_void;
 
-            // THE ALLOCATION ANSWER, as bytes, for every class whose
-            // parameter block the compiler can measure. RM_ALLOC is the
-            // largest part of the governed class with no answer evidence:
-            // paramsSize is 0 on every one of these calls (the size comes
-            // from the CLASS, which is the whole reason the descriptor table
-            // exists), so nothing self-describing said how much to read.
-            //
-            // The length is `size_of` of the bindgen struct and NOT
-            // `xlate::alloc_param_size`, for the reason the UVM dump does
-            // not use `uvm_param_size`: the point of dumping allocation
-            // answers is to judge the forwarding those tables drive. A class
-            // the compiler cannot measure gets NO dump rather than a guessed
-            // one -- reading past the end of a caller's struct is a bug this
-            // file has had before.
-            //
-            // `memparams` below stays: it is the same bytes NAMED, which is
-            // what a person reads, where this is the same bytes COMPARABLE,
-            // which is what `answerdiff` reads.
-            // EXACTLY ONE RECORD PER ALLOCATION, whatever the class does.
-            //
-            // Preferably the parameter block: that is where the answer is.
-            // But many classes allocate with a NULL `pAllocParms` -- the
-            // graphics objects do, and so does NV01_ROOT_CLIENT -- and for
-            // those the only answer there is is the escape's OWN struct, the
-            // status and the handle RM assigned. Measured 2026-08-21: four
-            // signatures with 142 allocations between them had no answer
-            // evidence for exactly this reason, because `escout` skips
-            // RM_ALLOC and this arm only fired when there were params.
-            //
-            // One record either way, and `src` says which, so the two sides
-            // produce the same number of records for the same calls and the
-            // comparison pairs them. Where the sides disagree about whether
-            // params were passed at all, the dumps differ in LENGTH, which
-            // is reported as a difference rather than hidden -- and it is
-            // one.
+            // Emit one allocout record: compiled class parameters when available,
+            // otherwise the inline escape containing the returned handle/status.
+            // The src field identifies which buffer was dumped. Compiled sizes keep this
+            // measurement independent of the forwarding table; unknown sizes are not guessed.
             let params = if pp.is_null() {
                 None
             } else {
@@ -1141,17 +872,9 @@ unsafe fn detail(dev: NvDev, nr: u32, size: u32, arg: *const c_void, tag: &str) 
     }
 }
 
-/// Sample of the payload *before* the driver overwrites it.
-///
-/// Without this the trace shows only write-back values, and for
-/// NVOS33.flags the input is the interesting one: input and output share
-/// the same field.
+/// Capture input values before the driver overwrites IN/OUT fields.
 pub unsafe fn detail_pre(dev: NvDev, cmd: u32, arg: *const c_void) {
-    // DECODE HERE, not at the call site. The caller used to unpack the
-    // number with `ioc_nr`, which is right for every device except the two
-    // that matter most here: UVM numbers carry no _IOC encoding, so masking
-    // one yields a number no arm below matches, and UVM has therefore never
-    // had a before-call sample at all.
+    // UVM numbers must retain their raw encoding.
     let (nr, size) = decode(dev, cmd);
     detail(dev, nr, size, arg, "in")
 }
@@ -1172,9 +895,7 @@ pub fn mmap(dev: NvDev, fd: i32, len: usize, off: i64, p: *mut c_void) {
 /// Wait path: `read`/`poll` on a known FD.
 /// `val` is the return value for `read`, `revents` for `poll`.
 pub fn wait(kind: &str, dev: NvDev, fd: i32, val: i64) {
-    // `read` names its last field `ret` and `poll` names it `revents`:
-    // the old format is positional here and said neither, and a JSON key
-    // has to be one or the other.
+    // The positional TSV value maps to ret for read and revents for poll.
     rec1(
         kind,
         &[
@@ -1185,10 +906,7 @@ pub fn wait(kind: &str, dev: NvDev, fd: i32, val: i64) {
     );
 }
 
-/// Which FD was registered as an event channel, and was it already known?
-/// `prev` == None means: an eventfd, not a device, and the third column
-/// then reads `new`. (It read `neu` until 2026-08-18; `probe/run/trace.sh`
-/// prints that column and never matches it.)
+/// Report the registered FD and its previous tag, or new when untracked.
 pub fn event_registered(fd: i32, prev: Option<NvDev>) {
     rec1(
         "eventreg",
@@ -1199,15 +917,8 @@ pub fn event_registered(fd: i32, prev: Option<NvDev>) {
     );
 }
 
-/// The eight fields of an `ioctl` record, in the order the TSV format has
-/// always had them.
-///
-/// THIS IS THE COUNTING SURFACE. `lea_matrix_n_tracer` and its two
-/// siblings select on `t`/column 1 and on `dev`/column 2, and the strace
-/// counter-check -- the trust anchor of every probe in the matrix -- is
-/// their difference. Reordering these or renaming `dev` changes what the
-/// pipeline counts, so it is one function that both call sites share and
-/// the tests below pin both renderings of it.
+/// The eight ioctl fields retain their TSV order and JSON names.
+/// Count/comparison scripts depend on this schema.
 #[allow(clippy::too_many_arguments)]
 fn ioctl_fields<'a>(
     dev: NvDev,
@@ -1232,20 +943,8 @@ fn ioctl_fields<'a>(
     ]
 }
 
-pub fn ioctl(dev: NvDev, fd: i32, cmd: u32, ret: i32, arg: *mut c_void) {
-    let (nr, size) = decode(dev, cmd);
-    let (sub, psize, status) = unsafe { subcode(dev, nr, size, arg) };
-    rec1(
-        "ioctl",
-        &ioctl_fields(dev, fd, nr, size, ret, sub, psize, status),
-    );
-    unsafe { detail(dev, nr, size, arg, "") };
-}
-
-/// The same line as `ioctl`, for a call that arrived wrapped in
-/// `NV_ESC_IOCTL_XFER_CMD`: `nr` and `size` are the UNPACKED ones and must
-/// not go through `decode()` a second time, and `arg` is the inner pointer.
-pub fn ioctl_unpacked(dev: NvDev, fd: i32, nr: u32, size: u32, ret: i32, arg: *mut c_void) {
+/// Log a decoded command. XFER callers supply the inner number, size and pointer.
+pub fn ioctl(dev: NvDev, fd: i32, nr: u32, size: u32, ret: i32, arg: *mut c_void) {
     let (sub, psize, status) = unsafe { subcode(dev, nr, size, arg) };
     rec1(
         "ioctl",
@@ -1259,31 +958,37 @@ mod tests {
     use super::*;
     use nvrm_abi::iowr_raw;
 
-    /// The `ioctl` line is what the pipeline COUNTS, and the counting rule
-    /// (`lea_matrix_n_*` in scripts/lib/matrix.sh) selects on column 1 and
-    /// column 2. This is a golden line, not a formatting preference: the
-    /// strace counter-check that gates every probe is a difference of two
-    /// counts, and a column that moved would make one of them wrong
-    /// silently -- a short trace is still a valid file.
+    #[test]
+    fn failed_trace_writes_preserve_errno_and_count_loss() {
+        let _errno = crate::ErrnoGuard::new();
+        unsafe { *libc::__errno_location() = libc::EFAULT };
+        let before = dropped();
+        emit_fd(i32::MAX, "record\n");
+        assert_eq!(unsafe { *libc::__errno_location() }, libc::EFAULT);
+        assert!(dropped() > before);
+    }
+
+    #[test]
+    fn loss_report_fits_both_maximum_counters_without_allocation() {
+        let report = loss_report(u64::MAX, u64::MAX);
+        assert_eq!(std::str::from_utf8(&report.bytes[..report.len]).unwrap(),
+            "nvrm-trace: incomplete trace: 18446744073709551615 failed/short writes, 18446744073709551615 untracked FD registrations\n");
+    }
+
     #[test]
     fn the_ioctl_line_still_has_the_columns_the_counting_rule_selects_on() {
-        let f = ioctl_fields(NvDev::Gpu(0), 9, 0xd6, 8, 0, None, None, None);
+        let f = ioctl_fields(NvDev::Gpu, 9, 0xd6, 8, 0, None, None, None);
         assert_eq!(
             render_tsv("ioctl", None, &f),
             "ioctl\tgpu\t0xd6\t-\t8\t-\t0\t-\t9\n"
         );
-        // Absent is `-` in TSV -- the spelling the awk sites test for --
-        // and `null` in JSON, never the string "-".
+        // Missing values have format-specific sentinels.
         assert_eq!(
             render_json("ioctl", None, &f),
             r#"{"t":"ioctl","dev":"gpu","nr":"0xd6","sub":null,"size":8,"psize":null,"ret":0,"status":null,"fd":9}"#.to_owned() + "\n"
         );
     }
 
-    /// A control line with every optional field present, so the hex
-    /// spelling is pinned on both sides. Hex stays a STRING in JSON: the
-    /// catalogue and the descriptor tables spell these `0x...` and a
-    /// number would lose that.
     #[test]
     fn an_ioctl_line_with_every_field_spells_hex_the_same_in_both_formats() {
         let f = ioctl_fields(
@@ -1306,10 +1011,6 @@ mod tests {
         );
     }
 
-    /// The IN sample and the OUT sample are one kind with two phases. The
-    /// old format spells that by appending `in` to the kind; JSON spells
-    /// it as a field. Both directions matter, because the projection that
-    /// gates the migration has to be invertible.
     #[test]
     fn the_in_sample_is_a_kind_suffix_in_tsv_and_a_field_in_json() {
         let f = [key("hNew", V::H32(0x5c000003)), key("status", V::H32(0))];
@@ -1331,9 +1032,6 @@ mod tests {
         );
     }
 
-    /// A payload dump is space-separated in the old format and contiguous
-    /// in the new one -- the one deliberate difference between the two
-    /// renderings, and therefore the one the projection has to undo.
     #[test]
     fn a_dump_is_spaced_in_tsv_and_contiguous_in_json() {
         let b = [0x00u8, 0x2d, 0x00, 0x00, 0xff];
@@ -1362,10 +1060,6 @@ mod tests {
         );
     }
 
-    /// Nothing this file writes today contains a quote or a backslash.
-    /// Something added later will, and the failure mode is a trace file
-    /// that is not JSON at all -- every consumer of it reporting nothing
-    /// rather than an error.
     #[test]
     fn a_string_field_that_needs_escaping_still_leaves_valid_json() {
         let f = [key("s", V::S("a\"b\\c\td"))];
@@ -1375,9 +1069,6 @@ mod tests {
         );
     }
 
-    /// Deriving the JSONL path rather than demanding a second environment
-    /// variable is what lets every existing caller get both formats by
-    /// changing nothing.
     #[test]
     fn the_jsonl_path_is_derived_from_the_tsv_one() {
         assert_eq!(jsonl_path("/t/cuda-core.tsv"), "/t/cuda-core.jsonl");
@@ -1386,33 +1077,20 @@ mod tests {
         assert_eq!(jsonl_path("/t.tsv/raw"), "/t.tsv/raw.jsonl");
     }
 
-    /// The device tag is column 2 of every line above (except `eventreg`,
-    /// whose column 2 is the fd), and
-    /// `probe/run/trace.sh` selects on it by string. These eight spellings
-    /// are therefore an interface, not a label: renaming one silently
-    /// empties whatever an analysis run filters for (that is exactly how
-    /// `eventreg`'s third column read `neu` until 2026-08-18 and matched
-    /// nothing).
     #[test]
     fn the_device_tags_are_the_strings_the_scripts_filter_on() {
         assert_eq!(dev_tag(NvDev::Ctl), "ctl");
-        assert_eq!(dev_tag(NvDev::Gpu(0)), "gpu");
+        assert_eq!(dev_tag(NvDev::Gpu), "gpu");
         assert_eq!(dev_tag(NvDev::Uvm), "uvm");
         assert_eq!(dev_tag(NvDev::UvmTools), "uvmtools");
         assert_eq!(dev_tag(NvDev::Event), "event");
         assert_eq!(dev_tag(NvDev::Drm(false)), "drm");
         assert_eq!(dev_tag(NvDev::Drm(true)), "render");
         assert_eq!(dev_tag(NvDev::Modeset), "modeset");
-        // The GPU index deliberately does NOT reach the tag -- the FD
-        // column says which node, the tag says which kind.
-        assert_eq!(dev_tag(NvDev::Gpu(0)), dev_tag(NvDev::Gpu(7)));
+        // The FD identifies the node; the tag identifies the device type.
+        assert_eq!(dev_tag(NvDev::Gpu), dev_tag(NvDev::Gpu));
     }
 
-    /// UVM shares the name "ioctl" with the frontend and nothing else:
-    /// `UVM_IOCTL_BASE(i) = i`, i.e. raw numbers with no `_IOC` encoding.
-    /// Masking one yields a different number and a size of 0, and empty
-    /// payloads in a trace only puzzle you much later. Everything else --
-    /// including DRM, which does use `_IOC` -- is unpacked.
     #[test]
     fn decode_leaves_uvm_numbers_whole_and_unpacks_every_other_device() {
         // UVM_INITIALIZE: a bare number, with bits in what would be the
@@ -1425,7 +1103,7 @@ mod tests {
         let cmd = iowr_raw(0x2a, 32);
         for dev in [
             NvDev::Ctl,
-            NvDev::Gpu(0),
+            NvDev::Gpu,
             NvDev::Event,
             NvDev::Drm(false),
             NvDev::Drm(true),
@@ -1435,10 +1113,6 @@ mod tests {
         }
     }
 
-    /// `sub`/`psize`/`status` for RM_CONTROL come out of NVOS54, and the
-    /// full struct has to be there before any of it is read: `size` is the
-    /// caller's own `_IOC_SIZE`, so a shorter one means the caller passed a
-    /// shorter buffer.
     #[test]
     fn subcode_reads_a_control_only_at_the_full_struct_size() {
         let mut p = sys::NVOS54_PARAMETERS::default();
@@ -1464,11 +1138,6 @@ mod tests {
         );
     }
 
-    /// RM_ALLOC arrives in three lengths, and `sub` is hClass in all of
-    /// them -- the column that says WHICH class was allocated. Only the
-    /// two longer forms also carry paramsSize and status, and each is read
-    /// at its own layout: 48 = NVOS64, 32 = NVOS21, and from 16 bytes on
-    /// there is a hClass and nothing more.
     #[test]
     fn subcode_reads_an_alloc_in_each_of_its_three_lengths() {
         let mut p64 = sys::NVOS64_PARAMETERS::default();
@@ -1482,9 +1151,7 @@ mod tests {
             (Some(0x50a0), Some(0x11), Some(0x1f)),
         );
 
-        // The short form. paramsSize and status sit at different offsets
-        // here, so decoding it with the NVOS64 layout would report the
-        // wrong two numbers rather than fail.
+        // NVOS21 has different size/status offsets from NVOS64.
         let mut p21 = sys::NVOS21_PARAMETERS::default();
         p21.hClass = 0x0040;
         p21.paramsSize = 0x22;
@@ -1508,16 +1175,6 @@ mod tests {
         );
     }
 
-    /// The over-read guard from the module header, pinned.
-    ///
-    /// Every arm of `subcode` casts `arg` to an NVIDIA parameter struct and
-    /// reads fields at ITS offsets. A DRM ioctl carries a different and
-    /// usually smaller struct, so interpreting one reads past the end of
-    /// somebody else's allocation -- this file has had exactly that bug, 88
-    /// bytes past a foreign struct. UVM is excluded for a related reason:
-    /// its `size` is not a length at all, because the number carries no
-    /// `_IOC` encoding. (`subcode` also skips the event device, whose
-    /// reads are not parameter structs either.)
     #[test]
     fn subcode_never_decodes_a_drm_or_uvm_argument() {
         let mut p = sys::NVOS54_PARAMETERS::default();
@@ -1559,9 +1216,6 @@ mod tests {
         );
     }
 
-    /// The NVKMS line's whole information content is in `sub`: every call
-    /// on /dev/nvidia-modeset carries the same ioctl number, so a trace
-    /// that recorded only `nr` would be 451 identical lines.
     #[test]
     fn a_modeset_line_carries_the_command_out_of_the_indirection_struct() {
         let full = size_of::<sys::NvKmsIoctlParams>() as u32;
@@ -1586,8 +1240,7 @@ mod tests {
             "sub is the NVKMS command, psize the block it points at, and              there is no status field to report",
         );
 
-        // A caller that passed something shorter than the struct is not
-        // read at all -- the rule the RM arms follow.
+        // A short wrapper must not be read as the full NVKMS struct.
         assert_eq!(
             unsafe { subcode(NvDev::Modeset, 0, full - 1, arg) },
             (None, None, None),

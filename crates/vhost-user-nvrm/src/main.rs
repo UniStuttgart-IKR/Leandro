@@ -1,25 +1,12 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
-//! vhost-user-nvrm - host daemon. Pure forwarder + translator.
+//! Host daemon for the virtio-nvrm guest module.
 //!
-//! RM is NVIDIA's Resource Manager, the kernel driver behind
-//! /dev/nvidiactl and /dev/nvidiaN, whose ioctls are called escapes;
-//! docs/ARCHITECTURE.md has the whole story.
-//!
-//! NO RM client of its own: the guest (libcuda/NVML) allocates its
-//! ROOT_CLIENT (the top-level RM object everything else hangs off)
-//! itself via the forwarded RM_ALLOC. The driver binds
-//! clients to the OFD (open file description) - so the ioctl must run on
-//! exactly the OFD the guest used, and the host holds that one as a
-//! mirror.
-//!
-//! Exactly one transport: virtio-nvrm (`--nvrm`), the guest driver is
-//! `virtio_nvrm.ko`. The SEQPACKET transport (an LD_PRELOAD shim in the
-//! same kernel) and the virtio-gpu device were removed on 2026-08-04 --
-//! two interpreters of the same knowledge were one too many.
+//! One process serves one VM. Forwarded RM calls use mirrored device FDs;
+//! the driver ABI is selected at startup.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use vhost_user_nvrm::nvrm;
 
@@ -32,17 +19,8 @@ fn usage() -> ! {
     std::process::exit(2);
 }
 
-/// Say so when a signal ends us.
-///
-/// This exists because a backend died three times under a running guest
-/// and left NOTHING: the log stopped mid-sentence, with no "VMM hung up"
-/// (so not a clean return), no "Error:" (so not a failed one), no coredump
-/// (so not SIGSEGV/SIGABRT) and no OOM kill. A guest then waits on a host
-/// that is gone, and the first visible symptom is somewhere else entirely.
-///
-/// Write(2) straight to fd 2 -- the handler runs in signal context, where
-/// `eprintln!` and the allocator behind it are not safe. Then restore the
-/// default and re-raise, so the exit status still says what killed us.
+/// Log termination using async-signal-safe calls, then restore the default
+/// handler and re-raise to preserve the signal exit status.
 extern "C" fn say_and_die(sig: libc::c_int) {
     let msg: &[u8] = match sig {
         libc::SIGTERM => b"vhost-user-nvrm: killed by SIGTERM\n",
@@ -69,59 +47,28 @@ fn install_signal_notes() {
     }
 }
 
-/// `CAP_SYS_ADMIN`, and by default we give it up.
-///
-/// RM grades every control: `RMCTRL_FLAGS_PRIVILEGED` means "admin is
-/// enough" and `osIsAdministrator()` is `capable(CAP_SYS_ADMIN)` on Linux.
-/// A few display controls sit behind that grade --
-/// `NV0073_CTRL_CMD_SPECIFIC_GET_ALL_HEAD_MASK` is the first that NVKMS
-/// (nvidia-modeset.ko in the guest) meets --
-/// so the capability is what makes the display subsystem come further up.
-///
-/// It is NOT free, and it is not obviously a win:
-///
-///   * This process takes guest input apart. CAP_SYS_ADMIN is the
-///     "almost root" capability; carrying it means the sentence "the only
-///     boundary the host enforces is the VM" no longer holds unchanged.
-///   * Measured 2026-08-08: WITH the capability NVKMS gets past the head
-///     mask, then dies on `GET_PCLK_LIMIT` (kernel-privileged, which admin
-///     does NOT reach) and nvidia-drm answers "Failed to allocate
-///     NvKmsKapiDevice" -- so `/dev/dri/card1` disappears. WITHOUT it the
-///     earlier failure is harmless and the render node is there. More
-///     privilege made the outcome WORSE.
-///
-/// So: the file may carry the capability (`setcap cap_sys_admin+ep`), and
-/// this process drops it unless `LEA_ADMIN_PRIV=1` says otherwise. The
-/// default is the safe one even on a binary that was given the capability.
-fn settle_admin_privilege() {
+/// Drop CAP_SYS_ADMIN unless explicitly enabled for driver diagnostics.
+/// Failure to inspect or drop capabilities aborts startup.
+fn settle_admin_privilege() -> Result<()> {
     // capget/capset, _LINUX_CAPABILITY_VERSION_3. No crate for three fields.
     #[repr(C)]
     struct CapHeader {
         version: u32,
         pid: i32,
     }
-    #[repr(C)]
-    #[derive(Clone, Copy, Default)]
-    struct CapData {
-        effective: u32,
-        permitted: u32,
-        inheritable: u32,
-    }
     const VERSION_3: u32 = 0x2008_0522;
-    const CAP_SYS_ADMIN: u32 = 21;
 
     let mut hdr = CapHeader {
         version: VERSION_3,
         pid: 0,
     };
     let mut data = [CapData::default(); 2];
+    // SAFETY: version 3 requires a header and two initialized capability words.
     let r = unsafe { libc::syscall(libc::SYS_capget, &mut hdr as *mut _, data.as_mut_ptr()) };
     if r != 0 {
-        eprintln!("vhost-user-nvrm: capget failed -- assuming no privilege");
-        return;
+        return Err(std::io::Error::last_os_error()).context("read backend capabilities");
     }
-    let bit = 1u32 << CAP_SYS_ADMIN;
-    let have = data[0].effective & bit != 0;
+    let have = data[0].effective & ADMIN_BIT != 0;
 
     let wanted = matches!(std::env::var("LEA_ADMIN_PRIV").as_deref(), Ok("1"));
     if wanted {
@@ -135,29 +82,42 @@ fn settle_admin_privilege() {
                 "NOT present -- setcap first"
             }
         );
-        return;
+        return Ok(());
     }
-    if !have {
-        return;
+    if !clear_admin_capability(&mut data) {
+        return Ok(());
     }
-    data[0].effective &= !bit;
-    data[0].permitted &= !bit;
+    // SAFETY: same ABI buffers as capget; only CAP_SYS_ADMIN bits were cleared.
     let r = unsafe { libc::syscall(libc::SYS_capset, &hdr as *const _, data.as_ptr()) };
-    if r == 0 {
-        eprintln!("vhost-user-nvrm: dropped CAP_SYS_ADMIN (LEA_ADMIN_PRIV unset)");
-    } else {
-        eprintln!("vhost-user-nvrm: WARNING: could not drop CAP_SYS_ADMIN");
+    if r != 0 {
+        return Err(std::io::Error::last_os_error()).context("drop CAP_SYS_ADMIN");
     }
+    eprintln!("vhost-user-nvrm: dropped CAP_SYS_ADMIN (LEA_ADMIN_PRIV unset)");
+    Ok(())
+}
+
+const ADMIN_BIT: u32 = 1 << 21;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+struct CapData {
+    effective: u32,
+    permitted: u32,
+    inheritable: u32,
+}
+
+fn clear_admin_capability(data: &mut [CapData; 2]) -> bool {
+    let low = &mut data[0];
+    let had_admin = (low.effective | low.permitted | low.inheritable) & ADMIN_BIT != 0;
+    low.effective &= !ADMIN_BIT;
+    low.permitted &= !ADMIN_BIT;
+    low.inheritable &= !ADMIN_BIT;
+    had_admin
 }
 
 fn main() -> Result<()> {
-    // NOT `assert_driver_version()` any more, and the difference matters:
-    // that one demands the ONE version this build defaults to and panics
-    // otherwise. The backend carries a layout for every version in
-    // `crates/nvrm-sys/abi.toml` and picks one in `nvrm::serve`, which is the
-    // only place that asks. A driver with no entry is still refused -- by
-    // `detect`, with a message that says how to add it.
-    settle_admin_privilege();
+    // nvrm::serve selects the detected driver ABI and rejects unknown versions.
+    settle_admin_privilege()?;
     install_signal_notes();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -167,5 +127,46 @@ fn main() -> Result<()> {
             nvrm::serve(socket)
         }
         _ => usage(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drops_admin_even_when_only_permitted_or_inheritable() {
+        for capability in [
+            CapData {
+                effective: ADMIN_BIT,
+                ..CapData::default()
+            },
+            CapData {
+                permitted: ADMIN_BIT,
+                ..CapData::default()
+            },
+            CapData {
+                inheritable: ADMIN_BIT,
+                ..CapData::default()
+            },
+        ] {
+            let mut data = [capability, CapData::default()];
+            assert!(clear_admin_capability(&mut data));
+            assert_eq!(data, [CapData::default(); 2]);
+            assert!(!clear_admin_capability(&mut data));
+        }
+    }
+
+    #[test]
+    fn retains_unrelated_capabilities() {
+        let other = CapData {
+            effective: 7,
+            permitted: 15,
+            inheritable: 3,
+        };
+        let mut data = [other; 2];
+        data[0].permitted |= ADMIN_BIT;
+        assert!(clear_admin_capability(&mut data));
+        assert_eq!(data, [other; 2]);
     }
 }
