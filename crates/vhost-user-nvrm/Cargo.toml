@@ -43,3 +43,7 @@ vhost-user-backend.workspace = true
 virtio-queue.workspace = true
 vm-memory.workspace = true
 vmm-sys-util.workspace = true
+
+[dev-dependencies]
+# The frontend side, to test the handshake the patched cloud-hypervisor performs.
+vhost = { workspace = true, features = ["vhost-user-frontend"] }

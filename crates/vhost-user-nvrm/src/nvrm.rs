@@ -36,12 +36,36 @@ const VHOST_USER_F_PROTOCOL_FEATURES: u64 = 30;
 const MAP_CACHE_CACHED: u32 = 0x01;
 const MAP_CACHE_UNCACHED: u32 = 0x02;
 
-/// Host-visible region ID. cloud-hypervisor uses the list index; slot 0 is empty.
+/// shmid of the host-visible VIRTIO Shared Memory Region, the id virtio-gpu
+/// uses for its host-visible region. shmid 0 is unused.
 const SHM_ID_HOST_VISIBLE: u8 = 1;
 
 /// Virtual address space reserved for RM mappings. Backing is installed on demand.
 /// 8 GiB accommodates the measured multi-GiB graphics working sets.
 const HOST_VISIBLE_SIZE: u64 = 8 << 30;
+
+/// The VHOST_USER_GET_SHMEM_CONFIG reply: one region, the host-visible one.
+/// The array index is the shmid and `nregions` counts the non-zero sizes
+/// (vhost-user specification, "VIRTIO Shared Memory Region configuration").
+fn shmem_config() -> VhostUserShMemConfig {
+    let mut sizes = [0; SHM_ID_HOST_VISIBLE as usize + 1];
+    sizes[SHM_ID_HOST_VISIBLE as usize] = HOST_VISIBLE_SIZE;
+    VhostUserShMemConfig::new(1, &sizes)
+}
+
+/// A VHOST_USER_BACKEND_SHMEM_MAP/UNMAP payload for `len` bytes at
+/// `shm_offset` in the host-visible region. Offsets are relative to the start
+/// of the region. SHMEM_UNMAP must name exactly one earlier SHMEM_MAP range.
+fn window_request(shm_offset: u64, len: u64, flags: VhostUserMMapFlags) -> VhostUserMMap {
+    VhostUserMMap {
+        shmid: SHM_ID_HOST_VISIBLE,
+        padding: [0; 7],
+        fd_offset: 0,
+        shm_offset,
+        len,
+        flags: flags.bits(),
+    }
+}
 
 /// One-shot latch for `LEA_TEST_SHMEM_MAP_OOB` (see `on_map_prepare`). Fires
 /// once per process so the test costs exactly one mapping and everything
@@ -713,15 +737,7 @@ impl<A: RmAbi> NvrmDevice<A> {
         let Some(entry) = self.window.get(&off) else {
             return Ok(());
         };
-        let msg = VhostUserMMap {
-            shmid: SHM_ID_HOST_VISIBLE,
-            padding: [0; 7],
-            fd_offset: 0,
-            shm_offset: off,
-            len: entry.len,
-            flags: 0,
-        };
-        backend.shmem_unmap(&msg)?;
+        backend.shmem_unmap(&window_request(off, entry.len, VhostUserMMapFlags::empty()))?;
         self.window.remove(&off);
         Ok(())
     }
@@ -1011,14 +1027,7 @@ impl<A: RmAbi> NvrmDevice<A> {
         // SAFETY: probe is the mapping created just above, len unchanged.
         unsafe { libc::munmap(probe, len as usize) };
 
-        let mut msg_map = VhostUserMMap {
-            shmid: SHM_ID_HOST_VISIBLE,
-            padding: [0; 7],
-            fd_offset: 0,
-            shm_offset: off,
-            len,
-            flags: VhostUserMMapFlags::WRITABLE.bits(),
-        };
+        let mut msg_map = window_request(off, len, VhostUserMMapFlags::WRITABLE);
         // Inject one out-of-window SHMEM_MAP to test VMM refusal and recovery.
         // An empty LEA_TEST_SHMEM_MAP_OOB disables the hook.
         if std::env::var_os("LEA_TEST_SHMEM_MAP_OOB").is_some_and(|v| !v.is_empty())
@@ -1186,19 +1195,32 @@ impl<A: RmAbi> VhostUserBackendMut for NvrmDevice<A> {
             | (1 << VIRTIO_RING_F_INDIRECT_DESC)
     }
 
+    /// SHMEM for the host-visible region, BACKEND_REQ for the channel that
+    /// carries SHMEM_MAP/UNMAP, BACKEND_SEND_FD for the file descriptor each
+    /// SHMEM_MAP passes, REPLY_ACK to learn whether the VMM did it.
     fn protocol_features(&self) -> VhostUserProtocolFeatures {
         VhostUserProtocolFeatures::REPLY_ACK
             | VhostUserProtocolFeatures::BACKEND_REQ
+            | VhostUserProtocolFeatures::BACKEND_SEND_FD
             | VhostUserProtocolFeatures::SHMEM
     }
 
-    /// Region 1 is the host-visible window; region 0 is unused.
-    /// Requires the generic-vhost-user SHMEM hypervisor patch.
+    /// Requires the Cloud Hypervisor patches in patches/.
     fn get_shmem_config(&self) -> std::io::Result<VhostUserShMemConfig> {
-        Ok(VhostUserShMemConfig::new(2, &[0, HOST_VISIBLE_SIZE]))
+        Ok(shmem_config())
     }
 
+    /// The VMM sends a new backend channel on every device activation. Across
+    /// the device reset before it, the VMM drops every SHMEM mapping, so the
+    /// window bookkeeping of the previous activation is void.
     fn set_backend_req_fd(&mut self, backend: vhost::vhost_user::Backend) {
+        if !self.window.is_empty() {
+            dlog!(
+                "new backend channel: {} window mapping(s) dropped by the device reset",
+                self.window.len()
+            );
+            self.window.clear();
+        }
         self.backend = Some(backend);
     }
 
@@ -1806,5 +1828,215 @@ mod device_tests {
                 (0, 0, 0, 0)
             );
         }
+    }
+}
+
+/// The vhost-user side as the patched Cloud Hypervisor frontend
+/// (patches/0001-0003) speaks it: feature bits, message layouts and the
+/// handshake, checked against the vhost-user specification.
+#[cfg(test)]
+mod vhost_user_tests {
+    use std::sync::Mutex;
+
+    use vhost::vhost_user::message::VhostUserHeaderFlag;
+    use vhost::vhost_user::{Frontend, FrontendReqHandler, Listener, VhostUserFrontend};
+    use vhost::VhostBackend;
+    use vm_memory::ByteValued;
+
+    use super::*;
+
+    type Proto = VhostUserProtocolFeatures;
+
+    /// What the patched frontend offers (generic_vhost_user.rs).
+    const FRONTEND_OFFER: Proto = Proto::CONFIG
+        .union(Proto::MQ)
+        .union(Proto::CONFIGURE_MEM_SLOTS)
+        .union(Proto::REPLY_ACK)
+        .union(Proto::INFLIGHT_SHMFD)
+        .union(Proto::LOG_SHMFD)
+        .union(Proto::DEVICE_STATE)
+        .union(Proto::BACKEND_REQ)
+        .union(Proto::BACKEND_SEND_FD)
+        .union(Proto::SHMEM);
+
+    fn dev() -> NvrmDevice<nvrm_sys::DefaultAbi> {
+        NvrmDevice::new().expect("NvrmDevice::new must work without a GPU")
+    }
+
+    fn u64_at(bytes: &[u8], at: usize) -> u64 {
+        u64::from_ne_bytes(bytes[at..at + 8].try_into().unwrap())
+    }
+
+    #[test]
+    fn protocol_feature_bits_are_the_specified_ones() {
+        // vhost-user specification, "Protocol features". vhost 0.16 had SHMEM
+        // at bit 21, which the specification assigns to GPA_ADDRESSES.
+        assert_eq!(Proto::REPLY_ACK.bits(), 1 << 3);
+        assert_eq!(Proto::BACKEND_REQ.bits(), 1 << 5);
+        assert_eq!(Proto::BACKEND_SEND_FD.bits(), 1 << 10);
+        assert_eq!(Proto::GPA_ADDRESSES.bits(), 1 << 21);
+        assert_eq!(Proto::SHMEM.bits(), 1 << 22);
+
+        let ours = dev().protocol_features();
+        assert_eq!(
+            ours,
+            Proto::REPLY_ACK | Proto::BACKEND_REQ | Proto::BACKEND_SEND_FD | Proto::SHMEM
+        );
+        assert!(!ours.contains(Proto::GPA_ADDRESSES));
+    }
+
+    #[test]
+    fn shmem_config_names_the_region_by_its_shmid() {
+        let cfg = shmem_config();
+        let bytes = cfg.as_slice();
+        // num regions (u32), padding (u32), 256 sizes (u64), index = shmid.
+        assert_eq!(bytes.len(), 8 + 256 * 8);
+        assert_eq!(u32::from_ne_bytes(bytes[0..4].try_into().unwrap()), 1);
+        assert_eq!(&bytes[4..8], &[0; 4]);
+        for shmid in 0..256 {
+            let want = if shmid == SHM_ID_HOST_VISIBLE as usize {
+                HOST_VISIBLE_SIZE
+            } else {
+                0
+            };
+            assert_eq!(u64_at(bytes, 8 + 8 * shmid), want, "shmid {shmid}");
+        }
+        // num regions counts the non-zero sizes; each is page-sized.
+        let used = cfg.memory_sizes.iter().filter(|s| **s != 0).count();
+        assert_eq!(used, cfg.nregions as usize);
+        assert_eq!(HOST_VISIBLE_SIZE % 4096, 0);
+    }
+
+    #[test]
+    fn window_requests_have_the_specified_layout() {
+        let msg = window_request(0x2000, 0x3000, VhostUserMMapFlags::WRITABLE);
+        let bytes = msg.as_slice();
+        // shmid (u8), padding (7 bytes), fd_offset, shm_offset, len, flags.
+        assert_eq!(bytes.len(), 40);
+        assert_eq!(bytes[0], SHM_ID_HOST_VISIBLE);
+        assert_eq!(&bytes[1..8], &[0; 7]);
+        assert_eq!(u64_at(bytes, 8), 0, "fd_offset");
+        assert_eq!(
+            u64_at(bytes, 16),
+            0x2000,
+            "shm_offset, relative to the region"
+        );
+        assert_eq!(u64_at(bytes, 24), 0x3000, "len");
+        assert_eq!(u64_at(bytes, 32), 1, "flags: 1 = read-write");
+        let unmap = window_request(0x2000, 0x3000, VhostUserMMapFlags::empty());
+        assert_eq!(u64_at(unmap.as_slice(), 32), 0, "flags: 0 = read-only");
+    }
+
+    /// Request name, shmid, shm_offset, len, flags.
+    type Seen = (&'static str, u8, u64, u64, u64);
+
+    /// Records the backend requests it receives and accepts them.
+    #[derive(Default)]
+    struct Recorder(Mutex<Vec<Seen>>);
+
+    impl VhostUserFrontendReqHandler for Recorder {
+        fn shmem_map(&self, req: &VhostUserMMap, _fd: &dyn AsRawFd) -> std::io::Result<u64> {
+            let r = (req.shmid, req.shm_offset, req.len, req.flags);
+            self.0.lock().unwrap().push(("map", r.0, r.1, r.2, r.3));
+            Ok(0)
+        }
+
+        fn shmem_unmap(&self, req: &VhostUserMMap) -> std::io::Result<u64> {
+            let r = (req.shmid, req.shm_offset, req.len, req.flags);
+            self.0.lock().unwrap().push(("unmap", r.0, r.1, r.2, r.3));
+            Ok(0)
+        }
+    }
+
+    fn window_map(guest_proc: u32) -> WindowMap {
+        WindowMap {
+            len: 0x1000,
+            guest_proc,
+            _fd: std::fs::File::open("/dev/null").unwrap(),
+        }
+    }
+
+    /// The handshake of the patched frontend against the real daemon, then
+    /// SHMEM_MAP and SHMEM_UNMAP over the backend channel it hands over.
+    #[test]
+    fn the_patched_frontend_handshake_and_backend_requests() {
+        let path = std::env::temp_dir().join(format!(
+            "vhost-user-nvrm-handshake-{}.sock",
+            std::process::id()
+        ));
+        let device = Arc::new(RwLock::new(dev()));
+        let mut daemon = VhostUserDaemon::new(
+            "handshake".into(),
+            device.clone(),
+            GuestMemoryAtomic::new(GuestMemoryMmap::new()),
+        )
+        .unwrap();
+        let mut listener = Listener::new(&path, true).unwrap();
+        // Not joined: after the frontend hangs up the daemon's vring worker
+        // stays in epoll_wait (see serve_with); the test process exit ends it.
+        std::thread::spawn(move || {
+            daemon.start(&mut listener).unwrap();
+            let _ = daemon.wait();
+        });
+
+        let mut fe = Frontend::connect(&path, 2).unwrap();
+        fe.set_owner().unwrap();
+        let features = fe.get_features().unwrap();
+        let want = (1 << VIRTIO_F_VERSION_1)
+            | (1 << VHOST_USER_F_PROTOCOL_FEATURES)
+            | (1 << VIRTIO_RING_F_INDIRECT_DESC);
+        assert_eq!(features, want);
+        // Cloud Hypervisor sends SET_FEATURES only at activation, after
+        // GET_SHMEM_CONFIG, so the handshake below does not either.
+
+        let acked = fe.get_protocol_features().unwrap() & FRONTEND_OFFER;
+        assert_eq!(
+            acked,
+            Proto::REPLY_ACK | Proto::BACKEND_REQ | Proto::BACKEND_SEND_FD | Proto::SHMEM
+        );
+        fe.set_protocol_features(acked).unwrap();
+        fe.set_hdr_flags(VhostUserHeaderFlag::NEED_REPLY);
+
+        let cfg = fe.get_shmem_config().unwrap();
+        assert_eq!(cfg.nregions, 1);
+        assert_eq!(cfg.memory_sizes[0], 0);
+        assert_eq!(
+            cfg.memory_sizes[SHM_ID_HOST_VISIBLE as usize],
+            HOST_VISIBLE_SIZE
+        );
+
+        // A new backend channel means a new activation: the frontend dropped
+        // the mappings of the previous one across the device reset.
+        device.write().unwrap().window.insert(0x5000, window_map(9));
+        let recorder = Arc::new(Recorder::default());
+        let mut channel = FrontendReqHandler::new(recorder.clone()).unwrap();
+        channel.set_reply_ack_flag(true);
+        fe.set_backend_request_fd(&channel.get_tx_raw_fd()).unwrap();
+        assert!(device.read().unwrap().window.is_empty());
+
+        let peer = std::thread::spawn(move || {
+            for _ in 0..2 {
+                assert_eq!(channel.handle_request().unwrap(), 0);
+            }
+        });
+        let fd = std::fs::File::open("/dev/null").unwrap();
+        {
+            let mut d = device.write().unwrap();
+            let map = window_request(0x2000, 0x1000, VhostUserMMapFlags::WRITABLE);
+            d.backend.as_ref().unwrap().shmem_map(&map, &fd).unwrap();
+            d.window.insert(0x2000, window_map(7));
+            d.release_window(0x2000).unwrap();
+            assert!(d.window.is_empty());
+        }
+        peer.join().unwrap();
+        assert_eq!(
+            *recorder.0.lock().unwrap(),
+            [
+                ("map", SHM_ID_HOST_VISIBLE, 0x2000, 0x1000, 1),
+                ("unmap", SHM_ID_HOST_VISIBLE, 0x2000, 0x1000, 0),
+            ]
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 }

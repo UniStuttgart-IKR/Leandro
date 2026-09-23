@@ -21,13 +21,15 @@ anyhow = "1"
 thiserror = "2"
 bindgen = "0.71"
 
-# The vhost-user device side. Same versions cloud-hypervisor v53 pins (its Cargo.lock:
-# vhost 0.16.0, vhost-user-backend 0.22.0, virtio-queue 0.17.0, vm-memory
-# =0.17.1) so both ends of the socket speak the identical wire dialect.
-vhost = { version = "0.16", features = ["vhost-user-backend"] }
-vhost-user-backend = "0.22"
-virtio-queue = "0.17"
-vm-memory = "0.17.1"
+# The vhost-user device side. vhost 0.17 is the first release that places
+# VHOST_USER_PROTOCOL_F_SHMEM at the specified bit 22 (0.16 used bit 21, which the
+# specification assigns to GPA_ADDRESSES). The patched cloud-hypervisor frontend uses
+# vhost 0.17 as well (patches/0001); vhost-user-backend 0.23, virtio-queue 0.18 and
+# vm-memory 0.18 are the versions vhost 0.17 requires.
+vhost = { version = "0.17", features = ["vhost-user-backend"] }
+vhost-user-backend = "0.23"
+virtio-queue = "0.18"
+vm-memory = "0.18"
 vmm-sys-util = "0.15"
 
 nvrm-sys   = { path = "crates/nvrm-sys" }
