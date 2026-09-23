@@ -305,7 +305,7 @@ impl VirtualGpuSpec {
 
     /// The name for a NUL-terminated field of `max` bytes (`name_max`, 64 for
     /// `NV2080_GPU_MAX_NAME_STRING_LENGTH`): without the profile when the whole does
-    /// not fit, since a truncated size would be a wrong size; [`FALLBACK`] when not
+    /// not fit, since a truncated size would be a wrong size; `Leandro GPU` when not
     /// even that fits.
     pub fn guest_name_within(&self, format: NameFormat, max: usize) -> String {
         let full = self.guest_name(format);
