@@ -317,7 +317,7 @@ over the handed-over backend channel with `REPLY_ACK`.
 
 ### Manual VM check
 
-Not run for this revision; a v1 VM was not available. After building both
+Run on 2026-09-23, see [Verification (2026-09-23)](#verification-2026-09-23). After building both
 ends, follow [QUICKSTART.md](../docs/QUICKSTART.md) sections 1 and 2 with the
 new binaries, then:
 
@@ -351,3 +351,58 @@ new binaries, then:
   have moved to `vhost` 0.17, which removes the `vhost-frontend` alias.
 - Submit the three changes separately. Describe the generic device behaviour
   and include a reproducer; GPU use is one application.
+
+## Verification (2026-09-23)
+
+The [manual VM check](#manual-vm-check) on a v1 VM, plus the negative pairing
+with the previous frontend. Logs, the launcher, the CUDA test program and every
+command are in
+[caraxes/runs/vhost-user-check-2026-09-23](../caraxes/runs/vhost-user-check-2026-09-23/)
+(`commands.txt` lists the commands in order).
+
+Setup: Cloud Hypervisor `v53.0-3-g993681a04` built from this series (the
+patch-ids of its three commits equal those of 0001-0003), `vhost-user-nvrm`
+built from this branch, host driver 610.57.04 on an RTX 2070. Guest: the baked
+Ubuntu 24.04 image `guest-baked-20260801-610.57.04-20260820-105733` (kernel
+6.8.0-136) with `nvrm_nodes` and `virtio_nvrm` built in the guest from this
+branch, 8 vCPUs, 4 GiB shared memory, the QUICKSTART command line with `-v`.
+The CUDA program is `vecadd.c` there: driver API, a PTX kernel JIT-compiled by
+the driver, 1 Mi elements checked on the host.
+
+| Step | Result | Evidence |
+|---|---|---|
+| 1 Hypervisor log | Pass. `generic vhost-user _generic_vhost_user3: shared memory window 0x200000000 at 0x3ffc00000000`; no `Invalid shared memory config` in any session. The device id is `_generic_vhost_user3`, not `_generic_vhost_user0`: the number counts all devices on the command line | `hypervisor-A.txt`, `-B`, `-C` |
+| 2 Guest | Pass. `virtio_nvrm: window 8192 MiB @0x3ffc00000000`. The capability at 0xa4 is `VIRTIO_PCI_CAP_SHARED_MEMORY_CFG` (cfg_type 8), bar 2, id 1, offset 0, length `0x2_0000_0000`; lspci prints only the low 32 bits of the 64-bit form (`size=00000000`) | `guest-evidence.txt` |
+| 3 Mappings | Pass. `nvidia-smi` works (it makes no window mapping). `vecadd` passes; its first mapping is a 64 KiB uncached SHMEM_MAP at region offset 0, right after the allocation of class `0xc461` (`TURING_USERMODE_A`, the doorbell page) in the ledger of session B. Session A: 87 successful SHMEM_MAPs, no hypervisor warning | `backend-A.txt`, `backend-B.txt` |
+| 4 Refusal | Pass. Backend: `LEA_TEST_SHMEM_MAP_OOB -- asking the VMM to map at 0x200000000` and `SHMEM_MAP: Frontend internal error` (the `vhost` crate's name for a non-zero reply). Hypervisor: `shared memory request 0x200000000+0x10000 exceeds shmid 1 of 0x200000000 bytes` and `vhost-user backend request refused ...: Invalid argument (os error 22)`. Guest: `MAP_PREPARE failed: -5`, `cuInit` returns 100. `nvidia-smi` and `vecadd` run next succeed; the channel stayed up | `backend-B.txt`, `hypervisor-B.txt`, `guest-evidence.txt` |
+| 5 Reset | Pass. Module unload and reload is a device reset (`event = reset`, then `activated`); `nvidia-smi` and `vecadd` pass afterwards, in sessions A, B and C. No mapping was live at the reset (every client had exited and released its slots), so `new backend channel: N window mapping(s) dropped` was not logged | `hypervisor-A.txt`, `-B`, `-C` |
+| 6 Second VM | Pass. Two VMs (v1check, v1check2) with their own backends ran three `vecadd` each at the same time, all passing; the window lines of steps 1 and 2 and the reset of step 5 hold on the second VM too. Host available memory stayed above 10 GiB | `backend-C.txt`, `hypervisor-C.txt`, `guest-evidence.txt` |
+| Negative pairing | Pass (no crash), one log silent. Stock CH v53.0.0 with the previous series and the new backend: the device comes up without a window; the guest says `virtio_nvrm: no host-visible window -- mmap will fail`, BAR 2 and the capability are absent, `nvidia-smi` works, `vecadd` fails with `cuInit` 100, the VM shuts down cleanly. The hypervisor log has no window line and no message; the backend log says nothing about the missing SHMEM either | `hypervisor-D.txt`, `backend-D.txt`, `guest-evidence.txt` |
+
+### Found beyond the plan
+
+A device reset while a guest process still holds window mappings ends the VM.
+Reproduced twice (sessions A and C): `vecadd` held its context
+(`VECADD_HOLD=25`), then `0000:00:05.0` was unbound from `virtio-pci`. At the
+reset the hypervisor logged `VCPU generated error: VcpuRun(Failed to run vcpu
+... VCPU error Error(14))` and exited; the backend logged `VMM hung up` and
+exited. The same unbind and bind with no client running works. Error 14 is
+`EFAULT` from `KVM_RUN`: the frontend replaced the mappings with the
+`PROT_NONE` placeholder as the specification requires, and a guest thread
+still touched a window page it had mapped. The previous series kept mappings
+across a reset, so this did not happen there (inferred from the code, not run).
+The trigger needs guest root. Options: the guest module zaps the user PTEs of
+its window slots when the device goes away, or the frontend backs unmapped
+window space with memory that does not fault. Module unload cannot trigger it,
+because an open client holds the module.
+
+The backend logs nothing when the frontend does not ack SHMEM. The `vhost-user-backend` 0.23
+`VhostUserBackendMut` trait has no hook for the acked protocol features.
+`get_shmem_config` is only called after SHMEM is acked, so if
+`set_backend_req_fd` arrives with no earlier `get_shmem_config`, the backend
+could log a warning.
+
+The host kernel logged `NVRM: VM: nv_alloc_system_pages: failed to allocate
+memory` with the matching `NV_ERR_NO_MEMORY` assertion about once for each CUDA
+context the guests created, and every run passed. It does not involve the
+window. No Xid was logged.

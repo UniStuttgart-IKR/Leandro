@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: MIT
+# Session D (negative pairing): new vhost-user-nvrm, LEA_DEBUG=1, against the stock CH.
+vhost-user-nvrm: driver 610.57.04 ABI
+vhost-user-nvrm: tables v1 ready -- 9240 bytes, checksum 0x43ee86ab (100 ioctls, 128 classes, 50 controls, 17 nested)
+vhost-user-nvrm/nvrm: poll +1: WaiterNotify fd 5
+vhost-user-nvrm: virtio-nvrm on /mnt/vmstore/caraxes/v1check/nvrm.sock (device_type 60), driver 610.57.04
+vhost-user-nvrm/nvrm: evq kick: ready=true next_avail=0 next_used=0 avail_idx(guest)=Some(Ok(256))
+vhost-user-nvrm/nvrm: new session for guest process 0
+vhost-user-nvrm/nvrm: GET_TABLES 0+4096 of 9240
+vhost-user-nvrm/nvrm: GET_TABLES 4096+4096 of 9240
+vhost-user-nvrm/nvrm: GET_TABLES 8192+1048 of 9240
+vhost-user-nvrm/nvrm: new session for guest process 1
+vhost-user-nvrm: guest process 1 = nvidia-smi (guest PID 1615)
+vhost-user-nvrm/nvrm: guest process 1 exited, session torn down
+vhost-user-nvrm/nvrm: new session for guest process 2
+vhost-user-nvrm: guest process 2 = vecadd (guest PID 1640)
+vhost-user-nvrm/nvrm: guest process 2 exited, session torn down
+vhost-user-nvrm/nvrm: new session for guest process 3
+vhost-user-nvrm: guest process 3 = vecadd (guest PID 1640)
+vhost-user-nvrm: dev 0 nr 0x2a cmd 0x2080012f ret 0 status 0x56 (proc 3 vecadd, failure 1)
+vhost-user-nvrm/nvrm: guest process 3 exited, session torn down
+vhost-user-nvrm/nvrm: evq kick: ready=true next_avail=0 next_used=0 avail_idx(guest)=Some(Ok(256))
+vhost-user-nvrm/nvrm: evq kick: ready=true next_avail=0 next_used=0 avail_idx(guest)=Some(Ok(256))
+vhost-user-nvrm: VMM hung up

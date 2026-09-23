@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+# Host state before the check, 2026-09-23T15:44:33+02:00
+## free -m
+               total        used        free      shared  buff/cache   available
+Mem:           32006       16614        7233        5908       14404       15392
+Swap:          32767       14632       18135
+## pgrep -a cloud-hyperviso | cut -c1-120
+2930127 /mnt/vmstore/leandro/cloud-hypervisor/bin/cloud-hypervisor --api-socket /mnt/vmstore/caraxes/vm0/ch.sock --cpus 
+3194125 /mnt/vmstore/leandro/cloud-hypervisor/bin/cloud-hypervisor --api-socket /mnt/vmstore/caraxes/vm2/ch.sock --cpus 
+3208540 /mnt/vmstore/caraxes/vm3/cloud-hypervisor-0004 --api-socket /mnt/vmstore/caraxes/vm3/ch.sock --cpus boot=8 --mem
+## pgrep -a vhost-user
+## cat /proc/driver/nvidia/version
+NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  610.57.04  Release Build  (root@)  
+GCC version:  gcc version 16.2.1 20260810 (GCC) 
+## nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv
+name, memory.used [MiB], memory.total [MiB]
+NVIDIA GeForce RTX 2070, 5378 MiB, 8192 MiB
+## nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv | (long command lines shortened afterwards)
+pid, process_name, used_gpu_memory [MiB]
+1370, /home/silas/.config/discord/app-1.0.158/Discord (arguments elided), 63 MiB
+2131, /usr/lib/electron42/electron (arguments elided), 378 MiB
+## journalctl -k --since -30min | grep -ci xid
+0
+## ip -br addr show caraxes5
+caraxes5         DOWN           192.168.105.1/24 

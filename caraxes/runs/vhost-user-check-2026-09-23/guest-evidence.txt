@@ -1,0 +1,182 @@
+# SPDX-License-Identifier: MIT
+# Guest-side output of the manual vhost-user VM check, 2026-09-23, copied
+# verbatim from the terminal (commands in commands.txt). Guest: Ubuntu 24.04,
+# 6.8.0-136-generic, baked image guest-baked-20260801-610.57.04-20260820-105733,
+# modules built in the guest from the worktree's guest-module/.
+
+## Session A, step 2: sudo dmesg | grep -E "virtio_nvrm|nvrm_nodes"
+[  250.315464] nvrm_nodes: ready (ABI 1, nodes off, max_pin 1024 MiB)
+[  250.372326] virtio_nvrm: BDF mediation: guest 0000:00:05.0 -> gpu id 0x5
+[  250.374231] virtio_nvrm: window 8192 MiB @0x3ffc00000000
+[  250.376758] virtio_nvrm: Hello accepted, protocol v6 negotiated
+[  250.376869] virtio_nvrm: tables v1 accepted -- 9240 bytes, checksum 0x43ee86ab (100 ioctls, 128 classes, 50 controls, 17 nested)
+[  250.377162] virtio_nvrm: ready (nodes on, 1 GPU, max_pin 1024 MiB)
+[  250.377508] virtio_nvrm: balloon off (display_reserve_mib=-1, display=0)
+
+## Session A, step 2: sudo lspci -vvv -xxx -s 00:05.0   (virtio-nvrm is 1af4:107c, device type 60)
+00:05.0 Unassigned class [ffff]: Red Hat, Inc. Device 107c (rev 01)
+	Subsystem: Red Hat, Inc. Device 107c
+	Physical Slot: 5
+	Control: I/O- Mem+ BusMaster+ SpecCycle- MemWINV- VGASnoop- ParErr- Stepping- SERR- FastB2B- DisINTx+
+	Status: Cap+ 66MHz- UDF- FastB2B- ParErr- DEVSEL=fast >TAbort- <TAbort- <MAbort- >SERR- <PERR- INTx-
+	Latency: 0
+	Region 0: Memory at 3ffffe800000 (64-bit, non-prefetchable) [size=512K]
+	Region 2: Memory at 3ffc00000000 (64-bit, non-prefetchable) [size=8G]
+	Capabilities: [40] Vendor Specific Information: VirtIO: CommonCfg
+		BAR=0 offset=00000000 size=00000038
+	Capabilities: [50] Vendor Specific Information: VirtIO: ISR
+		BAR=0 offset=00002000 size=00000001
+	Capabilities: [60] Vendor Specific Information: VirtIO: DeviceCfg
+		BAR=0 offset=00004000 size=00001000
+	Capabilities: [70] Vendor Specific Information: VirtIO: Notify
+		BAR=0 offset=00006000 size=00001000 multiplier=00000004
+	Capabilities: [84] Vendor Specific Information: VirtIO: <unknown>
+		BAR=0 offset=00000000 size=00000000
+	Capabilities: [98] MSI-X: Enable+ Count=3 Masked-
+		Vector table: BAR=0 offset=00008000
+		PBA: BAR=0 offset=00048000
+	Capabilities: [a4] Vendor Specific Information: VirtIO: <unknown>
+		BAR=2 offset=00000000 size=00000000
+	Kernel driver in use: virtio-pci
+00: f4 1a 7c 10 06 04 10 00 01 00 ff ff 00 00 00 00
+10: 04 00 80 fe ff 3f 00 00 04 00 00 00 fc 3f 00 00
+20: 00 00 00 00 00 00 00 00 00 00 00 00 f4 1a 7c 10
+30: 00 00 00 00 40 00 00 00 00 00 00 00 00 00 00 00
+40: 09 50 10 01 00 00 00 00 00 00 00 00 38 00 00 00
+50: 09 60 10 03 00 00 00 00 00 20 00 00 01 00 00 00
+60: 09 70 10 04 00 00 00 00 00 40 00 00 00 10 00 00
+70: 09 84 14 02 00 00 00 00 00 60 00 00 00 10 00 00
+80: 04 00 00 00 09 98 14 05 00 00 00 00 00 00 00 00
+90: 00 00 00 00 00 00 00 00 11 a4 02 80 00 80 00 00
+a0: 00 80 04 00 09 00 18 08 02 01 00 00 00 00 00 00
+b0: 00 00 00 00 00 00 00 00 02 00 00 00 00 00 00 00
+# Decoded capability at 0xa4 (struct virtio_pci_cap64, 24 bytes): cap_vndr 0x09,
+# cap_len 0x18, cfg_type 8 = VIRTIO_PCI_CAP_SHARED_MEMORY_CFG, bar 2, id 1 (= shmid 1),
+# offset 0, length 0 | length_hi 2 << 32 = 0x2_0000_0000 = 8 GiB. lspci 3.x prints only
+# the low 32 bits of the 64-bit form, hence "size=00000000".
+
+## Session A, step 3: id; LD_LIBRARY_PATH=/opt/nvrm/lib /opt/nvrm/bin/nvidia-smi; echo rc=$?
+uid=1000(leandro) gid=1000(leandro) groups=1000(leandro),44(video),992(render),995(input)
+Wed Sep 23 13:50:12 2026
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 610.57.04              KMD Version: 610.57.04     CUDA UMD Version: 13.3     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Leandro RTX 2070               Off |   00000000:2D:00.0  On |                  N/A |
+| 21%   49C    P8             29W /  175W |    5378MiB /   8192MiB |     32%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            4103  M+C+G   /opt/nvrm/bin/nvidia-smi                  0MiB |
++-----------------------------------------------------------------------------------------+
+rc=0
+
+## Session A, step 3: ~/vecadd (vecadd.c)
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+rc=0
+
+## Session A, step 5: rmmod virtio_nvrm; rmmod nvrm_nodes; insmod both again
+[  348.278244] nvrm_nodes: unloaded
+[  348.324209] nvrm_nodes: ready (ABI 1, nodes off, max_pin 1024 MiB)
+[  348.370707] virtio_nvrm: BDF mediation: guest 0000:00:05.0 -> gpu id 0x5
+[  348.385291] virtio_nvrm: window 8192 MiB @0x3ffc00000000
+[  348.387887] virtio_nvrm: Hello accepted, protocol v6 negotiated
+[  348.388106] virtio_nvrm: tables v1 accepted -- 9240 bytes, checksum 0x43ee86ab (100 ioctls, 128 classes, 50 controls, 17 nested)
+[  348.388684] virtio_nvrm: ready (nodes on, 1 GPU, max_pin 1024 MiB)
+[  348.388720] virtio_nvrm: balloon off (display_reserve_mib=-1, display=0)
+GPU 0: Leandro RTX 2070 (UUID: GPU-4de48471-3d15-4f10-8804-3e0e45d128ff)
+rc=0
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+rc=0
+
+## Session A, extra: VECADD_HOLD=25 ~/vecadd in the background, then unbind/bind 0000:00:05.0
+holding the context for 25 s
+0000:00:05.0
+# (no further output: the VM ended at the unbind, see hypervisor-A.txt)
+
+## Session B, step 4: first ~/vecadd with LEA_TEST_SHMEM_MAP_OOB=1 on the backend
+cuInit(0) -> CUDA error 100
+rc=1
+[  198.071516] virtio_nvrm: MAP_PREPARE failed: -5 (vecadd[2449], gpu node, 64 KiB at window+0x0)
+## Session B, step 4: again
+name, memory.used [MiB], memory.total [MiB]
+Leandro RTX 2070, 5380 MiB, 8192 MiB
+rc=0
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+rc=0
+
+## Session B, extra: unbind/bind 0000:00:05.0 with no client running, then ~/vecadd
+0000:00:05.0
+0000:00:05.0
+[  216.196430] virtio_nvrm: removed
+[  217.223230] virtio_nvrm: BDF mediation: guest 0000:00:05.0 -> gpu id 0x5
+[  217.233356] virtio_nvrm: window 8192 MiB @0x3ffc00000000
+[  217.234711] virtio_nvrm: Hello accepted, protocol v6 negotiated
+[  217.235110] virtio_nvrm: tables v1 accepted -- 9240 bytes, checksum 0x43ee86ab (100 ioctls, 128 classes, 50 controls, 17 nested)
+[  217.235324] virtio_nvrm: ready (nodes on, 1 GPU, max_pin 1024 MiB)
+[  217.235570] virtio_nvrm: balloon off (display_reserve_mib=-1, display=0)
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+rc=0
+
+## Session B, step 5: rmmod/insmod, nvidia-smi -L, ~/vecadd
+[  229.027171] virtio_nvrm: tables v1 accepted -- 9240 bytes, checksum 0x43ee86ab (100 ioctls, 128 classes, 50 controls, 17 nested)
+[  229.027361] virtio_nvrm: ready (nodes on, 1 GPU, max_pin 1024 MiB)
+[  229.030130] virtio_nvrm: balloon off (display_reserve_mib=-1, display=0)
+GPU 0: Leandro RTX 2070 (UUID: GPU-4de48471-3d15-4f10-8804-3e0e45d128ff)
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+rc=0
+
+## Session C (second VM v1check2), step 6: module load
+[  170.830692] virtio_nvrm: BDF mediation: guest 0000:00:05.0 -> gpu id 0x5
+[  170.832470] virtio_nvrm: window 8192 MiB @0x3ffc00000000
+[  170.833521] virtio_nvrm: Hello accepted, protocol v6 negotiated
+[  170.833668] virtio_nvrm: tables v1 accepted -- 9240 bytes, checksum 0x43ee86ab (100 ioctls, 128 classes, 50 controls, 17 nested)
+[  170.833857] virtio_nvrm: ready (nodes on, 1 GPU, max_pin 1024 MiB)
+[  170.833876] virtio_nvrm: balloon off (display_reserve_mib=-1, display=0)
+
+## Step 6: both VMs at once, VM 1 (v1check, session B)
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+GPU 0: Leandro RTX 2070 (UUID: GPU-4de48471-3d15-4f10-8804-3e0e45d128ff)
+
+## Step 6: both VMs at once, VM 2 (v1check2, session C)
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+GPU 0: Leandro RTX 2070 (UUID: GPU-78ffba7d-a023-4c62-ba21-1e6583373175)
+
+## Session C, step 5 on VM 2: rmmod/insmod, ~/vecadd
+vecadd on Leandro RTX 2070: 1048576 elements, 0 wrong -> PASS
+
+## Session C, extra repeated: VECADD_HOLD=25 ~/vecadd, then unbind/bind
+holding the context for 25 s
+0000:00:05.0
+# (ssh ended by timeout 40, exit 124: the VM ended at the unbind, see hypervisor-C.txt)
+
+## Session D (negative pairing, stock CH): module load and lspci
+[  143.774253] virtio_nvrm: BDF mediation: guest 0000:00:05.0 -> gpu id 0x5
+[  143.779665] virtio_nvrm: no host-visible window -- mmap will fail
+[  143.780510] virtio_nvrm: Hello accepted, protocol v6 negotiated
+[  143.780598] virtio_nvrm: tables v1 accepted -- 9240 bytes, checksum 0x43ee86ab (100 ioctls, 128 classes, 50 controls, 17 nested)
+[  143.780777] virtio_nvrm: ready (nodes on, 1 GPU, max_pin 1024 MiB)
+[  143.781094] virtio_nvrm: balloon off (display_reserve_mib=-1, display=0)
+	Region 0: Memory at 3ffffe800000 (64-bit, non-prefetchable) [size=512K]
+	Capabilities: [40] Vendor Specific Information: VirtIO: CommonCfg
+	Capabilities: [50] Vendor Specific Information: VirtIO: ISR
+	Capabilities: [60] Vendor Specific Information: VirtIO: DeviceCfg
+	Capabilities: [70] Vendor Specific Information: VirtIO: Notify
+	Capabilities: [84] Vendor Specific Information: VirtIO: <unknown>
+## Session D: nvidia-smi -L; ~/vecadd
+GPU 0: Leandro RTX 2070 (UUID: GPU-4de48471-3d15-4f10-8804-3e0e45d128ff)
+rc=0
+cuInit(0) -> CUDA error 100
+rc=1

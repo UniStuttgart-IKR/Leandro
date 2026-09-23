@@ -1,0 +1,193 @@
+# SPDX-License-Identifier: MIT
+# Session A: new vhost-user-nvrm (worktree), LEA_DEBUG=1.
+vhost-user-nvrm: driver 610.57.04 ABI
+vhost-user-nvrm: tables v1 ready -- 9240 bytes, checksum 0x43ee86ab (100 ioctls, 128 classes, 50 controls, 17 nested)
+vhost-user-nvrm/nvrm: poll +1: WaiterNotify fd 5
+vhost-user-nvrm: virtio-nvrm on /mnt/vmstore/caraxes/v1check/nvrm.sock (device_type 60), driver 610.57.04
+vhost-user-nvrm/nvrm: evq kick: ready=true next_avail=0 next_used=0 avail_idx(guest)=Some(Ok(256))
+vhost-user-nvrm/nvrm: new session for guest process 0
+vhost-user-nvrm/nvrm: GET_TABLES 0+4096 of 9240
+vhost-user-nvrm/nvrm: GET_TABLES 4096+4096 of 9240
+vhost-user-nvrm/nvrm: GET_TABLES 8192+1048 of 9240
+vhost-user-nvrm/nvrm: new session for guest process 1
+vhost-user-nvrm: guest process 1 = nvidia-smi (guest PID 4103)
+vhost-user-nvrm: dev 0 nr 0x2a cmd 0x20800157 ret 0 status 0x56 (proc 1 nvidia-smi, failure 1)
+vhost-user-nvrm: dev 0 nr 0x2a cmd 0x2080014b ret 0 status 0x57 (proc 1 nvidia-smi, failure 2)
+vhost-user-nvrm: dev 0 nr 0x2a cmd 0x2080014b ret 0 status 0x57 (proc 1 nvidia-smi, failure 3)
+vhost-user-nvrm: dev 0 nr 0x2a cmd 0x2080014b ret 0 status 0x57 (proc 1 nvidia-smi, failure 4)
+vhost-user-nvrm: dev 0 nr 0x2a cmd 0x2080014b ret 0 status 0x57 (proc 1 nvidia-smi, failure 5)
+vhost-user-nvrm: dev 0 nr 0x2a cmd 0x20801357 ret 0 status 0x56 (proc 1 nvidia-smi, failure 6)
+vhost-user-nvrm/nvrm: guest process 1 exited, session torn down
+vhost-user-nvrm/nvrm: new session for guest process 2
+vhost-user-nvrm: guest process 2 = vecadd (guest PID 4232)
+vhost-user-nvrm/nvrm: guest process 2 exited, session torn down
+vhost-user-nvrm/nvrm: new session for guest process 3
+vhost-user-nvrm: guest process 3 = vecadd (guest PID 4232)
+vhost-user-nvrm: dev 0 nr 0x2a cmd 0x2080012f ret 0 status 0x56 (proc 3 vecadd, failure 1)
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x0, 65536 bytes, cache 0x2
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x10000, 4096 bytes, cache 0x1
+vhost-user-nvrm: VRAM ledger, proc 3 vecadd[4232]: first of its kind: NVOS64 RM_ALLOC class 0x40 flags 0x1c101 attr 0x18000000 (VIDMEM) size 0x200000 (2.0 MiB) -- RM placed it in VIDMEM (attr out 0x11800000), charged (2 of 0 MiB in use)
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x11000, 2097152 bytes, cache 0x2
+vhost-user-nvrm: guest error seq=239: ioctl dev=0 nr=0x5e: unsupported frontend request (errno 95)
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x211000, 58720256 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3a11000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3a12000, 2097152 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c12000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c13000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c14000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c15000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c16000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c17000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c18000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +2: Client { guest_proc: 3, token: 20, fd: 49 } fd 49
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c19000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1a000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1b000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1c000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +3: Client { guest_proc: 3, token: 25, fd: 58 } fd 58
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1d000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1e000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1f000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c20000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +4: Client { guest_proc: 3, token: 30, fd: 67 } fd 67
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c21000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c22000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c23000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c24000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +5: Client { guest_proc: 3, token: 35, fd: 76 } fd 76
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c25000, 2097152 bytes, cache 0x1
+vhost-user-nvrm: pool @0x204a00000 (2048 KiB, 229 runs) attached to GPU VA
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3e25000, 2097152 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x4025000, 2097152 bytes, cache 0x1
+vhost-user-nvrm/nvrm: EVENT_FIRED class 0x79 proc 3 tok 20
+vhost-user-nvrm: event channel live (first KIND_EVENT_FIRED on queue 1)
+vhost-user-nvrm/nvrm: evq kick: ready=true next_avail=1 next_used=1 avail_idx(guest)=Some(Ok(257))
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x4225000, 1536000 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +6: Client { guest_proc: 3, token: 40, fd: 88 } fd 88
+vhost-user-nvrm/nvrm: poll +7: Client { guest_proc: 3, token: 41, fd: 89 } fd 89
+vhost-user-nvrm/nvrm: poll +8: Client { guest_proc: 3, token: 42, fd: 90 } fd 90
+vhost-user-nvrm/nvrm: poll +9: Client { guest_proc: 3, token: 43, fd: 91 } fd 91
+vhost-user-nvrm/nvrm: poll -7: Client { guest_proc: 3, token: 41, fd: 89 }
+vhost-user-nvrm/nvrm: poll -8: Client { guest_proc: 3, token: 42, fd: 90 }
+vhost-user-nvrm/nvrm: poll -6: Client { guest_proc: 3, token: 40, fd: 88 }
+vhost-user-nvrm/nvrm: poll -9: Client { guest_proc: 3, token: 43, fd: 91 }
+vhost-user-nvrm: retaining forwarded guest-page registrations: source RM_FREE does not prove duplicate or exported references are gone
+vhost-user-nvrm/nvrm: poll -2: Client { guest_proc: 3, token: 20, fd: 49 }
+vhost-user-nvrm/nvrm: poll -3: Client { guest_proc: 3, token: 25, fd: 58 }
+vhost-user-nvrm/nvrm: poll -4: Client { guest_proc: 3, token: 30, fd: 67 }
+vhost-user-nvrm/nvrm: poll -5: Client { guest_proc: 3, token: 35, fd: 76 }
+vhost-user-nvrm/nvrm: guest process 3 exited, session torn down
+vhost-user-nvrm: guest-page registrations: 10485760 bytes charged, 10485760 retained, 0 cleanup-pending
+vhost-user-nvrm/nvrm: evq kick: ready=true next_avail=1 next_used=1 avail_idx(guest)=Some(Ok(257))
+vhost-user-nvrm/nvrm: evq kick: ready=true next_avail=0 next_used=0 avail_idx(guest)=Some(Ok(256))
+vhost-user-nvrm/nvrm: GET_TABLES 0+4096 of 9240
+vhost-user-nvrm/nvrm: GET_TABLES 4096+4096 of 9240
+vhost-user-nvrm/nvrm: GET_TABLES 8192+1048 of 9240
+vhost-user-nvrm/nvrm: new session for guest process 1
+vhost-user-nvrm: guest process 1 = nvidia-smi (guest PID 4597)
+vhost-user-nvrm/nvrm: guest process 1 exited, session torn down
+vhost-user-nvrm: guest-page registrations: 10485760 bytes charged, 10485760 retained, 0 cleanup-pending
+vhost-user-nvrm/nvrm: new session for guest process 2
+vhost-user-nvrm: guest process 2 = vecadd (guest PID 4599)
+vhost-user-nvrm/nvrm: guest process 2 exited, session torn down
+vhost-user-nvrm: guest-page registrations: 10485760 bytes charged, 10485760 retained, 0 cleanup-pending
+vhost-user-nvrm/nvrm: new session for guest process 3
+vhost-user-nvrm: guest process 3 = vecadd (guest PID 4599)
+vhost-user-nvrm: dev 0 nr 0x2a cmd 0x2080012f ret 0 status 0x56 (proc 3 vecadd, failure 1)
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x0, 65536 bytes, cache 0x2
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x10000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x11000, 2097152 bytes, cache 0x2
+vhost-user-nvrm: guest error seq=185: ioctl dev=0 nr=0x5e: unsupported frontend request (errno 95)
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x211000, 58720256 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3a11000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3a12000, 2097152 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c12000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c13000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c14000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c15000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c16000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c17000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c18000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +10: Client { guest_proc: 3, token: 20, fd: 49 } fd 49
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c19000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1a000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1b000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1c000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +11: Client { guest_proc: 3, token: 25, fd: 58 } fd 58
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1d000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1e000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1f000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c20000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +12: Client { guest_proc: 3, token: 30, fd: 67 } fd 67
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c21000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c22000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c23000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c24000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +13: Client { guest_proc: 3, token: 35, fd: 76 } fd 76
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c25000, 2097152 bytes, cache 0x1
+vhost-user-nvrm: pool @0x204a00000 (2048 KiB, 306 runs) attached to GPU VA
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3e25000, 2097152 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x4025000, 2097152 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x4225000, 1536000 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +14: Client { guest_proc: 3, token: 40, fd: 88 } fd 88
+vhost-user-nvrm/nvrm: poll +15: Client { guest_proc: 3, token: 41, fd: 89 } fd 89
+vhost-user-nvrm/nvrm: poll +16: Client { guest_proc: 3, token: 42, fd: 90 } fd 90
+vhost-user-nvrm/nvrm: poll +17: Client { guest_proc: 3, token: 43, fd: 91 } fd 91
+vhost-user-nvrm/nvrm: poll -15: Client { guest_proc: 3, token: 41, fd: 89 }
+vhost-user-nvrm/nvrm: poll -16: Client { guest_proc: 3, token: 42, fd: 90 }
+vhost-user-nvrm/nvrm: poll -14: Client { guest_proc: 3, token: 40, fd: 88 }
+vhost-user-nvrm/nvrm: poll -17: Client { guest_proc: 3, token: 43, fd: 91 }
+vhost-user-nvrm/nvrm: poll -10: Client { guest_proc: 3, token: 20, fd: 49 }
+vhost-user-nvrm/nvrm: poll -11: Client { guest_proc: 3, token: 25, fd: 58 }
+vhost-user-nvrm/nvrm: poll -12: Client { guest_proc: 3, token: 30, fd: 67 }
+vhost-user-nvrm/nvrm: poll -13: Client { guest_proc: 3, token: 35, fd: 76 }
+vhost-user-nvrm/nvrm: guest process 3 exited, session torn down
+vhost-user-nvrm: guest-page registrations: 20971520 bytes charged, 20971520 retained, 0 cleanup-pending
+vhost-user-nvrm/nvrm: new session for guest process 4
+vhost-user-nvrm: guest process 4 = vecadd (guest PID 4781)
+vhost-user-nvrm/nvrm: guest process 4 exited, session torn down
+vhost-user-nvrm: guest-page registrations: 20971520 bytes charged, 20971520 retained, 0 cleanup-pending
+vhost-user-nvrm/nvrm: new session for guest process 5
+vhost-user-nvrm: guest process 5 = vecadd (guest PID 4781)
+vhost-user-nvrm: dev 0 nr 0x2a cmd 0x2080012f ret 0 status 0x56 (proc 5 vecadd, failure 1)
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x0, 65536 bytes, cache 0x2
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x10000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x11000, 2097152 bytes, cache 0x2
+vhost-user-nvrm: guest error seq=975: ioctl dev=0 nr=0x5e: unsupported frontend request (errno 95)
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x211000, 58720256 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3a11000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3a12000, 2097152 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c12000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c13000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c14000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c15000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c16000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c17000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c18000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +18: Client { guest_proc: 5, token: 20, fd: 49 } fd 49
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c19000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1a000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1b000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1c000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +19: Client { guest_proc: 5, token: 25, fd: 58 } fd 58
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1d000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1e000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c1f000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c20000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +20: Client { guest_proc: 5, token: 30, fd: 67 } fd 67
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c21000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c22000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c23000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c24000, 4096 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +21: Client { guest_proc: 5, token: 35, fd: 76 } fd 76
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3c25000, 2097152 bytes, cache 0x1
+vhost-user-nvrm: pool @0x204a00000 (2048 KiB, 246 runs) attached to GPU VA
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x3e25000, 2097152 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x4025000, 2097152 bytes, cache 0x1
+vhost-user-nvrm/nvrm: MapPrepare -> window+0x4225000, 1536000 bytes, cache 0x1
+vhost-user-nvrm/nvrm: poll +22: Client { guest_proc: 5, token: 40, fd: 88 } fd 88
+vhost-user-nvrm/nvrm: poll +23: Client { guest_proc: 5, token: 41, fd: 89 } fd 89
+vhost-user-nvrm/nvrm: poll +24: Client { guest_proc: 5, token: 42, fd: 90 } fd 90
+vhost-user-nvrm/nvrm: poll +25: Client { guest_proc: 5, token: 43, fd: 91 } fd 91
+vhost-user-nvrm/nvrm: evq kick: ready=true next_avail=0 next_used=0 avail_idx(guest)=Some(Ok(256))
+vhost-user-nvrm: VMM hung up

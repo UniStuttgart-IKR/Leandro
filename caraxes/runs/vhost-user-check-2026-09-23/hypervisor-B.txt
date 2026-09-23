@@ -1,0 +1,219 @@
+# SPDX-License-Identifier: MIT
+# Session B: patched CH with -v, new vhost-user-nvrm with LEA_TEST_SHMEM_MAP_OOB=1, VM v1check.
+# Steps 4 and 5, extra unbind/bind without a client, VM 1 of step 6.
+cloud-hypervisor:   0.000037s: <main> INFO:cloud-hypervisor/src/main.rs:631 -- v53.0-3-g993681a04 starting
+cloud-hypervisor:   0.000130s: <main> INFO:event_monitor/src/lib.rs:113 -- Event: source = vmm event = starting 
+cloud-hypervisor:   0.001531s: <vmm> INFO:vmm/src/api/mod.rs:1278 -- API request event: VmCreate VmConfig { cpus: CpusConfig { boot_vcpus: 8, max_vcpus: 8, topology: None, kvm_hyperv: false, max_phys_bits: 46, affinity: None, features: CpuFeatures { amx: false }, nested: true, core_scheduling: Vm, profile: Host }, memory: MemoryConfig { size: 4294967296, mergeable: false, hotplug_method: Acpi, hotplug_size: None, hotplugged_size: None, shared: true, hugepages: false, hugepage_size: None, prefault: false, reserve: false, zones: None, thp: true }, payload: Some(PayloadConfig { firmware: None, kernel: Some("/mnt/vmstore/leandro/vm/guest-image/vmlinuz"), cmdline: Some("root=/dev/vda1 rw console=ttyS0 net.ifnames=0"), initramfs: Some("/mnt/vmstore/leandro/vm/guest-image/initrd") }), rate_limit_groups: None, disks: Some([DiskConfig { pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None }, path: Some("/mnt/vmstore/caraxes/v1check/rootfs.qcow2"), readonly: false, direct: false, num_queues: 1, queue_size: 128, vhost_user: false, vhost_socket: None, rate_limit_group: None, rate_limiter_config: None, disable_io_uring: false, disable_aio: false, serial: None, queue_affinity: None, backing_files: true, sparse: true, image_type: Qcow2, lock_granularity: ByteRange }, DiskConfig { pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None }, path: Some("/mnt/vmstore/caraxes/v1check/seed.img"), readonly: true, direct: false, num_queues: 1, queue_size: 128, vhost_user: false, vhost_socket: None, rate_limit_group: None, rate_limiter_config: None, disable_io_uring: false, disable_aio: false, serial: None, queue_affinity: None, backing_files: false, sparse: true, image_type: Unknown, lock_granularity: ByteRange }]), net: Some([NetConfig { pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None }, tap: Some("caraxes5"), ip: None, mask: None, mac: MacAddr { bytes: [2, 0, 0, 0, 0, 37] }, host_mac: None, mtu: None, num_queues: 2, queue_size: 256, vhost_user: false, vhost_socket: None, vhost_mode: Client, fds: None, rate_limiter_config: None, offload_tso: true, offload_ufo: true, offload_csum: true }]), rng: RngConfig { pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None }, src: "/dev/urandom" }, balloon: None, generic_vhost_user: Some([GenericVhostUserConfig { pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None }, socket: "/mnt/vmstore/caraxes/v1check/nvrm.sock", queue_sizes: [256, 256], device_type: 60 }]), fs: None, pmem: None, serial: SerialConfig { common: CommonConsoleConfig { file: Some("/mnt/vmstore/caraxes/v1check/serial-B.log"), mode: File, socket: None } }, console: ConsoleConfig { common: CommonConsoleConfig { file: None, mode: Off, socket: None }, pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None } }, debug_console: DebugConsoleConfig { file: None, mode: Off, iobase: Some(233) }, devices: None, user_devices: None, vdpa: None, vsock: None, pvpanic: false, iommu: false, numa: None, watchdog: false, rtc: None, pci_segments: None, platform: None, tpm: None, preserved_fds: None, landlock_enable: false, landlock_rules: None }
+cloud-hypervisor:   0.002543s: <vmm> INFO:vmm/src/api/mod.rs:1169 -- API request event: VmBoot
+cloud-hypervisor:   0.002577s: <vmm> INFO:vmm/src/lib.rs:2230 -- Booting VM
+cloud-hypervisor:   0.002616s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = vm event = booting 
+cloud-hypervisor:   0.003058s: <vmm> INFO:vmm/src/memory_manager.rs:681 -- create ram region for zone mem0, region_start: 0x0, region_size: 0xc0000000
+cloud-hypervisor:   0.003173s: <vmm> INFO:vmm/src/memory_manager.rs:2154 -- RAM region mapping at 0x7fed80000000 (size = 0xc0000000)
+cloud-hypervisor:   0.003214s: <vmm> INFO:vmm/src/memory_manager.rs:681 -- create ram region for zone mem0, region_start: 0x100000000, region_size: 0x40000000
+cloud-hypervisor:   0.003285s: <vmm> INFO:vmm/src/memory_manager.rs:2154 -- RAM region mapping at 0x7fed40000000 (size = 0x40000000)
+cloud-hypervisor:   0.003331s: <vmm> INFO:vmm/src/vm.rs:606 -- Booting VM from config: Mutex { data: VmConfig { cpus: CpusConfig { boot_vcpus: 8, max_vcpus: 8, topology: None, kvm_hyperv: false, max_phys_bits: 46, affinity: None, features: CpuFeatures { amx: false }, nested: true, core_scheduling: Vm, profile: Host }, memory: MemoryConfig { size: 4294967296, mergeable: false, hotplug_method: Acpi, hotplug_size: None, hotplugged_size: None, shared: true, hugepages: false, hugepage_size: None, prefault: false, reserve: false, zones: None, thp: true }, payload: Some(PayloadConfig { firmware: None, kernel: Some("/mnt/vmstore/leandro/vm/guest-image/vmlinuz"), cmdline: Some("root=/dev/vda1 rw console=ttyS0 net.ifnames=0"), initramfs: Some("/mnt/vmstore/leandro/vm/guest-image/initrd") }), rate_limit_groups: None, disks: Some([DiskConfig { pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None }, path: Some("/mnt/vmstore/caraxes/v1check/rootfs.qcow2"), readonly: false, direct: false, num_queues: 1, queue_size: 128, vhost_user: false, vhost_socket: None, rate_limit_group: None, rate_limiter_config: None, disable_io_uring: false, disable_aio: false, serial: None, queue_affinity: None, backing_files: true, sparse: true, image_type: Qcow2, lock_granularity: ByteRange }, DiskConfig { pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None }, path: Some("/mnt/vmstore/caraxes/v1check/seed.img"), readonly: true, direct: false, num_queues: 1, queue_size: 128, vhost_user: false, vhost_socket: None, rate_limit_group: None, rate_limiter_config: None, disable_io_uring: false, disable_aio: false, serial: None, queue_affinity: None, backing_files: false, sparse: true, image_type: Unknown, lock_granularity: ByteRange }]), net: Some([NetConfig { pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None }, tap: Some("caraxes5"), ip: None, mask: None, mac: MacAddr { bytes: [2, 0, 0, 0, 0, 37] }, host_mac: None, mtu: None, num_queues: 2, queue_size: 256, vhost_user: false, vhost_socket: None, vhost_mode: Client, fds: None, rate_limiter_config: None, offload_tso: true, offload_ufo: true, offload_csum: true }]), rng: RngConfig { pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None }, src: "/dev/urandom" }, balloon: None, generic_vhost_user: Some([GenericVhostUserConfig { pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None }, socket: "/mnt/vmstore/caraxes/v1check/nvrm.sock", queue_sizes: [256, 256], device_type: 60 }]), fs: None, pmem: None, serial: SerialConfig { common: CommonConsoleConfig { file: Some("/mnt/vmstore/caraxes/v1check/serial-B.log"), mode: File, socket: None } }, console: ConsoleConfig { common: CommonConsoleConfig { file: None, mode: Off, socket: None }, pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None } }, debug_console: DebugConsoleConfig { file: None, mode: Off, iobase: Some(233) }, devices: None, user_devices: None, vdpa: None, vsock: None, pvpanic: false, iommu: false, numa: None, watchdog: false, rtc: None, pci_segments: None, platform: None, tpm: None, preserved_fds: None, landlock_enable: false, landlock_rules: None }, poisoned: false, .. }
+cloud-hypervisor:   0.004145s: <vmm> INFO:arch/src/x86_64/mod.rs:629 -- Generating guest CPUID with physical address size: 46
+cloud-hypervisor:   0.004255s: <vmm> INFO:vmm/src/pci_segment.rs:107 -- Adding PCI segment: id=0, PCI MMIO config address: 0xe8000000, mem32 area [0xc0000000-0xe7ffffff], mem64 area [0x140000000-0x3fffffeeffff]
+cloud-hypervisor:   0.004294s: <vmm> INFO:vmm/src/memory_manager.rs:2433 -- Creating userspace mapping: 0 -> 7fed80000000 c0000000, slot 0
+cloud-hypervisor:   0.004440s: <vmm> INFO:vmm/src/memory_manager.rs:2491 -- Created userspace mapping: 0 -> 7fed80000000 c0000000
+cloud-hypervisor:   0.004468s: <vmm> INFO:vmm/src/memory_manager.rs:2433 -- Creating userspace mapping: 100000000 -> 7fed40000000 40000000, slot 1
+cloud-hypervisor:   0.007643s: <vmm> INFO:vmm/src/memory_manager.rs:2491 -- Created userspace mapping: 100000000 -> 7fed40000000 40000000
+cloud-hypervisor:   0.007826s: <vmm> INFO:vmm/src/cpu.rs:1100 -- Request to create new vCPUs: desired = 8, max = 8, allocated = 0, present = 0
+cloud-hypervisor:   0.007833s: <payload_loader> INFO:vmm/src/vm.rs:1636 -- Loading kernel
+cloud-hypervisor:   0.010493s: <vmm> INFO:vmm/src/device_manager.rs:2705 -- Creating virtio-block device: DiskConfig { pci_common: PciDeviceCommonConfig { id: Some("_disk0"), iommu: false, pci_segment: 0, pci_device_id: None }, path: Some("/mnt/vmstore/caraxes/v1check/rootfs.qcow2"), readonly: false, direct: false, num_queues: 1, queue_size: 128, vhost_user: false, vhost_socket: None, rate_limit_group: None, rate_limiter_config: None, disable_io_uring: false, disable_aio: false, serial: None, queue_affinity: None, backing_files: true, sparse: true, image_type: Qcow2, lock_granularity: ByteRange }
+cloud-hypervisor:   0.010800s: <vmm> INFO:block/src/factory.rs:190 -- Opening QCOW2 disk file with io_uring backend
+cloud-hypervisor:   0.021293s: <payload_loader> INFO:vmm/src/vm.rs:1666 -- bzImage kernel loaded: entry_addr = 0x100000
+cloud-hypervisor:   0.027779s: <vmm> INFO:virtio-devices/src/block.rs:871 -- Disk topology: DiskTopology { logical_block_size: 512, physical_block_size: 512, minimum_io_size: 512, optimal_io_size: 0 }
+cloud-hypervisor:   0.027847s: <vmm> INFO:vmm/src/device_manager.rs:2705 -- Creating virtio-block device: DiskConfig { pci_common: PciDeviceCommonConfig { id: Some("_disk1"), iommu: false, pci_segment: 0, pci_device_id: None }, path: Some("/mnt/vmstore/caraxes/v1check/seed.img"), readonly: true, direct: false, num_queues: 1, queue_size: 128, vhost_user: false, vhost_socket: None, rate_limit_group: None, rate_limiter_config: None, disable_io_uring: false, disable_aio: false, serial: None, queue_affinity: None, backing_files: false, sparse: true, image_type: Unknown, lock_granularity: ByteRange }
+cloud-hypervisor:   0.027995s: <vmm> INFO:block/src/factory.rs:153 -- Opening RAW disk file with io_uring backend
+cloud-hypervisor:   0.028015s: <vmm> WARN:vmm/src/device_manager.rs:2761 -- DEPRECATION: auto-detection of disk image type is deprecated and will be removed in a future release. Please specify image type explicitly.
+cloud-hypervisor:   0.028034s: <vmm> WARN:vmm/src/device_manager.rs:2766 -- No image_type specified - detected as raw. Configuration updated to persist type across reboots and migrations.
+cloud-hypervisor:   0.028055s: <vmm> WARN:vmm/src/device_manager.rs:2774 -- Autodetected raw image type. Disabling sector 0 writes.
+cloud-hypervisor:   0.028083s: <vmm> INFO:block/src/lib.rs:428 -- Probed file sparse support: punch_hole=false, zero_range=false => false
+cloud-hypervisor:   0.028107s: <vmm> WARN:virtio-devices/src/block.rs:859 -- sparse=on requested but backend does not support sparse operations
+cloud-hypervisor:   0.028128s: <vmm> INFO:virtio-devices/src/block.rs:871 -- Disk topology: DiskTopology { logical_block_size: 512, physical_block_size: 512, minimum_io_size: 512, optimal_io_size: 0 }
+cloud-hypervisor:   0.028175s: <vmm> INFO:vmm/src/device_manager.rs:2934 -- Creating virtio-net device: NetConfig { pci_common: PciDeviceCommonConfig { id: Some("_net2"), iommu: false, pci_segment: 0, pci_device_id: None }, tap: Some("caraxes5"), ip: None, mask: None, mac: MacAddr { bytes: [2, 0, 0, 0, 0, 37] }, host_mac: None, mtu: None, num_queues: 2, queue_size: 256, vhost_user: false, vhost_socket: None, vhost_mode: Client, fds: None, rate_limiter_config: None, offload_tso: true, offload_ufo: true, offload_csum: true }
+cloud-hypervisor:   0.028972s: <vmm> WARN:net_util/src/open_tap.rs:84 -- Tap caraxes5 already exists. IP configuration will not be overwritten.
+cloud-hypervisor:   0.029093s: <vmm> INFO:vmm/src/device_manager.rs:3096 -- Creating virtio-rng device: RngConfig { pci_common: PciDeviceCommonConfig { id: None, iommu: false, pci_segment: 0, pci_device_id: None }, src: "/dev/urandom" }
+cloud-hypervisor:   0.029150s: <vmm> INFO:vmm/src/device_manager.rs:3201 -- Creating generic vhost-user device: GenericVhostUserConfig { pci_common: PciDeviceCommonConfig { id: Some("_generic_vhost_user3"), iommu: false, pci_segment: 0, pci_device_id: None }, socket: "/mnt/vmstore/caraxes/v1check/nvrm.sock", queue_sizes: [256, 256], device_type: 60 }
+cloud-hypervisor:   0.029729s: <vmm> INFO:vmm/src/memory_manager.rs:2433 -- Creating userspace mapping: 3ffc00000000 -> 7feb40000000 200000000, slot 2
+cloud-hypervisor:   0.029854s: <vmm> INFO:vmm/src/memory_manager.rs:2491 -- Created userspace mapping: 3ffc00000000 -> 7feb40000000 200000000
+cloud-hypervisor:   0.029882s: <vmm> INFO:vmm/src/device_manager.rs:3281 -- generic vhost-user _generic_vhost_user3: shared memory window 0x200000000 at 0x3ffc00000000
+cloud-hypervisor:   0.030111s: <vmm> INFO:virtio-devices/src/block.rs:1042 -- Acquired Write lock for disk image id=_disk0,path=/mnt/vmstore/caraxes/v1check/rootfs.qcow2
+cloud-hypervisor:   0.030143s: <vmm> INFO:virtio-devices/src/block.rs:1042 -- Acquired Read lock for disk image id=_disk1,path=/mnt/vmstore/caraxes/v1check/seed.img
+cloud-hypervisor:   0.030358s: <vmm> INFO:vmm/src/acpi.rs:1166 -- Generated ACPI tables: took 189µs size = 6000
+cloud-hypervisor:   0.030383s: <vmm> INFO:vmm/src/vm.rs:2739 -- Created ACPI tables: rsdp_addr = 0xa0000
+cloud-hypervisor:   0.030406s: <vmm> INFO:vmm/src/cpu.rs:556 -- Configuring vCPU: cpu_id = 0
+cloud-hypervisor:   0.030500s: <vmm> INFO:vmm/src/cpu.rs:556 -- Configuring vCPU: cpu_id = 1
+cloud-hypervisor:   0.030578s: <vmm> INFO:vmm/src/cpu.rs:556 -- Configuring vCPU: cpu_id = 2
+cloud-hypervisor:   0.030669s: <vmm> INFO:vmm/src/cpu.rs:556 -- Configuring vCPU: cpu_id = 3
+cloud-hypervisor:   0.030753s: <vmm> INFO:vmm/src/cpu.rs:556 -- Configuring vCPU: cpu_id = 4
+cloud-hypervisor:   0.030834s: <vmm> INFO:vmm/src/cpu.rs:556 -- Configuring vCPU: cpu_id = 5
+cloud-hypervisor:   0.030927s: <vmm> INFO:vmm/src/cpu.rs:556 -- Configuring vCPU: cpu_id = 6
+cloud-hypervisor:   0.031043s: <vmm> INFO:vmm/src/cpu.rs:556 -- Configuring vCPU: cpu_id = 7
+cloud-hypervisor:   0.031135s: <vmm> INFO:vmm/src/vm.rs:1826 -- Configuring system
+cloud-hypervisor:   0.065526s: <vmm> INFO:vmm/src/vm.rs:1495 -- Initramfs loaded: address = 0xbe2b7000
+cloud-hypervisor:   0.065590s: <vmm> INFO:vmm/src/cpu.rs:1513 -- Starting vCPUs: desired = 8, allocated = 8, present = 0, paused = false
+cloud-hypervisor:   0.065802s: <vcpu0> INFO:vmm/src/cpu.rs:1314 -- vCPU 0: core scheduling cookie = 0xb01e1da0
+cloud-hypervisor:   0.066045s: <vcpu1> INFO:vmm/src/cpu.rs:1314 -- vCPU 1: core scheduling cookie = 0xb01e1da0
+cloud-hypervisor:   0.066129s: <vcpu3> INFO:vmm/src/cpu.rs:1314 -- vCPU 3: core scheduling cookie = 0xb01e1da0
+cloud-hypervisor:   0.066233s: <vcpu2> INFO:vmm/src/cpu.rs:1314 -- vCPU 2: core scheduling cookie = 0xb01e1da0
+cloud-hypervisor:   0.066496s: <vcpu7> INFO:vmm/src/cpu.rs:1314 -- vCPU 7: core scheduling cookie = 0xb01e1da0
+cloud-hypervisor:   0.066606s: <vcpu5> INFO:vmm/src/cpu.rs:1314 -- vCPU 5: core scheduling cookie = 0xb01e1da0
+cloud-hypervisor:   0.066692s: <vcpu4> INFO:vmm/src/cpu.rs:1314 -- vCPU 4: core scheduling cookie = 0xb01e1da0
+cloud-hypervisor:   0.066699s: <vcpu6> INFO:vmm/src/cpu.rs:1314 -- vCPU 6: core scheduling cookie = 0xb01e1da0
+cloud-hypervisor:   0.066994s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = vm event = booted 
+cloud-hypervisor:   2.521085s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x87
+cloud-hypervisor:   2.677354s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x2f9
+cloud-hypervisor:   2.677386s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x2f9
+cloud-hypervisor:   2.677408s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x2f9
+cloud-hypervisor:   2.677440s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x2f9
+cloud-hypervisor:   2.677462s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x2f9
+cloud-hypervisor:   2.677484s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x2f9
+cloud-hypervisor:   2.677580s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x3e9
+cloud-hypervisor:   2.677603s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x3e9
+cloud-hypervisor:   2.677634s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x3e9
+cloud-hypervisor:   2.677656s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x3e9
+cloud-hypervisor:   2.677678s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x3e9
+cloud-hypervisor:   2.677701s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x3e9
+cloud-hypervisor:   2.677789s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x2e9
+cloud-hypervisor:   2.677812s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x2e9
+cloud-hypervisor:   2.677834s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x2e9
+cloud-hypervisor:   2.677856s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x2e9
+cloud-hypervisor:   2.677877s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x2e9
+cloud-hypervisor:   2.677899s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x2e9
+cloud-hypervisor:   4.442963s: <vcpu2> INFO:virtio-devices/src/transport/pci_device.rs:1292 -- _virtio-pci-_disk0: Needs activation; writing to activate event fd
+cloud-hypervisor:   4.442995s: <vcpu2> INFO:virtio-devices/src/transport/pci_device.rs:1297 -- _virtio-pci-_disk0: Needs activation; returning barrier
+cloud-hypervisor:   4.443017s: <vcpu2> INFO:vmm/src/vm.rs:488 -- Waiting for barrier
+cloud-hypervisor:   4.443008s: <vmm> INFO:vmm/src/lib.rs:2108 -- Trying to activate pending virtio devices: count = 1
+cloud-hypervisor:   4.443070s: <vmm> INFO:virtio-devices/src/block.rs:1089 -- Changing cache mode to writeback
+cloud-hypervisor:   4.443647s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = virtio-device event = activated id = _disk0
+cloud-hypervisor:   4.443674s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:347 -- _virtio-pci-_disk0: Waiting for barrier
+cloud-hypervisor:   4.443690s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:349 -- _virtio-pci-_disk0: Barrier released
+cloud-hypervisor:   4.443698s: <vcpu2> INFO:vmm/src/vm.rs:490 -- Barrier released
+cloud-hypervisor:   4.453866s: <vcpu2> INFO:virtio-devices/src/transport/pci_device.rs:1292 -- _virtio-pci-_disk1: Needs activation; writing to activate event fd
+cloud-hypervisor:   4.453893s: <vcpu2> INFO:virtio-devices/src/transport/pci_device.rs:1297 -- _virtio-pci-_disk1: Needs activation; returning barrier
+cloud-hypervisor:   4.453912s: <vcpu2> INFO:vmm/src/vm.rs:488 -- Waiting for barrier
+cloud-hypervisor:   4.453904s: <vmm> INFO:vmm/src/lib.rs:2108 -- Trying to activate pending virtio devices: count = 1
+cloud-hypervisor:   4.453961s: <vmm> INFO:virtio-devices/src/block.rs:1089 -- Changing cache mode to writeback
+cloud-hypervisor:   4.454158s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = virtio-device event = activated id = _disk1
+cloud-hypervisor:   4.454180s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:347 -- _virtio-pci-_disk1: Waiting for barrier
+cloud-hypervisor:   4.454196s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:349 -- _virtio-pci-_disk1: Barrier released
+cloud-hypervisor:   4.454205s: <vcpu2> INFO:vmm/src/vm.rs:490 -- Barrier released
+cloud-hypervisor:   4.459680s: <vcpu2> INFO:virtio-devices/src/transport/pci_device.rs:1292 -- _virtio-pci-_net2: Needs activation; writing to activate event fd
+cloud-hypervisor:   4.459716s: <vcpu2> INFO:virtio-devices/src/transport/pci_device.rs:1297 -- _virtio-pci-_net2: Needs activation; returning barrier
+cloud-hypervisor:   4.459736s: <vcpu2> INFO:vmm/src/vm.rs:488 -- Waiting for barrier
+cloud-hypervisor:   4.459726s: <vmm> INFO:vmm/src/lib.rs:2108 -- Trying to activate pending virtio devices: count = 1
+cloud-hypervisor:   4.460069s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = virtio-device event = activated id = _net2
+cloud-hypervisor:   4.460091s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:347 -- _virtio-pci-_net2: Waiting for barrier
+cloud-hypervisor:   4.460107s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:349 -- _virtio-pci-_net2: Barrier released
+cloud-hypervisor:   4.460115s: <vcpu2> INFO:vmm/src/vm.rs:490 -- Barrier released
+cloud-hypervisor:   4.460327s: <_net2_ctrl> INFO:net_util/src/ctrl_queue.rs:138 -- Number of MQ pairs requested: 1
+cloud-hypervisor:   7.147751s: <vcpu3> INFO:virtio-devices/src/transport/pci_device.rs:1292 -- _virtio-pci-__rng: Needs activation; writing to activate event fd
+cloud-hypervisor:   7.147789s: <vcpu3> INFO:virtio-devices/src/transport/pci_device.rs:1297 -- _virtio-pci-__rng: Needs activation; returning barrier
+cloud-hypervisor:   7.147804s: <vcpu3> INFO:vmm/src/vm.rs:488 -- Waiting for barrier
+cloud-hypervisor:   7.147805s: <vmm> INFO:vmm/src/lib.rs:2108 -- Trying to activate pending virtio devices: count = 1
+cloud-hypervisor:   7.149353s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = virtio-device event = activated id = __rng
+cloud-hypervisor:   7.149398s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:347 -- _virtio-pci-__rng: Waiting for barrier
+cloud-hypervisor:   7.149419s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:349 -- _virtio-pci-__rng: Barrier released
+cloud-hypervisor:   7.149433s: <vcpu3> INFO:vmm/src/vm.rs:490 -- Barrier released
+cloud-hypervisor:  10.737354s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x3be
+cloud-hypervisor:  10.737396s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x7be
+cloud-hypervisor:  10.737423s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x7be
+cloud-hypervisor:  10.737450s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x3be
+cloud-hypervisor:  10.737475s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x3bd
+cloud-hypervisor:  10.737502s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x3bd
+cloud-hypervisor:  10.737529s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x3bd
+cloud-hypervisor:  10.737556s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x3bd
+cloud-hypervisor:  10.737582s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x3bd
+cloud-hypervisor:  10.737617s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x3bd
+cloud-hypervisor:  10.737646s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x3be
+cloud-hypervisor:  10.737673s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x3be
+cloud-hypervisor:  10.737700s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x3bc
+cloud-hypervisor:  10.737725s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x3bc
+cloud-hypervisor:  10.737818s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x37a
+cloud-hypervisor:  10.737845s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x77a
+cloud-hypervisor:  10.737872s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x77a
+cloud-hypervisor:  10.737899s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x37a
+cloud-hypervisor:  10.737932s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x379
+cloud-hypervisor:  10.737969s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x379
+cloud-hypervisor:  10.737995s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x379
+cloud-hypervisor:  10.738022s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x379
+cloud-hypervisor:  10.738049s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x379
+cloud-hypervisor:  10.738075s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x379
+cloud-hypervisor:  10.738104s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x379
+cloud-hypervisor:  10.738152s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x379
+cloud-hypervisor:  10.738179s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x379
+cloud-hypervisor:  10.738206s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x379
+cloud-hypervisor:  10.738233s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x379
+cloud-hypervisor:  10.738259s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x379
+cloud-hypervisor:  10.738285s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x37a
+cloud-hypervisor:  10.738312s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x37a
+cloud-hypervisor:  10.738338s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x378
+cloud-hypervisor:  10.738365s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x378
+cloud-hypervisor:  10.738458s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x27a
+cloud-hypervisor:  10.738485s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x67a
+cloud-hypervisor:  10.738512s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x67a
+cloud-hypervisor:  10.738539s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x27a
+cloud-hypervisor:  10.738565s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x279
+cloud-hypervisor:  10.738591s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x279
+cloud-hypervisor:  10.738631s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x279
+cloud-hypervisor:  10.738657s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x279
+cloud-hypervisor:  10.738686s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x279
+cloud-hypervisor:  10.738719s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x279
+cloud-hypervisor:  10.738751s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x279
+cloud-hypervisor:  10.738784s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x279
+cloud-hypervisor:  10.738818s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x279
+cloud-hypervisor:  10.738852s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x279
+cloud-hypervisor:  10.738879s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x279
+cloud-hypervisor:  10.738906s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x279
+cloud-hypervisor:  10.738933s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x27a
+cloud-hypervisor:  10.738959s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x27a
+cloud-hypervisor:  10.738985s: <vcpu2> INFO:vmm/src/vm.rs:510 -- Guest PIO write to unregistered address 0x278
+cloud-hypervisor:  10.739012s: <vcpu2> INFO:vmm/src/vm.rs:500 -- Guest PIO read from unregistered address 0x278
+cloud-hypervisor: 183.133041s: <vcpu5> INFO:virtio-devices/src/transport/pci_device.rs:1292 -- _virtio-pci-_generic_vhost_user3: Needs activation; writing to activate event fd
+cloud-hypervisor: 183.133469s: <vcpu5> INFO:virtio-devices/src/transport/pci_device.rs:1297 -- _virtio-pci-_generic_vhost_user3: Needs activation; returning barrier
+cloud-hypervisor: 183.133484s: <vcpu5> INFO:vmm/src/vm.rs:488 -- Waiting for barrier
+cloud-hypervisor: 183.133484s: <vmm> INFO:vmm/src/lib.rs:2108 -- Trying to activate pending virtio devices: count = 1
+cloud-hypervisor: 183.133957s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = virtio-device event = activated id = _generic_vhost_user3
+cloud-hypervisor: 183.133987s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:347 -- _virtio-pci-_generic_vhost_user3: Waiting for barrier
+cloud-hypervisor: 183.134003s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:349 -- _virtio-pci-_generic_vhost_user3: Barrier released
+cloud-hypervisor: 183.134018s: <vcpu5> INFO:vmm/src/vm.rs:490 -- Barrier released
+cloud-hypervisor: 198.538910s: <_generic_vhost_user3> ERROR:virtio-devices/src/vhost_user/generic_vhost_user.rs:158 -- shared memory request 0x200000000+0x10000 exceeds shmid 1 of 0x200000000 bytes
+cloud-hypervisor: 198.538956s: <_generic_vhost_user3> WARN:virtio-devices/src/vhost_user/mod.rs:445 -- vhost-user backend request refused for socket /mnt/vmstore/caraxes/v1check/nvrm.sock: Invalid argument (os error 22)
+cloud-hypervisor: 216.662872s: <vcpu3> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-UNKNOWN
+cloud-hypervisor: 216.663147s: <vcpu3> INFO:event_monitor/src/lib.rs:113 -- Event: source = virtio-device event = reset id = _generic_vhost_user3
+cloud-hypervisor: 217.701141s: <vcpu5> INFO:virtio-devices/src/transport/pci_device.rs:1292 -- _virtio-pci-_generic_vhost_user3: Needs activation; writing to activate event fd
+cloud-hypervisor: 217.701187s: <vcpu5> INFO:virtio-devices/src/transport/pci_device.rs:1297 -- _virtio-pci-_generic_vhost_user3: Needs activation; returning barrier
+cloud-hypervisor: 217.701233s: <vcpu5> INFO:vmm/src/vm.rs:488 -- Waiting for barrier
+cloud-hypervisor: 217.701202s: <vmm> INFO:vmm/src/lib.rs:2108 -- Trying to activate pending virtio devices: count = 1
+cloud-hypervisor: 217.702026s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = virtio-device event = activated id = _generic_vhost_user3
+cloud-hypervisor: 217.702087s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:347 -- _virtio-pci-_generic_vhost_user3: Waiting for barrier
+cloud-hypervisor: 217.702118s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:349 -- _virtio-pci-_generic_vhost_user3: Barrier released
+cloud-hypervisor: 217.702194s: <vcpu5> INFO:vmm/src/vm.rs:490 -- Barrier released
+cloud-hypervisor: 229.411072s: <vcpu4> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-UNKNOWN
+cloud-hypervisor: 229.411499s: <vcpu4> INFO:event_monitor/src/lib.rs:113 -- Event: source = virtio-device event = reset id = _generic_vhost_user3
+cloud-hypervisor: 229.493561s: <vcpu0> INFO:virtio-devices/src/transport/pci_device.rs:1292 -- _virtio-pci-_generic_vhost_user3: Needs activation; writing to activate event fd
+cloud-hypervisor: 229.493637s: <vcpu0> INFO:virtio-devices/src/transport/pci_device.rs:1297 -- _virtio-pci-_generic_vhost_user3: Needs activation; returning barrier
+cloud-hypervisor: 229.493652s: <vcpu0> INFO:vmm/src/vm.rs:488 -- Waiting for barrier
+cloud-hypervisor: 229.493637s: <vmm> INFO:vmm/src/lib.rs:2108 -- Trying to activate pending virtio devices: count = 1
+cloud-hypervisor: 229.494293s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = virtio-device event = activated id = _generic_vhost_user3
+cloud-hypervisor: 229.494324s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:347 -- _virtio-pci-_generic_vhost_user3: Waiting for barrier
+cloud-hypervisor: 229.494354s: <vmm> INFO:virtio-devices/src/transport/pci_device.rs:349 -- _virtio-pci-_generic_vhost_user3: Barrier released
+cloud-hypervisor: 229.494370s: <vcpu0> INFO:vmm/src/vm.rs:490 -- Barrier released
+cloud-hypervisor: 523.009827s: <vcpu0> INFO:devices/src/acpi.rs:81 -- ACPI Shutdown signalled
+cloud-hypervisor: 523.009888s: <vmm> INFO:vmm/src/lib.rs:2096 -- VM guest exit event
+cloud-hypervisor: 523.009888s: <vmm> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-block
+cloud-hypervisor: 523.009949s: <vmm> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-UNKNOWN
+cloud-hypervisor: 523.010315s: <vmm> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-net
+cloud-hypervisor: 523.010315s: <vmm> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-block
+cloud-hypervisor: 523.010376s: <vmm> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-rng
+cloud-hypervisor: 523.011475s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = vm event = shutdown 
+cloud-hypervisor: 523.011475s: <vmm> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-block
+cloud-hypervisor: 523.011536s: <vmm> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-UNKNOWN
+cloud-hypervisor: 523.011597s: <vmm> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-net
+cloud-hypervisor: 523.011597s: <vmm> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-block
+cloud-hypervisor: 523.011597s: <vmm> INFO:virtio-devices/src/device.rs:485 -- Resuming virtio-rng
+cloud-hypervisor: 523.177856s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = vm event = deleted 
+cloud-hypervisor: 523.177856s: <vmm> INFO:event_monitor/src/lib.rs:113 -- Event: source = vmm event = shutdown 
+cloud-hypervisor: 523.178101s: <main> INFO:cloud-hypervisor/src/main.rs:962 -- Cloud Hypervisor exited successfully
