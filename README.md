@@ -1,4 +1,8 @@
 <!-- SPDX-License-Identifier: MIT -->
+> [!NOTE]
+> This code is part of a Master's Thesis. Resolving issues
+> and feature requests is not the top priority of the
+> maintainer.
 # Leandro
 
 GPU paravirtualization for Linux VMs sharing an NVIDIA GPU with the host.
@@ -8,6 +12,12 @@ carry GPU submission without forwarding each doorbell write.
 
 **Use trusted guests. Hostile-guest isolation is not established.**
 See [security limits](docs/SECURITY.md).
+
+> [!WARNING]
+> Be aware that basically all of the code in this repository is generated
+> by LLMs. The code and documentation is under active review at the moment
+> when the review is done this warning will be removed!
+> This is experimental software!
 
 ## Start here
 
