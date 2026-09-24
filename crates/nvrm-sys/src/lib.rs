@@ -55,7 +55,7 @@ pub mod v615;
 
 /// The driver version this crate defaults to: the one in `DRIVER_VERSION`
 /// at the repository root, and the one the `default` feature enables.
-pub const DRIVER_VERSION: &str = "610.57.04";
+pub const DRIVER_VERSION: &str = "615.71.09";
 
 /// Every driver version this crate carries a layout for, oldest first.
 pub const SUPPORTED_VERSIONS: &[&str] = &["580.178.04", "595.99.02", "610.57.04", "615.71.09"];
@@ -124,8 +124,8 @@ impl DriverVersion {
 /// virtual-display constants, which arrive with R595. Reaching for
 /// this is a statement that the code only works on drivers that have
 /// the name, and the compiler cannot check that for you.
-#[cfg(feature = "v610")]
-pub use v610 as default_version;
+#[cfg(feature = "v615")]
+pub use v615 as default_version;
 
 /// The ABI of [`DRIVER_VERSION`].
 ///
@@ -133,8 +133,8 @@ pub use v610 as default_version;
 /// diagnostic, a tool that only ever runs beside the driver this
 /// build was made for. Anything that has to work on more than one
 /// takes `A: RmAbi` and gets it from [`dispatch`].
-#[cfg(feature = "v610")]
-pub type DefaultAbi = V610;
+#[cfg(feature = "v615")]
+pub type DefaultAbi = V615;
 
 /// The types whose layout depends on the driver version, and the sizes
 /// that go on the wire with them.
