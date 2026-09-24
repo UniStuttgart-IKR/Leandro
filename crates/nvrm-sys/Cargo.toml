@@ -23,7 +23,7 @@ doctest = false
 # one version" feature -- cargo unifies features across a build, so such a
 # thing would turn one crate's choice into everyone's, silently.
 # All of them at once must compile; that is checked in CI.
-default = ["v610"]
+default = ["v615"]
 v580 = []
 v595 = []
 v610 = []

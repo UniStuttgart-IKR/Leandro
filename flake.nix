@@ -18,7 +18,7 @@
       system = "x86_64-linux";
       lib = nixpkgs.lib;
       pkgs = import nixpkgs { inherit system; overlays = [ self.overlays.default ]; };
-      driverVersion = lib.fileContents ./DRIVER_VERSION;   # "610.57.04"
+      driverVersion = lib.fileContents ./DRIVER_VERSION;   # "615.71.09"
       chVersion = lib.fileContents ./CH_VERSION;           # "v53.0"
 
       # The GUEST side, declared once and built two ways. Kept in the `let`
@@ -30,7 +30,11 @@
       # headers-only fetch in nix/packages/nvidia-headers.nix is not enough to
       # build nvidia-modeset). A new DRIVER_VERSION needs a new hash here:
       #   nix store prefetch-file --unpack https://github.com/NVIDIA/open-gpu-kernel-modules/archive/<version>.tar.gz
-      openModulesHash = "sha256-rQHOOOY4KL92Ww3KDwh+j4eGU7oNAH8LutZC5wmFnPo=";   # 610.57.04
+      # 615.71.09 (commit 61dcc93722ec). Computed offline on 2026-09-24 as the NAR
+      # hash of `git archive` of that commit; the same method reproduces the
+      # 610.57.04 value (sha256-rQHOOOY4KL92Ww3KDwh+j4eGU7oNAH8LutZC5wmFnPo=)
+      # exactly. The prefetch command above confirms it against GitHub.
+      openModulesHash = "sha256-3gByMYIwFzRaLdDG+roCEOuKRRJDrljG9AlLnRZTirM=";   # 615.71.09
 
       guestModulesFor = kernel: pkgs.callPackage ./nix/packages/guest-modules.nix {
         src = ./.; inherit kernel;

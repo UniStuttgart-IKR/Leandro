@@ -15,7 +15,7 @@ description = "RM client with object tree and transitive free, for the diagnosti
 # one version" feature -- cargo unifies features across a build, so such a
 # thing would turn one crate's choice into everyone's, silently.
 # All of them at once must compile; that is checked in CI.
-default = ["v610"]
+default = ["v615"]
 v580 = ["nvrm-sys/v580"]
 v595 = ["nvrm-sys/v595"]
 v610 = ["nvrm-sys/v610"]

@@ -18,7 +18,11 @@
 | 610.57.04 | `v610` |
 | 615.71.09 | `v615` |
 
-- The normal default is the version in [`DRIVER_VERSION`](../DRIVER_VERSION).
+- The normal default is the version in [`DRIVER_VERSION`](../DRIVER_VERSION):
+  615.71.09 since 2026-09-24, 610.57.04 before.
+- `vhost-user-nvrm` selects its ABI with `detect()` at start-up. Built with
+  `--features v610` in addition to the default, one binary serves a 610.57.04
+  and a 615.71.09 host.
 - Features are additive. `--all-features` includes all configured versions;
   it does not select one layout for every caller.
 - `detect()` reads the running driver and accepts an **exact configured version**
@@ -88,6 +92,7 @@ cargo run --all-features --bin nvrm-genhdr -- --abi <version> --dump-tables <fil
 - **610.57.04, RTX 5060 Ti (Blackwell):** recorded `gpu` 8/8 and `vdisplay` 6/6
   gate results, table checksum `0xad009afd` and frame hash
   `0xb6a79817d7f4a5c3`. No ioctl matrix was recorded for this card.
+- No hardware run on 615.71.09 is recorded yet (no matrix, no gate result).
 - These runs predate `abi-verify.sh`. They are separate from the generated table
   below; a passing gate does not establish full interface coverage.
 

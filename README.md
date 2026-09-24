@@ -54,6 +54,9 @@ cargo fmt --all -- --check
 | RTX 2070 / 610.57.04 | Compute, virtual display and desktop gates; latest recorded run 2026-09-19 |
 | RTX 5060 Ti / 610.57.04 | Earlier compute and virtual-display gates; no full desktop gate |
 
+- The build targets 615.71.09 (`DRIVER_VERSION`) since 2026-09-24. No hardware
+  run on 615.71.09 is recorded yet; the rows above are 610.57.04 runs.
+
 - Results cover the recorded revisions and workloads, not every configuration.
 - VRAM limits account for mediated allocations; they do not partition hardware,
   guarantee residency or schedule GPU engines.
