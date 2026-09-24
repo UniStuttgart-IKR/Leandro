@@ -69,3 +69,4 @@ These files describe recorded runs, not guarantees for the current revision.
 | [vram-69b/libcuda/TRACES.md](measurements/vram-69b/libcuda/TRACES.md) | Trace file inventory |
 | [measurements/vram-70](measurements/vram-70/README.md) | Workloads under different VRAM limits |
 | [measurements/sottr-4q](measurements/sottr-4q/README.md) | Two concurrent Shadow of the Tomb Raider benchmarks |
+| [measurements/vhost-user-check-2026-09-23](measurements/vhost-user-check-2026-09-23/commands.txt) | Manual VM check of the vhost-user patch series 0001-0003 |

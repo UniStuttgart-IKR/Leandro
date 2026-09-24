@@ -357,7 +357,7 @@ new binaries, then:
 The [manual VM check](#manual-vm-check) on a v1 VM, plus the negative pairing
 with the previous frontend. Logs, the launcher, the CUDA test program and every
 command are in
-[caraxes/runs/vhost-user-check-2026-09-23](../caraxes/runs/vhost-user-check-2026-09-23/)
+[docs/measurements/vhost-user-check-2026-09-23](../docs/measurements/vhost-user-check-2026-09-23/)
 (`commands.txt` lists the commands in order).
 
 Setup: Cloud Hypervisor `v53.0-3-g993681a04` built from this series (the
