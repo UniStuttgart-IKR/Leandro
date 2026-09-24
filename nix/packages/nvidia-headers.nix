@@ -65,5 +65,16 @@ fetchFromGitHub {
   # output path comes from the HASH, so nix will happily hand back the old,
   # smaller tree and the build fails somewhere confusing. Force the fetch by
   # putting a deliberately wrong hash in and reading the `got:` line.
-  hash = "sha256-KOdv0WpLEQ04iyv7K8y0ZuAsq1J6pXszntoSZelKHpo=";
+  #
+  # 615.71.09 (2026-09-24): `refs/tags/615.71.09` is the tag object
+  # d2a24f90e843359450ab313a286f43a88d95c6ce, its peel the commit
+  #
+  #   61dcc93722ecb418bb5f2e00923f05b4b8051dd1
+  #
+  # The hash below was computed offline: a cone-mode sparse checkout of the
+  # five directories at that commit, .git removed, `nix hash path`. The same
+  # steps at 610.57.04 give that version's value,
+  # sha256-KOdv0WpLEQ04iyv7K8y0ZuAsq1J6pXszntoSZelKHpo=, exactly.
+  # `nix build .#nvidia-headers` against GitHub confirms it.
+  hash = "sha256-h+kxFoKdVNXX1FN9V/vak8poQAFtVB3tQeR6AhSiEi8=";
 }
