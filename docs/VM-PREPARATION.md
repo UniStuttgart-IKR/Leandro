@@ -4,7 +4,7 @@
 - Supports the [direct-command quickstart](QUICKSTART.md). Run host blocks in one Bash shell.
 - Start in a fresh checkout/work directory. Requires a Linux x86-64 NVIDIA host, readable/writable `/dev/kvm` and NVIDIA device nodes, sudo for networking, and Internet access.
 - Keep at least 16 GiB RAM free for two desktops, plus host headroom. Each guest disk below has a sparse 40 GiB maximum.
-- Install the NVIDIA host driver and userspace matching `DRIVER_VERSION` (`610.57.04` at this revision). Reboot after replacing a loaded driver.
+- Install the NVIDIA host driver and userspace matching `DRIVER_VERSION` (`615.71.09` at this revision). Reboot after replacing a loaded driver.
 
 ## Build and patch Cloud Hypervisor
 
