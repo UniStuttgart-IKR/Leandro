@@ -182,6 +182,15 @@ impl NvDevice {
         &self.path
     }
 
+    /// A second FD for the same open file (`dup`): same RM client binding, own
+    /// lifetime. Lets a holder issue escapes without borrowing the owner.
+    pub fn try_clone(&self) -> std::io::Result<Self> {
+        Ok(Self {
+            fd: self.fd.try_clone()?,
+            path: self.path.clone(),
+        })
+    }
+
     /// Issue a frontend ioctl and let the driver update `arg`.
     ///
     /// # Safety
