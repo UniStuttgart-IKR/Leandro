@@ -3,9 +3,9 @@ Version: @VERSION@
 Architecture: amd64
 Maintainer: Silas Müller <github@silasmueller.de>
 Depends: dkms, build-essential, kmod
-Recommends: libnvidia-compute-610 (>= @DRIVER@), libnvidia-compute-610 (<< @DRIVER@.0), nvidia-utils-610 (>= @DRIVER@), nvidia-utils-610 (<< @DRIVER@.0)
-Suggests: libnvidia-gl-610 (>= @DRIVER@), libnvidia-gl-610 (<< @DRIVER@.0), libnvidia-extra-610 (>= @DRIVER@), libnvidia-extra-610 (<< @DRIVER@.0), libnvidia-encode-610 (>= @DRIVER@), libnvidia-encode-610 (<< @DRIVER@.0)
-Conflicts: nvidia-dkms-610, nvidia-dkms-610-open, nvidia-dkms-610-server, nvidia-dkms-610-server-open
+Recommends: libnvidia-compute-@BRANCH@ (>= @DRIVER@), libnvidia-compute-@BRANCH@ (<< @DRIVER@.0), nvidia-utils-@BRANCH@ (>= @DRIVER@), nvidia-utils-@BRANCH@ (<< @DRIVER@.0)
+Suggests: libnvidia-gl-@BRANCH@ (>= @DRIVER@), libnvidia-gl-@BRANCH@ (<< @DRIVER@.0), libnvidia-extra-@BRANCH@ (>= @DRIVER@), libnvidia-extra-@BRANCH@ (<< @DRIVER@.0), libnvidia-encode-@BRANCH@ (>= @DRIVER@), libnvidia-encode-@BRANCH@ (<< @DRIVER@.0)
+Conflicts: nvidia-dkms-@BRANCH@, nvidia-dkms-@BRANCH@-open, nvidia-dkms-@BRANCH@-server, nvidia-dkms-@BRANCH@-server-open
 Section: kernel
 Priority: optional
 Homepage: https://github.com/UniStuttgart-IKR/Leandro

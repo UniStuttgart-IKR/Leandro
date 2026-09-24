@@ -45,7 +45,7 @@ stdenv.mkDerivation {
     p=${src}/packaging/guest-deb
     root=$PWD/root
     s=$root/usr/src/leandro-guest-${version}
-    subst() { sed -e 's/@VERSION@/${version}/g' -e 's/@DRIVER@/${driverVersion}/g' "$1"; }
+    subst() { sed -e 's/@VERSION@/${version}/g' -e 's/@DRIVER@/${driverVersion}/g' -e 's/@BRANCH@/${lib.versions.major driverVersion}/g' "$1"; }
 
     # The dkms source tree.
     mkdir -p $s/nvkms/src

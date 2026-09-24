@@ -3,7 +3,7 @@ Version: @VERSION@
 Architecture: amd64
 Maintainer: Silas Müller <github@silasmueller.de>
 Depends: adduser
-Recommends: nvidia-driver-610-open (>= @DRIVER@), nvidia-driver-610-open (<< @DRIVER@.0), nvidia-compute-utils-610 (>= @DRIVER@)
+Recommends: nvidia-driver-@BRANCH@-open (>= @DRIVER@), nvidia-driver-@BRANCH@-open (<< @DRIVER@.0), nvidia-compute-utils-@BRANCH@ (>= @DRIVER@)
 Section: misc
 Priority: optional
 Homepage: https://github.com/UniStuttgart-IKR/Leandro

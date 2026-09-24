@@ -23,7 +23,7 @@ stdenv.mkDerivation {
     runHook preBuild
     p=${src}/packaging/host-deb
     root=$PWD/root
-    subst() { sed -e 's/@VERSION@/${version}/g' -e 's/@DRIVER@/${driverVersion}/g' -e 's/@CH@/${chVersion}/g' "$1"; }
+    subst() { sed -e 's/@VERSION@/${version}/g' -e 's/@DRIVER@/${driverVersion}/g' -e 's/@BRANCH@/${lib.versions.major driverVersion}/g' -e 's/@CH@/${chVersion}/g' "$1"; }
 
     for b in vhost-user-nvrm vgpuprofile; do
       install -D -m755 ${leandroStatic}/bin/$b $root/usr/bin/$b
