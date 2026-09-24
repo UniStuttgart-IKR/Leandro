@@ -11,11 +11,13 @@
 //! `1333M`); the backend (`OpenRM`, `nova-core`) is an implementation detail and never
 //! appears in the name.
 //!
-//! Two name formats exist. [`NameFormat::Legacy`], the default, is
-//! `Leandro <Personality>-<Profile>`, the string both devices have always emitted and the
-//! v1 gates compare (`Leandro RTX 2070-4G`). [`NameFormat::Transport`] is
-//! `Leandro <Transport> <Personality>-<Profile>` and is opt-in (`LEA_GPU_NAME_FORMAT`)
-//! until the gates accept it.
+//! Two name formats exist. [`NameFormat::Transport`], the default since 2026-09-24, is
+//! `Leandro <Transport> <Personality>-<Profile>` (`Leandro VFIO RTX 2070-4G`,
+//! `Leandro VirtIO RTX 2070-4G`). [`NameFormat::Legacy`] is
+//! `Leandro <Personality>-<Profile>`, the string both devices emitted before
+//! (`Leandro RTX 2070-4G`); it stays available as an explicit opt-in
+//! (`LEA_GPU_NAME_FORMAT=legacy`), and [`parse_name`] reads both. The gates in
+//! `../Leandro-Test` accept either format (`lea_mediated_name_re`).
 //!
 //! The profile is always a size. A vGPU-style type such as `4Q` names what the VM costs
 //! the card, not what the guest sees; [`crate::vgpu::Catalogue::resolve`] turns it into a
@@ -251,19 +253,21 @@ impl FromStr for Backend {
 /// Which of the two name shapes a device emits.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum NameFormat {
-    /// `Leandro <Personality>-<Profile>`: the names both devices have always emitted
-    /// and the v1 gates compare. The default until the gates accept the transport word.
-    #[default]
+    /// `Leandro <Personality>-<Profile>`: the names both devices emitted before
+    /// 2026-09-24, kept as an explicit opt-in (`legacy`).
     Legacy,
-    /// `Leandro <Transport> <Personality>-<Profile>`.
+    /// `Leandro <Transport> <Personality>-<Profile>`, the default.
+    #[default]
     Transport,
 }
 
 impl FromStr for NameFormat {
     type Err = ParseError;
+    /// `legacy` (or `short`), `transport` (or `full`); empty means the default.
     fn from_str(s: &str) -> Result<Self, ParseError> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "" | "legacy" | "short" => Ok(NameFormat::Legacy),
+            "" => Ok(NameFormat::default()),
+            "legacy" | "short" => Ok(NameFormat::Legacy),
             "transport" | "full" => Ok(NameFormat::Transport),
             _ => Err(ParseError(format!(
                 "name format {s:?} is neither legacy (Leandro RTX 2070-4G) nor transport \
@@ -398,12 +402,15 @@ mod tests {
         assert_eq!(a100.guest_name(T), "Leandro VFIO A100-16G");
     }
 
-    /// The compatibility default: exactly the string the gates compare, on both
-    /// transports and whatever the backend.
+    /// The default carries the transport word (since 2026-09-24); the legacy name
+    /// stays an explicit opt-in, the same on both transports and whatever the backend.
     #[test]
-    fn the_default_format_is_the_legacy_name() {
-        assert_eq!(NameFormat::default(), NameFormat::Legacy);
-        for t in [Transport::Vfio, Transport::Virtio] {
+    fn the_default_format_names_the_transport_and_legacy_stays_available() {
+        assert_eq!(NameFormat::default(), NameFormat::Transport);
+        for (t, want) in [
+            (Transport::Vfio, "Leandro VFIO RTX 2070-4G"),
+            (Transport::Virtio, "Leandro VirtIO RTX 2070-4G"),
+        ] {
             for b in [
                 Backend::OpenRm,
                 Backend::NovaCore,
@@ -411,12 +418,17 @@ mod tests {
             ] {
                 let mut s = spec(t, "RTX 2070", 4096);
                 s.backend = b;
-                assert_eq!(s.guest_name(NameFormat::default()), "Leandro RTX 2070-4G");
+                assert_eq!(s.guest_name(NameFormat::default()), want);
+                assert_eq!(s.guest_name(NameFormat::Legacy), "Leandro RTX 2070-4G");
             }
         }
         assert_eq!(
             spec(Transport::Virtio, "RTX 2070", 0).guest_name(NameFormat::Legacy),
             "Leandro RTX 2070"
+        );
+        assert_eq!(
+            spec(Transport::Virtio, "RTX 2070", 0).guest_name(NameFormat::default()),
+            "Leandro VirtIO RTX 2070"
         );
     }
 
@@ -477,7 +489,9 @@ mod tests {
             "mock".parse::<Backend>().unwrap(),
             Backend::Other("mock".into())
         );
-        assert_eq!("".parse::<NameFormat>().unwrap(), NameFormat::Legacy);
+        assert_eq!("".parse::<NameFormat>().unwrap(), NameFormat::Transport);
+        assert_eq!("legacy".parse::<NameFormat>().unwrap(), NameFormat::Legacy);
+        assert_eq!("Short".parse::<NameFormat>().unwrap(), NameFormat::Legacy);
         assert_eq!(
             "Transport".parse::<NameFormat>().unwrap(),
             NameFormat::Transport
