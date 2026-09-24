@@ -31,7 +31,7 @@ before interpreting isolation claims.
 | [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) | Numbered investigations, findings and unresolved issues |
 | [FUTURE.md](FUTURE.md) | Planned correctness, compatibility and research work |
 | [VIRTIO-UAPI.md](VIRTIO-UAPI.md) | Proposal for generalizing table-described driver forwarding |
-| [NAMING.md](NAMING.md) | Component names and terminology |
+| [NAMING.md](NAMING.md) | Component names, terminology and the guest-visible GPU name |
 | [llm.md](llm.md) | Maintenance notes; filename retained for existing links |
 | [Licenses](../LICENSES.md) | Licensing and third-party attribution |
 

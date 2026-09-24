@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Silas Müller <github@silasmueller.de>
 // SPDX-FileCopyrightText: 2026 Universität Stuttgart, IKR
 //! The guest-visible identity of a Leandro virtual GPU, generated from one structured
-//! specification (P17, docs/caraxes/briefing-naming.md).
+//! specification (P17, docs/NAMING.md, "Guest-visible GPU name").
 //!
 //! The fields are independent: the platform is always `Leandro`; the transport is how
 //! the guest reaches the device (`VFIO` for the Caraxes vfio-user synthetic PCI GPU,
