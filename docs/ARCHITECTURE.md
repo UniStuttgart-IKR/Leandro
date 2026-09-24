@@ -71,8 +71,9 @@ a numeric address alone establishes neither ownership nor permission.
 
 ## Shared mappings
 
-- The hypervisor exposes an 8 GiB host-visible address window at shared-memory region 1.
-- `MapPrepare` selects an offset; the host checks alignment, bounds, and overlap, probes the mapping, then sends `SHMEM_MAP`.
+- The backend declares one 8 GiB VIRTIO Shared Memory Region with shmid 1 (`GET_SHMEM_CONFIG`); the hypervisor exposes it as the host-visible window. Offsets are relative to that region. The [patch README](../patches/README.md) specifies the protocol.
+- `MapPrepare` selects an offset; the host checks alignment, bounds, and overlap, probes the mapping, then sends `SHMEM_MAP`. The hypervisor checks bounds, alignment and overlap again and refuses with a non-zero reply.
+- The hypervisor drops every mapping across a device reset. The backend forgets its window bookkeeping when the next activation hands it a new backend channel.
 - The mapping retains a host FD. `MAP_RELEASE` releases the slot only after a successful `SHMEM_UNMAP` acknowledgement.
 - The supported hypervisor negotiates `REPLY_ACK`; mapping correctness depends on receiving those acknowledgements. The backend library does not expose a hook here to require that selection.
 - Failed unmaps retain the slot and FD to prevent reuse of a mapping the VMM may still hold.

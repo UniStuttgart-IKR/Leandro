@@ -266,7 +266,7 @@ impl Arena {
     /// Build from GPA runs and the guest RAM file. `total` is the expected
     /// overall length (the host does not blindly trust the sum of the runs).
     pub fn build(mem: &Mem, runs: &[GpaRun], total: GuestLen) -> Result<Arena> {
-        use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemory, GuestMemoryRegion};
+        use vm_memory::{GuestAddress, GuestAddressSpace, GuestMemoryBackend, GuestMemoryRegion};
         // Guest lengths must fit without wrapping: MAP_FIXED outside this
         // reservation would overwrite unrelated host mappings.
         let mut sum = GuestLen::new(0);

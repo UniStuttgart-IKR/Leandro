@@ -1,68 +1,81 @@
-Subject: generic_vhost_user: let the backend choose the device-specific features
+From fbbcd377eb6e11164a5451bd24c51818b04a87cf Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Silas=20M=C3=BCller?= <dev@silasmueller.de>
+Date: Wed, 23 Sep 2026 15:18:05 +0200
+Subject: [PATCH 2/3] vhost_user: offer device-specific feature bits in the
+ generic device
 
-The generic vhost-user device offers the guest only
-DEFAULT_VIRTIO_FEATURES, which is the transport set (bits 28..=38).
-Feature bits 0..=23 are device specific (virtio 1.4 sec 6) and never
-reach the guest, so any backend whose device type has feature bits at
-all is silently reduced to its featureless form.
+The generic vhost-user device offers only DEFAULT_VIRTIO_FEATURES, the
+reserved transport and vhost-user bits. Feature bits 0 to 23 and 50 to
+127 belong to the device type (VIRTIO 1.4, 2.2 "Feature Bits"), so a
+backend whose device type defines feature bits is reduced to its
+featureless form: a virtio-gpu backend loses VIRGL, EDID, RESOURCE_BLOB,
+CONTEXT_INIT and the host-visible memory it announces with them.
 
-Measured with crosvm's standalone virtio-gpu backend behind
---generic-vhost-user device_type=gpu, the guest kernel printed:
+The generic device does not interpret its device type and cannot know
+which of these bits exist. It does not need to: negotiation keeps
+`offered & backend features`, so offering every device-specific bit of
+the 64-bit vhost-user feature word (0 to 23 and 50 to 63) leaves the
+choice to the backend, and a bit the backend does not advertise is
+never offered to the guest.
 
-    [drm] features: -virgl -edid -resource_blob -host_visible
-    [drm] features: -context_init
-    [drm] number of cap sets: 0
+Bits 41 and 42 are not offered. VIRTIO 1.4 lists them as device specific
+only because legacy virtio-net features occupy them, and its reserved
+feature bit list also defines bit 41 as VIRTIO_F_ADMIN_VQ, which this
+transport does not implement.
 
-A 2D framebuffer. VIRTIO_GPU_F_VIRGL and VIRTIO_GPU_F_CONTEXT_INIT are
-what carry virgl and Venus, and both are bit 0 and bit 4.
-
-The device cannot enumerate those bits itself -- it is generic because
-it does not interpret device_type -- but it does not have to. Feature
-negotiation is `avail & backend` (vu_common_ctrl.rs), so offering the
-whole device-specific range delegates the choice to the only party that
-knows what the bits mean: the backend. A bit the backend does not
-advertise is never acked.
-
-No effect on virtio-nvrm, by construction rather than by hope: that
-backend advertises bits 28, 30 and 32 only, so the added mask ANDs to
-zero and its acked_features is bit-identical. Counter-measured anyway:
-the compute gate passed and the transport benchmark stayed within noise
-(`scripts/test.sh gpu` and `scripts/bench.sh transport` in the project
-this patch comes from).
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ .../src/vhost_user/generic_vhost_user.rs      | 26 ++++++++++++++++++-
+ 1 file changed, 25 insertions(+), 1 deletion(-)
 
 diff --git a/virtio-devices/src/vhost_user/generic_vhost_user.rs b/virtio-devices/src/vhost_user/generic_vhost_user.rs
+index 754ca5a2e..34e6a4960 100644
 --- a/virtio-devices/src/vhost_user/generic_vhost_user.rs
 +++ b/virtio-devices/src/vhost_user/generic_vhost_user.rs
-@@ -209,7 +209,31 @@
-                 | VhostUserProtocolFeatures::SHMEM
-                 | VhostUserProtocolFeatures::BACKEND_REQ;
+@@ -36,6 +36,14 @@ use crate::{
+ 
+ pub type State = VhostUserState<()>;
+ 
++/// Feature bits 0 to 23 and 50 to 127 belong to the device type (VIRTIO 1.4,
++/// 2.2 "Feature Bits"). The generic device does not interpret its device type,
++/// so it offers every such bit of the 64-bit vhost-user feature word, and
++/// negotiation keeps the ones the backend advertises. Bits 41 and 42 are left
++/// out: VIRTIO 1.4 lists them as device specific only for legacy virtio-net
++/// features, and bit 41 is also VIRTIO_F_ADMIN_VQ, which this transport lacks.
++const VIRTIO_DEVICE_FEATURES: u64 = ((1 << 24) - 1) | !((1 << 50) - 1);
++
+ /// Entries in the `memory_sizes` array of VHOST_USER_GET_SHMEM_CONFIG.
+ const MAX_SHMEM_REGIONS: usize = 256;
+ 
+@@ -350,7 +358,7 @@ impl GenericVhostUser {
+                 | VhostUserProtocolFeatures::BACKEND_SEND_FD
+                 | VhostUserProtocolFeatures::SHMEM;
  
 -            let avail_features = super::DEFAULT_VIRTIO_FEATURES;
-+            // DEFAULT_VIRTIO_FEATURES carries only transport bits (28..=38).
-+            // Bits 0..=23 are DEVICE SPECIFIC (virtio 1.4 sec 6), and the
-+            // generic device -- which is generic precisely because it does not
-+            // interpret its device_type -- cannot enumerate them.
-+            //
-+            // It does not have to. Negotiation is `avail & backend`
-+            // (vu_common_ctrl.rs::negotiate_features_vhost_user), so offering
-+            // the whole device-specific range delegates the choice to the only
-+            // party that knows what the bits mean: the backend. A bit the
-+            // backend does not advertise is never acked.
-+            //
-+            // Without this a virtio-gpu backend reaches the guest stripped:
-+            // measured, the guest kernel printed
-+            //     [drm] features: -virgl -edid -resource_blob -host_visible
-+            //     [drm] features: -context_init
-+            //     [drm] number of cap sets: 0
-+            // i.e. a 2D framebuffer and no path to virgl or Venus at all.
-+            //
-+            // Safe for virtio-nvrm by construction, not by hope: that backend
-+            // advertises 28, 30 and 32 only (crates/vhost-user-nvrm/src/nvrm.rs
-+            // ::features), so the added mask ANDs to zero and acked_features is
-+            // bit-identical to before.
-+            const VIRTIO_DEVICE_SPECIFIC_FEATURES: u64 = (1 << 24) - 1;
-+            let avail_features =
-+                super::DEFAULT_VIRTIO_FEATURES | VIRTIO_DEVICE_SPECIFIC_FEATURES;
++            let avail_features = super::DEFAULT_VIRTIO_FEATURES | VIRTIO_DEVICE_FEATURES;
  
              let (acked_features, acked_protocol_features) =
                  vu.negotiate_features_vhost_user(avail_features, avail_protocol_features)?;
+@@ -742,6 +750,22 @@ mod tests {
+         r.is_err_and(|e| e.raw_os_error() == Some(libc::EINVAL))
+     }
+ 
++    #[test]
++    fn device_features_are_the_device_specific_bits() {
++        for bit in 0..64 {
++            let device_specific = !(24..50).contains(&bit);
++            assert_eq!(
++                VIRTIO_DEVICE_FEATURES & (1 << bit) != 0,
++                device_specific,
++                "bit {bit}"
++            );
++        }
++        assert_eq!(
++            VIRTIO_DEVICE_FEATURES & super::super::DEFAULT_VIRTIO_FEATURES,
++            0
++        );
++    }
++
+     #[test]
+     fn shmem_config_is_indexed_by_shmid() {
+         let p = page_size();

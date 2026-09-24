@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: MIT
+# Commands of the manual vhost-user VM check, 2026-09-23, in the order run.
+# $R = caraxes/runs/vhost-user-check-2026-09-23 in the worktree, $W = the worktree; vm.sh
+# and vecadd.c are in $R. vm.sh writes $V/backend-TAG.log, $V/hypervisor-TAG.log and
+# $V/serial-TAG.log; the backend and hypervisor logs are copied here as *-TAG.txt with
+# an SPDX header (the serial logs are not kept). Guest output: guest-evidence.txt.
+
+## Build (worktree)
+cargo build --release -p vhost-user-nvrm
+# CH: target/ch-scratch/release/cloud-hypervisor (v53.0-3-g993681a04), patch-ids of
+# its three commits equal those of patches/0001-0003 (git patch-id --stable).
+
+## VM directory and tap
+V=/mnt/vmstore/caraxes/v1check
+qemu-img create -f qcow2 -F qcow2 -b /mnt/vmstore/leandro/vm/guest-baked-20260801-610.57.04-20260820-105733.qcow2 $V/rootfs.qcow2
+# seed: cloud-init NoCloud FAT image "CIDATA", user-data/meta-data/network-config as
+# in Leandro-Test scripts/lib/rig.sh _lea_seed_write, hostname v1check, 192.168.105.25/24 via .1
+truncate -s 2M $V/seed.img; mkfs.vfat -n CIDATA $V/seed.img; mcopy -i $V/seed.img user-data meta-data network-config ::
+sudo ip tuntap add dev caraxes5 mode tap user silas; sudo ip addr add 192.168.105.1/24 dev caraxes5; sudo ip link set caraxes5 up
+
+## Session A: new CH + new backend, LEA_DEBUG=1 (steps 1-3)
+LEA_DEBUG=1 $R/vm.sh backend A
+$R/vm.sh vm A
+
+## Guest modules from the worktree (as Leandro-Test lea_guest_setup / lea_guest_build_nvrm do)
+tar -C $W -cf - --exclude=test guest-module/nvrm_nodes guest-module/virtio_nvrm | $R/vm.sh ssh 'tar -xf - -C ~'
+cat /proc/driver/nvidia/params | $R/vm.sh ssh 'cat > ~/gpu/params.txt'     # host read: RM parameter file
+$R/vm.sh ssh 'make -C ~/guest-module/nvrm_nodes 2>&1 | grep -E "CC|LD|error" ; make -C ~/guest-module/virtio_nvrm 2>&1 | grep -E "CC|LD|error"'
+$R/vm.sh ssh 'set -e; sudo insmod ~/guest-module/nvrm_nodes/nvrm_nodes.ko create_nodes=0; sudo ~/guest-module/nvrm_nodes/nvrm-nodes-tool provision params ~/gpu/params.txt; sudo usermod -aG render,video leandro; sudo insmod ~/guest-module/virtio_nvrm/virtio_nvrm.ko; lsmod | grep -E "^(nvrm_nodes|virtio_nvrm) "'
+
+## Step 3: nvidia-smi and a CUDA program (vecadd.c in $R)
+$R/vm.sh ssh 'id; LD_LIBRARY_PATH=/opt/nvrm/lib /opt/nvrm/bin/nvidia-smi; echo rc=$?'
+cat $R/vecadd.c | $R/vm.sh ssh 'cat > ~/vecadd.c && gcc -O2 -o ~/vecadd ~/vecadd.c -ldl && LD_LIBRARY_PATH=/opt/nvrm/lib ~/vecadd; echo rc=$?'
+
+## Step 5 (session A): unload/reload = device reset, then step 3 again
+$R/vm.sh ssh 'set -e; sudo rmmod virtio_nvrm; sudo rmmod nvrm_nodes; lsmod | grep -c nvrm || true; sudo insmod ~/guest-module/nvrm_nodes/nvrm_nodes.ko create_nodes=0; sudo ~/guest-module/nvrm_nodes/nvrm-nodes-tool provision params ~/gpu/params.txt; sudo insmod ~/guest-module/virtio_nvrm/virtio_nvrm.ko; sudo dmesg | grep -E "virtio_nvrm|nvrm_nodes" | tail -8'
+$R/vm.sh ssh 'LD_LIBRARY_PATH=/opt/nvrm/lib /opt/nvrm/bin/nvidia-smi -L; echo rc=$?; LD_LIBRARY_PATH=/opt/nvrm/lib ~/vecadd; echo rc=$?'
+
+## Extra (session A): device reset while a client holds window mappings (vecadd.c with VECADD_HOLD)
+cat $R/vecadd.c | $R/vm.sh ssh 'cat > ~/vecadd.c && gcc -O2 -o ~/vecadd ~/vecadd.c -ldl && echo built'
+$R/vm.sh ssh 'VECADD_HOLD=25 LD_LIBRARY_PATH=/opt/nvrm/lib nohup ~/vecadd > ~/hold.log 2>&1 < /dev/null & sleep 8; cat ~/hold.log; echo 0000:00:05.0 | sudo tee /sys/bus/pci/drivers/virtio-pci/unbind; sleep 1; echo 0000:00:05.0 | sudo tee /sys/bus/pci/drivers/virtio-pci/bind; sleep 2; lsmod | grep -E "^virtio_nvrm"; sudo dmesg | tail -12'
+# -> the VM died at the unbind (hypervisor: VCPU error Error(14)); the ssh was killed from the host.
+
+## Session B: new CH + new backend, LEA_TEST_SHMEM_MAP_OOB=1 (step 4)
+LEA_DEBUG=1 LEA_OBJLOG=1 LEA_TEST_SHMEM_MAP_OOB=1 $R/vm.sh backend B
+$R/vm.sh vm B
+$R/vm.sh ssh 'set -e; sudo insmod ~/guest-module/nvrm_nodes/nvrm_nodes.ko create_nodes=0; sudo ~/guest-module/nvrm_nodes/nvrm-nodes-tool provision params ~/gpu/params.txt; sudo insmod ~/guest-module/virtio_nvrm/virtio_nvrm.ko; sudo dmesg | grep -E "virtio_nvrm" | tail -8'
+# ~/vecadd was empty after the hard stop of session A (written, never synced); rebuilt:
+cat $R/vecadd.c | $R/vm.sh ssh 'cat > ~/vecadd.c && gcc -O2 -o ~/vecadd ~/vecadd.c -ldl && sync && echo built'
+$R/vm.sh ssh 'LD_LIBRARY_PATH=/opt/nvrm/lib ~/vecadd; echo rc=$?; sudo dmesg | tail -5'          # refused first mapping
+$R/vm.sh ssh 'LD_LIBRARY_PATH=/opt/nvrm/lib /opt/nvrm/bin/nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv; echo rc=$?; LD_LIBRARY_PATH=/opt/nvrm/lib ~/vecadd; echo rc=$?'
+
+## Extra (session B): unbind/bind reset with no client running
+timeout 60 $R/vm.sh ssh 'echo 0000:00:05.0 | sudo tee /sys/bus/pci/drivers/virtio-pci/unbind; sleep 1; echo 0000:00:05.0 | sudo tee /sys/bus/pci/drivers/virtio-pci/bind; sleep 2; sudo dmesg | grep virtio_nvrm | tail -7; LD_LIBRARY_PATH=/opt/nvrm/lib ~/vecadd; echo rc=$?'
+
+## Step 5 (session B): unload/reload, then step 3 again
+$R/vm.sh ssh 'set -e; sudo rmmod virtio_nvrm; sudo rmmod nvrm_nodes; sudo insmod ~/guest-module/nvrm_nodes/nvrm_nodes.ko create_nodes=0; sudo ~/guest-module/nvrm_nodes/nvrm-nodes-tool provision params ~/gpu/params.txt; sudo insmod ~/guest-module/virtio_nvrm/virtio_nvrm.ko; sudo dmesg | grep -E "virtio_nvrm" | tail -3; LD_LIBRARY_PATH=/opt/nvrm/lib /opt/nvrm/bin/nvidia-smi -L; LD_LIBRARY_PATH=/opt/nvrm/lib ~/vecadd; echo rc=$?'
+
+## Step 6: second VM (session B VM stays up); own directory, tap and address
+V2=/mnt/vmstore/caraxes/v1check2
+qemu-img create -f qcow2 -F qcow2 -b /mnt/vmstore/leandro/vm/guest-baked-20260801-610.57.04-20260820-105733.qcow2 $V2/rootfs.qcow2
+# seed as above with hostname v1check2, 192.168.106.26/24 via 192.168.106.1
+sudo ip tuntap add dev caraxes6 mode tap user silas; sudo ip addr add 192.168.106.1/24 dev caraxes6; sudo ip link set caraxes6 up
+export V=$V2 IP=192.168.106.26 TAP=caraxes6 MAC=02:00:00:00:00:26   # for the next five commands
+LEA_DEBUG=1 $R/vm.sh backend C
+$R/vm.sh vm C
+tar -C $W -cf - --exclude=test guest-module/nvrm_nodes guest-module/virtio_nvrm | $R/vm.sh ssh 'tar -xf - -C ~'
+cat /proc/driver/nvidia/params | $R/vm.sh ssh 'cat > ~/gpu/params.txt'     # host read: RM parameter file
+cat $R/vecadd.c | $R/vm.sh ssh 'cat > ~/vecadd.c && gcc -O2 -o ~/vecadd ~/vecadd.c -ldl && make -C ~/guest-module/nvrm_nodes >/dev/null && make -C ~/guest-module/virtio_nvrm >/dev/null && sync && echo built'
+$R/vm.sh ssh 'set -e; sudo insmod ~/guest-module/nvrm_nodes/nvrm_nodes.ko create_nodes=0; sudo ~/guest-module/nvrm_nodes/nvrm-nodes-tool provision params ~/gpu/params.txt; sudo usermod -aG render,video leandro; sudo insmod ~/guest-module/virtio_nvrm/virtio_nvrm.ko; sudo dmesg | grep virtio_nvrm'
+V1=/mnt/vmstore/caraxes/v1check
+# both VMs at once (VM 1 = session B, VM 2 = session C), three vecadd runs each in parallel
+( IP=192.168.105.25 $R/vm.sh ssh 'for i in 1 2 3; do LD_LIBRARY_PATH=/opt/nvrm/lib ~/vecadd; done; LD_LIBRARY_PATH=/opt/nvrm/lib /opt/nvrm/bin/nvidia-smi -L' > $V1/step6-vm1.txt 2>&1 & \
+  V=$V2 IP=192.168.106.26 $R/vm.sh ssh 'for i in 1 2 3; do LD_LIBRARY_PATH=/opt/nvrm/lib ~/vecadd; done; LD_LIBRARY_PATH=/opt/nvrm/lib /opt/nvrm/bin/nvidia-smi -L' > $V2/step6-vm2.txt 2>&1 & wait )
+V=$V2 IP=192.168.106.26 $R/vm.sh ssh 'set -e; sudo rmmod virtio_nvrm; sudo rmmod nvrm_nodes; sudo insmod ~/guest-module/nvrm_nodes/nvrm_nodes.ko create_nodes=0; sudo ~/guest-module/nvrm_nodes/nvrm-nodes-tool provision params ~/gpu/params.txt; sudo insmod ~/guest-module/virtio_nvrm/virtio_nvrm.ko; LD_LIBRARY_PATH=/opt/nvrm/lib ~/vecadd'
+# Extra, repeated on VM 2: device reset while a client holds window mappings
+V=$V2 IP=192.168.106.26 timeout 40 $R/vm.sh ssh 'sync; VECADD_HOLD=25 LD_LIBRARY_PATH=/opt/nvrm/lib nohup ~/vecadd > ~/hold.log 2>&1 < /dev/null & sleep 8; cat ~/hold.log; echo 0000:00:05.0 | sudo tee /sys/bus/pci/drivers/virtio-pci/unbind; sleep 1; echo 0000:00:05.0 | sudo tee /sys/bus/pci/drivers/virtio-pci/bind; sleep 2; sudo dmesg | tail -5'
+unset V IP TAP MAC      # back to the v1check defaults of vm.sh
+$R/vm.sh stop           # VM 1, session B
+
+## Negative pairing (session D): stock (old-series) CH + new vhost-user-nvrm
+LEA_DEBUG=1 $R/vm.sh backend D
+CH=/mnt/vmstore/leandro/cloud-hypervisor/bin/cloud-hypervisor $R/vm.sh vm D
+$R/vm.sh ssh 'set -e; sudo insmod ~/guest-module/nvrm_nodes/nvrm_nodes.ko create_nodes=0; sudo ~/guest-module/nvrm_nodes/nvrm-nodes-tool provision params ~/gpu/params.txt; sudo insmod ~/guest-module/virtio_nvrm/virtio_nvrm.ko; sudo dmesg | grep virtio_nvrm; sudo lspci -vv -s 00:05.0 | grep -E "Region|VirtIO"'
+$R/vm.sh ssh 'LD_LIBRARY_PATH=/opt/nvrm/lib /opt/nvrm/bin/nvidia-smi -L; echo rc=$?; LD_LIBRARY_PATH=/opt/nvrm/lib ~/vecadd; echo rc=$?; sudo dmesg | tail -4'
+$R/vm.sh stop           # session D
+
+## Cleanup
+sudo ip link del caraxes6
+# caraxes5 is left in place (DOWN, 192.168.105.1/24); the VM directories
+# /mnt/vmstore/caraxes/v1check and v1check2 keep their overlays and raw logs.
+# vecadd.c was run with clang-format --style=file afterwards (whitespace only) for tools/ci/check-c-format.sh.

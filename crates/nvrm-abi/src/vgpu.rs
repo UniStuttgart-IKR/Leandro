@@ -55,7 +55,7 @@ pub use crate::mediate::{FB_INFO_INDEX_HEAP_SIZE, FB_INFO_INDEX_TOTAL_RAM_SIZE};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Profile {
     /// Type or size label, such as `RTX2070-2Q` or `RTX2070-130M`.
-    /// The guest card name follows `fb_length` (`vram.rs::guest_card_name`).
+    /// The guest card name follows `fb_length` ([`crate::naming::Profile::from_catalogue`]).
     pub name: String,
     /// vGPU's `maxInstance`: how many VMs of this size fit on the card.
     pub max_instance: u32,

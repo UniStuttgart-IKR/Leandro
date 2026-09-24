@@ -5,7 +5,8 @@
 //!
 //! `nvgpu` supplies layouts and bitfields; `xfer` unwraps large requests;
 //! `xlate` describes forwarding layouts; `table` serializes them for the guest.
-//! `mediate` records rewritten fields, `vgpu` defines profiles, and `share`
+//! `mediate` records rewritten fields, `vgpu` defines profiles, `naming` derives
+//! the guest-visible GPU name from a `VirtualGpuSpec`, and `share`
 //! scopes RM object duplication. Raw bindings are re-exported as [`sys`].
 //! Session and object ownership live in `nvrm-client`.
 
@@ -13,6 +14,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::Path;
 
 pub mod mediate;
+pub mod naming;
 pub mod nvgpu;
 pub mod share;
 pub mod table;
@@ -178,6 +180,15 @@ impl NvDevice {
 
     pub fn path(&self) -> &str {
         &self.path
+    }
+
+    /// A second FD for the same open file (`dup`): same RM client binding, own
+    /// lifetime. Lets a holder issue escapes without borrowing the owner.
+    pub fn try_clone(&self) -> std::io::Result<Self> {
+        Ok(Self {
+            fd: self.fd.try_clone()?,
+            path: self.path.clone(),
+        })
     }
 
     /// Issue a frontend ioctl and let the driver update `arg`.

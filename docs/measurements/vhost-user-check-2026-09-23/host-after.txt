@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# Host state after the check (all v1check VMs and backends stopped), 2026-09-23T16:07:16+02:00
+## free -m
+               total        used        free      shared  buff/cache   available
+Mem:           32006       17752        4754        6337       16038       14253
+Swap:          32767       14437       18330
+## pgrep -a cloud-hyperviso | cut -c1-120
+2930127 /mnt/vmstore/leandro/cloud-hypervisor/bin/cloud-hypervisor --api-socket /mnt/vmstore/caraxes/vm0/ch.sock --cpus 
+3299482 /mnt/vmstore/caraxes/vm3/cloud-hypervisor-0004 -v --api-socket /mnt/vmstore/caraxes/vm3/ch.sock --cpus boot=8 --
+3299771 /mnt/vmstore/leandro/cloud-hypervisor/bin/cloud-hypervisor --api-socket /mnt/vmstore/caraxes/vm2/ch.sock --cpus 
+## pgrep -a vhost-user
+## nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv
+name, memory.used [MiB], memory.total [MiB]
+NVIDIA GeForce RTX 2070, 5270 MiB, 8192 MiB
+## nvidia-smi --query-compute-apps=pid,process_name --format=csv | cut -c1-80
+pid, process_name
+1370, /home/silas/.config/discord/app-1.0.158/Discord --type=gpu-process --ozone
+2131, /usr/lib/electron42/electron --type=gpu-process --ozone-platform=wayland -
+## journalctl -k --since 2026-09-23T15:44:00 | grep -i -c -E "xid|nvrm.*(error|fail)"
+58
+## ip -br addr show caraxes5; ip link show caraxes6
+caraxes5         DOWN           192.168.105.1/24 fe80::54d5:65ff:fed7:caae/64 
+Device "caraxes6" does not exist.

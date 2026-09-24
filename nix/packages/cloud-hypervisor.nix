@@ -20,11 +20,13 @@ rustPlatform.buildRustPackage {
     rev = chVersion;
     hash = "sha256-fPTGf8bAITDA8QwllWbbGXA7tJ6p/SxRDfcBQVRvCTI=";
   };
-  # The patches touch no Cargo.lock, so the vendor hash is upstream's.
-  cargoHash = "sha256-+RbW/9ap/69MyODUk/bHBlH6ZuqYYIyKaarYSMQ2G7w=";
   # The whole series in numeric order -- the same rule build.sh ch follows.
-  patches = lib.sort lib.lessThan (lib.filter (p: lib.hasSuffix ".patch" (toString p))
+  # Patch 0001 changes Cargo.lock (vhost 0.17 for the vhost-user frontend),
+  # so the dependency vendoring sees the patched lock as well: cargoPatches
+  # reach the vendor derivation, patches only the build.
+  cargoPatches = lib.sort lib.lessThan (lib.filter (p: lib.hasSuffix ".patch" (toString p))
     (lib.filesystem.listFilesRecursive patchDir));
+  cargoHash = "sha256-E6aBvXcFhmkhKE0xK70KZsgdgkpgfY2+FMx6cNSlwq8=";
   # Counter-check on the patched tree, as build.sh ch does: the series brings
   # exactly ONE capability, and without it there is no window.
   postPatch = ''

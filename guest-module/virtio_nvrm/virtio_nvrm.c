@@ -49,10 +49,12 @@
 #define VIRTIO_ID_NVRM 60
 
 /* The shmid under which the host-visible window (the shared-memory
- * region the host places this guest's mappings into) lives. The Cloud
- * Hypervisor patch (patches/0001-generic-vhost-user-shmem.patch) assigns
- * shmids by region-list index; 1 matches the id virtio-gpu uses for its
- * HOST_VISIBLE region. */
+ * region the host places this guest's mappings into) lives. The backend
+ * declares it in VHOST_USER_GET_SHMEM_CONFIG, where the array index is the
+ * shmid, and Cloud Hypervisor (patches/0001-generic-vhost-user-shmem.patch)
+ * exposes it as the PCI shared memory capability with that cap.id. 1 matches
+ * the id virtio-gpu uses for its HOST_VISIBLE region. Window offsets are
+ * relative to the start of this region. */
 #define NVRM_SHM_ID_HOST_VISIBLE 1
 
 /* Device major/minor numbers expected by NVIDIA userspace: 195 for

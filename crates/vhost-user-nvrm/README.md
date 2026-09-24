@@ -45,6 +45,9 @@
   overhead and managed-memory guest RAM. A reserved profile is an allowance,
   not a guarantee of total physical occupancy.
 - `LEA_GPU_NAME_RAW=1` retains the driver's card name.
+- The card is named `Leandro VirtIO <board>-<size>` by default (`nvrm_abi::naming`, since
+  2026-09-24); `LEA_GPU_NAME_FORMAT=legacy` gives the earlier `Leandro <board>-<size>`. The
+  v1 gates in `../Leandro-Test` accept either.
 - Known request layouts are validated before resource acquisition. The host refuses
   34 untranslated/attribution controls, seven capability-FD classes, serialized RM
   layouts, unknown frontend envelopes and UVM tools. See [the policy](../../docs/SECURITY.md#refused-operations).
