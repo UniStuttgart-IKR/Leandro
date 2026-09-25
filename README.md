@@ -96,3 +96,10 @@ cargo fmt --all -- --check
 - Driver definitions derive from [NVIDIA open-gpu-kernel-modules](https://github.com/NVIDIA/open-gpu-kernel-modules);
   RM ABI and ownership work also draws on [gVisor nvproxy](https://github.com/google/gvisor).
 - Rust/tools/docs: MIT. Guest modules: GPL-2.0-only. See [LICENSES.md](LICENSES.md).
+
+> [!IMPORTANT]
+> A vfio-user variant of that software that emulates the GSP of the card,
+> instead of multiplexing the RM, is actively being worked on. For CUDA, with
+> the exception of really short kernels, nearly native performance could be achieved.
+> This differs from the vhost-user approach because the unmodified NVIDIA driver
+> can be loaded, and Windows guests can be supported!
